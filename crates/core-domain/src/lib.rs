@@ -25,5 +25,5 @@ pub mod state_matrix;
 pub mod statistics;
 pub mod volume_profile;
 
-pub use latency::{LatencyTracker, LatencySnapshot, SharedLatencyTracker};
+pub use latency::{LatencySnapshot, LatencyTracker, SharedLatencyTracker};
 pub use normalized::TriggerType;

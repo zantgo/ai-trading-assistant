@@ -6,31 +6,32 @@
     //   2. Cluster — estimated liquidation heatmap (Phase 2)
     //   3. Context — funding, OI, mark/index, leverage assumptions
     //
-    // Data sources:
-    //   - instance.microTerm.liquidity (per-candle flow)
-    //   - instance.microTerm.cluster   (per-timeframe matrix; refreshed at
-    //                                   TF candle cadence; each TF owns its own)
-    //   - instance.microTerm.liquiditySignals (computed by server)
-    import type { LiquidityFlow, LiquidationClusterMatrix, LiquiditySignal, TimeframeTelemetry } from '../types';
-    import { useAppStore } from '../state.svelte';
+    // Data sources (all read from the **active** timeframe passed in as a
+    // prop, owned by the parent Metrics workspace — see
+    // `TerminalMonitor.svelte` for the per-TF sidebar):
+    //   - tf.liquidity        (per-candle flow)
+    //   - tf.cluster          (per-timeframe matrix; refreshed at the TF's
+    //                          own candle cadence; each TF owns its own)
+    //   - tf.liquiditySignals (computed by server)
+    //
+    // v6.5+ bug fix: the panel previously carried its own internal
+    // `flowTf` selector that overrode only the flow source while leaving
+    // cluster/signals hardcoded to micro. That selector made no sense
+    // inside a Metrics workspace that's already scoped to one timeframe —
+    // it's been removed.
+    import type { LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, TimeframeTelemetry } from '../types';
     import styles from './LiquidityPanel.module.css';
 
-    const app = useAppStore();
-    let { pairKey } = $props<{ pairKey: string }>();
+    interface Props {
+        tf: TimeframeTelemetry | undefined;
+    }
+    let { tf }: Props = $props();
 
     let activeView = $state<'flow' | 'cluster' | 'context'>('flow');
-    let flowTf = $state<'micro' | 'fast' | 'slow' | 'macro'>('micro');
 
-    const instance = $derived(app && pairKey ? app.instancesMap[pairKey] : undefined);
-    const micro = $derived(instance?.microTerm);
-
-    const flowTerm = $derived<TimeframeTelemetry | undefined>(
-        (instance as any)?.[`${flowTf}Term`] as TimeframeTelemetry | undefined,
-    );
-
-    const flow = $derived<LiquidityFlow | null>(flowTerm?.liquidity ?? null);
-    const cluster = $derived<LiquidationClusterMatrix | null>(micro?.cluster ?? null);
-    const signals = $derived<LiquiditySignal[]>(micro?.liquiditySignals ?? []);
+    const flow = $derived<LiquidityFlow | null>(tf?.liquidity ?? null);
+    const cluster = $derived<LiquidationClusterMatrix | null>(tf?.cluster ?? null);
+    const signals = $derived<LiquiditySignal[]>(tf?.liquiditySignals ?? []);
 
     function fmtUsd(n: number): string {
         if (n === 0) return '$0';
@@ -64,19 +65,9 @@
         <div class={styles.section}>
             <div class={styles.sectionHeader}>
                 <h3 class={styles.h3}>Real Liquidation Flow (per bar)</h3>
-                <div class={styles.tfSwitcher} role="tablist" aria-label="Timeframe for flow">
-                    {#each [['micro','MICRO'],['fast','FAST'],['slow','SLOW'],['macro','MACRO']] as const as item}
-                        <button
-                            class="{styles.tfBtn} {flowTf === item[0] ? styles.tfBtnActive : ''}"
-                            onclick={() => flowTf = item[0]}
-                            role="tab"
-                            aria-selected={flowTf === item[0]}
-                        >{item[1]}</button>
-                    {/each}
-                </div>
             </div>
             {#if !flow}
-                <div class={styles.placeholder}>Awaiting first completed bar with {flowTf.toUpperCase()} liquidation data…</div>
+                <div class={styles.placeholder}>Awaiting first completed bar with liquidation data…</div>
             {:else}
                 <div class={styles.statGrid}>
                     <div class={styles.statCard}>

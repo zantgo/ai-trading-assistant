@@ -3,9 +3,9 @@
 //! dual-representation contract.
 
 use api_gateway::types::{HistoricalIndicatorArrays, IndicatorHistoryArrays};
-use market_analyzer::indicators::normalized::{DivergenceState, NormalizationEngine};
 use core_domain::jsonrpc::JsonRpcNotification;
 use core_domain::models::MarketSnapshot;
+use market_analyzer::indicators::normalized::{DivergenceState, NormalizationEngine};
 use std::collections::HashMap;
 
 fn sample_snapshot() -> MarketSnapshot {
@@ -60,8 +60,8 @@ fn sample_snapshot() -> MarketSnapshot {
         cluster: None,
         volume_profile: None,
         quality_envelope: None,
-    pipeline_state: core_domain::models::CandlePipelineState::default(),
-    indicator_lifecycle: std::collections::HashMap::new(),
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
     }
 }
 

@@ -71,7 +71,8 @@ pub async fn serve_update_journal_notes(
     Json(payload): Json<UpdateJournalNotesRequest>,
 ) -> impl IntoResponse {
     let score = payload.execution_score.clamp(0.0, 10.0);
-    let ok = database_storage::update_journal_notes(&state.pool, id, &payload.human_notes, score).await;
+    let ok =
+        database_storage::update_journal_notes(&state.pool, id, &payload.human_notes, score).await;
     if ok {
         (axum::http::StatusCode::OK, "Journal notes updated").into_response()
     } else {

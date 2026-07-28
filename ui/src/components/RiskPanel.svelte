@@ -1,6 +1,8 @@
 <script lang="ts">
-    import type { RiskMatrix, RiskDimension, RiskLevel, RiskState, LiquidationClusterMatrix, LiquidityFlow } from '../types';
+    import type { RiskMatrix, RiskDimension, RiskLevel, RiskState, LiquidationClusterMatrix, LiquidityFlow, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import { buildPanelExportJson } from '../lib/metricsExport';
+    import ExportDataButton from './ExportDataButton.svelte';
     import styles from './RiskPanel.module.css';
 
     const app = useAppStore();
@@ -8,6 +10,44 @@
 
     const instance = $derived(app.instancesMap[pairKey]);
     const risk = $derived<RiskMatrix | null>(instance?.risk ?? null);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
+    const opportunity = $derived((microSnap?.opportunity ?? null) as any);
+    const decisionContext = $derived((microSnap?.decision_context ?? null) as Record<string, unknown> | null);
+    const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
+    const timestamp = $derived<number | null>(
+        microSnap && typeof (microSnap as any).timestamp === 'number'
+            ? (microSnap as any).timestamp
+            : null
+    );
+    const registry = $derived(app.indicatorRegistry ?? []);
+
+    function buildExport() {
+        return buildPanelExportJson({
+            sourceTab: 'risk',
+            pairKey,
+            resolvers: {
+                symbol: pairKey,
+                tfLabel: 'Micro',
+                tfSecs: microTerm?.barDurationSec ?? 0,
+                timestamp,
+                markPrice,
+                registry: registry as any,
+                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
+                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+                analysis: instance?.analysis ?? null,
+                risk,
+                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
+                opportunity,
+                advisory: instance?.advisory ?? null,
+                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
+                liquidity: (microTerm as any)?.liquidity ?? null,
+                cluster: (microTerm as any)?.cluster ?? null,
+                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
+                decisionContext,
+            },
+        });
+    }
 
     const LEVELS: RiskLevel[] = ['VeryLow', 'Low', 'Moderate', 'High', 'Extreme'];
 
@@ -145,7 +185,6 @@
     });
 
     // ── Cascade telemetry from per-TF snapshot ──
-    const microSnap = $derived(instance?.microTerm?.latestSnapshot as Record<string, unknown> | null | undefined);
     const cascadeFlow = $derived(microSnap?.liquidity as LiquidityFlow | undefined);
     const cascadeCluster = $derived(microSnap?.cluster as LiquidationClusterMatrix | undefined);
 
@@ -170,8 +209,9 @@
     <header class={styles.head}>
         <div class={styles.headTitleBlock}>
             <h2 class={styles.title}>Risk Assessment</h2>
+            <div class={styles.headHeadline}>{headlineParts}</div>
         </div>
-        <div class={styles.headHeadline}>{headlineParts}</div>
+        <ExportDataButton onExport={buildExport} title="Copy all Risk data as JSON" />
     </header>
 
     {#if !risk}

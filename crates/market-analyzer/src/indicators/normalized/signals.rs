@@ -67,7 +67,7 @@ pub(super) fn divergence_entry(
 
 /// Derive state-based signals (threshold/breakout/compression/pattern/level)
 /// from each indicator's current `state_label`.
-pub(super) fn derive_signals(map: &mut Map) {
+pub fn derive_signals(map: &mut Map) {
     // Collect labels first to avoid borrow conflicts.
     let labels: Vec<(String, String)> = map
         .iter()

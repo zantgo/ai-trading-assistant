@@ -41,9 +41,13 @@ pub async fn serve_history(
             // to the DB so the chart has OHLCV history on first mount.
             // Indicators are omitted — the live WS stream fills them in.
             if snap_hist.is_empty() && tf_secs < 60 {
-                let db_candles =
-                    database_storage::query_recent_candles(&state.pool, &pair_key, tf_secs, limit as u32)
-                        .await;
+                let db_candles = database_storage::query_recent_candles(
+                    &state.pool,
+                    &pair_key,
+                    tf_secs,
+                    limit as u32,
+                )
+                .await;
                 let mut db_snaps: Vec<core_domain::models::MarketSnapshot> = db_candles
                     .into_iter()
                     .rev()
@@ -71,7 +75,9 @@ pub async fn serve_history(
             // always has real OHLC. The first historical candle is therefore the
             // first valid bar of the response.
             let prefix = snap_hist.iter().take_while(|s| s.close.is_none()).count();
-            if prefix > 0 { snap_hist.drain(..prefix); }
+            if prefix > 0 {
+                snap_hist.drain(..prefix);
+            }
             let count = snap_hist.len();
 
             // Union of all indicator keys (and their multi-line value
@@ -170,6 +176,13 @@ pub async fn serve_history(
     // first-mount (before the WS delivery has happened).
     let mut clusters = std::collections::HashMap::new();
     let mut volume_profiles = std::collections::HashMap::new();
+    // Phase 0-4: per-TF latest `LiquidityFlow` so the Metrics tab's
+    // Flow / Cluster / Context sub-views can bootstrap immediately after
+    // a daemon restart, before the WS delivers the next completed bar.
+    let mut liquidity_flows: std::collections::HashMap<
+        String,
+        core_domain::liquidity::LiquidityFlow,
+    > = std::collections::HashMap::new();
     if let Some(pair) = get_active_pair(&state, &pair_key).await {
         for (slot_label, pipe) in [
             ("micro", &pair.micro),
@@ -190,6 +203,9 @@ pub async fn serve_history(
                 if let Some(vp) = last.volume_profile.as_ref() {
                     volume_profiles.insert(slot_label.to_string(), vp.clone());
                 }
+                if let Some(flow) = last.liquidity.as_ref() {
+                    liquidity_flows.insert(slot_label.to_string(), flow.clone());
+                }
             }
         }
     }
@@ -200,5 +216,6 @@ pub async fn serve_history(
         indicator_history,
         clusters,
         volume_profiles,
+        liquidity_flows,
     })
 }

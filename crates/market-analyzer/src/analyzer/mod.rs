@@ -11,12 +11,13 @@ use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use config_models::FibonacciConfig;
+use config_models::LiquidityConfig;
 use config_models::OrderBookConfig;
 use config_models::QualityConfig;
 use config_models::TimeframeConfig;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 
-use crate::sr_engine::SrRoleTracker;
+use crate::candle_generator::CandleGenerator;
 use crate::indicators::normalized::NormalizedIndicatorValue;
 use crate::indicators::normalized::PreviousBarState;
 use crate::indicators::{
@@ -27,13 +28,15 @@ use crate::indicators::{
     SeriesDivergence, SmartMoney, SqueezeMomentum, StdDevChannel, Stochastic, Supertrend,
     VolumeProfile, WilliamsR, ZScore,
 };
-use core_domain::liquidity::LiquidationClusterMatrix;
-use core_domain::models::{CandlePipelineState, CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot};
+use crate::sr_engine::SrRoleTracker;
 use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
-use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
+use core_domain::liquidity::LiquidationClusterMatrix;
+use core_domain::models::{
+    CandlePipelineState, CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot,
+};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
-use crate::candle_generator::CandleGenerator;
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
+use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
 
 pub mod normalize;
 pub mod warm;
@@ -173,7 +176,10 @@ impl ActivePair {
         }
     }
 
-    pub fn subscribe_broadcast_by_slot(&self, slot: TimeframeSlot) -> broadcast::Receiver<MarketSnapshot> {
+    pub fn subscribe_broadcast_by_slot(
+        &self,
+        slot: TimeframeSlot,
+    ) -> broadcast::Receiver<MarketSnapshot> {
         self.pipeline_for_slot(slot).broadcast_tx.subscribe()
     }
 
@@ -186,6 +192,21 @@ impl ActivePair {
         let snap = self.micro.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+    }
+
+    /// Latest completed `MarketSnapshot` for a given timeframe slot.
+    ///
+    /// The WS handler uses this to bootstrap a fresh socket: it replays
+    /// the most recent completed snapshot before the next live tick, so
+    /// the frontend Metrics table is populated immediately rather than
+    /// waiting `candle_buffer.size × timeframe_secs` for the first
+    /// shadow tick.
+    pub async fn latest_snapshot_for_slot(&self, slot: TimeframeSlot) -> Option<MarketSnapshot> {
+        self.pipeline_for_slot(slot)
+            .latest_snapshot
+            .read()
+            .await
+            .clone()
     }
 
     pub async fn snapshot_history_vec(&self, slot: TimeframeSlot) -> Vec<MarketSnapshot> {
@@ -324,7 +345,10 @@ async fn fetch_interval_candles(
     match tokio::time::timeout(std::time::Duration::from_secs(REFETCH_TIMEOUT_SECS), fut).await {
         Ok(Ok(candles)) => candles,
         Ok(Err(e)) => {
-            eprintln!("⚠️  DIE L3: REST refetch failed for {}: {}", internal_symbol, e);
+            eprintln!(
+                "⚠️  DIE L3: REST refetch failed for {}: {}",
+                internal_symbol, e
+            );
             Vec::new()
         }
         Err(_) => {
@@ -347,22 +371,82 @@ async fn fetch_interval_candles(
 /// AND the calculator emitted a value this bar.
 ///
 /// Rules:
-///   - Present in `indicators` AND `bar_count >= bars_required` → `Live`.
-///   - Absent or `bar_count < bars_required` → `Loading` with real `bars_seen`.
-///   - `bars_seen = bar_count` (capped at `bars_required` for the numerator,
+///   - Present in `indicators` AND `bar_count >= bars_required` AND the entry
+///     is a real reading (not the `WARMING` placeholder the normalizer inserts
+///     for every registered key when its source data is not yet available)
+///     → `Live`.
+///   - Otherwise → `Loading` with real `bars_seen`. This includes the case
+///     where the bar buffer is full but the calculator's strict gate (e.g.
+///     volume profile's `window_size / 2` gate, well above `bars_required`)
+///     has not yet fired — the lifecycle stays `Loading` until a real reading
+///     appears, so the frontend never shows a `Live` dot with `UNKNOWN`
+///     state.
+///
+/// `bars_seen = bar_count` (capped at `bars_required` for the numerator,
 ///     but the raw count is reported so the frontend can show real progress).
+///
+/// `is_shadow` distinguishes a completed-candle snapshot from a live
+/// shadow-tick snapshot. Close-only indicators (`updates_on_shadow: false`)
+/// are intentionally absent from the shadow-tick indicators map — the
+/// normalizer skips them in its WARMING fill so the frontend's per-key
+/// merge preserves the last completed-candle values without overwriting
+/// them with a zero-valued placeholder (see the comment block at
+/// `crates/market-analyzer/src/indicators/normalized/all.rs:1726-1734`).
+/// Without the shadow branch below, those close-only indicators would
+/// perpetually report `Loading (N/N)` on every shadow tick even after
+/// the calculator reached its warm-up gate — leaving the dashboard
+/// stuck on `WARMING (50/1)` for Hull MA, Ichimoku, AVWAP, PSAR, and the
+/// other 23 close-only indicators.
 pub fn build_indicator_lifecycle_map(
     indicators: &std::collections::HashMap<String, NormalizedIndicatorValue>,
     stale_threshold_secs: u32,
     bar_count: u32,
+    is_shadow: bool,
 ) -> IndicatorLifecycleMap {
     use core_domain::indicator_dtos::IndicatorLifecycleStatus;
     let mut map = IndicatorLifecycleMap::new();
     for meta in crate::indicators::registry::INDICATORS {
-        let present = indicators.contains_key(meta.key);
+        let entry = indicators.get(meta.key);
+        let present = entry.is_some();
         let bars_required = meta.bars_required;
         let bars_seen = bar_count;
-        let status = if present && bars_seen >= bars_required {
+        // A real reading is one the calculator actually produced this bar:
+        // the entry is present AND its state_label is not the `WARMING`
+        // placeholder the normalizer inserts for every registered key when
+        // its source data is not yet available. We must NOT let the WARMING
+        // placeholder flip the lifecycle to `Live`.
+        //
+        // We deliberately do **not** require `confidence > 0` or a
+        // populated `values` submap here. The normalizer derives
+        // `confidence = |normalized|` (see
+        // `NormalizedIndicatorValue::scalar` in
+        // `core-domain/src/indicator_dtos.rs`), so a ContextOnly / event-
+        // only indicator whose contract is `normalized = 0.0` would
+        // otherwise be permanently stuck in `Loading` even after the
+        // calculator produced a valid reading. The `values`-fallback is
+        // also redundant: every calculator that emits meaningful level
+        // data populates the `values` submap as part of its normalizer
+        // call, not as a side-effect of having non-zero confidence.
+        let state_label = entry.map(|e| e.state_label.as_str()).unwrap_or("");
+        let is_real_reading = present && state_label != "WARMING";
+        // Close-only-on-shadow Live branch: when this is a shadow-tick
+        // snapshot AND the indicator is configured as close-only AND the
+        // entry is absent from the indicators map (the WARMING-fill
+        // skip in `normalized/all.rs:1746-1762`), the indicator's
+        // *calculator* has already reached its warm-up gate iff
+        // `bars_seen >= bars_required`. In that case the lifecycle
+        // reflects "Live from the last completed candle" — the
+        // frontend's per-key merge (see
+        // `ui/src/lib/websocket.svelte.ts:220-225`) preserves the last
+        // completed-candle values across shadow ticks, so the dashboard
+        // shows the correct reading.
+        let is_close_only_on_shadow_live = is_shadow
+            && !meta.updates_on_shadow
+            && !present
+            && bars_seen >= bars_required;
+        let status = if (is_real_reading || is_close_only_on_shadow_live)
+            && bars_seen >= bars_required
+        {
             IndicatorLifecycleStatus {
                 state: IndicatorLifecycleState::Live,
                 bars_seen,
@@ -498,6 +582,7 @@ pub async fn run_single(
     // Distinct from the cross-instance shared state used by L4/L5, which
     // reads the micro TF's cluster.
     cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>,
+    liquidity_config: Option<LiquidityConfig>,
     ob_config: OrderBookConfig,
     cross_tf_snapshot_a: Arc<RwLock<Option<MarketSnapshot>>>,
     cross_tf_snapshot_b: Arc<RwLock<Option<MarketSnapshot>>>,
@@ -780,9 +865,28 @@ pub async fn run_single(
 
     // Phase 1: real liquidation event accumulator. Per-candle aggregation
     // produces a `LiquidityFlow` on every completed bar.
-    let mut liquidity_acc = core_domain::liquidity::LiquidityEventAccumulator::new(&symbol);
+    //
+    // Constructor pulls cascade-detection knobs from the optional
+    // `liquidity_config` so operator overrides in `[workspace.liquidity]`
+    // (cascade_detected_zscore, cascade_sustained_events) actually take
+    // effect — the legacy `LiquidityEventAccumulator::new` defaults were
+    // hardcoded `2.5 / 5 / 3`.
+    let mut liquidity_acc = match liquidity_config.as_ref() {
+        Some(cfg) => core_domain::liquidity::LiquidityEventAccumulator::with_config(
+            &symbol,
+            1_000,
+            cfg.cascade_detected_zscore,
+            5,
+            cfg.cascade_sustained_events,
+        ),
+        None => core_domain::liquidity::LiquidityEventAccumulator::new(&symbol),
+    };
 
-    let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds, Exchange::Hyperliquid);
+    let mut candle_gen = CandleGenerator::new(
+        &symbol,
+        tf_config.candles.duration_seconds,
+        Exchange::Hyperliquid,
+    );
 
     let mut median_filter = quality_config.as_ref().map(MedianPriceFilter::new);
 
@@ -815,7 +919,8 @@ pub async fn run_single(
 
     let stale_check_interval_ms: u64 = (timeframe_secs * 1000 / 2).max(500);
     let grace_period_ms: u64 = duration_ms;
-    let mut stale_check = tokio::time::interval(std::time::Duration::from_millis(stale_check_interval_ms));
+    let mut stale_check =
+        tokio::time::interval(std::time::Duration::from_millis(stale_check_interval_ms));
     stale_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Shadow-broadcast throttle. The flickering "live candle" broadcast is
@@ -830,8 +935,11 @@ pub async fn run_single(
 
     // Gated on buffer fill: when bar_count reaches buffer_size, completed
     // snapshots start broadcasting to the frontend (with full synthesis and
-    // decision context).  Shadow broadcasts always carry full indicators
-    // (per-indicator gate applied in build_indicator_map).
+    // decision context).  Shadow broadcasts skip close-only indicators
+    // (registry `updates_on_shadow = false`) so the frontend per-key merge
+    // can preserve the last completed-candle value across live ticks —
+    // see `NormalizationEngine::normalize_all(..., shadow = true)` and the
+    // WARMING fill block in `indicators/normalized/all.rs`.
     let mut pipeline_is_live = bar_count as usize >= buffer_size;
 
     enum LoopAction {
@@ -944,10 +1052,8 @@ pub async fn run_single(
                 shadow_exchange = Some(trade.exchange);
                 candle_gen.set_exchange(trade.exchange);
 
-                latency_tracker.record_ingest_skew(
-                    core_domain::LatencyTracker::now_ms(),
-                    trade.timestamp_ms,
-                );
+                latency_tracker
+                    .record_ingest_skew(core_domain::LatencyTracker::now_ms(), trade.timestamp_ms);
 
                 if candle_gen.is_late_tick(trade.timestamp_ms) {
                     reliability.increment_out_of_order(1).await;
@@ -977,7 +1083,8 @@ pub async fn run_single(
                     FilterVerdict::Accepted => {}
                 }
 
-                let (completed_opt, live_candle) = candle_gen.process_trade_at(trade, core_domain::LatencyTracker::now_ms());
+                let (completed_opt, live_candle) =
+                    candle_gen.process_trade_at(trade, core_domain::LatencyTracker::now_ms());
                 let mut completed_opt = completed_opt.filter(|c| c.start_time_ms > t_last_hist);
 
                 // ── DIE L3 §4.2: quarantine + REST refetch on validity failure.
@@ -1043,8 +1150,7 @@ pub async fn run_single(
                     if let Some(prev_start) = last_completed_start_ms {
                         let expected_start = prev_start + duration_ms;
                         if completed.start_time_ms > expected_start {
-                            let missing =
-                                (completed.start_time_ms - expected_start) / duration_ms;
+                            let missing = (completed.start_time_ms - expected_start) / duration_ms;
                             let fill_n = missing.min(MAX_GAP_FILL_BARS);
                             reliability.increment_gaps(missing as u32).await;
                             eprintln!(
@@ -1058,7 +1164,8 @@ pub async fn run_single(
                                     let fetched = fetch_interval_candles(
                                         spec,
                                         &symbol,
-                                        completed.start_time_ms
+                                        completed
+                                            .start_time_ms
                                             .saturating_sub(fill_n * duration_ms),
                                         completed.start_time_ms,
                                         tf_config.candles.duration_seconds,
@@ -1082,12 +1189,9 @@ pub async fn run_single(
                             } else {
                                 let recent_closes: Vec<f64> = {
                                     let hist = history.read().await;
-                                    hist.iter()
-                                        .filter_map(|c| c.close.to_f64())
-                                        .collect()
+                                    hist.iter().filter_map(|c| c.close.to_f64()).collect()
                                 };
-                                let fill_start =
-                                    completed.start_time_ms - fill_n * duration_ms;
+                                let fill_start = completed.start_time_ms - fill_n * duration_ms;
                                 for i in 0..fill_n {
                                     let s = fill_start + i * duration_ms;
                                     if s < expected_start {
@@ -1153,7 +1257,8 @@ pub async fn run_single(
                     let now_ms = core_domain::LatencyTracker::now_ms();
                     let candle_close_ms = completed.start_time_ms + duration_ms;
                     let candle_stale = last_trade_ts_ms > 0
-                        && candle_close_ms.saturating_sub(last_trade_ts_ms) > staleness_threshold_ms;
+                        && candle_close_ms.saturating_sub(last_trade_ts_ms)
+                            > staleness_threshold_ms;
 
                     let gap_secs = match last_completed_start_ms {
                         Some(_prev) => {
@@ -1211,46 +1316,52 @@ pub async fn run_single(
 
                     // Session Pivot Points: accumulate this session's H/L/C and
                     // recompute levels on UTC-day rollover.
-                    let pivot_levels = pivot_points_indicator.update(
-                        high_f,
-                        low_f,
-                        close_f,
-                        day_index,
-                    );
+                    let pivot_levels =
+                        pivot_points_indicator.update(high_f, low_f, close_f, day_index);
 
                     // Candlestick recognition (Stage 1 geometry + Stage 3 confirm).
-                    let candlestick_reading = candlestick_indicator.update(
-                        open_f,
-                        high_f,
-                        low_f,
-                        close_f,
-                    );
+                    let candlestick_reading =
+                        candlestick_indicator.update(open_f, high_f, low_f, close_f);
 
                     // Ichimoku Cloud (Tenkan/Kijun/Senkou A/B/Chikou).
-                    let ichimoku_reading =
-                        ichimoku_indicator.update(high_f, low_f, close_f);
+                    // Soft-floor (min_bars=9) mirrors the warm path and the
+                    // Volume Profile / Hull MA precedents: the strict
+                    // `update()` returns `None` until `senkou_b_period=52`
+                    // candles are accumulated. With min_bars=9 the indicator
+                    // flips to Live as soon as the Tenkan window fills and
+                    // the partial cloud color converges to the textbook
+                    // value once the buffer reaches 52.
+                    let ichimoku_reading = ichimoku_indicator
+                        .update(high_f, low_f, close_f)
+                        .or_else(|| {
+                            ichimoku_indicator
+                                .update_with_min_bars(high_f, low_f, close_f, 9)
+                        });
 
                     // CCI (Commodity Channel Index).
-                    let cci_reading =
-                        cci_indicator.update(high_f, low_f, close_f);
+                    let cci_reading = cci_indicator.update(high_f, low_f, close_f);
 
                     // Parabolic SAR.
                     let psar_reading = psar_indicator.update(high_f, low_f);
 
-                    let wr_reading =
-                        wr_indicator.update(high_f, low_f, close_f);
-                    let hma_reading = hma_indicator.update(close_f);
+                    let wr_reading = wr_indicator.update(high_f, low_f, close_f);
+                    // Hull MA soft-floor: same pattern as warm.rs and the
+                    // Volume Profile precedent below. Strict `update()` returns
+                    // `None` until `hull_ma_period` bars are accumulated; the
+                    // soft-floor variant surfaces a partial reading once
+                    // `sqrt(period)` (≈5 for the default period=21) values
+                    // are available, so sub-minute TFs (where the live
+                    // pipeline can take 5–20 minutes to fill the strict gate)
+                    // stop showing `WARMING (20/200)` on the dashboard.
+                    let hma_reading = hma_indicator
+                        .update(close_f)
+                        .or_else(|| hma_indicator.update_with_min_bars(close_f, 5));
                     let ao_reading = ao_indicator.update(high_f, low_f);
                     let fi_reading = fi_indicator.update(close_f, volume_f);
                     let sdc_reading = sdc_indicator.update(close_f);
 
-                    let volume_profile_reading = volume_profile_indicator.update_with_open(
-                        high_f,
-                        low_f,
-                        open_f,
-                        close_f,
-                        volume_f,
-                    );
+                    let volume_profile_reading = volume_profile_indicator
+                        .update_with_open(high_f, low_f, open_f, close_f, volume_f);
 
                     // Build the bin-level VolumeProfileSnapshot for chart rendering.
                     // Live path uses the same soft floor (25 bars) as the
@@ -1269,15 +1380,12 @@ pub async fn run_single(
                         slot,
                         timeframe_secs,
                         &live_reading,
-                        volume_profile_indicator.compute_bins_with_min_bars(25).as_ref(),
+                        volume_profile_indicator
+                            .compute_bins_with_min_bars(25)
+                            .as_ref(),
                         completed.start_time_ms,
                     );
-                    let smc_reading = smc_indicator.update(
-                        open_f,
-                        high_f,
-                        low_f,
-                        close_f,
-                    );
+                    let smc_reading = smc_indicator.update(open_f, high_f, low_f, close_f);
 
                     let typical_price =
                         (completed.high + completed.low + completed.close) / Decimal::from(3);
@@ -1325,34 +1433,19 @@ pub async fn run_single(
                     let final_adx = adx_14.update(high_f, low_f, close_f);
                     let final_sqz = sqz_mom.update(high_f, low_f, close_f);
                     let final_bb = bollinger.update(close_f);
-                    let final_atr =
-                        atr_standalone.update(high_f, low_f, close_f);
+                    let final_atr = atr_standalone.update(high_f, low_f, close_f);
                     let final_bbwp = bbwp_indicator.update(close_f);
-                    let final_stoch =
-                        stochastic_indicator.update(high_f, low_f, close_f);
+                    let final_stoch = stochastic_indicator.update(high_f, low_f, close_f);
                     let final_cmo = chandemo_indicator.update(close_f);
-                    let final_supertrend =
-                        supertrend_indicator.update(high_f, low_f, close_f);
-                    let final_keltner =
-                        keltner_indicator.update(high_f, low_f, close_f);
+                    let final_supertrend = supertrend_indicator.update(high_f, low_f, close_f);
+                    let final_keltner = keltner_indicator.update(high_f, low_f, close_f);
                     let final_donchian = donchian_indicator.update(high_f, low_f);
                     let final_obv = obv_indicator.update(close_f, volume_f);
-                    let final_cmf = cmf_indicator.update(
-                        high_f,
-                        low_f,
-                        close_f,
-                        volume_f,
-                    );
-                    let final_mfi = mfi_indicator.update(
-                        high_f,
-                        low_f,
-                        close_f,
-                        volume_f,
-                    );
+                    let final_cmf = cmf_indicator.update(high_f, low_f, close_f, volume_f);
+                    let final_mfi = mfi_indicator.update(high_f, low_f, close_f, volume_f);
                     let final_hv = hv_indicator.update(close_f);
                     let final_aroon = aroon_indicator.update(high_f, low_f);
-                    let final_chop =
-                        choppiness_indicator.update(high_f, low_f, close_f);
+                    let final_chop = choppiness_indicator.update(high_f, low_f, close_f);
                     let final_linreg = linreg_indicator.update(close_f);
                     let final_zscore = zscore_indicator.update(close_f);
 
@@ -1486,10 +1579,12 @@ pub async fn run_single(
 
                     // Active position context for direction-aware normalization.
                     let active_position: Option<i8> = if let Some(ref pool) = paper_pool {
-                        match database_storage::paper::queries::paper_get_active_position(pool, &symbol)
-                            .await
-                            .map(|p| p.direction)
-                            .as_deref()
+                        match database_storage::paper::queries::paper_get_active_position(
+                            pool, &symbol,
+                        )
+                        .await
+                        .map(|p| p.direction)
+                        .as_deref()
                         {
                             Some("LONG") => Some(1),
                             Some("SHORT") => Some(-1),
@@ -1506,161 +1601,152 @@ pub async fn run_single(
                     // bars_required gate.
                     bar_count = bar_count.saturating_add(1);
                     pipeline_is_live = bar_count as usize >= buffer_size;
-                    let indicators = normalize::build_indicator_map(normalize::NormalizeParams {
-                        close: completed.close,
-                        rsi: final_rsi,
-                        rsi_divergence: normalize::rsi_divergence_state(&div_result),
-                        macd_divergence: normalize::macd_divergence_state(&div_result),
-                        stoch_k: final_stoch.as_ref().map(|s| s.k_value),
-                        stoch_d: final_stoch.as_ref().map(|s| s.d_value),
-                        chandemo: final_cmo,
-                        supertrend_line: final_supertrend.as_ref().map(|s| s.line),
-                        supertrend_dir: final_supertrend.as_ref().map(|s| s.direction),
-                        keltner: final_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
-                        donchian: final_donchian
-                            .as_ref()
-                            .map(|d| (d.upper, d.middle, d.lower)),
-                        obv: final_obv.as_ref().map(|o| o.obv),
-                        obv_sma: final_obv.as_ref().map(|o| o.obv_sma),
-                        cmf: final_cmf,
-                        mfi: final_mfi,
-                        hv: final_hv,
-                        aroon_up: final_aroon.as_ref().map(|a| a.up),
-                        aroon_down: final_aroon.as_ref().map(|a| a.down),
-                        choppiness: final_chop,
-                        linreg_slope: final_linreg,
-                        zscore: final_zscore,
-                        extra_div: normalize::ExtraDivergence {
-                            stochastic: final_stoch
+                    let indicators = normalize::build_indicator_map(
+                        normalize::NormalizeParams {
+                            close: completed.close,
+                            rsi: final_rsi,
+                            rsi_divergence: normalize::rsi_divergence_state(&div_result),
+                            macd_divergence: normalize::macd_divergence_state(&div_result),
+                            stoch_k: final_stoch.as_ref().map(|s| s.k_value),
+                            stoch_d: final_stoch.as_ref().map(|s| s.d_value),
+                            chandemo: final_cmo,
+                            supertrend_line: final_supertrend.as_ref().map(|s| s.line),
+                            supertrend_dir: final_supertrend.as_ref().map(|s| s.direction),
+                            keltner: final_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
+                            donchian: final_donchian
                                 .as_ref()
-                                .map(|s| {
-                                    normalize::series_divergence_confirmed(
-                                        &stoch_div.update(
+                                .map(|d| (d.upper, d.middle, d.lower)),
+                            obv: final_obv.as_ref().map(|o| o.obv),
+                            obv_sma: final_obv.as_ref().map(|o| o.obv_sma),
+                            cmf: final_cmf,
+                            mfi: final_mfi,
+                            hv: final_hv,
+                            aroon_up: final_aroon.as_ref().map(|a| a.up),
+                            aroon_down: final_aroon.as_ref().map(|a| a.down),
+                            choppiness: final_chop,
+                            linreg_slope: final_linreg,
+                            zscore: final_zscore,
+                            extra_div: normalize::ExtraDivergence {
+                                stochastic: final_stoch
+                                    .as_ref()
+                                    .map(|s| {
+                                        normalize::series_divergence_confirmed(
+                                            &stoch_div
+                                                .update(close_f, s.k_value.to_f64().unwrap_or(0.0)),
                                             close_f,
-                                            s.k_value.to_f64().unwrap_or(0.0),
-                                        ),
-                                        close_f,
-                                        &sr_supports,
-                                        &sr_resistances,
-                                    )
-                                })
-                                .unwrap_or_default(),
-                            chandemo: final_cmo
-                                .map(|v| {
-                                    normalize::series_divergence_confirmed(
-                                        &chandemo_div.update(
+                                            &sr_supports,
+                                            &sr_resistances,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                chandemo: final_cmo
+                                    .map(|v| {
+                                        normalize::series_divergence_confirmed(
+                                            &chandemo_div
+                                                .update(close_f, v.to_f64().unwrap_or(0.0)),
                                             close_f,
-                                            v.to_f64().unwrap_or(0.0),
-                                        ),
-                                        close_f,
-                                        &sr_supports,
-                                        &sr_resistances,
-                                    )
-                                })
-                                .unwrap_or_default(),
-                            mfi: final_mfi
-                                .map(|v| {
-                                    normalize::series_divergence_confirmed(
-                                        &mfi_div.update(
+                                            &sr_supports,
+                                            &sr_resistances,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                mfi: final_mfi
+                                    .map(|v| {
+                                        normalize::series_divergence_confirmed(
+                                            &mfi_div.update(close_f, v.to_f64().unwrap_or(0.0)),
                                             close_f,
-                                            v.to_f64().unwrap_or(0.0),
-                                        ),
-                                        close_f,
-                                        &sr_supports,
-                                        &sr_resistances,
-                                    )
-                                })
-                                .unwrap_or_default(),
-                            cmf: final_cmf
-                                .map(|v| {
-                                    normalize::series_divergence_confirmed(
-                                        &cmf_div.update(
+                                            &sr_supports,
+                                            &sr_resistances,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                cmf: final_cmf
+                                    .map(|v| {
+                                        normalize::series_divergence_confirmed(
+                                            &cmf_div.update(close_f, v.to_f64().unwrap_or(0.0)),
                                             close_f,
-                                            v.to_f64().unwrap_or(0.0),
-                                        ),
-                                        close_f,
-                                        &sr_supports,
-                                        &sr_resistances,
-                                    )
-                                })
-                                .unwrap_or_default(),
-                            obv: final_obv
+                                            &sr_supports,
+                                            &sr_resistances,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                obv: final_obv
+                                    .as_ref()
+                                    .map(|o| {
+                                        normalize::series_divergence_confirmed(
+                                            &obv_div.update(close_f, o.obv.to_f64().unwrap_or(0.0)),
+                                            close_f,
+                                            &sr_supports,
+                                            &sr_resistances,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                squeeze: final_sqz
+                                    .as_ref()
+                                    .map(|s| {
+                                        normalize::series_divergence_confirmed(
+                                            &squeeze_div.update(
+                                                close_f,
+                                                s.momentum_value.to_f64().unwrap_or(0.0),
+                                            ),
+                                            close_f,
+                                            &sr_supports,
+                                            &sr_resistances,
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                            },
+                            macd: &final_macd,
+                            sqz: final_sqz.as_ref(),
+                            adx: final_adx.as_ref(),
+                            bb: final_bb,
+                            atr: final_atr.as_ref(),
+                            bbwp: final_bbwp,
+                            vwap: final_vwap,
+                            anchored_vwap: Some(avwap_reading),
+                            ema_stack_state: ema_stack_str,
+                            ema_fast: Some(final_ema_fast),
+                            ema_medium: Some(final_ema_medium),
+                            ema_slow: Some(final_ema_slow),
+                            ema_long: Some(final_ema_long),
+                            rvol,
+                            volume: Some(completed.volume),
+                            average_volume: avg_vol,
+                            fib: Some(&fib),
+                            pattern: Some(&pattern_result),
+                            support_levels: &sr_supports,
+                            resistance_levels: &sr_resistances,
+                            active_position,
+                            adx_consecutive_deceleration,
+                            supertrend_flipped: final_supertrend
                                 .as_ref()
-                                .map(|o| {
-                                    normalize::series_divergence_confirmed(
-                                        &obv_div.update(
-                                            close_f,
-                                            o.obv.to_f64().unwrap_or(0.0),
-                                        ),
-                                        close_f,
-                                        &sr_supports,
-                                        &sr_resistances,
-                                    )
+                                .map(|s| s.flipped)
+                                .unwrap_or(false),
+                            adx_di_crossover: final_adx.as_ref().and_then(|a| {
+                                a.di_crossover.map(|c| match c {
+                                    crate::indicators::DiCrossoverDir::Bullish => 1i8,
+                                    crate::indicators::DiCrossoverDir::Bearish => -1i8,
                                 })
-                                .unwrap_or_default(),
-                            squeeze: final_sqz
-                                .as_ref()
-                                .map(|s| {
-                                    normalize::series_divergence_confirmed(
-                                        &squeeze_div.update(
-                                            close_f,
-                                            s.momentum_value.to_f64().unwrap_or(0.0),
-                                        ),
-                                        close_f,
-                                        &sr_supports,
-                                        &sr_resistances,
-                                    )
-                                })
-                                .unwrap_or_default(),
+                            }),
+                            pivot_levels,
+                            pivot_proximity_pct: 0.0015,
+                            candlestick: Some(candlestick_reading),
+                            candlestick_min_confidence: 0.3,
+                            ichimoku: ichimoku_reading,
+                            cci: cci_reading,
+                            psar: psar_reading,
+                            williams_r: wr_reading,
+                            awesome_oscillator: ao_reading,
+                            force_index: fi_reading,
+                            hull_ma: hma_reading,
+                            stddev_channel: sdc_reading,
+                            volume_profile: volume_profile_reading,
+                            smc: smc_reading,
+                            prev: prev_bar_state,
                         },
-                        macd: &final_macd,
-                        sqz: final_sqz.as_ref(),
-                        adx: final_adx.as_ref(),
-                        bb: final_bb,
-                        atr: final_atr.as_ref(),
-                        bbwp: final_bbwp,
-                        vwap: final_vwap,
-                        anchored_vwap: Some(avwap_reading),
-                        ema_stack_state: ema_stack_str,
-                        ema_fast: Some(final_ema_fast),
-                        ema_medium: Some(final_ema_medium),
-                        ema_slow: Some(final_ema_slow),
-                        ema_long: Some(final_ema_long),
-                        rvol,
-                        volume: Some(completed.volume),
-                        average_volume: avg_vol,
-                        fib: Some(&fib),
-                        pattern: Some(&pattern_result),
-                        support_levels: &sr_supports,
-                        resistance_levels: &sr_resistances,
-                        active_position,
-                        adx_consecutive_deceleration,
-                        supertrend_flipped: final_supertrend
-                            .as_ref()
-                            .map(|s| s.flipped)
-                            .unwrap_or(false),
-                        adx_di_crossover: final_adx.as_ref().and_then(|a| {
-                            a.di_crossover.map(|c| match c {
-                                crate::indicators::DiCrossoverDir::Bullish => 1i8,
-                                crate::indicators::DiCrossoverDir::Bearish => -1i8,
-                            })
-                        }),
-                        pivot_levels,
-                        pivot_proximity_pct: 0.0015,
-                        candlestick: Some(candlestick_reading),
-                        candlestick_min_confidence: 0.3,
-                        ichimoku: ichimoku_reading,
-                        cci: cci_reading,
-                        psar: psar_reading,
-                        williams_r: wr_reading,
-                        awesome_oscillator: ao_reading,
-                        force_index: fi_reading,
-                        hull_ma: hma_reading,
-                        stddev_channel: sdc_reading,
-                        volume_profile: volume_profile_reading,
-                        smc: smc_reading,
-                        prev: prev_bar_state,
-                    }, bar_count);
+                        bar_count,
+                        false,
+                    );
 
                     // Read derivative state for prev_bar_state snapshot.
                     let prev_fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
@@ -1749,29 +1835,22 @@ pub async fn run_single(
                     stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
 
                     // Inject Derivatives Data indicators (OI & Funding Rate).
-                    let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
-                    let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
-                    let mark_f = latest_mark_px.read().await.and_then(|m| m.to_f64());
-                    let idx_f = latest_index_px.read().await.and_then(|i| i.to_f64());
-                    let spread_pct = match (mark_f, idx_f) {
-                        (Some(m), Some(i)) if i > 0.0 => Some((m - i) / i * 100.0),
-                        _ => None,
-                    };
-
-                    let oi_delta_f = match oi_f {
-                        Some(cur) => {
-                            oi_history.push_back(cur);
-                            if oi_history.len() > 60 {
-                                oi_history.pop_front();
-                            }
-                            if oi_history.len() > 1 {
-                                Some(cur - oi_history.front().unwrap())
-                            } else {
-                                None
-                            }
-                        }
-                        None => None,
-                    };
+                    let deriv = read_derivative_snapshot_state(
+                        &latest_oi,
+                        &latest_funding,
+                        &latest_mark_px,
+                        &latest_index_px,
+                        &mut oi_history,
+                    )
+                    .await;
+                    let DerivativeSnapshot {
+                        oi: oi_f,
+                        funding: fund_f,
+                        mark_px: mark_f,
+                        index_px: _idx_f,
+                        spread_pct,
+                        oi_delta: oi_delta_f,
+                    } = deriv;
                     inject_derivatives_indicators(
                         &mut indicators,
                         oi_f,
@@ -1809,10 +1888,8 @@ pub async fn run_single(
                     let current_context =
                         crate::market_context_synth::synthesize_market_context(&indicators);
 
-                    let current_state =
-                        derive_pipeline_state(bar_count as usize, buffer_size);
-                    let pipeline_is_live =
-                        current_state == CandlePipelineState::Live;
+                    let current_state = derive_pipeline_state(bar_count as usize, buffer_size);
+                    let pipeline_is_live = current_state == CandlePipelineState::Live;
 
                     let this_snapshot_for_synth = MarketSnapshot {
                         timeframe_slot: Some(slot),
@@ -1826,15 +1903,9 @@ pub async fn run_single(
                         ask_price: shadow_ask,
                         bid_size: Some(completed.volume),
                         ask_size: Some(completed.volume),
-                        funding_rate: fund_f
-                            .map(|f| Decimal::from_f64_retain(f))
-                            .flatten(),
-                        open_interest: oi_f
-                            .map(|o| Decimal::from_f64_retain(o))
-                            .flatten(),
-                        oi_delta_1h: oi_delta_f
-                            .map(|d| Decimal::from_f64_retain(d))
-                            .flatten(),
+                        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
+                        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
+                        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
                         mark_price: latest_mark_px.read().await.clone(),
                         index_price: latest_index_px.read().await.clone(),
                         mark_index_spread_pct: spread_pct,
@@ -1846,7 +1917,12 @@ pub async fn run_single(
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
                         pipeline_state: current_state,
-                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators.clone(), 300, bar_count),
+                        indicator_lifecycle: build_indicator_lifecycle_map(
+                            &indicators.clone(),
+                            300,
+                            bar_count,
+                            false,
+                        ),
                         context: Some(current_context.clone()),
                         decision_context: None,
                         statistical_context: None,
@@ -1865,12 +1941,8 @@ pub async fn run_single(
                         quality_envelope: Some(quality_envelope.clone()),
                     };
 
-                    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> =
-                        Vec::with_capacity(4);
-                    cross_tf_snaps.push((
-                        timeframe_secs,
-                        this_snapshot_for_synth,
-                    ));
+                    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(4);
+                    cross_tf_snaps.push((timeframe_secs, this_snapshot_for_synth));
                     for arc in [
                         &cross_tf_snapshot_a,
                         &cross_tf_snapshot_b,
@@ -1879,34 +1951,73 @@ pub async fn run_single(
                         if let Some(s) = arc.read().await.clone() {
                             if !cross_tf_snaps
                                 .iter()
-                                .any(|(_, existing)| {
-                                    existing.timeframe_secs == s.timeframe_secs
-                                })
+                                .any(|(_, existing)| existing.timeframe_secs == s.timeframe_secs)
                             {
-                                cross_tf_snaps
-                                    .push((s.timeframe_secs, s));
+                                cross_tf_snaps.push((s.timeframe_secs, s));
                             }
                         }
                     }
 
-                    let cross_refs: Vec<(u64, &MarketSnapshot)> = cross_tf_snaps
-                        .iter()
-                        .map(|(secs, s)| (*secs, s))
-                        .collect();
+                    let cross_refs: Vec<(u64, &MarketSnapshot)> =
+                        cross_tf_snaps.iter().map(|(secs, s)| (*secs, s)).collect();
 
                     let cluster_guard = cluster_matrix.read().await.clone();
                     let liquidity_flow = liquidity_acc.flush_to_flow();
                     last_cascade_state = liquidity_flow.cascade_state;
+                    // Thread configured signal thresholds from
+                    // `[workspace.liquidity]` instead of using the
+                    // hardcoded defaults inside `SignalInput::default()`.
+                    let funding_extreme_pct = liquidity_config
+                        .as_ref()
+                        .map(|c| c.funding_extreme_pct)
+                        .unwrap_or(0.0005);
+                    let magnet_activation_distance_pct = liquidity_config
+                        .as_ref()
+                        .map(|c| c.magnet_activation_distance_pct)
+                        .unwrap_or(0.5);
+                    let oi_funding_divergence_pct = liquidity_config
+                        .as_ref()
+                        .map(|c| c.oi_funding_divergence_pct)
+                        .unwrap_or(2.0);
+                    // Vacuum depth band: low/high are the configured
+                    // threshold and its reciprocal. Legacy hardcoded
+                    // `0.5 / 2.0` is the `threshold = 0.5` case.
+                    let (vacuum_low, vacuum_high) = liquidity_config
+                        .as_ref()
+                        .map(|c| {
+                            let t = c.liquidity_vacuum_threshold.max(0.01);
+                            (t, 1.0 / t)
+                        })
+                        .unwrap_or((0.5, 2.0));
                     let liquidity_signals = core_domain::liquidity::derive_liquidity_signals(
                         &core_domain::liquidity::SignalInput {
                             flow: Some(&liquidity_flow),
                             cluster: cluster_guard.as_ref(),
                             funding_rate: fund_f.unwrap_or(0.0),
-                            oi_delta_1h_pct: oi_delta_f.map(|d| if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 { d / oi_f.unwrap_or(1.0).max(1.0) * 100.0 } else { 0.0 }).unwrap_or(0.0),
-                            price_bias: indicators.get("ema_stack").map(|v| v.normalized).unwrap_or(0.0),
+                            oi_delta_1h_pct: oi_delta_f
+                                .map(|d| {
+                                    if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 {
+                                        d / oi_f.unwrap_or(1.0).max(1.0) * 100.0
+                                    } else {
+                                        0.0
+                                    }
+                                })
+                                .unwrap_or(0.0),
+                            price_bias: indicators
+                                .get("ema_stack")
+                                .map(|v| v.normalized)
+                                .unwrap_or(0.0),
                             prev_funding_rate: prev_bar_state.funding_rate,
                             prev_cascade_state: prev_bar_state.cascade_state,
-                            ..Default::default()
+                            funding_extreme_pct,
+                            magnet_activation_distance_pct,
+                            oi_funding_divergence_pct,
+                            liquidity_vacuum_depth_low: vacuum_low,
+                            liquidity_vacuum_depth_high: vacuum_high,
+                            book_depth_ratio: indicators
+                                .get("depth_ratio")
+                                .map(|v| v.raw_value)
+                                .filter(|v| v.is_finite() && *v > 0.0),
                         },
                     );
 
@@ -1925,8 +2036,12 @@ pub async fn run_single(
                     prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
 
                     let confluence_score = {
-                        let tradability_dim =
-                            synthesis.alignment.dimensions.get(9).map(|d| d.score).unwrap_or(0.0);
+                        let tradability_dim = synthesis
+                            .alignment
+                            .dimensions
+                            .get(9)
+                            .map(|d| d.score)
+                            .unwrap_or(0.0);
                         let market_quality_score = synthesis.analysis.market_quality_score;
                         let opp_score = synthesis
                             .opportunity
@@ -2009,7 +2124,12 @@ pub async fn run_single(
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
                         pipeline_state: current_state,
-                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300, bar_count),
+                        indicator_lifecycle: build_indicator_lifecycle_map(
+                            &indicators,
+                            300,
+                            bar_count,
+                            false,
+                        ),
                         context: Some(current_context),
                         decision_context: Some(dec_ctx),
                         statistical_context: Some(sil_ctx),
@@ -2029,11 +2149,14 @@ pub async fn run_single(
                     };
 
                     let _ = telemetry_tx
-                        .send(database_storage::TelemetryMsg::InsertSnapshot(completed_snapshot.clone()))
+                        .send(database_storage::TelemetryMsg::InsertSnapshot(
+                            completed_snapshot.clone(),
+                        ))
                         .await;
 
                     latency_tracker.record_observation_latency(
-                        core_domain::LatencyTracker::now_ms().saturating_sub(completed.start_time_ms),
+                        core_domain::LatencyTracker::now_ms()
+                            .saturating_sub(completed.start_time_ms),
                     );
 
                     if pipeline_is_live {
@@ -2050,7 +2173,10 @@ pub async fn run_single(
                     if timeframe_secs == 60 {
                         if let Some(ref pool) = paper_pool {
                             if let Some(pos) =
-                                database_storage::paper::queries::paper_get_active_position(pool, &symbol).await
+                                database_storage::paper::queries::paper_get_active_position(
+                                    pool, &symbol,
+                                )
+                                .await
                             {
                                 if let Some(inval_level) = pos.final_invalidation_level {
                                     let tolerance = 0.002;
@@ -2290,9 +2416,72 @@ pub async fn run_single(
     }
 }
 
+/// Snapshot of the latest WS / poller state for derivatives + order book
+/// telemetry. Shared between the shadow (live-tick) and completed-candle
+/// paths so the indicators surface as soon as the upstream source
+/// produces data — instead of waiting for the next completed candle
+/// close. Without this helper the WARMING-placeholder suppression
+/// (Phase 2 of the metrics fix) would leave derivatives / OB rows stuck
+/// at `--/--/Loading` for up to one full candle duration after the WS
+/// push arrives, which on Bitget is misleading (HL is fine because its
+/// poller only ticks every 60 s anyway).
+struct DerivativeSnapshot {
+    oi: Option<f64>,
+    funding: Option<f64>,
+    mark_px: Option<f64>,
+    /// Captured for completeness; the spread math uses `mark_px` /
+    /// `index_px` directly via `spread_pct`.
+    index_px: Option<f64>,
+    spread_pct: Option<f64>,
+    oi_delta: Option<f64>,
+}
+
+async fn read_derivative_snapshot_state(
+    latest_oi: &Arc<RwLock<Option<Decimal>>>,
+    latest_funding: &Arc<RwLock<Option<Decimal>>>,
+    latest_mark_px: &Arc<RwLock<Option<Decimal>>>,
+    latest_index_px: &Arc<RwLock<Option<Decimal>>>,
+    oi_history: &mut VecDeque<f64>,
+) -> DerivativeSnapshot {
+    let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
+    let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
+    let mark_f = latest_mark_px.read().await.and_then(|m| m.to_f64());
+    let idx_f = latest_index_px.read().await.and_then(|i| i.to_f64());
+    let spread_pct = match (mark_f, idx_f) {
+        (Some(m), Some(i)) if i > 0.0 => Some((m - i) / i * 100.0),
+        _ => None,
+    };
+    let oi_delta_f = match oi_f {
+        Some(cur) => {
+            oi_history.push_back(cur);
+            if oi_history.len() > 60 {
+                oi_history.pop_front();
+            }
+            if oi_history.len() > 1 {
+                Some(cur - oi_history.front().unwrap())
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
+    DerivativeSnapshot {
+        oi: oi_f,
+        funding: fund_f,
+        mark_px: mark_f,
+        index_px: idx_f,
+        spread_pct,
+        oi_delta: oi_delta_f,
+    }
+}
+
 /// Inject Derivatives Data (OI & Funding) normalized indicator entries into
-/// the snapshot indicator map. Called after the main indicator map is built.
-fn inject_derivatives_indicators(
+/// the snapshot indicator map. Called after the main indicator map is
+/// built. Public for testability — the integration tests in
+/// `crates/market-analyzer/tests/integration/` exercise this helper
+/// directly with synthetic WS event payloads to verify HL and Bitget
+/// produce identical indicator map shapes.
+pub fn inject_derivatives_indicators(
     indicators: &mut HashMap<String, NormalizedIndicatorValue>,
     oi: Option<f64>,
     funding: Option<f64>,
@@ -2304,7 +2493,10 @@ fn inject_derivatives_indicators(
 
     // Open Interest
     if let Some(o) = oi {
-        indicators.insert("open_interest".into(), derivatives::normalize_open_interest(o));
+        indicators.insert(
+            "open_interest".into(),
+            derivatives::normalize_open_interest(o),
+        );
     }
 
     // OI Delta (1h change)
@@ -2314,7 +2506,10 @@ fn inject_derivatives_indicators(
 
     // Funding Rate (non-directional gate)
     if let Some(f) = funding {
-        indicators.insert("funding_rate".into(), derivatives::normalize_funding_rate(f));
+        indicators.insert(
+            "funding_rate".into(),
+            derivatives::normalize_funding_rate(f),
+        );
     }
 
     // OI-Price Divergence
@@ -2343,7 +2538,8 @@ fn inject_derivatives_indicators(
 
 /// Inject Order Book Depth Analysis normalized indicator entries into the
 /// snapshot indicator map. Called after the main indicator map is built.
-fn inject_orderbook_indicators(
+/// Public for testability (see `inject_derivatives_indicators`).
+pub fn inject_orderbook_indicators(
     indicators: &mut HashMap<String, NormalizedIndicatorValue>,
     ob: &OrderBookAnalysis,
     spread_wide_threshold_pct: f64,
@@ -2378,7 +2574,9 @@ fn inject_orderbook_indicators(
 
     // Wall signals: attach to order_flow_imbalance entry if it exists
     if let Some(ref wall) = ob.wall_detected() {
-        use crate::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+        use crate::indicators::normalized::{
+            IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
+        };
         match wall.as_str() {
             "BID_WALL" => {
                 if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
@@ -2666,8 +2864,12 @@ fn broadcast_live_snapshot(
     let val_keltner = keltner_indicator.clone().update(high_f, low_f, close_f);
     let val_donchian = donchian_indicator.clone().update(high_f, low_f);
     let val_obv = obv_indicator.clone().update(close_f, volume_f);
-    let val_cmf = cmf_indicator.clone().update(high_f, low_f, close_f, volume_f);
-    let val_mfi = mfi_indicator.clone().update(high_f, low_f, close_f, volume_f);
+    let val_cmf = cmf_indicator
+        .clone()
+        .update(high_f, low_f, close_f, volume_f);
+    let val_mfi = mfi_indicator
+        .clone()
+        .update(high_f, low_f, close_f, volume_f);
     let val_hv = hv_indicator.clone().update(close_f);
     let val_aroon = aroon_indicator.clone().update(high_f, low_f);
     let val_chop = choppiness_indicator.clone().update(high_f, low_f, close_f);
@@ -2699,69 +2901,73 @@ fn broadcast_live_snapshot(
         Some("tangled")
     };
 
-    let indicators = normalize::build_indicator_map(normalize::NormalizeParams {
-        close: candle.close,
-        rsi: val_rsi,
-        rsi_divergence: crate::indicators::DivergenceState::None,
-        macd_divergence: crate::indicators::DivergenceState::None,
-        stoch_k: val_stoch.as_ref().map(|s| s.k_value),
-        stoch_d: val_stoch.as_ref().map(|s| s.d_value),
-        chandemo: val_cmo,
-        supertrend_line: val_supertrend.as_ref().map(|s| s.line),
-        supertrend_dir: val_supertrend.as_ref().map(|s| s.direction),
-        keltner: val_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
-        donchian: val_donchian.as_ref().map(|d| (d.upper, d.middle, d.lower)),
-        obv: val_obv.as_ref().map(|o| o.obv),
-        obv_sma: val_obv.as_ref().map(|o| o.obv_sma),
-        cmf: val_cmf,
-        mfi: val_mfi,
-        hv: val_hv,
-        aroon_up: val_aroon.as_ref().map(|a| a.up),
-        aroon_down: val_aroon.as_ref().map(|a| a.down),
-        choppiness: val_chop,
-        linreg_slope: val_linreg,
-        zscore: val_zscore,
-        extra_div: normalize::ExtraDivergence::default(),
-        macd: &val_macd,
-        sqz: val_sqz.as_ref(),
-        adx: val_adx.as_ref(),
-        bb: val_bb,
-        atr: val_atr.as_ref(),
-        bbwp: val_bbwp,
-        vwap: val_vwap,
-        anchored_vwap: None,
-        ema_stack_state,
-        ema_fast: Some(val_ema_fast),
-        ema_medium: Some(val_ema_medium),
-        ema_slow: Some(val_ema_slow),
-        ema_long: Some(val_ema_long),
-        rvol,
-        volume: Some(candle.volume),
-        average_volume: avg_vol,
-        fib: None,
-        pattern: None,
-        support_levels: &[],
-        resistance_levels: &[],
-        active_position: None,
-        adx_consecutive_deceleration: false,
-        supertrend_flipped: false,
-        adx_di_crossover: None,
-        pivot_levels: None,
-        pivot_proximity_pct: 0.0015,
-        candlestick: None,
-        candlestick_min_confidence: 0.3,
-        ichimoku: None,
-        cci: None,
-        psar: None,
-        williams_r: None,
-        awesome_oscillator: None,
-        force_index: None,
-        hull_ma: None,
-        stddev_channel: None,
-        volume_profile: None,
-        smc: None,
-        prev: PreviousBarState::default(),
-    }, bar_count as u32);
+    let indicators = normalize::build_indicator_map(
+        normalize::NormalizeParams {
+            close: candle.close,
+            rsi: val_rsi,
+            rsi_divergence: crate::indicators::DivergenceState::None,
+            macd_divergence: crate::indicators::DivergenceState::None,
+            stoch_k: val_stoch.as_ref().map(|s| s.k_value),
+            stoch_d: val_stoch.as_ref().map(|s| s.d_value),
+            chandemo: val_cmo,
+            supertrend_line: val_supertrend.as_ref().map(|s| s.line),
+            supertrend_dir: val_supertrend.as_ref().map(|s| s.direction),
+            keltner: val_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
+            donchian: val_donchian.as_ref().map(|d| (d.upper, d.middle, d.lower)),
+            obv: val_obv.as_ref().map(|o| o.obv),
+            obv_sma: val_obv.as_ref().map(|o| o.obv_sma),
+            cmf: val_cmf,
+            mfi: val_mfi,
+            hv: val_hv,
+            aroon_up: val_aroon.as_ref().map(|a| a.up),
+            aroon_down: val_aroon.as_ref().map(|a| a.down),
+            choppiness: val_chop,
+            linreg_slope: val_linreg,
+            zscore: val_zscore,
+            extra_div: normalize::ExtraDivergence::default(),
+            macd: &val_macd,
+            sqz: val_sqz.as_ref(),
+            adx: val_adx.as_ref(),
+            bb: val_bb,
+            atr: val_atr.as_ref(),
+            bbwp: val_bbwp,
+            vwap: val_vwap,
+            anchored_vwap: None,
+            ema_stack_state,
+            ema_fast: Some(val_ema_fast),
+            ema_medium: Some(val_ema_medium),
+            ema_slow: Some(val_ema_slow),
+            ema_long: Some(val_ema_long),
+            rvol,
+            volume: Some(candle.volume),
+            average_volume: avg_vol,
+            fib: None,
+            pattern: None,
+            support_levels: &[],
+            resistance_levels: &[],
+            active_position: None,
+            adx_consecutive_deceleration: false,
+            supertrend_flipped: false,
+            adx_di_crossover: None,
+            pivot_levels: None,
+            pivot_proximity_pct: 0.0015,
+            candlestick: None,
+            candlestick_min_confidence: 0.3,
+            ichimoku: None,
+            cci: None,
+            psar: None,
+            williams_r: None,
+            awesome_oscillator: None,
+            force_index: None,
+            hull_ma: None,
+            stddev_channel: None,
+            volume_profile: None,
+            smc: None,
+            prev: PreviousBarState::default(),
+        },
+        bar_count as u32,
+        true,
+    );
 
     let snapshot = MarketSnapshot {
         timeframe_slot: Some(slot),
@@ -2789,7 +2995,7 @@ fn broadcast_live_snapshot(
         volume: Some(candle.volume),
         average_volume: avg_vol,
         pipeline_state,
-        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300, bar_count),
+        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300, bar_count, true),
         context: None,
         decision_context: None,
         statistical_context: None,
@@ -2865,5 +3071,305 @@ mod age_tests {
         );
         stamp_signal_ages(&mut m2, &mut tracker, 5);
         assert_eq!(m2["rsi"].signals[0].age_bars, 0, "flip resets age");
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    //! Tests for `build_indicator_lifecycle_map` — in particular the
+    //! non-WARMING entry guard added so the lifecycle flips to `Live` only
+    //! when a real reading is present (closes the
+    //! `Live + UNKNOWN state_label` race that produced a `0.00 / UNKNOWN`
+    //! row in the indicators table for indicators whose strict compute
+    //! gate fires later than `bars_required`, e.g. `volume_profile`).
+    use super::build_indicator_lifecycle_map;
+    use crate::indicators::NormalizedIndicatorValue;
+    use core_domain::indicator_dtos::IndicatorLifecycleState;
+    use std::collections::HashMap;
+
+    /// A WARMING placeholder mirrors the one the normalizer inserts for
+    /// every registered key when its source data is not yet available.
+    fn warming_placeholder() -> NormalizedIndicatorValue {
+        NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING").with_confidence(0.0)
+    }
+
+    /// A real reading with non-zero confidence and a non-WARMING label.
+    fn real_reading() -> NormalizedIndicatorValue {
+        NormalizedIndicatorValue::scalar(50.0, 0.4, "RSI_NEUTRAL")
+    }
+
+    #[test]
+    fn lifecycle_is_loading_when_bar_count_below_bars_required() {
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), real_reading());
+        let map = build_indicator_lifecycle_map(&m, 300, 5, false);
+        let rsi = map.get("rsi").expect("rsi present");
+        assert_eq!(rsi.state, IndicatorLifecycleState::Loading);
+        assert_eq!(rsi.bars_seen, 5);
+    }
+
+    #[test]
+    fn lifecycle_is_loading_when_entry_is_warming_placeholder() {
+        // Regression: bar_count (300) comfortably exceeds rsi's `bars_required`
+        // (1) but the entry is still the WARMING placeholder inserted by
+        // the warming fill. The lifecycle must NOT flip to Live — otherwise
+        // the frontend renders `Live` + `UNKNOWN` in the indicators table.
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), warming_placeholder());
+        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        let rsi = map.get("rsi").expect("rsi present");
+        assert_eq!(
+            rsi.state,
+            IndicatorLifecycleState::Loading,
+            "WARMING entry must keep lifecycle in Loading"
+        );
+    }
+
+    #[test]
+    fn lifecycle_flips_live_once_real_reading_arrives() {
+        // First the warm-up phase: bars_seen=300, only the WARMING placeholder.
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), warming_placeholder());
+        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        assert_eq!(map["rsi"].state, IndicatorLifecycleState::Loading);
+
+        // Then a real reading arrives: lifecycle flips to Live.
+        m.insert("rsi".to_string(), real_reading());
+        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        assert_eq!(map["rsi"].state, IndicatorLifecycleState::Live);
+    }
+
+    #[test]
+    fn lifecycle_is_loading_for_volume_profile_until_strict_gate_fires() {
+        // Volume profile's `bars_required` is 50, but the strict `compute()`
+        // gate fires only at `window_size / 2` (250 with the default 500-bar
+        // window). Until then the indicators map carries the WARMING
+        // placeholder. The lifecycle must stay Loading through bars 50..249
+        // so the frontend never renders the misleading `Live + UNKNOWN` row.
+        let mut m = HashMap::new();
+        m.insert("volume_profile".to_string(), warming_placeholder());
+        for bar_count in [50u32, 75, 100, 150, 200, 249] {
+            let map = build_indicator_lifecycle_map(&m, 300, bar_count, false);
+            let vp = map.get("volume_profile").expect("volume_profile present");
+            assert_eq!(
+                vp.state,
+                IndicatorLifecycleState::Loading,
+                "bar_count={bar_count}: WARMING placeholder must keep volume_profile Loading"
+            );
+        }
+    }
+
+    #[test]
+    fn lifecycle_flips_live_with_neutral_label_and_zero_confidence() {
+        // Contract: the lifecycle gate is `state_label != "WARMING"`. The
+        // previous `confidence > 0` clause was removed because the
+        // normalizer derives `confidence = |normalized|` for `scalar(...)`
+        // entries, which would have permanently trapped ContextOnly gates
+        // (BBWP, ATR, RVOL, …) and event-only overlays (Hull MA) in
+        // `Loading` — the regression that surfaced as
+        // `Raw 0.00 / Norm 0.00 / State UNKNOWN` rows in the Metrics
+        // Indicators table.
+        let m_entry =
+            NormalizedIndicatorValue::scalar(0.0, 0.0, "RSI_NEUTRAL").with_confidence(0.0);
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), m_entry);
+        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        assert_eq!(
+            map["rsi"].state,
+            IndicatorLifecycleState::Live,
+            "non-WARMING entry with normalized=0.0 and confidence=0.0 must still flip to Live",
+        );
+    }
+
+    #[test]
+    fn lifecycle_flips_live_with_context_only_gate_zero_normalized() {
+        // Mirrors the production case for BBWP / ATR / RVOL / etc.: the
+        // registry `directional = false` gates emit `normalized = 0.0`
+        // by contract, with a non-WARMING label and non-zero confidence.
+        // The lifecycle must flip to `Live` so the Metrics table renders
+        // the badge correctly instead of permanently showing `Warming`.
+        let bbwp = NormalizedIndicatorValue::scalar(50.0, 0.0, "NORMAL_VOLATILITY_BULL_CYCLE")
+            .with_confidence(0.50);
+        let mut m = HashMap::new();
+        m.insert("bbwp".to_string(), bbwp);
+        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        assert_eq!(
+            map["bbwp"].state,
+            IndicatorLifecycleState::Live,
+            "ContextOnly gate with normalized=0.0 must reach Live once bars_seen ≥ bars_required",
+        );
+    }
+
+    #[test]
+    fn lifecycle_flips_live_when_indicator_emits_neutral_with_levels() {
+        // Event-driven indicators (fibonacci, support_resistance,
+        // pivot_points, chart_patterns) emit
+        // `NormalizedIndicatorValue::scalar(0.0, 0.0, "..._NEUTRAL")` in
+        // their resting state — `scalar()` derives
+        // `confidence = |normalized| = 0.0`. Their *level* data lives in
+        // the `values` submap. The lifecycle must treat a populated
+        // `values` submap as a real reading, so the frontend does not show
+        // "Warming (n/50)" forever for indicators that have already
+        // produced valid resting-level output.
+        let mut levels = std::collections::HashMap::new();
+        levels.insert("gp_top".to_string(), 12_345.0);
+        levels.insert("gp_bottom".to_string(), 12_000.0);
+        levels.insert("fib_0618".to_string(), 12_117.0);
+        levels.insert("ext_1618".to_string(), 12_690.0);
+        let fib_entry =
+            NormalizedIndicatorValue::with_values(0.0, 0.0, "FIBONACCI_NEUTRAL", levels);
+        let mut m = HashMap::new();
+        m.insert("fibonacci".to_string(), fib_entry);
+        let map = build_indicator_lifecycle_map(&m, 300, 100, false);
+        let fib = map.get("fibonacci").expect("fibonacci present");
+        assert_eq!(
+            fib.state,
+            IndicatorLifecycleState::Live,
+            "Fibonacci with populated `values` must flip to Live even with confidence=0"
+        );
+    }
+
+    /// Regression: SMC indicators are tagged `data_source = Some(EventDriven)`
+    /// and the WARMING fill is suppressed for them. The lifecycle builder
+    /// must therefore see them as **missing** (no entry in the map) when no
+    /// event has fired, and keep them in `Loading` until an event populates
+    /// the entry. This is the contract the UI relies on to render
+    /// `--/--/Warming (X/Y)` rows in the Metrics Indicators table instead
+    /// of the misleading `Raw 0.00 / Norm 0.00 / State UNKNOWN` that
+    /// surfaced when the WARMING placeholder was emitted.
+    #[test]
+    fn smc_lifecycle_stays_loading_when_no_event_fired() {
+        // SMC has `bars_required = 50`. Even after 50 candles, with no
+        // event, the entry must remain absent from the indicator map and
+        // the lifecycle must stay `Loading`.
+        let mut m = HashMap::new();
+        let map = build_indicator_lifecycle_map(&m, 300, 50, false);
+        for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+            let lc = map
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} must be present in the lifecycle map"));
+            assert_eq!(
+                lc.state,
+                IndicatorLifecycleState::Loading,
+                "{key}: no event yet → Loading (entry is absent by design; WARMING fill is suppressed for EventDriven)"
+            );
+            assert_eq!(lc.bars_required, 50, "{key}: bars_required must be 50");
+            assert_eq!(lc.bars_seen, 50, "{key}: bars_seen must reflect the running count");
+        }
+
+        // Once an event fires and the entry is inserted with a real
+        // (non-WARMING) reading, the lifecycle must flip to `Live`.
+        m.insert(
+            "smc_structure".to_string(),
+            NormalizedIndicatorValue::scalar(0.7, 0.7, "BOS_BULLISH"),
+        );
+        let map = build_indicator_lifecycle_map(&m, 300, 50, false);
+        let smc = map.get("smc_structure").expect("smc_structure present");
+        assert_eq!(
+            smc.state,
+            IndicatorLifecycleState::Live,
+            "smc_structure: a real BOS_BULLISH reading must flip to Live"
+        );
+    }
+
+    /// Regression: close-only indicators (`updates_on_shadow: false`) such
+    /// as Hull MA, Ichimoku, Anchored VWAP, and Parabolic SAR are
+    /// intentionally absent from shadow-tick indicators maps (the WARMING
+    /// fill skips them at `normalized/all.rs:1746-1762` so the frontend's
+    /// per-key merge preserves the last completed-candle values). On the
+    /// completed-candle path they are present and report normally — but
+    /// on every shadow tick (the dominant snapshot during live trading,
+    /// especially on sub-minute TFs) the lifecycle would otherwise stay
+    /// `Loading (N/N)` even after the calculator reached its warm-up gate.
+    ///
+    /// The lifecycle builder now recognizes the close-only-on-shadow
+    /// pattern: when `is_shadow && !updates_on_shadow && !present &&
+    /// bars_seen >= bars_required`, the indicator is `Live from the last
+    /// completed candle`. This is what makes the dashboard show a real
+    /// State column for Hull MA / Ichimoku / AVWAP / PSAR / and the 23
+    /// other close-only entries instead of perpetually reporting
+    /// `WARMING (50/X)`.
+    #[test]
+    fn lifecycle_is_live_for_close_only_on_shadow_when_bar_count_sufficient() {
+        // Hull MA: bars_required=14, updates_on_shadow=false (close-only).
+        // No entry in the shadow-tick indicators map; bar_count=50 (well
+        // above 14). Lifecycle must be Live.
+        let m = HashMap::new();
+        let map = build_indicator_lifecycle_map(&m, 300, 50, true);
+        for key in ["hull_ma", "ichimoku", "anchored_vwap", "psar"] {
+            let lc = map
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} must be present in the lifecycle map"));
+            assert_eq!(
+                lc.state,
+                IndicatorLifecycleState::Live,
+                "{key}: close-only-on-shadow with bars_seen >= bars_required must be Live",
+            );
+        }
+
+        // Same indicators must stay Loading on the completed path with no
+        // entry — the WARMING fill is not skipped there, so a missing
+        // entry means "calculator has not produced a value yet" and must
+        // not flip to Live. This is the regression guard: a careless
+        // implementation could "always mark absent entries Live" and
+        // break the WARMING contract on the completed path.
+        let map_completed = build_indicator_lifecycle_map(&m, 300, 50, false);
+        for key in ["hull_ma", "ichimoku", "anchored_vwap", "psar"] {
+            let lc = map_completed
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} must be present in the lifecycle map"));
+            assert_eq!(
+                lc.state,
+                IndicatorLifecycleState::Loading,
+                "{key}: completed path with absent entry must stay Loading (the calculator has not yet produced a value)",
+            );
+        }
+    }
+
+    /// Close-only indicators with `updates_on_shadow: false` must still
+    /// honor their warm-up gate on shadow ticks: when `bars_seen <
+    /// bars_required` the calculator has not yet produced enough
+    /// completed candles and the lifecycle must stay `Loading`.
+    #[test]
+    fn lifecycle_is_loading_for_close_only_on_shadow_when_below_warmup_gate() {
+        // Hull MA bars_required=14; bar_count=5 < 14. Even though the
+        // entry is absent and updates_on_shadow=false, the gate has not
+        // fired yet — lifecycle stays Loading.
+        let m = HashMap::new();
+        let map = build_indicator_lifecycle_map(&m, 300, 5, true);
+        let hma = map.get("hull_ma").expect("hull_ma present");
+        assert_eq!(
+            hma.state,
+            IndicatorLifecycleState::Loading,
+            "hull_ma on shadow tick with bars_seen < bars_required must stay Loading",
+        );
+
+        // AVWAP bars_required=1; bar_count=5 ≥ 1 — gate satisfied, Live.
+        let avwap = map.get("anchored_vwap").expect("anchored_vwap present");
+        assert_eq!(
+            avwap.state,
+            IndicatorLifecycleState::Live,
+            "anchored_vwap on shadow tick with bars_seen >= bars_required must be Live",
+        );
+    }
+
+    /// Indicators with `updates_on_shadow: true` (RSI, EMA, Supertrend,
+    /// Donchian, Keltner, ADX, …) are computed on every shadow tick and
+    /// produce a real entry in the indicators map. They must NOT be
+    /// affected by the close-only-on-shadow branch — their lifecycle is
+    /// governed by the standard `is_real_reading` check. This is a
+    /// regression guard against the close-only branch accidentally
+    /// short-circuiting real-reading paths.
+    #[test]
+    fn lifecycle_for_shadow_enabled_indicator_unaffected_by_close_only_branch() {
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), real_reading());
+        let map = build_indicator_lifecycle_map(&m, 300, 300, true);
+        let rsi = map.get("rsi").expect("rsi present");
+        assert_eq!(
+            rsi.state,
+            IndicatorLifecycleState::Live,
+            "rsi with updates_on_shadow=true and a real reading must be Live via the standard branch",
+        );
     }
 }

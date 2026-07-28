@@ -1,6 +1,6 @@
+use market_analyzer::indicators::{Atr, BollingerBands};
 use proptest::prelude::*;
 use rust_decimal::Decimal;
-use market_analyzer::indicators::{Atr, BollingerBands};
 
 proptest! {
     #[test]

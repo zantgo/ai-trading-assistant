@@ -67,7 +67,11 @@ pub async fn run_hl_derivatives_poller(
         raw_symbol, poll_ms
     );
 
-    let mut prev_oi: Option<Decimal> = None;
+    // Tracks the **USD-converted** previous OI so the analyzer sees a
+    // consistent USD-notional series across polls. (Hyperliquid's
+    // `openInterest` is in base-asset units; we multiply by `markPx`
+    // inside `derivatives_ctx_to_events`.)
+    let mut prev_oi_usd: Option<Decimal> = None;
     let mut consecutive_failures: u32 = 0;
     let poll_duration = Duration::from_millis(poll_ms.max(1000));
 
@@ -94,9 +98,18 @@ pub async fn run_hl_derivatives_poller(
                 }
                 consecutive_failures = 0;
                 if let Some(ctx) = lookup_ctx(&map, &raw_symbol) {
-                    let events = derivatives_ctx_to_events(&internal_symbol, ctx, prev_oi);
-                    if let Some(oi) = ctx.open_interest {
-                        prev_oi = Some(oi);
+                    // Compute this poll's USD OI so we can hand the
+                    // analyzer a USD-converted series on the next tick.
+                    let this_oi_usd = match (ctx.open_interest, ctx.mark_px) {
+                        (Some(oi), Some(mark)) if oi > Decimal::ZERO && mark > Decimal::ZERO => {
+                            Some(oi * mark)
+                        }
+                        _ => None,
+                    };
+                    let events =
+                        derivatives_ctx_to_events(&internal_symbol, ctx, prev_oi_usd);
+                    if this_oi_usd.is_some() {
+                        prev_oi_usd = this_oi_usd;
                     }
                     for ev in events {
                         if event_tx.send(ev).await.is_err() {

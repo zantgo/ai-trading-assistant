@@ -40,7 +40,10 @@ impl ActiveSet {
             .iter()
             .map(|s| {
                 let parts: Vec<&str> = s.splitn(2, ':').collect();
-                (parts[0].to_string(), parts.get(1).map(|p| p.to_string()).unwrap_or_default())
+                (
+                    parts[0].to_string(),
+                    parts.get(1).map(|p| p.to_string()).unwrap_or_default(),
+                )
             })
             .collect();
         let mut disabled_signal_kinds: HashSet<String> =
@@ -52,7 +55,10 @@ impl ActiveSet {
             }
             for sig in &inst.disabled_signals {
                 let parts: Vec<&str> = sig.splitn(2, ':').collect();
-                disabled_signals.insert((parts[0].to_string(), parts.get(1).map(|p| p.to_string()).unwrap_or_default()));
+                disabled_signals.insert((
+                    parts[0].to_string(),
+                    parts.get(1).map(|p| p.to_string()).unwrap_or_default(),
+                ));
             }
             for kind in &inst.disabled_signal_kinds {
                 disabled_signal_kinds.insert(kind.clone());
@@ -65,9 +71,15 @@ impl ActiveSet {
             disabled_signal_kinds,
             config_version,
             liquidity_enabled: true,
-            liquidation_feed: instance.map(|i| i.liquidation_feed).unwrap_or(global.liquidation_feed),
-            cluster_estimation: instance.map(|i| i.cluster_estimation).unwrap_or(global.cluster_estimation),
-            liquidity_signals_enabled: instance.map(|i| i.liquidity_signals_enabled).unwrap_or(global.liquidity_signals_enabled),
+            liquidation_feed: instance
+                .map(|i| i.liquidation_feed)
+                .unwrap_or(global.liquidation_feed),
+            cluster_estimation: instance
+                .map(|i| i.cluster_estimation)
+                .unwrap_or(global.cluster_estimation),
+            liquidity_signals_enabled: instance
+                .map(|i| i.liquidity_signals_enabled)
+                .unwrap_or(global.liquidity_signals_enabled),
         }
     }
 
@@ -80,7 +92,9 @@ impl ActiveSet {
     }
 
     pub fn is_signal_pair_enabled(&self, indicator: &str, signal_kind: &str) -> bool {
-        !self.disabled_signals.contains(&(indicator.to_string(), signal_kind.to_string()))
+        !self
+            .disabled_signals
+            .contains(&(indicator.to_string(), signal_kind.to_string()))
     }
 
     pub fn has_any_disabled(&self) -> bool {

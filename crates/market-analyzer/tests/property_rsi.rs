@@ -1,6 +1,6 @@
+use market_analyzer::indicators::Rsi;
 use proptest::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
-use market_analyzer::indicators::Rsi;
 
 proptest! {
     #[test]

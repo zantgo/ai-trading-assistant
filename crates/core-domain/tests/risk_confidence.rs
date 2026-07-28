@@ -109,6 +109,11 @@ fn empty_risk_matrix_keeps_50_confidence_floor() {
 
 // Keep the imports referenced so the file doesn't warn under no-unwrap.
 #[allow(dead_code)]
-fn _keep_imports(ctx: MarketContext, level: RiskLevel, st: CascadeState, _cl: LiquidationClusterMatrix) {
+fn _keep_imports(
+    ctx: MarketContext,
+    level: RiskLevel,
+    st: CascadeState,
+    _cl: LiquidationClusterMatrix,
+) {
     let _ = (ctx, level, st);
 }

@@ -130,6 +130,7 @@ async fn shadow_candles_never_completed() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
+            None,
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -253,7 +254,8 @@ async fn shadow_candles_never_completed() {
             continue;
         }
         assert_eq!(
-            s.is_completed, Some(false),
+            s.is_completed,
+            Some(false),
             "live/shadow snapshot must have is_completed: Some(false), got {:?}",
             s.is_completed
         );

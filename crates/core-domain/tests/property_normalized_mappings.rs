@@ -3,8 +3,8 @@
 //! Verifies that raw telemetry maps into the continuous `[-1.0, 1.0]` scale
 //! with the correct context-aware state labels at each mathematical boundary.
 
-use proptest::prelude::*;
 use market_analyzer::indicators::normalized::{DivergenceState, NormalizationEngine};
+use proptest::prelude::*;
 
 // ─────────────────────────── RSI ───────────────────────────
 
@@ -147,6 +147,39 @@ fn bbwp_compression_is_neutral() {
     let v = NormalizationEngine::normalize_bbwp(5.0, 1);
     assert_eq!(v.normalized, 0.0);
     assert_eq!(v.state_label, "MAX_VOLATILITY_COMPRESSION");
+}
+
+#[test]
+fn bbwp_contract_zero_normalized_for_all_regimes() {
+    // Per the canonical contract in
+    // docs/engines/market-monitoring-engine/indicators/04-02-27-bbwp.md §6,
+    // BBWP is a non-directional gate: `normalized` is contractually 0.0
+    // for every regime. The legacy bias-signed output was retired because
+    // it sign-flipped bearish breakouts into bullish signals when used
+    // as a multiplier.
+    let regimes = [
+        ("MAX_VOLATILITY_COMPRESSION", 5.0),
+        ("LOW_VOLATILITY_BULL_CYCLE", 25.0),
+        ("NORMAL_VOLATILITY_BULL_CYCLE", 50.0),
+        ("HIGH_VOLATILITY_BULL_EXPANSION", 80.0),
+        ("VOLATILITY_EXHAUSTION_REVERSION_WARNING", 95.0),
+    ];
+    for (expected_label, bbwp) in regimes {
+        for bias in -1i8..=1i8 {
+            let v = NormalizationEngine::normalize_bbwp(bbwp, bias);
+            assert_eq!(
+                v.normalized, 0.0,
+                "BBWP normalized must be 0.0 for regime '{expected_label}' (bias={bias}); got {}",
+                v.normalized,
+            );
+            assert_eq!(v.state_label, expected_label);
+            assert!(
+                v.confidence > 0.0,
+                "BBWP must retain its documented confidence band (regime {expected_label}, bias {bias}); got {}",
+                v.confidence,
+            );
+        }
+    }
 }
 
 // ─────────────────────────── MACD / Squeeze / VWAP ───────────────────────────

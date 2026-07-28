@@ -179,9 +179,20 @@ impl NormalizationEngine {
     /// Keys: `rsi`, `stochastic`, `chandemo`, `macd`, `squeeze`, `adx`, `bbwp`,
     /// `rvol`, `ema_stack`, `vwap`, `fibonacci`, `patterns`,
     /// `support_resistance`.
+    ///
+    /// `shadow` controls the close-only indicator behavior:
+    ///   - `false` (completed candle): every registered key receives either a
+    ///     real value or a `WARMING` placeholder so the frontend can
+    ///     distinguish warming from not-configured.
+    ///   - `true` (live tick): close-only indicators (those with
+    ///     `updates_on_shadow = false`) are skipped entirely — the
+    ///     frontend per-key merge preserves the last completed-candle
+    ///     value across shadow ticks, and the WARMING fill would otherwise
+    ///     erase that history with a zero-valued placeholder.
     pub fn normalize_all(
         inputs: &IndicatorInputs,
         ctx: &NormalizationContext,
+        shadow: bool,
     ) -> HashMap<String, NormalizedIndicatorValue> {
         let mut out: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
 
@@ -1711,7 +1722,38 @@ impl NormalizationEngine {
         // The confluence engine and signal derivers skip entries whose
         // state_label matches "WARMING" — these placeholders never influence
         // scoring, MTF alignment, or trade decisions.
+        //
+        // On shadow ticks we skip the WARMING fill entirely for close-only
+        // indicators (registry `updates_on_shadow = false`). The previous
+        // behavior inserted a zero-valued `WARMING` placeholder every
+        // shadow tick, which the frontend's per-key merge then promoted to
+        // "real" — erasing the last completed-candle reading for
+        // Hull MA, Ichimoku, Anchored VWAP, CCI, PSAR, Williams %R, AO,
+        // Force Index, StdDev Channel, and every other close-only entry
+        // (the regression that produced `Raw 0.0 / Norm 0.0 / State
+        // UNKNOWN` rows in the Metrics Indicators table).
+        //
+        // For non-`CandleBased` indicators (OrderBook / DerivativesWs /
+        // EventDriven), we also skip the WARMING fill on the completed
+        // path. These indicators have a different contract: an entry only
+        // exists when an event was detected (EventDriven) or a WS message
+        // arrived (OrderBook / DerivativesWs). Emitting a `raw_value = 0.0`
+        // placeholder for them was a regression that surfaced as
+        // `Raw 0.00 / Norm 0.00 / State UNKNOWN` rows for SMC and
+        // derivatives in the Metrics Indicators table — the WARMING
+        // placeholder was rendering as if those indicators had real readings
+        // when in fact they had no events / no WS data yet.
         for meta in crate::indicators::registry::INDICATORS {
+            if shadow && !meta.updates_on_shadow {
+                continue;
+            }
+            let skip_for_data_source = !matches!(
+                meta.data_source.unwrap_or_default(),
+                crate::indicators::registry::IndicatorDataSource::CandleBased
+            );
+            if skip_for_data_source {
+                continue;
+            }
             if !out.contains_key(meta.key) {
                 out.insert(
                     meta.key.into(),

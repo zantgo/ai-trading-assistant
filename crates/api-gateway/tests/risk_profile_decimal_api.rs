@@ -4,20 +4,20 @@
 //! Pre-migration bug: `commission_pct` serialized as `0.060000000000000005`
 //! because the `REAL` SQLite column + default Decimal serde derive → float JSON.
 
-use database_storage;
 use api_gateway::{self, AppState};
-use rust_decimal::Decimal;
 use core_domain::normalized::SymbolMapper;
+use database_storage;
+use network_adapters::clock_monitor::ClockMonitor;
+use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
+use portfolio_supervisor::workspace_state::WorkspaceState;
+use rust_decimal::Decimal;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
-use network_adapters::clock_monitor::ClockMonitor;
-use network_adapters::pipeline_reliability::ReliabilityTracker;
-use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 
 async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, String) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -59,7 +59,9 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
+        connection_quality: Arc::new(
+            network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new(),
+        ),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: "".to_string(),
         clock_monitor: None,
@@ -88,7 +90,11 @@ async fn risk_profile_api_returns_decimals_as_strings() {
     let res = reqwest::get(format!("{}/api/risk-profiles", base_url))
         .await
         .expect("GET /api/risk-profiles");
-    assert!(res.status().is_success(), "expected 200, got {}", res.status());
+    assert!(
+        res.status().is_success(),
+        "expected 200, got {}",
+        res.status()
+    );
 
     let body: serde_json::Value = res.json().await.expect("response is JSON");
     let profiles = body.as_array().expect("response is an array");
@@ -97,21 +103,33 @@ async fn risk_profile_api_returns_decimals_as_strings() {
     let profile = &profiles[0];
     assert_eq!(profile["profile_name"], "decimal-precision-profile");
 
-    assert!(profile["capital"].is_string(), "capital must be a JSON string");
-    assert!(profile["max_risk_pct"].is_string(), "max_risk_pct must be a JSON string");
-    assert!(profile["commission_pct"].is_string(), "commission_pct must be a JSON string");
-    assert!(profile["funding_rate_8h"].is_string(), "funding_rate_8h must be a JSON string");
-    assert!(profile["spread"].is_string(), "spread must be a JSON string");
+    assert!(
+        profile["capital"].is_string(),
+        "capital must be a JSON string"
+    );
+    assert!(
+        profile["max_risk_pct"].is_string(),
+        "max_risk_pct must be a JSON string"
+    );
+    assert!(
+        profile["commission_pct"].is_string(),
+        "commission_pct must be a JSON string"
+    );
+    assert!(
+        profile["funding_rate_8h"].is_string(),
+        "funding_rate_8h must be a JSON string"
+    );
+    assert!(
+        profile["spread"].is_string(),
+        "spread must be a JSON string"
+    );
 
     assert_eq!(
         profile["commission_pct"].as_str().unwrap(),
         "0.06",
         "commission_pct must be the exact Decimal string, not the f64 artifact"
     );
-    assert_eq!(
-        profile["max_risk_pct"].as_str().unwrap(),
-        "2.5"
-    );
+    assert_eq!(profile["max_risk_pct"].as_str().unwrap(), "2.5");
 }
 
 #[tokio::test]
@@ -123,7 +141,10 @@ async fn risk_profile_round_trip_preserves_full_decimal_precision() {
 
     let original = Decimal::from_str("12345.678901234567890123456789").unwrap();
     let read_back = profiles[0].capital;
-    assert_eq!(read_back, original, "30-digit Decimal must round-trip exactly");
+    assert_eq!(
+        read_back, original,
+        "30-digit Decimal must round-trip exactly"
+    );
 }
 
 #[tokio::test]

@@ -166,7 +166,6 @@ liquidation_feed = true
 cluster_estimation = true
 signals = true
 mark_price_poll_ms = 60000
-funding_refresh_ms = 60000
 event_retention_days = 90
 bucket_retention_days = 7
 cluster_refresh_secs = 300
@@ -177,6 +176,8 @@ funding_extreme_pct = 0.0005
 magnet_activation_distance_pct = 0.5
 liquidity_vacuum_threshold = 0.3
 oi_funding_divergence_pct = 2.0
+min_cluster_notional_usd = 50000.0
+hyperliquid_user_address = ""
 
 [workspace.activation]
 disabled_indicators = []
@@ -200,9 +201,9 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c5f73d28166ce1"
-symbol = "BTC-USDC"
-quote = "USDC"
+id = "inst_18c64d2a363979ba"
+symbol = "BTC-USDT"
+quote = "USDT"
 initial_capital_usd = 1000.0
 status = "running"
 operational_mode = "advisory"

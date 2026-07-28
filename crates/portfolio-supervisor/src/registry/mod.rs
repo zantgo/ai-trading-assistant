@@ -402,34 +402,50 @@ pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result
 ///
 /// Iterates every `Arc<Instance>` in `state.workspace` and sets each
 /// exchange's `active_pairs` to the number of currently running instances
-/// for that exchange. The exchange key is the BASE currency (`pair.0`)
-/// in the canonical Hyperliquid / Bitget format; the daemon seeds these
-/// already so we know they're tracked. Idempotent and safe to call after
-/// every workspace mutation.
-///
-/// Public so the integration test suite can drive the helper directly
-/// without spinning up the full per-instance pipeline.
+/// for that exchange. The exchange key is stamped on `Instance.exchange`
+/// at construction time (see `pipelines.rs::spawn_tasks`); this helper
+/// buckets instances by it. Idempotent and safe to call after every
+/// workspace mutation. Public so the integration test suite can drive the
+/// helper directly without spinning up the full per-instance pipeline.
 pub async fn sync_exchange_status_active_pairs(state: &RegistryContext) {
-    let total = state.workspace.list().await.len() as u32;
-    // The current daemon only runs instances on a single exchange
-    // (determined by the Welcome Gate / session choice). Every workspace
-    // instance is therefore counted under that exchange's `active_pairs`.
-    // The exchange label is hardcoded to "Hyperliquid" here because:
-    // (1) the per-pipeline register_exchange call in pipelines.rs:577
-    //     always passes "Hyperliquid" as the exchange label,
-    // (2) the daemon seeds the tracker with Hyperliquid at startup,
-    // (3) the user's session starts on Hyperliquid by default.
-    // Bitget is not yet used by any prod path; when it is, this helper
-    // should be extended to read the per-instance exchange from the
-    // fields on `Instance` (currently `Instance` carries no exchange
-    // field beyond pair + session).
-    state
-        .exchange_status
-        .update_active_pairs("Hyperliquid", total)
-        .await;
+    let instances = state.workspace.list().await;
+    let mut by_exchange: std::collections::HashMap<&'static str, u32> =
+        std::collections::HashMap::new();
+    for inst in instances.iter() {
+        let label: &'static str = match inst.exchange {
+            crate::session::ExchangeChoice::Hyperliquid => "Hyperliquid",
+            crate::session::ExchangeChoice::Bitget => "Bitget",
+        };
+        *by_exchange.entry(label).or_insert(0u32) += 1;
+    }
+    // Touch every exchange the daemon could possibly host so the panel
+    // doesn't carry a stale "0" from a previous bucket. The tracker is a
+    // pure upsert (it doesn't reject zero counts), so this is safe.
+    let mut labels: std::collections::HashSet<&'static str> =
+        ["Hyperliquid", "Bitget"].into_iter().collect();
+    for k in by_exchange.keys() {
+        labels.insert(*k);
+    }
+    for label in labels {
+        let count = by_exchange.get(label).copied().unwrap_or(0);
+        state
+            .exchange_status
+            .update_active_pairs(label, count)
+            .await;
+    }
 }
 
-/// Delete an instance (stop first, then remove from registry).
+/// Delete an instance from the workspace, regardless of its lifecycle
+/// state. The dashboard UI is now binary (Running or non-existent), so
+/// there is no longer a "must be Stopped first" gate — we cancel the
+/// instance's pipeline tasks here, drain the per-TF history buffers,
+/// remove from the live map, and persist the deletion to `config.toml`.
+///
+/// The lifecycle helper `LifecycleManager::can_delete()` still exists
+/// for callers that need a strict pre-check (e.g. a future
+/// `delete_with_grace_period` path), but the registry-level entry
+/// point accepts any state so a single DELETE call from the UI is
+/// enough to drop an instance.
 pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
     let (pair_key, instance) = state
         .workspace
@@ -440,13 +456,32 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
         .map(|i| (i.pair_key(), Arc::clone(&i)))
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
 
+    // 1. Cancel pipeline tasks. `cancel.cancel()` is idempotent so this
+    //    is safe even when the instance is already Stopped (in which
+    //    case `complete_stop` already fired and the token was observed).
+    instance.cancel.cancel();
+
+    // 2. Drain the per-TF history buffers so the in-memory footprint
+    //    is reclaimed immediately, not on the next session restart.
     {
-        let lifecycle = instance.lifecycle.read().await;
-        lifecycle.can_delete().map_err(|e| format!("Cannot delete: {}", e))?;
+        instance.micro.history.write().await.clear();
+        instance.fast.history.write().await.clear();
+        instance.slow.history.write().await.clear();
+        instance.r#macro.history.write().await.clear();
+        instance.micro.latest.write().await.take();
+        instance.fast.latest.write().await.take();
+        instance.slow.latest.write().await.take();
+        instance.r#macro.latest.write().await.take();
+        instance.micro.snapshot_history.write().await.clear();
+        instance.fast.snapshot_history.write().await.clear();
+        instance.slow.snapshot_history.write().await.clear();
+        instance.r#macro.snapshot_history.write().await.clear();
     }
 
+    // 3. Drop from the live map.
     state.workspace.remove(&pair_key).await;
 
+    // 4. Drop from the workspace config + persist to TOML.
     {
         let mut config = state.workspace.config().await;
         config
@@ -456,10 +491,9 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
             eprintln!("⚠️  Failed to persist workspace after delete: {}", e);
         }
         // Publish the deletion to the in-memory snapshot so the next reader
-        // (and in particular `recharge_instance` if it ever runs for a
-        // deleted pair) sees the cleared list. Without this, an entry could
-        // linger in WorkspaceConfig indefinitely, surviving daemon
-        // restarts via disk alone but never being observable to live code.
+        // sees the cleared list. Without this, an entry could linger in
+        // WorkspaceConfig indefinitely, surviving daemon restarts via disk
+        // alone but never being observable to live code.
         state.workspace.set_config(config).await;
     }
 
@@ -651,6 +685,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
         pair: old_instance.pair.clone(),
+        exchange: old_instance.exchange.clone(),
         cancel: cancel.clone(),
         trading: {
             let old_trading = old_instance.trading.read().await;

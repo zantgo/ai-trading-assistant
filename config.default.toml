@@ -190,7 +190,6 @@ fast_seconds = 300
 [workspace.liquidity]
 enabled = true
 mark_price_poll_ms = 60000
-funding_refresh_ms = 60000
 event_retention_days = 90
 bucket_retention_days = 7
 cluster_refresh_secs = 300
@@ -201,6 +200,11 @@ funding_extreme_pct = 0.0005
 magnet_activation_distance_pct = 0.5
 liquidity_vacuum_threshold = 0.3
 oi_funding_divergence_pct = 2.0
+min_cluster_notional_usd = 50000
+# Hyperliquid has no public liquidation feed — liquidations arrive on
+# `userFills` which is account-scoped. Set to your HL wallet address
+# (40-hex chars, 0x-prefixed) to enable HL liquidations.
+hyperliquid_user_address = ""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # INSTANCES — trading pairs

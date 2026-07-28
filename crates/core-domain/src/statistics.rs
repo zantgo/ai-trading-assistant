@@ -64,14 +64,20 @@ impl RollingStat {
         self.next_idx = (self.next_idx + 1) % self.window;
     }
 
-    fn mean(&self) -> f64 { self.mean }
+    fn mean(&self) -> f64 {
+        self.mean
+    }
 
     fn variance(&self) -> f64 {
-        if self.count < 2 { return 0.0; }
+        if self.count < 2 {
+            return 0.0;
+        }
         self.m2 / self.count as f64
     }
 
-    fn std_dev(&self) -> f64 { self.variance().sqrt() }
+    fn std_dev(&self) -> f64 {
+        self.variance().sqrt()
+    }
 }
 
 /// Statistical intelligence engine tracking rolling distributions and
@@ -231,9 +237,11 @@ impl StatisticsEngine {
         final_returns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mean = final_returns.iter().sum::<f64>() / samples as f64;
-        let variance = final_returns.iter()
+        let variance = final_returns
+            .iter()
             .map(|r| (r - mean).powi(2))
-            .sum::<f64>() / samples as f64;
+            .sum::<f64>()
+            / samples as f64;
         let stdev = variance.sqrt();
 
         let var_95_idx = (samples as f64 * 0.05).ceil() as usize;
@@ -243,7 +251,8 @@ impl StatisticsEngine {
             final_returns[0]
         };
 
-        let prob_positive = final_returns.iter().filter(|&&r| r > 0.0).count() as f64 / samples as f64;
+        let prob_positive =
+            final_returns.iter().filter(|&&r| r > 0.0).count() as f64 / samples as f64;
 
         let output = MonteCarloOutput {
             expected_return: mean * n as f64,

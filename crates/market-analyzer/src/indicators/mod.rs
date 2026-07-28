@@ -83,7 +83,7 @@ pub use order_book::OrderBookAnalysis;
 pub use patterns::{detect_pattern, ChartPattern, PatternResult};
 pub use pivot_points::{PivotLevels, PivotMethod, PivotPoints};
 pub use psar::{ParabolicSar, PsarOutput};
-pub use registry::{IndicatorClass, IndicatorGroup, IndicatorMeta, RenderKind};
+pub use registry::{IndicatorClass, IndicatorGroup, IndicatorMeta, RenderKind, INDICATORS};
 pub use rsi::Rsi;
 pub use sma::Sma;
 pub use smart_money::{MarketStructure, SmartMoney, SmcOutput};

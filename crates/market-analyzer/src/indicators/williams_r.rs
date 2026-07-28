@@ -75,7 +75,10 @@ mod tests {
             wr.update(110.0, 90.0, 110.0);
         }
         let out = wr.update(110.0, 90.0, 110.0).unwrap();
-        assert!(out > Decimal::from_f64_retain(-1.0).unwrap() && out <= Decimal::from_f64_retain(0.0).unwrap());
+        assert!(
+            out > Decimal::from_f64_retain(-1.0).unwrap()
+                && out <= Decimal::from_f64_retain(0.0).unwrap()
+        );
     }
 
     #[test]

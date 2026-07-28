@@ -99,18 +99,9 @@ fn verify_completed_snapshot(snapshot: &MarketSnapshot) {
     assert_eq!(snapshot.symbol, "BTC-USDT", "symbol must match");
     assert_eq!(snapshot.timeframe_secs, 60, "timeframe must be 60s");
 
-    assert!(
-        snapshot.open.is_some(),
-        "completed snapshot must have open"
-    );
-    assert!(
-        snapshot.high.is_some(),
-        "completed snapshot must have high"
-    );
-    assert!(
-        snapshot.low.is_some(),
-        "completed snapshot must have low"
-    );
+    assert!(snapshot.open.is_some(), "completed snapshot must have open");
+    assert!(snapshot.high.is_some(), "completed snapshot must have high");
+    assert!(snapshot.low.is_some(), "completed snapshot must have low");
     assert!(
         snapshot.close.is_some(),
         "completed snapshot must have close"
@@ -131,8 +122,7 @@ fn verify_completed_snapshot(snapshot: &MarketSnapshot) {
 async fn observation_loop_latency_p95_below_threshold() {
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
     let (telemetry_tx, mut telemetry_rx) = mpsc::channel::<TelemetryMsg>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let cancel = CancellationToken::new();
 
     tokio::spawn(async move { while telemetry_rx.recv().await.is_some() {} });
@@ -169,6 +159,7 @@ async fn observation_loop_latency_p95_below_threshold() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
+            None,
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -211,7 +202,11 @@ async fn observation_loop_latency_p95_below_threshold() {
             symbol: "BTC-USDT".to_string(),
             price: dec!(50_000) + Decimal::from(i),
             size: dec!(0.5),
-            side: if i % 2 == 0 { TradeSide::Buy } else { TradeSide::Sell },
+            side: if i % 2 == 0 {
+                TradeSide::Buy
+            } else {
+                TradeSide::Sell
+            },
             timestamp_ms: (i + 1) * timestamp_step,
             trade_id: format!("t{i}"),
         };

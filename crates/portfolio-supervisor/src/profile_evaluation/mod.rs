@@ -245,7 +245,7 @@ pub fn snapshot_values_from_evaluate(req: &EvaluateInputs) -> SnapshotValues {
         ..Default::default()
     };
 
-    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);
+    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
     if let Some(entry) = map.get_mut("ema_stack") {
         let mut vals = entry.values.take().unwrap_or_default();
         for (k, v) in [

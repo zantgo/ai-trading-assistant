@@ -1,6 +1,6 @@
+use crate::AppState;
 use market_analyzer::analyzer;
 use portfolio_supervisor::session::Currency;
-use crate::AppState;
 use std::sync::Arc;
 
 pub async fn get_active_pair(

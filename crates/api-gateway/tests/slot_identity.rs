@@ -18,13 +18,14 @@ use market_analyzer::sr_engine::SrRoleTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::{Instance, TimeframeBuffers};
+use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
+use std::time::Duration;
+use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
-use tokio::net::TcpListener;
-use std::time::Duration;
 
 const PAIR_KEY: &str = "BTC-USDT";
 
@@ -32,17 +33,20 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
         .expect("in-memory sqlite");
-    database_storage::run_migrations(&pool).await.expect("migrations");
+    database_storage::run_migrations(&pool)
+        .await
+        .expect("migrations");
 
     let symbol_mapper = Arc::new(core_domain::normalized::SymbolMapper::new());
-    symbol_mapper.register(Exchange::Hyperliquid, "BTC", PAIR_KEY).await;
-    let (telemetry_tx, _telemetry_rx) =
-        mpsc::channel::<database_storage::TelemetryMsg>(100);
+    symbol_mapper
+        .register(Exchange::Hyperliquid, "BTC", PAIR_KEY)
+        .await;
+    let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
 
     let workspace = WorkspaceState::empty();
     let (bcast_micro, _) = broadcast::channel::<MarketSnapshot>(200);
-    let (bcast_fast,  _) = broadcast::channel::<MarketSnapshot>(200);
-    let (bcast_slow,  _) = broadcast::channel::<MarketSnapshot>(200);
+    let (bcast_fast, _) = broadcast::channel::<MarketSnapshot>(200);
+    let (bcast_slow, _) = broadcast::channel::<MarketSnapshot>(200);
     let (bcast_macro, _) = broadcast::channel::<MarketSnapshot>(200);
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
 
@@ -51,10 +55,114 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         // Edge cases: slow duration is LOWER than fast, fast is LOWER
         // than micro. This is the exact pattern that broke the legacy
         // duration-based dispatcher.
-        micro:    TimeframePipeline { slot: TimeframeSlot::Micro, history: Arc::new(RwLock::new(VecDeque::new())), broadcast_tx: bcast_micro, latest_snapshot: Arc::new(RwLock::new(None)), snapshot_history: snap_hist.clone(), timeframe_secs: 5,    timeframe_label: "Micro" , divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))), sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))), fibonacci: FibonacciConfig::default(), latest_oi: Arc::new(RwLock::new(None)), latest_funding: Arc::new(RwLock::new(None)), latest_mark_px: Arc::new(RwLock::new(None)), latest_index_px: Arc::new(RwLock::new(None)), active_set: Default::default(), cluster_matrix: Arc::new(RwLock::new(None)), cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))), pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)), indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())), buffer_size: 500, stale_threshold_secs: 300, },
-        fast:     TimeframePipeline { slot: TimeframeSlot::Fast,  history: Arc::new(RwLock::new(VecDeque::new())), broadcast_tx: bcast_fast,  latest_snapshot: Arc::new(RwLock::new(None)), snapshot_history: snap_hist.clone(), timeframe_secs: 180,  timeframe_label: "Fast"  , divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))), sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))), fibonacci: FibonacciConfig::default(), latest_oi: Arc::new(RwLock::new(None)), latest_funding: Arc::new(RwLock::new(None)), latest_mark_px: Arc::new(RwLock::new(None)), latest_index_px: Arc::new(RwLock::new(None)), active_set: Default::default(), cluster_matrix: Arc::new(RwLock::new(None)), cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))), pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)), indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())), buffer_size: 500, stale_threshold_secs: 300, },
-        slow:     TimeframePipeline { slot: TimeframeSlot::Slow,  history: Arc::new(RwLock::new(VecDeque::new())), broadcast_tx: bcast_slow,  latest_snapshot: Arc::new(RwLock::new(None)), snapshot_history: snap_hist.clone(), timeframe_secs: 60,   timeframe_label: "Slow"  , divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))), sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))), fibonacci: FibonacciConfig::default(), latest_oi: Arc::new(RwLock::new(None)), latest_funding: Arc::new(RwLock::new(None)), latest_mark_px: Arc::new(RwLock::new(None)), latest_index_px: Arc::new(RwLock::new(None)), active_set: Default::default(), cluster_matrix: Arc::new(RwLock::new(None)), cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))), pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)), indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())), buffer_size: 500, stale_threshold_secs: 300, },
-        r#macro:  TimeframePipeline { slot: TimeframeSlot::Macro, history: Arc::new(RwLock::new(VecDeque::new())), broadcast_tx: bcast_macro, latest_snapshot: Arc::new(RwLock::new(None)), snapshot_history: snap_hist.clone(), timeframe_secs: 3600, timeframe_label: "Macro" , divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))), sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))), fibonacci: FibonacciConfig::default(), latest_oi: Arc::new(RwLock::new(None)), latest_funding: Arc::new(RwLock::new(None)), latest_mark_px: Arc::new(RwLock::new(None)), latest_index_px: Arc::new(RwLock::new(None)), active_set: Default::default(), cluster_matrix: Arc::new(RwLock::new(None)), cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))), pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)), indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())), buffer_size: 500, stale_threshold_secs: 300, },
+        micro: TimeframePipeline {
+            slot: TimeframeSlot::Micro,
+            history: Arc::new(RwLock::new(VecDeque::new())),
+            broadcast_tx: bcast_micro,
+            latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
+            timeframe_secs: 5,
+            timeframe_label: "Micro",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
+        },
+        fast: TimeframePipeline {
+            slot: TimeframeSlot::Fast,
+            history: Arc::new(RwLock::new(VecDeque::new())),
+            broadcast_tx: bcast_fast,
+            latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
+            timeframe_secs: 180,
+            timeframe_label: "Fast",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
+        },
+        slow: TimeframePipeline {
+            slot: TimeframeSlot::Slow,
+            history: Arc::new(RwLock::new(VecDeque::new())),
+            broadcast_tx: bcast_slow,
+            latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
+            timeframe_secs: 60,
+            timeframe_label: "Slow",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
+        },
+        r#macro: TimeframePipeline {
+            slot: TimeframeSlot::Macro,
+            history: Arc::new(RwLock::new(VecDeque::new())),
+            broadcast_tx: bcast_macro,
+            latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
+            timeframe_secs: 3600,
+            timeframe_label: "Macro",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
+        },
         snapshot_tx: mpsc::channel::<NormalizedEvent>(50).0,
         cancel: CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(None)),
@@ -64,14 +172,31 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
     });
 
-    let micro_buf = TimeframeBuffers { history: active_pair.micro.history.clone(),       latest: active_pair.micro.latest_snapshot.clone(),    snapshot_history: snap_hist.clone() };
-    let fast_buf  = TimeframeBuffers { history: active_pair.fast.history.clone(),        latest: active_pair.fast.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
-    let slow_buf  = TimeframeBuffers { history: active_pair.slow.history.clone(),        latest: active_pair.slow.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
-    let macro_buf = TimeframeBuffers { history: active_pair.r#macro.history.clone(),     latest: active_pair.r#macro.latest_snapshot.clone(),  snapshot_history: snap_hist.clone() };
+    let micro_buf = TimeframeBuffers {
+        history: active_pair.micro.history.clone(),
+        latest: active_pair.micro.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let fast_buf = TimeframeBuffers {
+        history: active_pair.fast.history.clone(),
+        latest: active_pair.fast.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let slow_buf = TimeframeBuffers {
+        history: active_pair.slow.history.clone(),
+        latest: active_pair.slow.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let macro_buf = TimeframeBuffers {
+        history: active_pair.r#macro.history.clone(),
+        latest: active_pair.r#macro.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
 
     let instance = Arc::new(Instance::new(
         "inst_slot_identity".into(),
         ("BTC".into(), "USDT".into()),
+        ExchangeChoice::Hyperliquid,
         active_pair.clone(),
         pool.clone(),
         workspace.clone(),
@@ -98,7 +223,9 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         pool,
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
+        connection_quality: Arc::new(
+            network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new(),
+        ),
         ws_url: "ws://127.0.0.1:1".into(),
         bitget_ws_url: String::new(),
         clock_monitor: None,
@@ -134,8 +261,8 @@ async fn pipeline_for_slot_dispatches_by_slot_not_duration() {
     // slots share a channel despite micro (5) and slow (60) being closer
     // in duration than fast (180).
     let rx_micro = pair.subscribe_broadcast_by_slot(TimeframeSlot::Micro);
-    let rx_fast  = pair.subscribe_broadcast_by_slot(TimeframeSlot::Fast);
-    let rx_slow  = pair.subscribe_broadcast_by_slot(TimeframeSlot::Slow);
+    let rx_fast = pair.subscribe_broadcast_by_slot(TimeframeSlot::Fast);
+    let rx_slow = pair.subscribe_broadcast_by_slot(TimeframeSlot::Slow);
     let rx_macro = pair.subscribe_broadcast_by_slot(TimeframeSlot::Macro);
 
     // The receivers are distinct broadcast subscriptions — Sender::send
@@ -169,7 +296,10 @@ async fn pipeline_for_duration_rejects_collisions() {
         .pipeline_for_duration(100)
         .err()
         .expect("100s must be ambiguous — no slot configured for it");
-    assert!(err.contains("timeframe_secs=100"), "error should mention the offending duration: {err}");
+    assert!(
+        err.contains("timeframe_secs=100"),
+        "error should mention the offending duration: {err}"
+    );
     assert!(
         err.contains("No slot matches"),
         "no-match error must be explicit so callers don't silently default to micro: {err}"
@@ -249,8 +379,12 @@ async fn timeframe_slot_round_trips_through_wire_payload() {
         index_price: None,
         mark_index_spread_pct: None,
         prev_day_px: None,
-        open: None, high: None, low: None, close: None,
-        volume: None, average_volume: None,
+        open: None,
+        high: None,
+        low: None,
+        close: None,
+        volume: None,
+        average_volume: None,
         indicators: Default::default(),
         alignment: None,
         risk: None,
@@ -267,8 +401,8 @@ async fn timeframe_slot_round_trips_through_wire_payload() {
         liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
-    pipeline_state: core_domain::models::CandlePipelineState::default(),
-    indicator_lifecycle: std::collections::HashMap::new(),
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
     };
     let serialized = serde_json::to_value(&snap).expect("serialize");
     assert_eq!(

@@ -22,8 +22,7 @@ async fn dual_channel_independence_lag_in_one_does_not_block_the_other() {
                 match candle_rx.recv().await {
                     Ok(msg) => {
                         received.push(msg);
-                        tokio::time::sleep(std::time::Duration::from_millis(100))
-                            .await;
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,

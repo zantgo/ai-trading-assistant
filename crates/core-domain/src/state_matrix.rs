@@ -6,7 +6,7 @@
 //!
 //! Layer: L5.5 in the architecture (Market Synthesis).
 
-use crate::analysis::{MarketBias, AnalysisMatrix};
+use crate::analysis::{AnalysisMatrix, MarketBias};
 use serde::{Deserialize, Serialize};
 
 /// Per-symbol summary within the system-wide State Matrix.
@@ -55,13 +55,16 @@ impl StateMatrix {
         }
 
         let total = summaries.len() as f64;
-        let bullish: f64 = summaries.iter()
+        let bullish: f64 = summaries
+            .iter()
             .filter(|s| s.bias == MarketBias::Bullish)
             .count() as f64;
-        let bearish: f64 = summaries.iter()
+        let bearish: f64 = summaries
+            .iter()
             .filter(|s| s.bias == MarketBias::Bearish)
             .count() as f64;
-        let neutral: f64 = summaries.iter()
+        let neutral: f64 = summaries
+            .iter()
             .filter(|s| s.bias == MarketBias::Neutral)
             .count() as f64;
 
@@ -97,17 +100,12 @@ pub struct InstanceMeta {
 
 /// Compute the system-wide State Matrix from per-symbol Decision Matrices
 /// and active instance metadata.
-pub fn compute_state(
-    decisions: &[AnalysisMatrix],
-    instances: &[InstanceMeta],
-) -> StateMatrix {
+pub fn compute_state(decisions: &[AnalysisMatrix], instances: &[InstanceMeta]) -> StateMatrix {
     if instances.is_empty() && decisions.is_empty() {
         return StateMatrix::empty();
     }
 
-    let active_instances: Vec<&InstanceMeta> = instances.iter()
-        .filter(|i| i.is_active)
-        .collect();
+    let active_instances: Vec<&InstanceMeta> = instances.iter().filter(|i| i.is_active).collect();
     let instance_count = active_instances.len() as u32;
 
     // Unique symbols from active instances
@@ -163,7 +161,11 @@ pub fn compute_state(
             "RANGE"
         } else if d.supporting_signals.iter().any(|s| s.contains("EXPANSION")) {
             "EXPANSION"
-        } else if d.supporting_signals.iter().any(|s| s.contains("COMPRESSION")) {
+        } else if d
+            .supporting_signals
+            .iter()
+            .any(|s| s.contains("COMPRESSION"))
+        {
             "COMPRESSION"
         } else {
             "UNKNOWN"
@@ -217,8 +219,8 @@ pub fn compute_state(
 mod tests {
     use super::*;
     use crate::analysis::{
-        MarketPhase, MarketRegime, MomentumAssessment, OpportunityType, QualityLevel, StructureAssessment,
-        TrendAssessment, VolatilityAssessment, VolumeAssessment,
+        MarketPhase, MarketRegime, MomentumAssessment, OpportunityType, QualityLevel,
+        StructureAssessment, TrendAssessment, VolatilityAssessment, VolumeAssessment,
     };
 
     fn sample_decision(symbol: &str, bias: MarketBias, confidence: f64, tfs: u8) -> AnalysisMatrix {
@@ -253,10 +255,30 @@ mod tests {
 
     fn sample_instance(symbol: &str) -> Vec<InstanceMeta> {
         vec![
-            InstanceMeta { symbol: symbol.into(), timeframe_secs: 60, timeframe_label: "micro60".into(), is_active: true },
-            InstanceMeta { symbol: symbol.into(), timeframe_secs: 180, timeframe_label: "fast180".into(), is_active: true },
-            InstanceMeta { symbol: symbol.into(), timeframe_secs: 300, timeframe_label: "slow300".into(), is_active: true },
-            InstanceMeta { symbol: symbol.into(), timeframe_secs: 900, timeframe_label: "macro900".into(), is_active: true },
+            InstanceMeta {
+                symbol: symbol.into(),
+                timeframe_secs: 60,
+                timeframe_label: "micro60".into(),
+                is_active: true,
+            },
+            InstanceMeta {
+                symbol: symbol.into(),
+                timeframe_secs: 180,
+                timeframe_label: "fast180".into(),
+                is_active: true,
+            },
+            InstanceMeta {
+                symbol: symbol.into(),
+                timeframe_secs: 300,
+                timeframe_label: "slow300".into(),
+                is_active: true,
+            },
+            InstanceMeta {
+                symbol: symbol.into(),
+                timeframe_secs: 900,
+                timeframe_label: "macro900".into(),
+                is_active: true,
+            },
         ]
     }
 

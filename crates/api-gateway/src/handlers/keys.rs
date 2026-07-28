@@ -78,16 +78,18 @@ pub async fn list_keys(
 
     let keys: Vec<KeyMetadata> = rows
         .into_iter()
-        .map(|(id, exchange, account_name, _api_key, is_active, referred_uid, last_sync)| {
-            KeyMetadata {
-                id,
-                exchange,
-                account_name,
-                is_active: is_active != 0,
-                referred_uid,
-                last_sync_timestamp: last_sync,
-            }
-        })
+        .map(
+            |(id, exchange, account_name, _api_key, is_active, referred_uid, last_sync)| {
+                KeyMetadata {
+                    id,
+                    exchange,
+                    account_name,
+                    is_active: is_active != 0,
+                    referred_uid,
+                    last_sync_timestamp: last_sync,
+                }
+            },
+        )
         .collect();
 
     Json(serde_json::json!({
@@ -101,7 +103,11 @@ pub async fn add_key(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AddKeyRequest>,
 ) -> impl IntoResponse {
-    if req.exchange.is_empty() || req.account_name.is_empty() || req.api_key.is_empty() || req.api_secret.is_empty() {
+    if req.exchange.is_empty()
+        || req.account_name.is_empty()
+        || req.api_key.is_empty()
+        || req.api_secret.is_empty()
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -182,13 +188,11 @@ pub async fn delete_key(
         .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
-            Json(serde_json::json!({
-                "id": id,
-                "message": "Key deleted"
-            }))
-            .into_response()
-        }
+        Ok(r) if r.rows_affected() > 0 => Json(serde_json::json!({
+            "id": id,
+            "message": "Key deleted"
+        }))
+        .into_response(),
         Ok(_) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "Key not found" })),

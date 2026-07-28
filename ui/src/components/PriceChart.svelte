@@ -12,6 +12,7 @@
         alignedSeriesFromHistory,
     } from '../lib/indicatorHistory';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
+    import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
     import { attachFvgZones, type FvgZonesPrimitive } from '../lib/fvgZones';
     import { attachOrderBlocks, type OrderBlocksPrimitive } from '../lib/orderBlocks';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
@@ -62,6 +63,7 @@
     let ichimokuSenkouBSeries: ISeriesApi<'Line'> | null = null;
     let priceLineSeries: ISeriesApi<'Line'>;
     let volumeProfilePrim: VolumeProfilePrimitive | null = null;
+    let liqHeatmapPrim: LiquidationHeatmapPrimitive | null = null;
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
     let smcMarkers: SmcMarkerController | null = null;
@@ -111,6 +113,13 @@
 
         // Volume profile overlay (right-edge stacked buy/sell histogram).
         volumeProfilePrim = attachVolumeProfile(chart, candleSeries);
+        // Liquidation heatmap primitive (LIQ HEATMAP toggle, v6.5+).
+        // Renders coloured horizontal bands per cluster on the candle
+        // pane. Decoupled from the legacy per-cluster `createPriceLine`
+        // approach — the price-line path remains wired as a fallback so
+        // existing dashboards don't regress if the primitive ever fails
+        // to attach.
+        liqHeatmapPrim = attachHeatmap(chart, candleSeries);
         // SMC Fair Value Gap zone primitive (toggle-controlled).
         fvgPrim = attachFvgZones(chart, candleSeries);
         // SMC Order Block zone primitive (toggle-controlled).
@@ -448,6 +457,21 @@
     /// Fibonacci — all retracement levels + golden pocket + extensions.
     const fibVals = $derived(tf?.indicators?.['fibonacci']?.values ?? null);
     const fibShow = $derived(tf?.showFib ?? false);
+
+    // [fib-debug] one-shot diagnostic — remove once the chart-overlay data
+    // path is confirmed healthy (PR: fibonacci regression).
+    $effect(() => {
+        const _vals = fibVals;
+        const _show = fibShow;
+        // eslint-disable-next-line no-console
+        console.log('[fib-debug]', {
+            showFib: _show,
+            keys: _vals ? Object.keys(_vals) : null,
+            sample: _vals,
+            stateLabel: tf?.indicators?.['fibonacci']?.state_label,
+            normalized: tf?.indicators?.['fibonacci']?.normalized,
+        });
+    });
 
     $effect(() => {
         for (const line of fibLines) {
@@ -834,6 +858,18 @@
         if (!volumeProfilePrim) return;
         volumeProfilePrim.setVisible(visible);
         volumeProfilePrim.updateData(data);
+    });
+
+    // Liquidation heatmap — toggle visibility + data feeding.
+    // Mirror of `volumeProfile`'s pattern: prefer the live WS cluster,
+    // fall back to history-sourced `historyCluster` until the first
+    // per-TF refresh tick fires after a daemon restart.
+    $effect(() => {
+        const visible = tf?.showLiqHeatmap ?? false;
+        const data = tf?.cluster ?? historyCluster ?? null;
+        if (!liqHeatmapPrim) return;
+        liqHeatmapPrim.setVisible(visible);
+        liqHeatmapPrim.updateData(data);
     });
 
     // SMC Fair Value Gap zones — toggle visibility + rolling zone list.

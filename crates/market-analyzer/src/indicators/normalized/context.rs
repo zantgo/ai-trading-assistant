@@ -75,77 +75,69 @@ impl NormalizationEngine {
         NormalizedIndicatorValue::with_values(adx, clamp_unit(norm), label, values)
     }
 
-    /// BBWP: volatility width percentile signed by prevailing bias.
-    pub fn normalize_bbwp(bbwp: f64, bias: i8) -> NormalizedIndicatorValue {
-        if bbwp < 10.0 {
-            return NormalizedIndicatorValue::scalar(bbwp, 0.0, "MAX_VOLATILITY_COMPRESSION");
-        }
-        if bbwp > 90.0 {
-            // Volatility exhaustion climax → mean-reversion penalty against bias.
-            let norm = -0.1 * bias as f64;
-            return NormalizedIndicatorValue::scalar(
-                bbwp,
-                norm,
-                "VOLATILITY_EXHAUSTION_REVERSION_WARNING",
-            );
-        }
-        if bias == 0 {
-            return NormalizedIndicatorValue::scalar(bbwp, 0.0, "MAX_VOLATILITY_COMPRESSION");
-        }
-        let (mag, label) = if bbwp <= 30.0 {
-            (
-                0.2 + ((bbwp - 10.0) / 20.0) * 0.2,
-                "LOW_VOLATILITY_BULL_CYCLE",
-            )
+    /// BBWP: volatility width percentile — non-directional context gate.
+    ///
+    /// Per the canonical contract in
+    /// `docs/engines/market-monitoring-engine/indicators/04-02-27-bbwp.md` §6,
+    /// BBWP is a non-directional gate: `normalized` is contractually **0.0
+    /// always**; the bias-signed output that previously leaked through
+    /// would sign-flip bearish breakouts into bullish signals when used
+    /// as a multiplier (the same anti-pattern retired for RVOL). The
+    /// volatility context reaches the rest of the system through the
+    /// `confidence` axis and the `risk.volatility_risk` dimension.
+    pub fn normalize_bbwp(bbwp: f64, _bias: i8) -> NormalizedIndicatorValue {
+        let (label, base_confidence) = if bbwp < 10.0 {
+            ("MAX_VOLATILITY_COMPRESSION", 0.85)
+        } else if bbwp > 90.0 {
+            ("VOLATILITY_EXHAUSTION_REVERSION_WARNING", 0.85)
+        } else if bbwp <= 30.0 {
+            ("LOW_VOLATILITY_BULL_CYCLE", 0.60)
         } else if bbwp <= 70.0 {
-            (
-                0.5 + ((bbwp - 30.0) / 40.0) * 0.2,
-                "NORMAL_VOLATILITY_BULL_CYCLE",
-            )
+            ("NORMAL_VOLATILITY_BULL_CYCLE", 0.50)
         } else {
-            (0.8, "HIGH_VOLATILITY_BULL_EXPANSION")
+            ("HIGH_VOLATILITY_BULL_EXPANSION", 0.60)
         };
-        NormalizedIndicatorValue::scalar(bbwp, clamp_unit(mag * bias as f64), label)
+        NormalizedIndicatorValue::scalar(bbwp, 0.0, label).with_confidence(base_confidence)
     }
 
     /// RVOL: volume validation gate for structural breakouts.
-///
-/// Per the v2.1 contract in `docs/engines/market-monitoring-engine/indicators/04-02-19-rvol.md` §3,
-/// RVOL is a **non-directional gate** — its `normalized` field is always `0.0` (consistent with the
-/// BBWP convention). The signed 4-band values (−0.5, 0.2, 0.8, −1.0) are exposed as a scalar
-/// gate coefficient via `IndicatorEvaluation.values.rvol_band` and consumed by the gate logic,
-/// never added to the directional confluence sum. A previous version of this function emitted
-/// the signed band values directly into `normalized`, which double-counted RVOL as both a gate
-/// and a directional voter.
-pub fn normalize_rvol(rvol: f64) -> NormalizedIndicatorValue {
-    let band = if rvol < 1.0 {
-        -0.5
-    } else if rvol < 1.5 {
-        0.2
-    } else if rvol < 3.0 {
-        0.8
-    } else {
-        -1.0
-    };
-    let label = if rvol < 1.0 {
-        // SIG-13 (v2.1 canonical): "LOW_PARTICIPATION_VOLUME" is the
-        // string the downstream consumers (regex / policy string matching,
-        // property tests, GUI panels) read. The previous
-        // "CONSOLIDATION_VOLUME" label name was rolled forward to align
-        // with the RVOL spec ([04-02-19-rvol.md §3]) and the volume
-        // normalization ([04-02-18-volume.md §Normalization]).
-        "LOW_PARTICIPATION_VOLUME"
-    } else if rvol < 1.5 {
-        "NORMAL_PARTICIPATION_VOLUME"
-    } else if rvol < 3.0 {
-        "INSTITUTIONAL_BREAKOUT_VOLUME"
-    } else {
-        "EXHAUSTION_CLIMAX_VOLUME"
-    };
-    let mut values = HashMap::new();
-    values.insert("rvol_band".to_string(), band);
-    NormalizedIndicatorValue::with_values(rvol, 0.0, label, values)
-}
+    ///
+    /// Per the v2.1 contract in `docs/engines/market-monitoring-engine/indicators/04-02-19-rvol.md` §3,
+    /// RVOL is a **non-directional gate** — its `normalized` field is always `0.0` (consistent with the
+    /// BBWP convention). The signed 4-band values (−0.5, 0.2, 0.8, −1.0) are exposed as a scalar
+    /// gate coefficient via `IndicatorEvaluation.values.rvol_band` and consumed by the gate logic,
+    /// never added to the directional confluence sum. A previous version of this function emitted
+    /// the signed band values directly into `normalized`, which double-counted RVOL as both a gate
+    /// and a directional voter.
+    pub fn normalize_rvol(rvol: f64) -> NormalizedIndicatorValue {
+        let band = if rvol < 1.0 {
+            -0.5
+        } else if rvol < 1.5 {
+            0.2
+        } else if rvol < 3.0 {
+            0.8
+        } else {
+            -1.0
+        };
+        let label = if rvol < 1.0 {
+            // SIG-13 (v2.1 canonical): "LOW_PARTICIPATION_VOLUME" is the
+            // string the downstream consumers (regex / policy string matching,
+            // property tests, GUI panels) read. The previous
+            // "CONSOLIDATION_VOLUME" label name was rolled forward to align
+            // with the RVOL spec ([04-02-19-rvol.md §3]) and the volume
+            // normalization ([04-02-18-volume.md §Normalization]).
+            "LOW_PARTICIPATION_VOLUME"
+        } else if rvol < 1.5 {
+            "NORMAL_PARTICIPATION_VOLUME"
+        } else if rvol < 3.0 {
+            "INSTITUTIONAL_BREAKOUT_VOLUME"
+        } else {
+            "EXHAUSTION_CLIMAX_VOLUME"
+        };
+        let mut values = HashMap::new();
+        values.insert("rvol_band".to_string(), band);
+        NormalizedIndicatorValue::with_values(rvol, 0.0, label, values)
+    }
 
     /// EMA stacking & price location across the ribbon.
     pub fn normalize_ema_stack(ctx: &NormalizationContext) -> NormalizedIndicatorValue {

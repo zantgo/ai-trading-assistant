@@ -91,6 +91,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
+                None,
                 config_models::OrderBookConfig::default(),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
@@ -118,6 +119,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 ws_tx,
                 ws_cancel,
                 "ws://127.0.0.1:1",
+                "", // no HL user address in tests
             )
             .await;
         });

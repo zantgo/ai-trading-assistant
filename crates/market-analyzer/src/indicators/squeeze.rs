@@ -73,9 +73,12 @@ impl SqueezeMomentum {
     pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<SqueezeOutput> {
         let p = self.period;
 
-        self.prices_history.push(Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO));
-        self.high_history.push(Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO));
-        self.low_history.push(Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO));
+        self.prices_history
+            .push(Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO));
+        self.high_history
+            .push(Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO));
+        self.low_history
+            .push(Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO));
 
         if self.prices_history.len() > p {
             self.prices_history.remove(0);
@@ -359,10 +362,7 @@ mod tests {
         assert_eq!(d4, MomentumDirection::BearishDeceleration);
 
         // Near zero
-        let d5 = classify_momentum_direction(
-            Decimal::from_f64_retain(0.0001).unwrap(),
-            None,
-        );
+        let d5 = classify_momentum_direction(Decimal::from_f64_retain(0.0001).unwrap(), None);
         assert_eq!(d5, MomentumDirection::Flat);
     }
 

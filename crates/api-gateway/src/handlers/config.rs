@@ -1,7 +1,7 @@
-use config_models::WorkspaceConfig;
 use crate::types::{ConfigResponse, RulesResponse, SetRulesRequest};
 use crate::AppState;
 use axum::{extract::State, http::header, response::IntoResponse, Json};
+use config_models::WorkspaceConfig;
 use std::sync::Arc;
 
 pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -30,7 +30,10 @@ pub async fn update_config(
     match toml::to_string_pretty(&payload) {
         Ok(toml_str) => {
             if let Err(e) = std::fs::write("config.toml", toml_str) {
-                eprintln!("Failed to write configuration updates to config.toml: {}", e);
+                eprintln!(
+                    "Failed to write configuration updates to config.toml: {}",
+                    e
+                );
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     "Failed to persist configuration file",
@@ -65,8 +68,13 @@ pub async fn serve_workspace_toml(State(_state): State<Arc<AppState>>) -> impl I
     let raw = std::fs::read_to_string("config.toml")
         .unwrap_or_else(|_| "# config.toml not found on disk".to_string());
     (
-        [(header::CONTENT_TYPE, "text/plain; charset=utf-8"),
-         (header::CONTENT_DISPOSITION, "attachment; filename=\"config.toml\"")],
+        [
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"config.toml\"",
+            ),
+        ],
         raw,
     )
 }
@@ -86,7 +94,8 @@ pub async fn serve_workspace_toml_import(
             return (
                 axum::http::StatusCode::BAD_REQUEST,
                 format!("Invalid TOML: {}", e),
-            ).into_response()
+            )
+                .into_response()
         }
     };
 
@@ -95,7 +104,8 @@ pub async fn serve_workspace_toml_import(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             "Invalid workspace: missing id or instances",
-        ).into_response()
+        )
+            .into_response();
     }
 
     // Apply the imported workspace to memory.

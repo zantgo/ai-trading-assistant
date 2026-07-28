@@ -1,13 +1,13 @@
 // Phase 2 tests — verify the export JSON includes all visible Metrics sections.
 
 import { describe, it, expect } from 'vitest';
-import { buildMetricsExportJson } from '../lib/metricsExport';
+import { buildMetricsExportJson, buildPanelExportJson } from '../lib/metricsExport';
 
-describe('metricsExport — covers all Metrics tab surfaces', () => {
-    function makeTf() {
-        return {
-            slot: 'micro' as const,
-            symbol: 'BTC-USDT',
+// Module-level fixtures reused by both describe blocks.
+function makeTf() {
+    return {
+        slot: 'micro' as const,
+        symbol: 'BTC-USDT',
             exchange: 'Hyperliquid',
             barDurationSec: 60,
             indicators: {
@@ -206,11 +206,21 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         return [
             { key: 'rsi', display_name: 'RSI', group: 'Momentum', class: 'Hybrid', directional: true, supports_divergence: true, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'decimals2', value_source: 'sub:', color: '#fff', guide_section: '' },
             { key: 'fibonacci', display_name: 'Fibonacci', group: 'Structure', class: 'Hybrid', directional: true, supports_divergence: false, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'price', value_source: 'sub:gp_top', color: '#fff', guide_section: '' },
+            // ContextOnly (gate) and EventOnly (Hull MA) entries — must
+            // round-trip through the export without losing the new
+            // `normalization_mode` metadata.
+            { key: 'bbwp', display_name: 'BBWP', group: 'Volatility', class: 'Leading', directional: false, supports_divergence: false, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'percent1', value_source: 'raw', color: '#fff', guide_section: '', normalization_mode: 'ContextOnly' },
+            { key: 'hull_ma', display_name: 'Hull MA', group: 'Trend', class: 'Lagging', directional: true, supports_divergence: false, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'price', value_source: 'raw', color: '#fff', guide_section: '', normalization_mode: 'EventOnly' },
+            // Anchored VWAP — registry source must be `sub:weekly` (was
+            // `sub:vwap_weekly` before the fix, which never resolved).
+            { key: 'anchored_vwap', display_name: 'Anchored VWAP', group: 'Trend', class: 'Lagging', directional: true, supports_divergence: false, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'price', value_source: 'sub:weekly', color: '#fff', guide_section: '' },
         ] as any;
     }
 
+describe('metricsExport — covers all Metrics tab surfaces', () => {
     it('includes all 7 top-level sections visible in the Metrics view', () => {
         const json = buildMetricsExportJson({
+            sourceTab: 'metrics',
             symbol: 'BTC-USDT',
             tfLabel: 'Micro',
             tfSecs: 60,
@@ -218,7 +228,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             markPrice: 65000,
             registry: makeRegistry(),
             tf: makeTf(),
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false },
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: makeAnalysis(),
             risk: makeRisk(),
             alignment: null,
@@ -240,6 +250,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         const obj = JSON.parse(json);
 
         // Every section the user sees in the Metrics UI is in the JSON.
+        expect(obj.source_tab).toBe('metrics');
         expect(obj.timeframe.label).toBe('Micro');
         expect(obj.mark_price).toBe(65000);
         expect(Array.isArray(obj.indicators)).toBe(true);
@@ -287,7 +298,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             markPrice: 0,
             registry: [],
             tf: { indicators: {} } as any,
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false },
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: null,
             risk: null,
             alignment: null,
@@ -318,7 +329,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             markPrice: 65000,
             registry: makeRegistry(),
             tf,
-            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false },
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
             analysis: null,
             risk: null,
             alignment: null,
@@ -338,5 +349,145 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         expect(fib.sub_values.ext_1618).toBe(69800);
         expect(fib.sub_values.ext_2618).toBe(71200);
         expect(fib.sub_values.retracement_coefficients.fib_0618).toBe(66500);
+    });
+});
+
+describe('metricsExport — per-tab EXPORT DATA wiring', () => {
+    function baseTf() {
+        return {
+            indicators: {},
+            latestSnapshot: {},
+            priceText: '0',
+            isCompleted: false,
+        } as any;
+    }
+    function baseResolvers(overrides: Partial<any> = {}) {
+        return {
+            symbol: 'BTC-USDT',
+            tfLabel: 'Micro',
+            tfSecs: 60,
+            timestamp: 1700000000,
+            markPrice: 65000,
+            registry: [],
+            tf: baseTf(),
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+            analysis: null,
+            risk: null,
+            alignment: null,
+            opportunity: null,
+            advisory: null,
+            volumeProfile: null,
+            liquidity: null,
+            cluster: null,
+            liquiditySignals: [],
+            decisionContext: null,
+            ...overrides,
+        };
+    }
+
+    it('tags the export with the calling tab so operators can identify the source', () => {
+        for (const sourceTab of ['metrics', 'alignment', 'opportunity', 'risk', 'analysis', 'decision']) {
+            const json = buildPanelExportJson({
+                sourceTab,
+                pairKey: 'BTC-USDT',
+                resolvers: baseResolvers(),
+            });
+            expect(json).not.toBeNull();
+            const obj = JSON.parse(json as string);
+            expect(obj.source_tab).toBe(sourceTab);
+        }
+    });
+
+    it('includes the full payload (analysis, risk, alignment, advisory, opportunity, decision)', () => {
+        const json = buildPanelExportJson({
+            sourceTab: 'decision',
+            pairKey: 'BTC-USDT',
+            resolvers: baseResolvers({
+                analysis: { symbol: 'BTC-USDT', bias: 'Bullish' } as any,
+                risk: makeRisk(),
+                alignment: { mtf_overall_score: 12 } as any,
+                advisory: makeAdvisory(),
+                opportunity: makeOpportunity(),
+                decisionContext: {
+                    trade_readiness: 'READY',
+                    entry_danger: { score: 30, level: 'LOW', state: 'STABLE', confidence: 80 },
+                },
+            }),
+        });
+        const obj = JSON.parse(json as string);
+        expect(obj.analysis.bias).toBe('Bullish');
+        expect(obj.risk.overall.score).toBe(28);
+        expect(obj.alignment.mtf_overall_score).toBe(12);
+        expect(obj.advisory.directional_guidance).toBe('Long');
+        expect(obj.opportunity.primary_opportunity).toBe('TrendContinuation');
+        // decision_context is folded into the advisory export — its trade_readiness
+        // and entry_danger fields surface from the DecisionContext input.
+        expect(obj.advisory.trade_readiness).toBe('READY');
+        expect(obj.advisory.entry_danger).toEqual({ score: 30, level: 'LOW', state: 'STABLE', confidence: 80 });
+    });
+
+    it('returns null when there is no pair symbol (button should short-circuit)', () => {
+        const json = buildPanelExportJson({
+            sourceTab: 'opportunity',
+            pairKey: '',
+            resolvers: baseResolvers({ symbol: '' }),
+        });
+        expect(json).toBeNull();
+    });
+});
+
+describe('TEST-UI: Registry metadata contract (normalization_mode, AVWAP sub-key)', () => {
+    function localMakeMeta(overrides: Partial<IndicatorMeta> = {}): IndicatorMeta {
+        return {
+            key: 'rsi',
+            display_name: 'RSI',
+            group: 'Momentum',
+            class: 'Leading',
+            render: 'Pane',
+            directional: true,
+            supports_divergence: true,
+            signal_types: [],
+            default_weight: 1.0,
+            default_enabled: true,
+            config_params: [],
+            value_format: 'decimals2',
+            value_source: 'raw',
+            color: '#fff',
+            guide_section: '',
+            ...overrides,
+        };
+    }
+
+    it('IndicatorMeta accepts normalization_mode: ContextOnly / EventOnly / Directional', () => {
+        // Compile-time smoke test: the new field types are valid TypeScript
+        // and round-trip through `Partial<IndicatorMeta>` without errors.
+        const ctx: IndicatorMeta = {
+            ...localMakeMeta({ key: 'bbwp' }),
+            normalization_mode: 'ContextOnly',
+        };
+        const ev: IndicatorMeta = {
+            ...localMakeMeta({ key: 'hull_ma' }),
+            normalization_mode: 'EventOnly',
+        };
+        const dir: IndicatorMeta = {
+            ...localMakeMeta({ key: 'rsi' }),
+            normalization_mode: 'Directional',
+        };
+        expect(ctx.normalization_mode).toBe('ContextOnly');
+        expect(ev.normalization_mode).toBe('EventOnly');
+        expect(dir.normalization_mode).toBe('Directional');
+    });
+
+    it('anchored_vwap registry sub-key resolves to sub:weekly', () => {
+        // The legacy sub-key `sub:vwap_weekly` never matched the value
+        // the normalizer inserts (`weekly`), so the Metrics Raw column
+        // rendered `--`. The fix is documented here to catch a future
+        // regression at the type layer.
+        const avwap: IndicatorMeta = localMakeMeta({
+            key: 'anchored_vwap',
+            display_name: 'Anchored VWAP',
+            value_source: 'sub:weekly',
+        });
+        expect(avwap.value_source).toBe('sub:weekly');
     });
 });

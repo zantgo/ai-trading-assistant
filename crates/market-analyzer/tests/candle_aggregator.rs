@@ -7,7 +7,15 @@ use market_analyzer::candle_aggregator::CandleAggregator;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-fn candle(start_ms: u64, o: Decimal, h: Decimal, l: Decimal, c: Decimal, v: Decimal, n: u64) -> NormalizedCandle {
+fn candle(
+    start_ms: u64,
+    o: Decimal,
+    h: Decimal,
+    l: Decimal,
+    c: Decimal,
+    v: Decimal,
+    n: u64,
+) -> NormalizedCandle {
     NormalizedCandle {
         exchange: Exchange::Hyperliquid,
         symbol: "BTC-USDT".to_string(),
@@ -29,8 +37,24 @@ fn rollup_preserves_ohlcv_invariants() {
 
     let sources = [
         candle(0, dec!(100), dec!(105), dec!(99), dec!(101), dec!(10), 5),
-        candle(60_000, dec!(101), dec!(110), dec!(100), dec!(108), dec!(20), 7),
-        candle(120_000, dec!(108), dec!(109), dec!(95), dec!(96), dec!(30), 11),
+        candle(
+            60_000,
+            dec!(101),
+            dec!(110),
+            dec!(100),
+            dec!(108),
+            dec!(20),
+            7,
+        ),
+        candle(
+            120_000,
+            dec!(108),
+            dec!(109),
+            dec!(95),
+            dec!(96),
+            dec!(30),
+            11,
+        ),
     ];
     for s in &sources {
         assert!(aggregator.process_candle(s).is_empty(), "no rollover yet");
@@ -50,7 +74,8 @@ fn rollup_preserves_ohlcv_invariants() {
     assert_eq!(agg.trades_count, 23, "trades_count = Σ counts");
     assert_eq!(agg.start_time_ms, 0);
     assert_eq!(agg.duration_ms, 180_000);
-    agg.assert_validity().expect("rolled-up candle must be valid");
+    agg.assert_validity()
+        .expect("rolled-up candle must be valid");
 }
 
 #[test]
@@ -97,9 +122,33 @@ fn reconstruction_provenance_propagates_to_rollup() {
     tagged.reconstructed = Some(ReconstructionMethod::ExponentialMovingAverage);
 
     aggregator.process_candle(&tagged);
-    aggregator.process_candle(&candle(60_000, dec!(100), dec!(101), dec!(99), dec!(100), dec!(1), 1));
-    aggregator.process_candle(&candle(120_000, dec!(100), dec!(101), dec!(99), dec!(100), dec!(1), 1));
-    let completed = aggregator.process_candle(&candle(180_000, dec!(100), dec!(101), dec!(99), dec!(100), dec!(1), 1));
+    aggregator.process_candle(&candle(
+        60_000,
+        dec!(100),
+        dec!(101),
+        dec!(99),
+        dec!(100),
+        dec!(1),
+        1,
+    ));
+    aggregator.process_candle(&candle(
+        120_000,
+        dec!(100),
+        dec!(101),
+        dec!(99),
+        dec!(100),
+        dec!(1),
+        1,
+    ));
+    let completed = aggregator.process_candle(&candle(
+        180_000,
+        dec!(100),
+        dec!(101),
+        dec!(99),
+        dec!(100),
+        dec!(1),
+        1,
+    ));
 
     assert_eq!(
         completed[0].candle.reconstructed,

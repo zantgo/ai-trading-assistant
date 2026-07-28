@@ -46,6 +46,7 @@ use market_analyzer::sr_engine::SrRoleTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::{Instance, TimeframeBuffers};
+use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
@@ -68,7 +69,11 @@ async fn setup_app_with_instance() -> Arc<AppState> {
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
     symbol_mapper
-        .register(core_domain::normalized::Exchange::Hyperliquid, "BTC", PAIR_KEY)
+        .register(
+            core_domain::normalized::Exchange::Hyperliquid,
+            "BTC",
+            PAIR_KEY,
+        )
         .await;
     let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
 
@@ -86,7 +91,10 @@ async fn setup_app_with_instance() -> Arc<AppState> {
     let cancel = CancellationToken::new();
 
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let new_pipe = |secs, label, slot: core_domain::models::TimeframeSlot, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+    let new_pipe = |secs,
+                    label,
+                    slot: core_domain::models::TimeframeSlot,
+                    tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
         slot,
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
@@ -103,11 +111,15 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+        )),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
     };
 
     let pair = Arc::new(ActivePair {
@@ -117,10 +129,30 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        micro: new_pipe(60, "Micro", core_domain::models::TimeframeSlot::Micro, mid_bcast.clone()),
-        fast: new_pipe(180, "Fast", core_domain::models::TimeframeSlot::Fast, fast_bcast.clone()),
-        slow: new_pipe(300, "Slow", core_domain::models::TimeframeSlot::Slow, slow_bcast.clone()),
-        r#macro: new_pipe(900, "Macro", core_domain::models::TimeframeSlot::Macro, macro_bcast.clone()),
+        micro: new_pipe(
+            60,
+            "Micro",
+            core_domain::models::TimeframeSlot::Micro,
+            mid_bcast.clone(),
+        ),
+        fast: new_pipe(
+            180,
+            "Fast",
+            core_domain::models::TimeframeSlot::Fast,
+            fast_bcast.clone(),
+        ),
+        slow: new_pipe(
+            300,
+            "Slow",
+            core_domain::models::TimeframeSlot::Slow,
+            slow_bcast.clone(),
+        ),
+        r#macro: new_pipe(
+            900,
+            "Macro",
+            core_domain::models::TimeframeSlot::Macro,
+            macro_bcast.clone(),
+        ),
         snapshot_tx,
         cancel,
     });
@@ -149,6 +181,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
+        ExchangeChoice::Hyperliquid,
         pair.clone(),
         pool.clone(),
         workspace.clone(),
@@ -188,9 +221,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(
-            portfolio_supervisor::execution::ExecutionEngine::new(),
-        ),
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
     })
 }
@@ -255,8 +286,7 @@ async fn post_instance_config_by_uuid_recharges_in_memory_state() {
             .find(|i| i.symbol == PAIR_KEY)
             .expect("handler must persist an InstanceEntry");
         assert_eq!(
-            entry.micro_term.candles.duration_seconds,
-            30,
+            entry.micro_term.candles.duration_seconds, 30,
             "micro_term override must reach the in-memory snapshot"
         );
 
@@ -302,11 +332,7 @@ async fn post_instance_config_uses_session_quote_in_default_pair_key() {
         // Force the session quote to USDC.
         {
             use portfolio_supervisor::session::Currency;
-            *state
-                .session
-                .base_currency
-                .write()
-                .await = Some(Currency::USDC);
+            *state.session.base_currency.write().await = Some(Currency::USDC);
         }
         let addr = serve_for(state).await;
         let client = reqwest::Client::new();

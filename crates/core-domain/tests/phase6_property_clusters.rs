@@ -8,10 +8,10 @@
 //! 4. Determinism: same input → same output.
 //! 5. Sum of leverage weights: 1.0 before AND after modulation.
 
-use proptest::prelude::*;
 use core_domain::liquidity::{
     estimate_clusters, ClusterEstimateInput, LeverageAssumptions, LiquidationClusterMatrix,
 };
+use proptest::prelude::*;
 
 fn price_strategy() -> impl Strategy<Value = Vec<f64>> {
     // Generate 50-200 prices that wander realistically: anchored to a

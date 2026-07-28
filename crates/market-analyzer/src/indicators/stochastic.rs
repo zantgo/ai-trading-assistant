@@ -39,12 +39,7 @@ impl Stochastic {
         }
     }
 
-    pub fn update(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-    ) -> Option<StochasticOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<StochasticOutput> {
         let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
         let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
         let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);

@@ -11,7 +11,7 @@
     // IndicatorClass (Leading/Hybrid/Lagging) — a developer taxonomy that
     // doesn't match how a trader thinks about the market.
 
-    import type { IndicatorDto, IndicatorMeta, IndicatorSignal, TimeframeTelemetry } from '../../types';
+    import type { IndicatorDto, IndicatorMeta, IndicatorNormalizationMode, IndicatorSignal, TimeframeTelemetry } from '../../types';
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { filterRegistry, filterSignals, type FilterState } from '../../lib/filtering';
     import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn } from '../../lib/telemetry';
@@ -86,12 +86,32 @@
         return iRaw(tf.indicators ?? {}, meta.key);
     }
 
+    /**
+     * Resolve the effective normalization mode for an indicator, defaulting
+     * to `Directional` when the registry metadata does not declare one
+     * (older manifests, custom registry rows, etc.). Mirrors
+     * `normalization_mode_for` in `crates/market-analyzer/src/indicators/registry.rs`.
+     */
+    function normalizationMode(meta: IndicatorMeta): IndicatorNormalizationMode {
+        return meta.normalization_mode ?? 'Directional';
+    }
+
+    /** True iff the entry exists and is the WARMING placeholder the analyzer
+     *  inserts for candle-warmup gating. These entries have `raw_value = 0.0`
+     *  and `normalized = 0.0` by construction — rendering them as `0.00 / 0.00`
+     *  in the table is a lie that misleads traders into reading a real value
+     *  out of an unread entry. Treat them as "no data yet". */
+    function isWarmingEntry(key: string): boolean {
+        return entry(key)?.state_label === 'WARMING';
+    }
+
     function formatRaw(meta: IndicatorMeta): string {
         if (meta.value_format === 'onoff') {
             return meta.key === 'squeeze'
                 ? (isSqueezeOn(tf.indicators ?? {}) ? 'ON' : 'OFF')
                 : (rawVal(meta) != null ? 'ON' : 'OFF');
         }
+        if (isWarmingEntry(meta.key)) return '--';
         const v = rawVal(meta);
         switch (meta.value_format) {
             case 'percent1':  return v == null ? '--' : `${v.toFixed(1)}%`;
@@ -104,7 +124,18 @@
         }
     }
 
-    function normalized(key: string): number {
+    /**
+     * Returns the indicator's normalized `[-1.0, 1.0]` value when the
+     * `normalization_mode` permits it (Directional). For ContextOnly gates
+     * and EventOnly overlays the canonical contract is `normalized = 0.0`,
+     * and rendering the value as `0.00` in the Norm column is misleading —
+     * the caller should render `N/A` for those rows. A `NaN` return value
+     * indicates the entry is the WARMING placeholder; the caller should
+     * render `--` so the row reads as "no data yet" rather than "value is 0".
+     */
+    function normalized(key: string, meta?: IndicatorMeta): number {
+        if (isWarmingEntry(key)) return Number.NaN;
+        if (meta && normalizationMode(meta) !== 'Directional') return 0;
         return tf.indicators?.[key]?.normalized ?? 0;
     }
 
@@ -116,6 +147,7 @@
     function hasRealData(key: string): boolean {
         const e = tf.indicators?.[key] as IndicatorDto | undefined;
         if (!e) return false;
+        if (e.state_label === 'WARMING') return false;
         const rv = e.raw_value ?? 0;
         const nv = e.normalized ?? 0;
         const cf = e.confidence ?? 0;
@@ -171,7 +203,11 @@
                         cssClass: pending ? `${styles.stateLive} ${styles.statePendingClose}` : styles.stateLive,
                     };
                 }
-                return { label: 'UNKNOWN', cssClass: styles.stateIdle };
+                // Defensive: the lifecycle builder should keep WARMING entries
+                // in `Loading`, but if a stale snapshot reports Live for a
+                // key whose entry is still the WARMING placeholder, render
+                // a truthful "awaiting data" message instead of `UNKNOWN`.
+                return { label: 'AWAITING DATA', cssClass: styles.stateIdle };
             }
             if (lc.state === 'Loading') return { label: `Warming (${lc.barsSeen}/${lc.barsRequired})`, cssClass: styles.stateWarming };
             return { label: lc.state, cssClass: styles.stateWarming };
@@ -188,7 +224,7 @@
             return { label: 'NO SIGNAL', cssClass: styles.stateIdle };
         }
 
-        return { label: 'WARMING', cssClass: styles.stateWarming };
+        return { label: 'AWAITING DATA', cssClass: styles.stateWarming };
     }
 
     function confidence(key: string): number {
@@ -278,10 +314,12 @@
                             <span class={styles.colSig}>Signals</span>
                         </div>
                         {#each g.items as m (m.key)}
-                            {@const n = normalized(m.key)}
+                            {@const mode = normalizationMode(m)}
+                            {@const n = normalized(m.key, m)}
                             {@const sigs = filteredSignalsFor(m.key)}
                             {@const rowOpen = expandedRows[m.key] ?? false}
-                            {@const normBg = normColor(n)}
+                            {@const warming = isWarmingEntry(m.key)}
+                            {@const normBg = mode === 'Directional' && !Number.isNaN(n) ? normColor(n) : 'transparent'}
                             <div class={styles.rowWrap}>
                                 <button
                                     class="{styles.row} {rowOpen ? styles.rowOpen : ''}"
@@ -290,14 +328,26 @@
                                     <span class={styles.colName}>
                                         <span class="{styles.statusDot} {statusDotClass(m.key)}"
                                               title={hasRealData(m.key) ? 'Operational — has computed values' : (entry(m.key)?.state_label === 'WARMING' ? 'Warming up — calculator needs more data' : 'No data')}></span>
-                                        {#if !m.directional}<span class={styles.gateMarker} title="Non-directional gate">◐</span>{/if}
+                                        {#if mode === 'ContextOnly'}<span class={styles.gateMarker} title="Non-directional gate">◐</span>{/if}
                                         {m.display_name}
                                         {#if m.supports_divergence}<span class={styles.divMarker} title="Supports divergence">△</span>{/if}
                                     </span>
                                     <span class="{styles.colClass} {styles[`class_${m.class}`]}">{m.class}</span>
                                     <span class={styles.colRaw}>{formatRaw(m)}</span>
-                                    <span class="{styles.colNorm}" style="color: {normBg}; font-weight: 700;">
-                                        {n.toFixed(2)}
+                                    <span
+                                        class={styles.colNorm}
+                                        style="color: {normBg}; font-weight: 700;"
+                                        title={warming
+                                            ? 'Awaiting first reading — no value yet'
+                                            : (mode === 'Directional'
+                                                ? 'Directional contribution in [-1, 1]'
+                                                : (mode === 'ContextOnly'
+                                                    ? 'Non-directional context gate — see Raw / State columns'
+                                                    : 'Event-only overlay — see Raw / State columns'))}
+                                    >
+                                        {warming
+                                            ? '--'
+                                            : (mode === 'Directional' ? n.toFixed(2) : 'N/A')}
                                     </span>
                                     <span class={`${styles.colState} ${stateDisplay(m.key).cssClass}`}>{stateDisplay(m.key).label}</span>
                                     <span class={styles.colConf}>

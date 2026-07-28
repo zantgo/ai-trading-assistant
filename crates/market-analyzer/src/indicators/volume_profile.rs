@@ -84,7 +84,13 @@ impl VolumeProfile {
         let open = Decimal::from_f64_retain(open).unwrap_or(Decimal::ZERO);
         let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         let volume = Decimal::from_f64_retain(volume).unwrap_or(Decimal::ZERO);
-        self.bars.push_back(Bar { high, low, open, close, volume });
+        self.bars.push_back(Bar {
+            high,
+            low,
+            open,
+            close,
+            volume,
+        });
         while self.bars.len() > self.window_size {
             self.bars.pop_front();
         }
@@ -383,9 +389,7 @@ mod tests {
         for _ in 0..15 {
             vp.update(110.0, 90.0, 100.0, 200.0);
         }
-        assert!(vp
-            .update(110.0, 90.0, 100.0, 200.0)
-            .is_some());
+        assert!(vp.update(110.0, 90.0, 100.0, 200.0).is_some());
     }
 
     #[test]
@@ -399,9 +403,7 @@ mod tests {
         for _ in 0..10 {
             vp.update(125.0, 115.0, 120.0, 100.0);
         }
-        let out = vp
-            .update(105.0, 95.0, 100.0, 500.0)
-            .unwrap();
+        let out = vp.update(105.0, 95.0, 100.0, 500.0).unwrap();
         // POC should be near 100 where the most volume is.
         let poc_f: f64 = out.poc.to_f64().unwrap();
         assert!(
@@ -429,7 +431,12 @@ mod tests {
         let total_buy: Decimal = bins.iter().map(|b| b.buy).sum();
         let total_sell: Decimal = bins.iter().map(|b| b.sell).sum();
         // Buy should dominate: 10 bullish × 1000 = 10000 buy vs 5 bearish × 500 = 2500 sell.
-        assert!(total_buy > total_sell, "buy {} should exceed sell {}", total_buy, total_sell);
+        assert!(
+            total_buy > total_sell,
+            "buy {} should exceed sell {}",
+            total_buy,
+            total_sell
+        );
     }
 
     #[test]
@@ -443,6 +450,10 @@ mod tests {
         let total_buy: Decimal = bins.iter().map(|b| b.buy).sum();
         let total_sell: Decimal = bins.iter().map(|b| b.sell).sum();
         let diff = (total_buy - total_sell).abs();
-        assert!(diff < Decimal::from_f64_retain(0.01).unwrap(), "doji should split 50/50, got diff {}", diff);
+        assert!(
+            diff < Decimal::from_f64_retain(0.01).unwrap(),
+            "doji should split 50/50, got diff {}",
+            diff
+        );
     }
 }

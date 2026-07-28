@@ -20,13 +20,7 @@ impl BarInput {
         }
     }
 
-    pub fn ohlcv(
-        open: f64,
-        high: f64,
-        low: f64,
-        close: f64,
-        volume: f64,
-    ) -> Self {
+    pub fn ohlcv(open: f64, high: f64, low: f64, close: f64, volume: f64) -> Self {
         Self {
             open,
             high,

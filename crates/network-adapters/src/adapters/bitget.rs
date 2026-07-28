@@ -6,7 +6,8 @@ use core_domain::normalized::{
     NormalizedTrade, TradeSide,
 };
 use std::str::FromStr;
-use tokio::sync::mpsc::Sender;
+use std::sync::Arc;
+use tokio::sync::{mpsc::Sender, Mutex};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_util::sync::CancellationToken;
 
@@ -62,6 +63,18 @@ pub async fn run_for_symbol(
     cancel: CancellationToken,
     ws_url: &str,
 ) {
+    // Latest mark price seen on the `ticker` channel — used to convert
+    // Bitget's base-asset-denominated `openInterest` field into a USD
+    // notional so the cluster estimator downstream sees a USD figure.
+    // Bitget pushes mark price on the `ticker` channel and OI on a
+    // separate `open-interest` channel; the two are not in the same
+    // payload, so we keep the most recent mark in a small shared cache.
+    let latest_mark_px: Arc<Mutex<Option<Decimal>>> = Arc::new(Mutex::new(None));
+    // Tracks whether we've already emitted a `Status` event about the
+    // first-frame OI drop (race condition where the `open-interest`
+    // message arrives before the first `ticker` mark price). We only
+    // surface it once to avoid flooding the Exchange Status panel.
+    let mut oi_drop_warned: bool = false;
     let url = match url::Url::parse(ws_url) {
         Ok(u) => u,
         Err(e) => {
@@ -218,7 +231,20 @@ pub async fn run_for_symbol(
                                 size,
                                 side,
                                 timestamp_ms: ts_ms,
-                                trade_id: t.ts.clone(),
+                                // Bitget's public V2 `trade` channel doesn't
+                                // emit a per-trade unique id (only the
+                                // millisecond timestamp). Compose a
+                                // uniqueness key from the timestamp + side +
+                                // price + size so two trades in the same
+                                // millisecond don't collide in any future
+                                // dedupe / idempotency logic.
+                                trade_id: format!(
+                                    "{}:{}:{}:{}",
+                                    t.ts,
+                                    t.side,
+                                    price,
+                                    size
+                                ),
                             });
                             let _ = event_tx.send(event).await;
                         }
@@ -271,6 +297,16 @@ pub async fn run_for_symbol(
                                 Err(_) => continue,
                             };
                         for tk in tickers {
+                            // Stash the latest mark price for the OI converter.
+                            if let Some(mp) = tk
+                                .mark_price
+                                .as_deref()
+                                .and_then(|s| Decimal::from_str(s).ok())
+                            {
+                                if mp > Decimal::ZERO {
+                                    *latest_mark_px.lock().await = Some(mp);
+                                }
+                            }
                             // Emit AssetContext (prev-day price)
                             if let Some(px) = tk
                                 .open_24h
@@ -319,15 +355,48 @@ pub async fn run_for_symbol(
                                 Ok(i) => i,
                                 Err(_) => continue,
                             };
+                        // Bitget publishes `openInterest` in base-asset
+                        // units (contracts on USDT-M perps). Convert to
+                        // USD by multiplying against the latest mark
+                        // price we've seen on the `ticker` channel. If
+                        // mark price is missing, skip — emitting a
+                        // base-asset value downstream poisons cluster
+                        // confidence (the 4% symptom).
+                        let mark_opt = *latest_mark_px.lock().await;
                         for item in items {
                             if let Some(oi_str) = item.openInterest.as_deref() {
-                                if let Ok(oi) = Decimal::from_str(oi_str) {
+                                if let Ok(raw_oi) = Decimal::from_str(oi_str) {
+                                    let (oi_usd, prev_oi_usd) = match mark_opt {
+                                        Some(mp) if mp > Decimal::ZERO => (raw_oi * mp, None),
+                                        _ => {
+                                            // First-frame race: OI arrived
+                                            // before the first `ticker` mark
+                                            // price. Drop silently here, but
+                                            // emit a one-shot `Status` event
+                                            // so the operator sees the gap in
+                                            // the Exchange Status panel.
+                                            if !oi_drop_warned {
+                                                oi_drop_warned = true;
+                                                let _ = event_tx
+                                                    .send(NormalizedEvent::Status {
+                                                        exchange: Exchange::Bitget,
+                                                        status: ConnectionStatus::Connecting,
+                                                        message: format!(
+                                                            "{}: OI conversion deferred — waiting for first mark price",
+                                                            internal_symbol
+                                                        ),
+                                                    })
+                                                    .await;
+                                            }
+                                            continue;
+                                        }
+                                    };
                                     let _ = event_tx
                                         .send(NormalizedEvent::OpenInterest(
                                             core_domain::normalized::OpenInterestEvent {
                                                 symbol: internal_symbol.clone(),
-                                                oi,
-                                                prev_oi: None,
+                                                oi: oi_usd,
+                                                prev_oi: prev_oi_usd,
                                             },
                                         ))
                                         .await;
@@ -400,6 +469,25 @@ async fn emit_bitget_fill_liquidations(
     data_val: &serde_json::Value,
     event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
 ) {
+    emit_bitget_fill_liquidations_impl(internal_symbol, data_val, event_tx).await;
+}
+
+/// Test-only entry point that re-exposes the liquidation parser without
+/// the production-side `Sender::send` constraint. Used by
+/// `crates/network-adapters/tests/bitget_liquidation_schema.rs`.
+pub async fn emit_bitget_fill_liquidations_for_test(
+    internal_symbol: &str,
+    data_val: &serde_json::Value,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
+    emit_bitget_fill_liquidations_impl(internal_symbol, data_val, event_tx).await;
+}
+
+async fn emit_bitget_fill_liquidations_impl(
+    internal_symbol: &str,
+    data_val: &serde_json::Value,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
     let fills: Vec<BitgetFillItem> = match serde_json::from_value(data_val.clone()) {
         Ok(f) => f,
         Err(_) => return,
@@ -456,4 +544,27 @@ async fn emit_bitget_fill_liquidations(
             ))
             .await;
     }
+}
+
+/// Test-only helper: build a USD-converted `OpenInterestEvent` from a
+/// raw base-asset OI value and a known mark price. Returns `None` when
+/// the mark price is missing or non-positive (the dispatcher's policy
+/// in production: skip rather than poison the downstream USD series).
+pub fn open_interest_event_for_test(
+    raw_oi: f64,
+    mark_px: f64,
+    symbol: &str,
+) -> Option<NormalizedEvent> {
+    let oi_dec = Decimal::from_f64_retain(raw_oi)?;
+    let mark_dec = Decimal::from_f64_retain(mark_px)?;
+    if oi_dec <= Decimal::ZERO || mark_dec <= Decimal::ZERO {
+        return None;
+    }
+    Some(NormalizedEvent::OpenInterest(
+        core_domain::normalized::OpenInterestEvent {
+            symbol: symbol.to_string(),
+            oi: oi_dec * mark_dec,
+            prev_oi: None,
+        },
+    ))
 }

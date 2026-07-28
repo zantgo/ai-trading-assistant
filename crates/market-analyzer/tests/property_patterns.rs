@@ -1,8 +1,8 @@
+use market_analyzer::indicators::fibonacci::{PivotPoint, PivotType};
+use market_analyzer::indicators::{detect_pattern, ChartPattern};
 use proptest::prelude::*;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
-use market_analyzer::indicators::fibonacci::{PivotPoint, PivotType};
-use market_analyzer::indicators::{detect_pattern, ChartPattern};
 
 fn dec(v: f64) -> Decimal {
     Decimal::from_f64(v).unwrap_or(Decimal::ZERO)

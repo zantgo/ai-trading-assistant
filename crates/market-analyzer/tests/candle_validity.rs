@@ -70,7 +70,11 @@ fn generator_output_is_always_valid() {
             symbol: "BTC-USDT".to_string(),
             price,
             size: dec!(0.25),
-            side: if i % 2 == 0 { TradeSide::Buy } else { TradeSide::Sell },
+            side: if i % 2 == 0 {
+                TradeSide::Buy
+            } else {
+                TradeSide::Sell
+            },
             timestamp_ms: i * 3_000,
             trade_id: format!("t{i}"),
         };

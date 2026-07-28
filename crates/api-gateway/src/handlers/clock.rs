@@ -21,7 +21,10 @@ pub struct ClockStatusResponse {
 pub async fn serve_clock_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ClockStatusResponse>, StatusCode> {
-    let monitor = state.clock_monitor.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let monitor = state
+        .clock_monitor
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
 
     let current_offset = monitor.current_offset_us();
     let jitter = monitor.rms_jitter_us();

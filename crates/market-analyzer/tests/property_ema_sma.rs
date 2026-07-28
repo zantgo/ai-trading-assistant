@@ -1,6 +1,6 @@
+use market_analyzer::indicators::{Ema, Sma};
 use proptest::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
-use market_analyzer::indicators::{Ema, Sma};
 
 proptest! {
     #[test]

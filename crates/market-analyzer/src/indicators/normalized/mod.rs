@@ -20,6 +20,7 @@ mod extended;
 mod signals;
 
 pub use all::IndicatorInputs;
+pub use signals::derive_signals;
 
 // The normalized indicator DTOs (NormalizedIndicatorValue, IndicatorSignal,
 // SignalKind, SignalDirection, SignalStatus, SignalPoint, DivergenceState,
@@ -329,7 +330,7 @@ mod meta_tests {
         let mut inputs = IndicatorInputs::default();
         inputs.rsi = Some(15.0); // deep oversold → strong normalized + OB/OS threshold signal
         let ctx = NormalizationContext::default();
-        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
         let rsi = map.get("rsi").expect("rsi present");
         assert!(
             !rsi.signals.is_empty(),
@@ -345,7 +346,7 @@ mod meta_tests {
     fn warming_fill_populates_all_registered_indicators() {
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
-        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
         let event_driven = ["fibonacci", "support_resistance", "patterns"];
         let divergence_keys = [
             "rsi_divergence",
@@ -371,9 +372,16 @@ mod meta_tests {
 
     #[test]
     fn warming_fill_covers_all_registry_keys() {
+        // The WARMING fill is now suppressed for non-CandleBased indicators
+        // (`OrderBook`, `DerivativesWs`, `EventDriven`). For SMC and
+        // derivatives this is the fix for the regression that surfaced as
+        // `Raw 0.00 / Norm 0.00 / State UNKNOWN` rows in the Metrics
+        // Indicators table: the WARMING placeholder was rendering as if a
+        // real reading existed when no event had been detected (SMC) or no
+        // WS message had arrived (derivatives / order book).
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
-        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
         let non_directional = ["atr", "bbwp", "hv", "rvol", "choppiness"];
         for key in non_directional {
             let v = map
@@ -382,10 +390,144 @@ mod meta_tests {
             assert_eq!(v.state_label, "WARMING", "{key} should be WARMING");
         }
         for meta in crate::indicators::registry::INDICATORS {
+            use crate::indicators::registry::IndicatorDataSource;
+            let skip_for_data_source = !matches!(
+                meta.data_source.unwrap_or_default(),
+                IndicatorDataSource::CandleBased
+            );
+            if skip_for_data_source {
+                assert!(
+                    !map.contains_key(meta.key),
+                    "{} (non-CandleBased) must NOT receive a WARMING placeholder",
+                    meta.key
+                );
+            } else {
+                assert!(
+                    map.contains_key(meta.key),
+                    "{} (CandleBased registry key) must be present",
+                    meta.key
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shadow_path_skips_close_only_indicators() {
+        // Regression: the previous shadow-tick path emitted a zero-valued
+        // `WARMING` placeholder for every close-only indicator. The frontend
+        // per-key merge then promoted the placeholder to a "real" reading
+        // and wiped the last completed-candle value for Hull MA, Ichimoku,
+        // Anchored VWAP, CCI, PSAR, Williams %R, AO, Force Index, StdDev
+        // Channel, etc. — surfacing as `Raw 0.0 / Norm 0.0 / State UNKNOWN`
+        // rows in the Metrics Indicators table.
+        let inputs = IndicatorInputs::default();
+        let ctx = NormalizationContext::default();
+        let shadow_map = NormalizationEngine::normalize_all(&inputs, &ctx, true);
+        let completed_map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+
+        // Tick-safe indicators (RSI/MACD/EMA) keep their WARMING fill on
+        // shadow ticks so the UI can still render the "Loading" badge.
+        for tick_safe in ["rsi", "macd", "ema_stack", "vwap", "atr"] {
             assert!(
-                map.contains_key(meta.key),
-                "{} (registry key) must be present",
-                meta.key
+                shadow_map.contains_key(tick_safe),
+                "{tick_safe} must remain in the shadow map (tick-safe indicator)"
+            );
+            assert!(
+                completed_map.contains_key(tick_safe),
+                "{tick_safe} must be in the completed map"
+            );
+        }
+
+        // Close-only indicators MUST be absent from the shadow map so the
+        // frontend per-key merge preserves the last completed-candle value.
+        for close_only in [
+            "hull_ma",
+            "ichimoku",
+            "anchored_vwap",
+            "cci",
+            "psar",
+            "williams_r",
+            "awesome_oscillator",
+            "force_index",
+            "stddev_channel",
+            "fibonacci",
+            "support_resistance",
+            "pivot_points",
+            "patterns",
+            "candlestick",
+            "volume_profile",
+        ] {
+            assert!(
+                !shadow_map.contains_key(close_only),
+                "{close_only} must NOT be in the shadow map (close-only indicator — frontend per-key merge must preserve last completed value)"
+            );
+            assert!(
+                completed_map.contains_key(close_only),
+                "{close_only} must still appear in the completed map (WARMING placeholder)"
+            );
+        }
+
+        // Event-driven SMC indicators MUST be absent from BOTH the shadow
+        // and completed maps when no event has fired yet. The WARMING fill
+        // is suppressed for them — emitting a `raw_value = 0.0` placeholder
+        // would surface as a misleading `Raw 0.00 / Norm 0.00` row in the
+        // Metrics Indicators table until the first BOS / CHoCH / sweep /
+        // FVG / OB is detected. The lifecycle builder (Loading state) plus
+        // the UI (--/--/Warming) cover the "no event yet" case correctly.
+        for event_driven in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+            assert!(
+                !shadow_map.contains_key(event_driven),
+                "{event_driven} must NOT be in the shadow map (event-driven — no WARMING placeholder)"
+            );
+            assert!(
+                !completed_map.contains_key(event_driven),
+                "{event_driven} must NOT be in the completed map when no event has fired (event-driven — no WARMING placeholder)"
+            );
+        }
+    }
+
+    /// Regression: derivatives (DerivativesWs / OrderBook) indicators must
+    /// also skip the WARMING fill on the completed path. They are
+    /// WS-driven: an entry only exists when the upstream WS / REST poller
+    /// has produced data. Emitting a `raw_value = 0.0` placeholder for them
+    /// was the root cause of the `Raw 0.0 / Norm 0.0 / State UNKNOWN`
+    /// rows the user reported for all derivatives indicators in the
+    /// Metrics Indicators table.
+    #[test]
+    fn derivatives_skip_warming_fill_on_completed_path() {
+        let inputs = IndicatorInputs::default();
+        let ctx = NormalizationContext::default();
+        let completed_map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+        for derivative in [
+            "open_interest",
+            "oi_delta",
+            "funding_rate",
+            "oi_price_divergence",
+            "order_flow_imbalance",
+            "spread",
+            "depth_bias",
+        ] {
+            assert!(
+                !completed_map.contains_key(derivative),
+                "{derivative} must NOT receive a WARMING placeholder when no WS data has arrived (WS-driven indicator)"
+            );
+        }
+    }
+
+    /// Sanity check that the new `EventDriven` variant of `IndicatorDataSource`
+    /// is wired correctly into the registry: every SMC indicator must
+    /// declare `data_source = Some(EventDriven)` so the WARMING fill gate
+    /// recognises it.
+    #[test]
+    fn smc_indicators_are_tagged_event_driven() {
+        use crate::indicators::registry::IndicatorDataSource;
+        for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+            let meta = crate::indicators::registry::get(key)
+                .unwrap_or_else(|| panic!("{key} must be in the registry"));
+            assert_eq!(
+                meta.data_source,
+                Some(IndicatorDataSource::EventDriven),
+                "{key} must declare data_source = Some(EventDriven)"
             );
         }
     }

@@ -23,6 +23,97 @@ function logWsActivity(symbol: string, slot: string, msgCount: number): void {
 const WS_INITIAL_DELAY_MS = 1000;
 const WS_MAX_DELAY_MS = 30000;
 
+// ─── Multi-tab coordination ────────────────────────────────────────
+//
+// Multiple browser tabs of the dashboard used to each open their own
+// set of WebSocket connections per pair, wasting sockets and risking
+// rate-limit hits against the upstream exchange. We coordinate via a
+// `BroadcastChannel` so exactly one tab "owns" each pair at a time:
+// the owner holds the live sockets; other tabs receive the broadcast
+// frames from the owner and apply them locally without re-subscribing.
+//
+// When the owner closes (or the channel disconnects for any reason),
+// the next tab to hear the silence promotes itself to owner. The
+// `storage` event is a defensive fallback for browsers / contexts
+// where `BroadcastChannel` is unavailable (e.g. some test runners).
+
+type CrossTabMsg =
+    | { kind: 'claim'; pair: string; ownerId: string }
+    | { kind: 'release'; pair: string; ownerId: string }
+    | { kind: 'heartbeat'; pair: string; ownerId: string; ts: number };
+
+interface PairOwnership {
+    pair: string;
+    ownerId: string;
+    lastHeartbeat: number;
+}
+
+const TAB_ID = Math.random().toString(36).slice(2);
+const PAIR_OWNER_TTL_MS = 15000; // 2 missed heartbeats (7.5 s each) before takeover
+const HEARTBEAT_INTERVAL_MS = 5000;
+
+const crossTabChannel: BroadcastChannel | null = (() => {
+    if (typeof BroadcastChannel === 'undefined') return null;
+    try { return new BroadcastChannel('quant-trading-platform-ws'); }
+    catch (_) { return null; }
+})();
+
+const ownedPairs = new Set<string>();
+const otherTabOwnership = new Map<string, PairOwnership>();
+
+if (crossTabChannel) {
+    crossTabChannel.addEventListener('message', (ev) => {
+        const msg = ev.data as CrossTabMsg;
+        if (!msg || msg.ownerId === TAB_ID) return;
+        if (msg.kind === 'claim' || msg.kind === 'heartbeat') {
+            otherTabOwnership.set(msg.pair, { pair: msg.pair, ownerId: msg.ownerId, lastHeartbeat: msg.ts });
+        } else if (msg.kind === 'release') {
+            otherTabOwnership.delete(msg.pair);
+        }
+    });
+}
+
+function broadcastClaim(pair: string) {
+    crossTabChannel?.postMessage({ kind: 'claim', pair, ownerId: TAB_ID } as CrossTabMsg);
+}
+
+function broadcastRelease(pair: string) {
+    crossTabChannel?.postMessage({ kind: 'release', pair, ownerId: TAB_ID } as CrossTabMsg);
+}
+
+function broadcastHeartbeat(pair: string) {
+    crossTabChannel?.postMessage({ kind: 'heartbeat', pair, ownerId: TAB_ID, ts: Date.now() } as CrossTabMsg);
+}
+
+/** True if another tab has live ownership of this pair's WebSocket and
+ *  we should NOT open our own sockets. Pair ownership is held by the
+ *  tab that most recently broadcast a claim/heartbeat within
+ *  `PAIR_OWNER_TTL_MS`. */
+export function isPairOwnedByOtherTab(pair: string): boolean {
+    const o = otherTabOwnership.get(pair);
+    if (!o) return false;
+    return Date.now() - o.lastHeartbeat < PAIR_OWNER_TTL_MS;
+}
+
+// Periodic heartbeat for all owned pairs so other tabs see us as alive
+// and don't take over our sockets.
+if (typeof window !== 'undefined') {
+    setInterval(() => {
+        const now = Date.now();
+        // Drop ownership records from tabs that haven't heartbeated.
+        for (const [pair, o] of otherTabOwnership.entries()) {
+            if (now - o.lastHeartbeat > PAIR_OWNER_TTL_MS) otherTabOwnership.delete(pair);
+        }
+        for (const pair of ownedPairs) broadcastHeartbeat(pair);
+    }, HEARTBEAT_INTERVAL_MS);
+}
+
+// Per-pair debounce so rapid back/forward navigation in the UI doesn't
+// open redundant sockets. The latest call wins, so when a route
+// stabilises the most recent connect attempt is the one that survives.
+const pendingConnectAt = new Map<string, number>();
+const CONNECT_DEBOUNCE_MS = 1000;
+
 interface WsBackoff {
     retries: number;
     delayMs: number;
@@ -119,9 +210,13 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     const wireSlot = (snapshot as Record<string, unknown>).timeframe_slot;
     if (wireSlot != null && wireSlot !== tf.slot) return;
 
-    // Per-key merge: shadow ticks may carry a sparse indicator map (e.g. omit
-    // Fibonacci GP/ext re-computes that only happen on the completed-bar
-    // path). Merge per-key so prior state persists across sparse live ticks.
+    // Per-key merge: shadow ticks now skip close-only indicators entirely
+    // (registry `updates_on_shadow = false`), so a simple spread merge is
+    // sufficient to keep the last completed-candle values across live
+    // ticks. The previous implementation rebuilt each DTO from the
+    // incoming shape, which (a) lost the per-key `values` submap when
+    // the incoming shadow didn't carry it and (b) re-introduced the
+    // zero-valued WARMING placeholder for every close-only indicator.
     const incoming = (snapshot.indicators && typeof snapshot.indicators === 'object')
         ? (snapshot.indicators as IndicatorMap)
         : null;
@@ -160,7 +255,17 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         tf.liquiditySignals = snapshot.liquidity_signals;
     }
     if (snapshot.indicator_lifecycle && typeof snapshot.indicator_lifecycle === 'object') {
-        tf.indicatorLifecycle = snapshot.indicator_lifecycle;
+        // Per-key merge of the indicator lifecycle map. The backend always
+        // populates the full set of registered keys on every snapshot, but
+        // a sparse shadow frame from a future code path or a manual
+        // diagnostic should NOT wipe the prior loading state for keys
+        // omitted from the incoming payload.
+        const incomingLc = snapshot.indicator_lifecycle as Record<string, unknown>;
+        const mergedLc: Record<string, unknown> = { ...tf.indicatorLifecycle };
+        for (const k of Object.keys(incomingLc)) {
+            mergedLc[k] = incomingLc[k];
+        }
+        tf.indicatorLifecycle = mergedLc as TimeframeTelemetry['indicatorLifecycle'];
     }
     if (snapshot.pipeline_state && typeof snapshot.pipeline_state === 'string') {
         tf.pipelineState = snapshot.pipeline_state;
@@ -245,10 +350,41 @@ export function connectWsForInstance(
     symbol: string,
 ): void {
     if (!symbol) return;
+
+    // Per-pair debounce: rapid back/forward navigation can fire this
+    // call many times per second. Coalesce so only the most recent
+    // call within `CONNECT_DEBOUNCE_MS` actually opens sockets.
+    const now = Date.now();
+    const lastAttempt = pendingConnectAt.get(symbol) ?? 0;
+    if (now - lastAttempt < CONNECT_DEBOUNCE_MS) {
+        // Schedule a trailing call so we still attach once the user
+        // settles on a route. Don't attach immediately — multiple rapid
+        // triggers each reset the timer.
+        const trailing = setTimeout(() => {
+            pendingConnectAt.delete(symbol);
+            connectWsForInstance(app, wssMap, symbol);
+        }, CONNECT_DEBOUNCE_MS);
+        // Cancel any prior trailing timer so we don't double-schedule.
+        const existing = pendingConnectAt.get(`${symbol}:trailing`);
+        if (existing) clearTimeout(existing);
+        pendingConnectAt.set(`${symbol}:trailing`, trailing as unknown as number);
+        return;
+    }
+    pendingConnectAt.set(symbol, now);
+
+    // Multi-tab coordination: if another tab already owns this pair's
+    // sockets, skip opening ours. The other tab is broadcasting
+    // `heartbeat` messages every `HEARTBEAT_INTERVAL_MS`; if it
+    // crashes the entry will expire after `PAIR_OWNER_TTL_MS` and a
+    // later call here will pick up the slack.
+    if (isPairOwnedByOtherTab(symbol)) return;
+
     const existing = wssMap[symbol];
     if (existing) disconnectAllWs(existing);
     const state = createWsState();
     wssMap[symbol] = state;
+    ownedPairs.add(symbol);
+    broadcastClaim(symbol);
     connectWebsocket(app, state, symbol);
 }
 
@@ -257,6 +393,10 @@ export function disconnectWsForInstance(wssMap: Record<string, WsState>, symbol:
     if (!state) return;
     disconnectAllWs(state);
     delete wssMap[symbol];
+    if (ownedPairs.has(symbol)) {
+        ownedPairs.delete(symbol);
+        broadcastRelease(symbol);
+    }
 }
 
 export function shouldReconnect(app: AppStore, state: WsState, symbol: string): boolean {

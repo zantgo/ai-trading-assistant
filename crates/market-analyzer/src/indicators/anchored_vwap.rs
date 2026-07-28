@@ -90,20 +90,31 @@ impl AnchoredVwap {
 
         AvwapOutput {
             vwap_daily: Decimal::from_f64_retain(daily_vwap).unwrap_or(Decimal::ZERO),
+            // When an anchor bucket has not yet accumulated any volume (e.g.
+            // the very first bar of a fresh week, or sub-minute timeframes
+            // whose candle volume is still rounding to zero), fall back to
+            // the current typical price. Returning `None` would cause the
+            // normalizer at indicators/normalized/all.rs:381 to skip the
+            // entire AVWAP entry, leaving the dashboard indicator stuck in
+            // `WARMING` regardless of how many completed candles exist.
+            // The frontend's `AVWAP_AT_ACTIVE` label already handles the
+            // price-equal case, so this fallback surfaces a coherent
+            // "AVWAP tracks price while volume is zero" reading instead of
+            // hiding the indicator.
             vwap_weekly: if self.wk_vol > Decimal::ZERO {
                 Some(self.wk_tp_vol / self.wk_vol)
             } else {
-                None
+                Some(tp)
             },
             vwap_monthly: if self.mo_vol > Decimal::ZERO {
                 Some(self.mo_tp_vol / self.mo_vol)
             } else {
-                None
+                Some(tp)
             },
             vwap_swing: if self.sw_vol > Decimal::ZERO {
                 Some(self.sw_tp_vol / self.sw_vol)
             } else {
-                None
+                Some(tp)
             },
         }
     }

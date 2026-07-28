@@ -154,9 +154,7 @@ mod tests {
     #[test]
     fn test_first_call_uses_simple_high_low() {
         let mut atr = Atr::new(14);
-        let out = atr
-            .update(110.00, 100.00, 105.00)
-            .unwrap();
+        let out = atr.update(110.00, 100.00, 105.00).unwrap();
         assert_eq!(out.atr_value, dec!(10.00));
     }
 
@@ -164,9 +162,7 @@ mod tests {
     fn test_subsequent_calls_use_true_range() {
         let mut atr = Atr::new(14);
         atr.update(110.00, 100.00, 105.00);
-        let out = atr
-            .update(108.00, 102.00, 104.00)
-            .unwrap();
+        let out = atr.update(108.00, 102.00, 104.00).unwrap();
         assert!(out.atr_value > dec!(0.00));
     }
 
@@ -176,14 +172,8 @@ mod tests {
         for _ in 0..6 {
             atr.update(101.00, 99.00, 100.00);
         }
-        let normal = atr
-            .update(101.00, 99.00, 100.00)
-            .unwrap()
-            .atr_value;
-        let spike = atr
-            .update(120.00, 80.00, 100.00)
-            .unwrap()
-            .atr_value;
+        let normal = atr.update(101.00, 99.00, 100.00).unwrap().atr_value;
+        let spike = atr.update(120.00, 80.00, 100.00).unwrap().atr_value;
         assert!(spike > normal, "ATR should increase on volatility spike");
     }
 

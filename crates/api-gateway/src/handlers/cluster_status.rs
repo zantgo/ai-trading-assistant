@@ -146,8 +146,7 @@ async fn read_slot_status(
     // monotonically-decreasing number that operators can correlate
     // with the refresh cadence.
     let mut snap = guard.clone();
-    if snap.status == core_domain::liquidity::ClusterRefreshStatus::Ok
-        && snap.ttl_remaining_ms < 0
+    if snap.status == core_domain::liquidity::ClusterRefreshStatus::Ok && snap.ttl_remaining_ms < 0
     {
         snap.status = core_domain::liquidity::ClusterRefreshStatus::Stale;
     }

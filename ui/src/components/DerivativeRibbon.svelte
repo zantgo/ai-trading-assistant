@@ -51,9 +51,15 @@
         return 'LIVE';
     }
 
-    /// Per-metric last-update tracker. Keyed by the WS envelope's
-    /// `timestamp` field so a live ticker bump moves the cursor even if
-    /// the metric value itself stays at the same number.
+    /// Per-metric last-update tracker. Each entry is bumped independently
+    /// whenever that metric's underlying `raw_value` changes (or the
+    /// `latestSnapshot.timestamp` advances). Keying on value-change rather
+    /// than snapshot-timestamp fixes a Bitget-specific regression where
+    /// derivatives status flipped to `STALE` between candle closes (Bitget
+    /// pushes OI/funding/OBI on every WS frame, while HL only updates on
+    /// the 60 s poller tick — which coincides with the candle cadence).
+    /// Both exchanges now have identical semantics: status reflects the
+    /// last time the metric's value actually moved.
     let lastSeen = $state<Record<string, number | null>>({
         open_interest: null,
         oi_delta: null,
@@ -63,19 +69,24 @@
         depth_bias: null,
     });
 
+    function bumpLastSeen(key: string, ts: number): void {
+        if (lastSeen[key] === ts) return;
+        lastSeen = { ...lastSeen, [key]: ts };
+    }
+
     $effect(() => {
+        // Bump the cursor only for the keys whose underlying value
+        // actually moved on this frame — that's how Bitget's per-frame
+        // derivatives ticks become visible without waiting for the next
+        // candle close.
         const ts = (snap?.timestamp ?? null) as number | null;
         if (ts == null || ts <= 0) return;
-        // Snapshot delivered — bump every metric to "this is the last time
-        // we heard about you", regardless of whether the value is null.
-        lastSeen = {
-            open_interest: ts,
-            oi_delta: ts,
-            funding_rate: ts,
-            order_flow_imbalance: ts,
-            spread: ts,
-            depth_bias: ts,
-        };
+        if (oiRaw != null) bumpLastSeen('open_interest', ts);
+        if (oiDeltaRaw != null) bumpLastSeen('oi_delta', ts);
+        if (fundingRaw != null) bumpLastSeen('funding_rate', ts);
+        if (ofiRaw != null) bumpLastSeen('order_flow_imbalance', ts);
+        if (spreadRaw != null) bumpLastSeen('spread', ts);
+        if (depthRaw != null) bumpLastSeen('depth_bias', ts);
     });
 
     const oiStatus = $derived(computeStatus(oiRaw, lastSeen['open_interest']));

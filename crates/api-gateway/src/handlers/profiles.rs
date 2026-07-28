@@ -171,8 +171,13 @@ pub async fn serve_profile_indicator_update(
     } else {
         &payload.override_status
     };
-    let ok = database_storage::profile_indicator_update(&state.pool, indicator_id, payload.weight, status)
-        .await;
+    let ok = database_storage::profile_indicator_update(
+        &state.pool,
+        indicator_id,
+        payload.weight,
+        status,
+    )
+    .await;
     if ok {
         (axum::http::StatusCode::OK, "Indicator updated").into_response()
     } else {

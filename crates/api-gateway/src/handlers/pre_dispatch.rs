@@ -22,9 +22,7 @@ pub struct PreDispatchOrder {
     pub reason: String,
 }
 
-pub async fn list_pre_dispatch(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn list_pre_dispatch(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let orders = state.execution_engine.orders.read().await;
     let pre_dispatch: Vec<PreDispatchOrder> = orders
         .iter()

@@ -53,6 +53,7 @@
     import DerivativeRibbon from './DerivativeRibbon.svelte';
     import PaneGroupHeader from './PaneGroupHeader.svelte';
     import FullscreenToolbar from './FullscreenToolbar.svelte';
+    import LiquidityStatusPanel from './LiquidityStatusPanel.svelte';
     import { chartsWithin } from '../chartRegistry.svelte';
     import { composeChartScreenshots } from '../lib/chartScreenshot';
 
@@ -269,6 +270,7 @@
         {@const activeLabel = activeLabelFor(activeTf)}
 
         <ChartToggles {pairKey} />
+        <LiquidityStatusPanel symbol={pairKey} />
         <div class={styles.workspaceSidebar}>
             <aside class={styles.tfSidebar}>
                 <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>

@@ -34,13 +34,38 @@ pub enum IndicatorClass {
 
 /// Data source for an indicator.  Candle-based indicators are gated on the
 /// canonical buffer fill; WebSocket-derived indicators (derivatives, order-book
-/// depth) are exempt from the candle count gate and appear immediately when
-/// their WS data arrives.
+/// depth) and event-driven indicators (SMC: BOS, CHoCH, FVG, OB, sweeps) are
+/// exempt from the candle count gate and appear the moment their data
+/// source produces a reading.
+///
+/// The variant drives three sites in the analyzer:
+///
+///   1. `bars_needed(key)` in `crates/market-analyzer/src/analyzer/normalize.rs`
+///      — `CandleBased` honors `bars_required`; everything else returns 0 so
+///      the `map.retain(|key, _| ready(key))` gate at the end of
+///      `build_indicator_map` doesn't evict a never-populated WS / event
+///      entry.
+///   2. The WARMING fill block in
+///      `crates/market-analyzer/src/indicators/normalized/all.rs` — the fill
+///      is skipped for non-`CandleBased` entries so we never publish a
+///      `raw_value = 0.0` placeholder for an indicator whose contract is
+///      "emit a value only when an event / WS message arrives".
+///   3. The `data_source` field is serialized to the frontend registry
+///      endpoint so future UI affordances (e.g. "Awaiting feed" badge) can
+///      distinguish WS-fed rows from candle-warmup rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum IndicatorDataSource {
     CandleBased,
     OrderBook,
     DerivativesWs,
+    /// Event-driven (BOS / CHoCH / FVG / order block / liquidity sweep).
+    /// No candle warmup — the first reading appears the moment an event is
+    /// detected in the running window. `bars_required` is still meaningful
+    /// for the lifecycle's `Loading → Live` transition (the calculator needs
+    /// enough bars to bootstrap), but the WARMING fill is suppressed so the
+    /// indicator is absent from the snapshot's indicator map until the
+    /// first event arrives.
+    EventDriven,
 }
 
 impl Default for IndicatorDataSource {
@@ -60,6 +85,37 @@ pub enum RenderKind {
     PriceLevels,
     /// Event markers only (no dedicated series).
     Marker,
+}
+
+/// How the indicator contributes to the directional confluence / UI Norm column.
+///
+/// Wired into the registry so that the Metrics table can render the right
+/// placeholder for indicators that have no directional vote: gates display
+/// `N/A` (the directional accumulator ignores them), event-only overlays
+/// (Hull MA) display `N/A` because the spec defines them as raw-only
+/// references, and standard directional indicators expose the real
+/// `[-1.0, 1.0]` score. This is the single source of truth consumed by the
+/// frontend's `IndicatorMeta.normalization_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IndicatorNormalizationMode {
+    /// Standard directional indicator — emits a real `[-1, 1]` score.
+    Directional,
+    /// Non-directional context gate — `normalized` is always 0.0 by contract;
+    /// the directional accumulator ignores it. UI shows `N/A` in the Norm
+    /// column to honor the contract.
+    ContextOnly,
+    /// Event-only overlay / cross-over source — `normalized` is always 0.0
+    /// by contract; the value is read from `raw_value` or `values` for
+    /// overlays (e.g. Hull MA). The directional contribution is conveyed
+    /// via `state_label` and discrete signals — it is consumed by event-
+    /// driven TAE policies, not by the directional confluence.
+    EventOnly,
+}
+
+impl Default for IndicatorNormalizationMode {
+    fn default() -> Self {
+        Self::Directional
+    }
 }
 
 /// Static metadata describing one indicator end-to-end.
@@ -106,10 +162,20 @@ pub struct IndicatorMeta {
     /// `None` defaults to `CandleBased` at the gate site.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_source: Option<IndicatorDataSource>,
+    /// How this indicator contributes to the directional confluence and the
+    /// Normalized Indicator column. Drives both the backend scoring
+    /// accumulator (which gates must skip) and the frontend Metrics-table
+    /// rendering (`N/A` vs `0.00` vs the real `[-1, 1]` score). See
+    /// [`IndicatorNormalizationMode`] for the canonical per-mode contract.
+    /// `None` defaults to `Directional` at the gate site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalization_mode: Option<IndicatorNormalizationMode>,
 }
 
 use IndicatorClass::*;
+use IndicatorDataSource::*;
 use IndicatorGroup::*;
+use IndicatorNormalizationMode::*;
 use RenderKind::*;
 use SignalKind::*;
 
@@ -135,6 +201,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "6",
         bars_required: 200,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -155,6 +222,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "14",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -175,6 +243,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "16",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -199,6 +268,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "15",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -219,6 +289,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "4",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -239,6 +310,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "7",
         bars_required: 1,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -254,11 +326,16 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         default_enabled: true,
         config_params: &[],
         value_format: "price",
-        value_source: "sub:vwap_weekly",
+        // The normalizer publishes the weekly level under the `weekly`
+        // sub-key (see crates/market-analyzer/src/indicators/normalized/all.rs
+        // ::anchored_vwap block).  The previous `sub:vwap_weekly` key never
+        // matched and rendered `--` in the Metrics Raw column.
+        value_source: "sub:weekly",
         color: "#ffab40",
         guide_section: "34",
         bars_required: 1,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -282,8 +359,17 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:tenkan",
         color: "#7e57c2",
         guide_section: "25",
-        bars_required: 52,
+        // Ichimoku's smallest configured window is Tenkan (9). The strict
+        // `update()` requires `senkou_b_period=52` for the full cloud, but
+        // the soft-floor `update_with_min_bars(min_bars=9)` variant in
+        // ichimoku.rs surfaces a partial reading (Tenkan-line only, no
+        // cloud) at 9 bars and progressively fills in Kijun (26) and Senkou
+        // B (52) as history grows. The lifecycle gate therefore matches the
+        // soft-floor floor, so the dashboard flips to Live as soon as
+        // Tenkan becomes computable.
+        bars_required: 9,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     // ─────────── MOMENTUM ───────────
@@ -305,6 +391,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "1",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -325,6 +412,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "12",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -345,6 +433,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "13",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -365,6 +454,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "28",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -383,9 +473,20 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff8a65",
         guide_section: "29",
-        bars_required: 200,
+        // Hull MA's defining feature is *low lag* — the registry gate was
+        // previously set to 200, which is wildly out of line with both the
+        // default `hull_ma_period=21` and the soft-floor min_bars=5 floor
+        // used in warm/live paths. 14 matches `period/2` rounded up with a
+        // safety margin and is small enough that sub-minute TFs where the
+        // live pipeline has just 20 candles still surface a Live state.
+        bars_required: 14,
         data_source: None,
         updates_on_shadow: false,
+        // HMA is a chart overlay (directional Crossover source whose
+        // directional contribution is conveyed via state_label and discrete
+        // signals, not via the normalized score).  See
+        // docs/engines/market-monitoring-engine/indicators/04-02-10-hull-ma.md
+        normalization_mode: Some(EventOnly),
     },
     IndicatorMeta {
         key: "awesome_oscillator",
@@ -405,6 +506,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "30",
         bars_required: 34,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -425,6 +527,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "31",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -445,6 +548,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "32",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -465,6 +569,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "26",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -485,6 +590,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "2",
         bars_required: 26,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     // ─────────── VOLUME ───────────
@@ -507,6 +613,10 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 1,
         data_source: None,
         updates_on_shadow: true,
+        // Non-directional gate: `normalized` is contractually 0.0; the raw
+        // volume value + climax label carry the signal. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-18-volume.md §6.
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "rvol",
@@ -527,6 +637,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 20,
         data_source: None,
         updates_on_shadow: true,
+        // Non-directional gate: per the v2.1 contract, `normalized` is
+        // contractually 0.0 and the signed 4-band value lives in
+        // `values.rvol_band`. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-19-rvol.md §3.
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "volume_profile",
@@ -550,6 +665,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "33",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -570,6 +686,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "17",
         bars_required: 1,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -590,6 +707,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "18",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -610,6 +728,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "19",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     // ─────────── VOLATILITY ───────────
@@ -632,6 +751,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 14,
         data_source: None,
         updates_on_shadow: true,
+        // Non-directional gate: `normalized` is contractually 0.0; the
+        // regime classifier (Expanding/Contracting/Stable) carries the
+        // signal. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-25-atr.md §6.
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "bollinger",
@@ -651,6 +775,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "5",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -672,6 +797,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 20,
         data_source: None,
         updates_on_shadow: true,
+        // Non-directional gate: BBWP carries no directional bias;
+        // `normalized` is contractually 0.0 and the confidence axis / raw
+        // band drives the regime. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-27-bbwp.md §6.
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "squeeze",
@@ -691,6 +821,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "3",
         bars_required: 20,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -712,6 +843,10 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 20,
         data_source: None,
         updates_on_shadow: true,
+        // Non-directional gate: `normalized` is contractually 0.0; the
+        // volatility regime label carries the signal. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-29-hv.md §3.
+        normalization_mode: Some(ContextOnly),
     },
     // ─────────── MARKET STRUCTURE ───────────
     IndicatorMeta {
@@ -732,6 +867,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "8",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -752,6 +888,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "8",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -772,6 +909,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "8",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -790,8 +928,14 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:sar",
         color: "#ffab40",
         guide_section: "27",
-        bars_required: 50,
+        // PSAR seeds on the very first bar (see psar.rs::ParabolicSar::update),
+        // so the calculator produces a meaningful trailing-stop reading from
+        // bar 1. The previous gate of 50 had no mathematical basis and only
+        // served to evict otherwise valid readings via the lifecycle retain
+        // check in analyzer/normalize.rs.
+        bars_required: 1,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -812,6 +956,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "10",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -832,6 +977,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "10",
         bars_required: 50,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     // ─────────── MARKET REGIME ───────────
@@ -853,6 +999,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "21",
         bars_required: 25,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -874,6 +1021,10 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 14,
         data_source: None,
         updates_on_shadow: true,
+        // Non-directional regime gate: `normalized` is contractually 0.0.
+        // See
+        // docs/engines/market-monitoring-engine/indicators/04-02-37-choppiness.md
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "linreg_slope",
@@ -893,6 +1044,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "23",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     IndicatorMeta {
@@ -913,6 +1065,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "24",
         bars_required: 14,
         data_source: None,
+        normalization_mode: None,
         updates_on_shadow: true,
     },
     // ─────────── ADVANCED ───────────
@@ -933,7 +1086,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffab40",
         guide_section: "34",
         bars_required: 50,
-        data_source: None,
+        // Event-driven: an entry only appears once BOS/CHoCH is detected.
+        // Suppresses the WARMING placeholder so a ranging market doesn't
+        // leak a misleading 0.0 into the indicator map.
+        data_source: Some(EventDriven),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -953,7 +1110,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff7043",
         guide_section: "34",
         bars_required: 50,
-        data_source: None,
+        data_source: Some(EventDriven),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -973,7 +1131,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffca28",
         guide_section: "34",
         bars_required: 50,
-        data_source: None,
+        data_source: Some(EventDriven),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -993,7 +1152,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#8d6e63",
         guide_section: "34",
         bars_required: 50,
-        data_source: None,
+        data_source: Some(EventDriven),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
@@ -1016,6 +1176,10 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
         updates_on_shadow: false,
+        // Non-directional gate: `normalized` is contractually 0.0; OI Delta
+        // and OI-Price Divergence carry the directional signal. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-44-open-interest.md
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "oi_delta",
@@ -1035,6 +1199,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "35",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -1056,6 +1221,10 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
         updates_on_shadow: false,
+        // Non-directional gate: `normalized` is contractually 0.0; the
+        // raw funding rate value + extreme label carry the signal. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-46-funding-rate.md
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "oi_price_divergence",
@@ -1075,6 +1244,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "35",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::DerivativesWs),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     // ─────────── ORDER BOOK DEPTH (Phase 2) ───────────
@@ -1096,6 +1266,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "37",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::OrderBook),
+        normalization_mode: None,
         updates_on_shadow: false,
     },
     IndicatorMeta {
@@ -1117,6 +1288,10 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         bars_required: 1,
         data_source: Some(IndicatorDataSource::OrderBook),
         updates_on_shadow: false,
+        // Non-directional gate: `normalized` is contractually 0.0; the
+        // widening/tight label carries the signal. See
+        // docs/engines/market-monitoring-engine/indicators/04-02-49-spread.md
+        normalization_mode: Some(ContextOnly),
     },
     IndicatorMeta {
         key: "depth_bias",
@@ -1136,6 +1311,35 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         guide_section: "37",
         bars_required: 1,
         data_source: Some(IndicatorDataSource::OrderBook),
+        normalization_mode: None,
+        updates_on_shadow: false,
+    },
+    // ── MARK-INDEX SPREAD (cross-cuts derivatives + orderbook telemetry) ──
+    // Injected by `analyzer::inject_derivatives_indicators` from
+    // `latest_mark_px` / `latest_index_px`. Until v6.6 it was emitted into
+    // the indicator map but had no registry entry, so the Metrics table
+    // filtered it out via `filterRegistry`. Tagging it here makes it
+    // visible to the dashboard (Raw column = spread %, Norm column = N/A
+    // because `normalization_mode = ContextOnly`).
+    IndicatorMeta {
+        key: "mark_index_spread",
+        display_name: "Mark-Index Spread",
+        group: DerivativesData,
+        class: Hybrid,
+        render: Pane,
+        directional: false,
+        supports_divergence: false,
+        signal_types: &[Threshold],
+        default_weight: 1.0,
+        default_enabled: true,
+        config_params: &[],
+        value_format: "percent1",
+        value_source: "raw",
+        color: "#e91e63",
+        guide_section: "35",
+        bars_required: 1,
+        data_source: Some(DerivativesWs),
+        normalization_mode: Some(ContextOnly),
         updates_on_shadow: false,
     },
 ];
@@ -1155,6 +1359,30 @@ pub const INDICATORS_MAX_BARS_REQUIRED: u32 = 200;
 /// Look up an indicator's metadata by key.
 pub fn get(key: &str) -> Option<&'static IndicatorMeta> {
     INDICATORS.iter().find(|m| m.key == key)
+}
+
+/// Return the effective normalization mode for an indicator entry.
+///
+/// `Some(mode)` uses the registry-declared value; `None` defaults to
+/// [`IndicatorNormalizationMode::Directional`]. This is the canonical
+/// helper for backend scoring consumers and the frontend Metrics table —
+/// keeping the default-resolution here means the wired registry metadata
+/// is the only source of truth and ad-hoc `is ContextOnly?` checks cannot
+/// drift from the manifest.
+pub fn normalization_mode_for(meta: &IndicatorMeta) -> IndicatorNormalizationMode {
+    meta.normalization_mode.unwrap_or_default()
+}
+
+/// `true` when the indicator's `normalized` score should be displayed
+/// verbatim (`-1.0..=1.0`) in the UI Norm column. Returns `false` for
+/// [`IndicatorNormalizationMode::ContextOnly`] (gate) and
+/// [`IndicatorNormalizationMode::EventOnly`] (overlay) indicators, both
+/// of which must render `N/A` to honor the published contract.
+pub fn is_directional_norm(meta: &IndicatorMeta) -> bool {
+    matches!(
+        normalization_mode_for(meta),
+        IndicatorNormalizationMode::Directional
+    )
 }
 
 #[cfg(test)]
@@ -1179,8 +1407,50 @@ mod tests {
     #[test]
     fn test_directional_and_gate_counts() {
         let gates = INDICATORS.iter().filter(|m| !m.directional).count();
-        // atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread, open_interest
-        assert_eq!(gates, 9, "expected 9 non-directional gate indicators");
+        // atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread,
+        // open_interest, mark_index_spread
+        assert_eq!(
+            gates, 10,
+            "expected 10 non-directional gate indicators (added mark_index_spread)"
+        );
+    }
+
+    /// Regression: `mark_index_spread` is injected by
+    /// `inject_derivatives_indicators` but had no registry entry — the
+    /// Metrics Indicators table filtered it out via `filterRegistry`
+    /// and the row was invisible. After adding the entry the dashboard
+    /// shows the spread %, Norm column = `N/A` (ContextOnly).
+    #[test]
+    fn mark_index_spread_is_registered_with_derivatives_data_source() {
+        let m = get("mark_index_spread").expect("mark_index_spread registered");
+        assert_eq!(
+            m.data_source,
+            Some(IndicatorDataSource::DerivativesWs),
+            "mark_index_spread must declare data_source = DerivativesWs so the WARMING fill is suppressed"
+        );
+        assert_eq!(
+            m.normalization_mode,
+            Some(IndicatorNormalizationMode::ContextOnly),
+            "mark_index_spread is a non-directional context gate"
+        );
+        assert_eq!(m.group, IndicatorGroup::DerivativesData);
+        assert_eq!(m.value_format, "percent1");
+        assert_eq!(m.value_source, "raw");
+    }
+
+    #[test]
+    fn test_anchored_vwap_sub_key_resolves_to_weekly() {
+        // Regression: the registry's `value_source` must match the key
+        // that `normalize_anchored_vwap` inserts into the `values` submap.
+        // The legacy `sub:vwap_weekly` never matched any inserted key
+        // (which used `weekly` / `monthly` / `swing`) and rendered `--`
+        // in the Metrics Raw column.
+        let avwap = get("anchored_vwap").expect("anchored_vwap registered");
+        assert_eq!(
+            avwap.value_source, "sub:weekly",
+            "anchored_vwap registry sub-key must point at the `weekly` \
+             level that the normalizer inserts (not `sub:vwap_weekly`)",
+        );
     }
 
     #[test]
@@ -1206,5 +1476,90 @@ mod tests {
             max_bars, INDICATORS_MAX_BARS_REQUIRED,
             "INDICATORS_MAX_BARS_REQUIRED must match the actual maximum bars_required"
         );
+    }
+
+    #[test]
+    fn test_normalization_mode_context_only_matches_non_directional_gates() {
+        // Every registry indicator flagged `directional: false` must also be
+        // wired to `ContextOnly` so the Metrics column renders `N/A` and
+        // the directional accumulator skips them. Drift between the two
+        // flags is the regression this test catches.
+        for m in INDICATORS {
+            if !m.directional {
+                assert_eq!(
+                    normalization_mode_for(m),
+                    IndicatorNormalizationMode::ContextOnly,
+                    "non-directional gate '{}' must be ContextOnly",
+                    m.key,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_normalization_mode_hull_ma_is_event_only() {
+        let hma = get("hull_ma").expect("hull_ma registered");
+        assert_eq!(
+            normalization_mode_for(hma),
+            IndicatorNormalizationMode::EventOnly,
+            "Hull MA is the canonical event-only overlay indicator"
+        );
+    }
+
+    #[test]
+    fn test_normalization_mode_default_is_directional() {
+        // Verify the explicit per-entry wire: 10 context-only + 1 event-only
+        // entries; everything else stays Directional (registry default).
+        // `mark_index_spread` was added in the parity sweep (Phase 1.2).
+        let ctx_only: Vec<&str> = INDICATORS
+            .iter()
+            .filter(|m| {
+                matches!(
+                    normalization_mode_for(m),
+                    IndicatorNormalizationMode::ContextOnly
+                )
+            })
+            .map(|m| m.key)
+            .collect();
+        let event_only: Vec<&str> = INDICATORS
+            .iter()
+            .filter(|m| {
+                matches!(
+                    normalization_mode_for(m),
+                    IndicatorNormalizationMode::EventOnly
+                )
+            })
+            .map(|m| m.key)
+            .collect();
+        assert_eq!(ctx_only.len(), 10, "10 context-only gate indicators expected");
+        assert!(
+            ctx_only.contains(&"mark_index_spread"),
+            "mark_index_spread must be in the ContextOnly bucket"
+        );
+        assert_eq!(
+            event_only.len(),
+            1,
+            "1 event-only indicator expected (Hull MA)"
+        );
+        assert!(event_only.contains(&"hull_ma"));
+    }
+
+    #[test]
+    fn test_is_directional_norm_helper_matches_normalization_mode() {
+        // The `is_directional_norm()` helper is the single source of truth
+        // for the UI Norm column. Every Directional indicator must report
+        // `true`; every other mode must report `false`.
+        for m in INDICATORS {
+            let expected = matches!(
+                normalization_mode_for(m),
+                IndicatorNormalizationMode::Directional
+            );
+            assert_eq!(
+                is_directional_norm(m),
+                expected,
+                "is_directional_norm mismatch for {}",
+                m.key,
+            );
+        }
     }
 }

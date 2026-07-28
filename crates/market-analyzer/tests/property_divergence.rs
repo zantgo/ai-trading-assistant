@@ -1,5 +1,5 @@
-use proptest::prelude::*;
 use market_analyzer::indicators::{DivergenceDetector, DivergenceStatus, DivergenceType};
+use proptest::prelude::*;
 
 proptest! {
     #[test]

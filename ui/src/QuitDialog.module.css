@@ -98,3 +98,18 @@
     animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Inline error surfaced when the quit call fails or times out. Shown
+   for `ERROR_DISMISS_MS` (3 s) before the dialog auto-closes, so the
+   user actually reads it before the modal vanishes. */
+.quitError {
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.25);
+    border-radius: 6px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 1.2rem 0;
+    text-align: left;
+}

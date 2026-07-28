@@ -130,6 +130,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
+            None,
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

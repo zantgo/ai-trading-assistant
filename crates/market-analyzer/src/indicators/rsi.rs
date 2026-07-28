@@ -111,7 +111,10 @@ mod tests {
             rsi.update(price);
         }
         let result = rsi.update(price + 1.00).unwrap();
-        assert!(result > Decimal::from_f64_retain(50.00).unwrap(), "All gains should yield RSI > 50");
+        assert!(
+            result > Decimal::from_f64_retain(50.00).unwrap(),
+            "All gains should yield RSI > 50"
+        );
     }
 
     #[test]
@@ -146,11 +149,7 @@ mod tests {
         let mut rsi = Rsi::new(14);
         rsi.update(100.00);
         for i in 0..50 {
-            let price = if i % 2 == 0 {
-                200.00
-            } else {
-                10.00
-            };
+            let price = if i % 2 == 0 { 200.00 } else { 10.00 };
             if let Some(val) = rsi.update(price) {
                 assert!(
                     val >= dec!(0.00),

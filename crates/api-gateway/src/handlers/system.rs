@@ -1,4 +1,6 @@
-use crate::types::{DecisionMemoryBufferRow, ObservabilityBuffersResponse, SystemStatusResponse, WsQuery};
+use crate::types::{
+    DecisionMemoryBufferRow, ObservabilityBuffersResponse, SystemStatusResponse, WsQuery,
+};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
@@ -12,10 +14,19 @@ pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl Int
     let lat = state.latency_tracker.snapshot();
 
     let report = state.exchange_status.report().await;
-    let connected = report.exchanges.iter().any(|e| matches!(e.state, network_adapters::exchange_status_tracker::ExchangeConnectionState::Connected));
+    let connected = report.exchanges.iter().any(|e| {
+        matches!(
+            e.state,
+            network_adapters::exchange_status_tracker::ExchangeConnectionState::Connected
+        )
+    });
 
     let capital = state.execution_engine.capital.read().await;
-    let total_allocated_margin = capital.reserved_margin.to_string().parse::<f64>().unwrap_or(0.0);
+    let total_allocated_margin = capital
+        .reserved_margin
+        .to_string()
+        .parse::<f64>()
+        .unwrap_or(0.0);
 
     let response = SystemStatusResponse {
         connected,
@@ -37,7 +48,14 @@ pub async fn serve_observability_buffers(
 ) -> impl IntoResponse {
     let symbol = if query.symbol.is_empty() {
         let _cfg = state.platform.read().await;
-        state.workspace.config().await.declared_symbols().first().cloned().unwrap_or_default()
+        state
+            .workspace
+            .config()
+            .await
+            .declared_symbols()
+            .first()
+            .cloned()
+            .unwrap_or_default()
     } else {
         query.symbol
     };

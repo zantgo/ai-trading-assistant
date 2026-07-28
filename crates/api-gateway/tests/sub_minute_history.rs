@@ -21,6 +21,7 @@ use market_analyzer::sr_engine::SrRoleTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::{Instance, TimeframeBuffers};
+use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
@@ -40,7 +41,9 @@ async fn build_router_with_snapshots(
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
         .expect("in-memory sqlite");
-    database_storage::run_migrations(&pool).await.expect("migrations");
+    database_storage::run_migrations(&pool)
+        .await
+        .expect("migrations");
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
     symbol_mapper
@@ -77,11 +80,15 @@ async fn build_router_with_snapshots(
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+        )),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
     };
 
     let active_pair = Arc::new(ActivePair {
@@ -126,6 +133,7 @@ async fn build_router_with_snapshots(
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".into(), "USDT".into()),
+        ExchangeChoice::Hyperliquid,
         active_pair.clone(),
         pool.clone(),
         workspace.clone(),
@@ -168,11 +176,11 @@ async fn build_router_with_snapshots(
 
 fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
     let close = rust_decimal::Decimal::from_f64_retain(close_val).unwrap();
-    let open  = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap();
-    let high  = rust_decimal::Decimal::from_f64_retain(close_val + 5.0).unwrap();
-    let low   = rust_decimal::Decimal::from_f64_retain(close_val - 10.0).unwrap();
-    let bid   = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap();
-    let ask   = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap();
+    let open = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap();
+    let high = rust_decimal::Decimal::from_f64_retain(close_val + 5.0).unwrap();
+    let low = rust_decimal::Decimal::from_f64_retain(close_val - 10.0).unwrap();
+    let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap();
+    let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap();
     MarketSnapshot {
         timeframe_slot: Some(TimeframeSlot::Micro),
         exchange: Some(Exchange::Hyperliquid),
@@ -214,8 +222,8 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
-    pipeline_state: core_domain::models::CandlePipelineState::default(),
-    indicator_lifecycle: std::collections::HashMap::new(),
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
     }
 }
 

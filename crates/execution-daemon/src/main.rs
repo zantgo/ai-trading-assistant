@@ -182,7 +182,11 @@ async fn main() {
     verify_encryption_or_panic(&db_pool).await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
-    let liq_retention_days = 7u32;
+    // Read the liquidation-event retention window from the user's
+    // `[workspace.liquidity]` config. The legacy hardcoded `7u32` was
+    // 5x shorter than the configured 90 days and prematurely aged out
+    // event rows that operators still wanted to query.
+    let liq_retention_days = workspace.liquidity.event_retention_days.max(1);
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {

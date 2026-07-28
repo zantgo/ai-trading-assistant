@@ -29,9 +29,7 @@ use tokio_util::sync::CancellationToken;
 
 fn make_test_config(duration_seconds: u64) -> TimeframeConfig {
     TimeframeConfig {
-        candles: config_models::CandlesConfig {
-            duration_seconds,
-        },
+        candles: config_models::CandlesConfig { duration_seconds },
         indicators: IndicatorsConfig::default(),
     }
 }
@@ -89,6 +87,7 @@ async fn spawn_analyzer(
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
+            None,
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -105,7 +104,9 @@ async fn spawn_analyzer(
     })
 }
 
-async fn drain(broadcast_rx: &mut tokio::sync::broadcast::Receiver<core_domain::models::MarketSnapshot>) -> Vec<core_domain::models::MarketSnapshot> {
+async fn drain(
+    broadcast_rx: &mut tokio::sync::broadcast::Receiver<core_domain::models::MarketSnapshot>,
+) -> Vec<core_domain::models::MarketSnapshot> {
     let mut snapshots = Vec::new();
     let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
     loop {

@@ -1,8 +1,8 @@
-use network_adapters::connection_quality_tracker::{ConnectionQualityReport, QualityWindow};
 use crate::AppState;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
+use network_adapters::connection_quality_tracker::{ConnectionQualityReport, QualityWindow};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -32,7 +32,12 @@ pub async fn get_connection_quality(
             .scoped_report(pair_key, tf_secs, window, now_ms)
             .await
             .ok_or(StatusCode::NOT_FOUND)?,
-        _ => state.connection_quality.aggregate_report(window, now_ms).await,
+        _ => {
+            state
+                .connection_quality
+                .aggregate_report(window, now_ms)
+                .await
+        }
     };
     Ok(Json(report))
 }

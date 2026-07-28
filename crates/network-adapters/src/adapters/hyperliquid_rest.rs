@@ -290,18 +290,30 @@ pub async fn fetch_meta_and_asset_ctxs(
 /// the analyzer expects. Each non-`None` field yields exactly one event.
 /// `internal_symbol` is the unified workspace symbol (e.g. "BTC-USDT")
 /// used on every emitted event.
+///
+/// **OI unit conversion**: Hyperliquid's `openInterest` field is in
+/// **base-asset units** (e.g. 39,925 BTC for BTC perpetuals), not USD.
+/// The cluster estimator downstream treats `total_oi_usd` as a USD notional,
+/// so we multiply by `markPx` here. If `markPx` is missing or non-positive
+/// we skip emitting an OI event rather than propagate the wrong-unit value
+/// (which would poison cluster confidence — see
+/// `docs/engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md`
+/// §3.2 "OI unit conversion").
 pub fn derivatives_ctx_to_events(
     internal_symbol: &str,
     ctx: &HlDerivativesCtx,
     prev_oi: Option<Decimal>,
 ) -> Vec<NormalizedEvent> {
     let mut out = Vec::with_capacity(3);
-    if let Some(oi) = ctx.open_interest {
-        out.push(NormalizedEvent::OpenInterest(OpenInterestEvent {
-            symbol: internal_symbol.to_string(),
-            oi,
-            prev_oi,
-        }));
+    if let (Some(oi), Some(mark)) = (ctx.open_interest, ctx.mark_px) {
+        if oi > Decimal::ZERO && mark > Decimal::ZERO {
+            let oi_usd = oi * mark;
+            out.push(NormalizedEvent::OpenInterest(OpenInterestEvent {
+                symbol: internal_symbol.to_string(),
+                oi: oi_usd,
+                prev_oi: prev_oi.map(|p| p * mark),
+            }));
+        }
     }
     if let Some(rate) = ctx.funding {
         out.push(NormalizedEvent::FundingRate(FundingRateEvent {

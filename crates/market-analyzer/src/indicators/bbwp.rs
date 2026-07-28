@@ -97,7 +97,10 @@ mod tests {
         let result = bbwp.update(100.00);
         assert!(result.is_some());
         let percentile = result.unwrap();
-        assert!(percentile >= Decimal::from_f64_retain(0.00).unwrap() && percentile <= Decimal::from_f64_retain(100.00).unwrap());
+        assert!(
+            percentile >= Decimal::from_f64_retain(0.00).unwrap()
+                && percentile <= Decimal::from_f64_retain(100.00).unwrap()
+        );
     }
 
     #[test]

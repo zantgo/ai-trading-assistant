@@ -226,7 +226,10 @@ pub fn compute_overview(
     let long_pct = long_count as f64 / total;
     let short_pct = short_count as f64 / total;
     let neutral_pct = neutral_count as f64 / total;
-    let is_synced = matches!(sync, SyncLevel::HighlySynchronized | SyncLevel::Synchronized);
+    let is_synced = matches!(
+        sync,
+        SyncLevel::HighlySynchronized | SyncLevel::Synchronized
+    );
 
     let global_bias = if long_pct >= 0.8 && is_synced {
         GlobalBias::StrongBullish

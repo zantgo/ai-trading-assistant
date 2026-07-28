@@ -297,6 +297,7 @@ pub async fn run_for_symbol(
     event_tx: Sender<NormalizedEvent>,
     cancel: CancellationToken,
     ws_url: &str,
+    user_address: &str,
 ) {
     let url = match url::Url::parse(ws_url) {
         Ok(u) => u,
@@ -329,11 +330,28 @@ pub async fn run_for_symbol(
         serde_json::json!({"type": "l2Book", "coin": &symbol}),
         serde_json::json!({"type": "activeAssetCtx", "coin": &symbol}),
         // Phase 1: userFills channel exposes real liquidation events.
-        // A fill where the position was force-closed (closedPnl strongly
-        // negative, dir indicates the closing side) is a liquidation.
-        serde_json::json!({"type": "userFills", "coin": &symbol, "user": "0x0000000000000000000000000000000000000000"}),
+        // Hyperliquid does NOT publish liquidations on a public channel;
+        // `userFills` is the only source and is account-scoped. The
+        // `user_address` parameter is passed in by the registry: an empty
+        // string disables the subscription (no HL liquidations will be
+        // ingested), a valid 0x-prefixed 40-hex-char address enables it
+        // for that account only. Bitget, by contrast, exposes public
+        // liquidations on the `fill` channel and is always active when
+        // `liquidation_feed = true` in `[workspace.liquidity]`.
+        user_fills_subscription(&symbol, user_address),
     ];
     for sub in &subscriptions {
+        // Skip disabled subscriptions (e.g. userFills when no HL user
+        // address is configured) — they would otherwise be sent to HL and
+        // either fail or return no fills. `_disabled: true` is set by
+        // `user_fills_subscription`.
+        if sub.get("_disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            println!(
+                "📡 Hyperliquid [{}]: Skipping disabled subscription (no user address configured)",
+                symbol
+            );
+            continue;
+        }
         let sub_request = serde_json::json!({
             "method": "subscribe",
             "subscription": sub
@@ -533,6 +551,42 @@ pub async fn run_for_symbol(
 //
 // We process the message once in `start()` and once in `run_for_symbol()`.
 
+/// Build the `userFills` subscription request, or `None` if the operator
+/// has not configured a user address (default). HL liquidations are
+/// account-scoped — there is no public liquidation feed.
+fn user_fills_subscription(symbol: &str, user_address: &str) -> serde_json::Value {
+    let addr = user_address.trim();
+    let valid = !addr.is_empty()
+        && addr.starts_with("0x")
+        && addr.len() == 42
+        && addr[2..].chars().all(|c| c.is_ascii_hexdigit());
+    if valid {
+        serde_json::json!({"type": "userFills", "coin": symbol, "user": addr})
+    } else {
+        // Sentinel: serialised as an object with a special `disabled` flag
+        // so the dispatcher can skip it without consulting the address
+        // twice. The `loop` body in `run_for_symbol` checks this and
+        // never sends the frame over WS.
+        serde_json::json!({
+            "type": "userFills",
+            "coin": symbol,
+            "user": "0x0000000000000000000000000000000000000000",
+            "_disabled": true
+        })
+    }
+}
+
+/// Public read-only flag for the dispatcher: true when the operator has
+/// configured a valid HL user address and the `userFills` subscription
+/// should be activated.
+pub fn user_fills_enabled(user_address: &str) -> bool {
+    let addr = user_address.trim();
+    !addr.is_empty()
+        && addr.starts_with("0x")
+        && addr.len() == 42
+        && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn emit_user_fills_liquidations(
     internal_symbol: &str,
     raw_text: &str,
@@ -586,5 +640,78 @@ fn emit_user_fills_liquidations(
                 },
             },
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_fills_enabled_accepts_valid_address() {
+        // 0x + 40 hex chars.
+        let addr = "0x1234567890abcdef1234567890abcdef12345678";
+        assert!(user_fills_enabled(addr));
+    }
+
+    #[test]
+    fn user_fills_enabled_accepts_mixed_case() {
+        let addr = "0xAbCdEf1234567890aBcDeF1234567890aBcDeF12";
+        assert!(user_fills_enabled(addr));
+    }
+
+    #[test]
+    fn user_fills_enabled_rejects_empty() {
+        assert!(!user_fills_enabled(""));
+        assert!(!user_fills_enabled("   "));
+    }
+
+    #[test]
+    fn user_fills_enabled_rejects_missing_prefix() {
+        let addr = "1234567890abcdef1234567890abcdef12345678";
+        assert!(!user_fills_enabled(addr));
+    }
+
+    #[test]
+    fn user_fills_enabled_rejects_wrong_length() {
+        assert!(!user_fills_enabled("0x1234"));
+        assert!(!user_fills_enabled(
+            "0x1234567890abcdef1234567890abcdef12345678901234"
+        ));
+    }
+
+    #[test]
+    fn user_fills_enabled_rejects_non_hex() {
+        let addr = "0xZZZZ567890abcdef1234567890abcdef12345678";
+        assert!(!user_fills_enabled(addr));
+    }
+
+    #[test]
+    fn user_fills_subscription_marks_disabled_for_empty_address() {
+        let sub = user_fills_subscription("BTC", "");
+        assert_eq!(
+            sub.get("_disabled").and_then(|v| v.as_bool()),
+            Some(true),
+            "empty address must produce a disabled subscription"
+        );
+    }
+
+    #[test]
+    fn user_fills_subscription_marks_disabled_for_invalid_address() {
+        let sub = user_fills_subscription("BTC", "not-a-real-address");
+        assert_eq!(
+            sub.get("_disabled").and_then(|v| v.as_bool()),
+            Some(true),
+            "invalid address must produce a disabled subscription"
+        );
+    }
+
+    #[test]
+    fn user_fills_subscription_emits_real_address_when_valid() {
+        let addr = "0x1234567890abcdef1234567890abcdef12345678";
+        let sub = user_fills_subscription("BTC", addr);
+        assert!(sub.get("_disabled").is_none());
+        assert_eq!(sub.get("user").and_then(|v| v.as_str()), Some(addr));
+        assert_eq!(sub.get("coin").and_then(|v| v.as_str()), Some("BTC"));
     }
 }

@@ -30,6 +30,10 @@ import type {
 
 interface ExportPayload {
     exported_at: string;
+    /** Which UI tab triggered this export — useful when the same payload is
+     *  invoked from Metrics, Alignment, Opportunities, Risks, Analysis or
+     *  Decision tabs. Empty string when not tagged. */
+    source_tab: string;
     symbol: string;
     timeframe: {
         label: string;
@@ -41,6 +45,7 @@ interface ExportPayload {
         active_only: boolean;
         confirmed_plus_only: boolean;
         hide_gates: boolean;
+        hide_overlays: boolean;
     };
     indicators: ExportIndicator[];
     signals_total: number;
@@ -332,6 +337,8 @@ function confidence(indicators: Record<string, IndicatorDto>, key: string): numb
 }
 
 export interface ExportArgs {
+    /** UI tab that triggered the export (e.g. 'metrics', 'alignment', ...). */
+    sourceTab?: string;
     symbol: string;
     tfLabel: string;
     tfSecs: number;
@@ -339,7 +346,7 @@ export interface ExportArgs {
     markPrice: number;
     registry: IndicatorMeta[];
     tf: TimeframeTelemetry;
-    filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean };
+    filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
     analysis: AnalysisMatrix | null;
     risk: RiskMatrix | null;
     alignment: Record<string, unknown> | null;
@@ -354,7 +361,7 @@ export interface ExportArgs {
 
 export function buildMetricsExportJson(args: ExportArgs): string {
     const {
-        symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
+        sourceTab = '', symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
         analysis, risk, alignment, opportunity, advisory, volumeProfile,
         liquidity, cluster, liquiditySignals, decisionContext,
     } = args;
@@ -380,6 +387,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
 
     const out: ExportPayload = {
         exported_at: new Date().toISOString(),
+        source_tab: sourceTab,
         symbol,
         timeframe: { label: tfLabel, duration_seconds: tfSecs },
         timestamp,
@@ -388,6 +396,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
             active_only: filters.activeOnly,
             confirmed_plus_only: filters.confirmedPlusOnly,
             hide_gates: filters.hideGates,
+            hide_overlays: filters.hideOverlays,
         },
         indicators: [],
         signals_total: 0,
@@ -693,4 +702,68 @@ export async function copyJsonToClipboard(text: string): Promise<boolean> {
     } catch (_) {
         return false;
     }
+}
+
+// ── Panel-level helpers ───────────────────────────────────────────
+//
+// Each panel exports the *full* snapshot — same payload shape as the Metrics
+// export — but is tagged with `source_tab` so the recipient can identify the
+// originator. This guarantees that no matter which tab the operator clicks
+// the EXPORT DATA button on, the clipboard contains every value visible in
+// the UI (metrics, indicators, alignment, opportunity, advisory, analysis,
+// risk, decision, volume profile, liquidity flow, cluster matrix, liquidity
+// signals). The Trade Plan (L4/L6 synthesis) is included via the advisory
+// section.
+//
+// `null` is returned when the calling panel has no instance to export,
+// so the button can short-circuit before invoking the clipboard.
+
+export interface PanelExportArgs {
+    /** Tag written into the JSON `source_tab` field. */
+    sourceTab: string;
+    /** Pair key (e.g. 'BTC-USDT') used to look up the active instance. */
+    pairKey: string;
+    /** Resolver hooks for instance-level data (mirrors the existing Metrics
+     *  builder inputs) so each panel can hand in its own reactive bindings
+     *  without needing a fresh `ExportArgs` shape. All resolvers return
+     *  `null` / `[]` when the underlying data hasn't loaded yet. */
+    resolvers: Omit<ExportArgs, 'sourceTab' | 'symbol' | 'tfLabel' | 'tfSecs' | 'timestamp' | 'markPrice' | 'registry' | 'tf' | 'filters'> & {
+        symbol: string;
+        tfLabel: string;
+        tfSecs: number;
+        timestamp: number | null;
+        markPrice: number;
+        registry: IndicatorMeta[];
+        tf: TimeframeTelemetry;
+        filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
+    };
+}
+
+/** Build the same Metrics export payload but tagged with the calling tab.
+ *  Returns `null` if the pair key resolves to no instance (button will
+ *  display "Copy failed"). */
+export function buildPanelExportJson(args: PanelExportArgs): string | null {
+    const r = args.resolvers;
+    if (!r.symbol) return null;
+    return buildMetricsExportJson({
+        sourceTab: args.sourceTab,
+        symbol: r.symbol,
+        tfLabel: r.tfLabel,
+        tfSecs: r.tfSecs,
+        timestamp: r.timestamp,
+        markPrice: r.markPrice,
+        registry: r.registry,
+        tf: r.tf,
+        filters: r.filters,
+        analysis: r.analysis,
+        risk: r.risk,
+        alignment: r.alignment,
+        opportunity: r.opportunity,
+        advisory: r.advisory,
+        volumeProfile: r.volumeProfile,
+        liquidity: r.liquidity,
+        cluster: r.cluster,
+        liquiditySignals: r.liquiditySignals,
+        decisionContext: r.decisionContext,
+    });
 }

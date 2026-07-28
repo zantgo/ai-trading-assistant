@@ -1,8 +1,8 @@
-use rust_decimal_macros::dec;
 use core_domain::normalized::{
     Exchange, NormalizedEvent, NormalizedTrade, SymbolMapper, TradeSide,
 };
 use market_analyzer::candle_generator::CandleGenerator;
+use rust_decimal_macros::dec;
 
 #[tokio::test]
 async fn test_symbol_mapper_register_and_lookup() {

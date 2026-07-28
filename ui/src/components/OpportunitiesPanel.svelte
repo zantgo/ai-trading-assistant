@@ -1,6 +1,8 @@
 <script lang="ts">
-    import type { AnalysisMatrix, MarketSnapshot, OpportunityMatrix } from '../types';
+    import type { AnalysisMatrix, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import { buildPanelExportJson } from '../lib/metricsExport';
+    import ExportDataButton from './ExportDataButton.svelte';
     import styles from './OpportunitiesPanel.module.css';
 
     const app = useAppStore();
@@ -10,6 +12,41 @@
     const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
     const snap = $derived(instance?.microTerm?.latestSnapshot as unknown as MarketSnapshot | undefined);
     const opportunity = $derived<OpportunityMatrix | null>(snap?.opportunity ?? null);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const decisionContext = $derived((snap as any)?.decision_context ?? null);
+    const timestamp = $derived<number | null>(
+        snap && typeof (snap as any).timestamp === 'number'
+            ? (snap as any).timestamp
+            : null
+    );
+    const registry = $derived(app.indicatorRegistry ?? []);
+
+    function buildExport() {
+        return buildPanelExportJson({
+            sourceTab: 'opportunity',
+            pairKey,
+            resolvers: {
+                symbol: pairKey,
+                tfLabel: 'Micro',
+                tfSecs: microTerm?.barDurationSec ?? 0,
+                timestamp,
+                markPrice,
+                registry: registry as any,
+                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
+                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+                analysis,
+                risk: instance?.risk ?? null,
+                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
+                opportunity,
+                advisory: instance?.advisory ?? null,
+                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
+                liquidity: (microTerm as any)?.liquidity ?? null,
+                cluster: (microTerm as any)?.cluster ?? null,
+                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
+                decisionContext,
+            },
+        });
+    }
 
     function oppClass(o: string): string {
         switch (o) {
@@ -90,7 +127,10 @@
 </script>
 
 <div class={styles.panel}>
-    <h2 class={styles.title}>Market Opportunity</h2>
+    <div class={styles.panelHeader}>
+        <h2 class={styles.title}>Market Opportunity</h2>
+        <ExportDataButton onExport={buildExport} title="Copy all Opportunity data as JSON" />
+    </div>
 
     <div class={styles.section}>
         <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">

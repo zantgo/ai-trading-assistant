@@ -88,12 +88,7 @@ impl Ichimoku {
     /// Feed a completed candle. Returns the full Ichimoku reading once enough
     /// history exists (needs `senkou_b_period` candles for the base lines and
     /// `displacement` more projections for the current cloud).
-    pub fn update(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-    ) -> Option<IchimokuOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<IchimokuOutput> {
         let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
         let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
         let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
@@ -121,6 +116,73 @@ impl Ichimoku {
                     .unwrap_or((senkou_a, senkou_b))
             } else {
                 // Not enough forward history yet — use the live cloud as a fallback.
+                (senkou_a, senkou_b)
+            };
+
+        Some(IchimokuOutput {
+            tenkan,
+            kijun,
+            senkou_a,
+            senkou_b,
+            chikou: close,
+            senkou_a_current,
+            senkou_b_current,
+        })
+    }
+
+    /// Soft-floor variant: produces a partial Ichimoku reading once at least
+    /// `min_bars` candles have been seen, even when the buffer has not yet
+    /// reached `tenkan_period` (9) / `kijun_period` (26) / `senkou_b_period`
+    /// (52). The effective window for each base line is clamped to
+    /// `min(buffer.len(), configured_period)`, so the reading converges to the
+    /// strict `update()` output once the buffer reaches `senkou_b_period`.
+    ///
+    /// Mirrors the precedent set by Volume Profile's `compute_with_min_bars(25)`
+    /// (see `crates/market-analyzer/src/analyzer/warm.rs:256`) and Hull MA's
+    /// `update_with_min_bars`. Returns `None` if `buffer.len() < min_bars`.
+    pub fn update_with_min_bars(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        min_bars: usize,
+    ) -> Option<IchimokuOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
+        self.highs.push_back(high);
+        self.lows.push_back(low);
+        let cap = self.senkou_b_period + 2;
+        while self.highs.len() > cap {
+            self.highs.pop_front();
+            self.lows.pop_front();
+        }
+
+        let avail = self.highs.len();
+        if avail < min_bars {
+            return None;
+        }
+
+        // Effective periods: clamp each configured period to whatever the
+        // buffer can support. Once avail reaches the configured window, this
+        // collapses to the strict window and the output is identical to
+        // `update()`.
+        let eff_tenkan = self.tenkan_period.min(avail).max(1);
+        let eff_kijun = self.kijun_period.min(avail).max(1);
+        let eff_senkou_b = self.senkou_b_period.min(avail).max(1);
+
+        let tenkan = self.midpoint(eff_tenkan)?;
+        let kijun = self.midpoint(eff_kijun)?;
+        let senkou_b = self.midpoint(eff_senkou_b)?;
+        let senkou_a = (tenkan + kijun) / Decimal::from(2);
+
+        self.projection_queue.push_back((senkou_a, senkou_b));
+        let (senkou_a_current, senkou_b_current) =
+            if self.projection_queue.len() > self.displacement {
+                self.projection_queue
+                    .pop_front()
+                    .unwrap_or((senkou_a, senkou_b))
+            } else {
                 (senkou_a, senkou_b)
             };
 
@@ -202,5 +264,67 @@ mod tests {
         // Flat prices → all base lines equal the flat level.
         assert_eq!(out.tenkan, out.kijun);
         assert_eq!(out.senkou_a, out.senkou_b);
+    }
+
+    #[test]
+    fn test_soft_floor_none_below_min_bars() {
+        let mut ich = Ichimoku::new(9, 26, 52, 26);
+        // Feed fewer than 9 candles; even soft-floor should refuse.
+        let out = feed_ramp_with(&mut ich, 5, |i| (100.0 + i as f64, 100.0 + i as f64, 100.0 + i as f64), 9);
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn test_soft_floor_partial_reading_below_52() {
+        let mut ich = Ichimoku::new(9, 26, 52, 26);
+        // Feed 20 bars — strict `update()` returns None, soft-floor (min_bars=9)
+        // must produce *something* with a Tenkan value.
+        let out = feed_ramp_with(
+            &mut ich,
+            20,
+            |i| (100.0 + i as f64, 100.0 + i as f64, 100.0 + i as f64),
+            9,
+        )
+        .expect("soft-floor should yield a reading with 20 bars");
+        // Tenkan window (9) is fully populated, so it should be defined.
+        assert!(out.tenkan > dec!(0));
+    }
+
+    #[test]
+    fn test_soft_floor_converges_to_strict_after_52() {
+        let mut ich_soft = Ichimoku::new(9, 26, 52, 26);
+        let mut ich_strict = Ichimoku::new(9, 26, 52, 26);
+        // Feed the same 80-bar ramp into both, then compare.
+        for i in 0..80 {
+            let h = 100.0 + i as f64;
+            let l = 100.0 + i as f64;
+            let c = 100.0 + i as f64;
+            ich_soft.update_with_min_bars(h, l, c, 9);
+            ich_strict.update(h, l, c);
+        }
+        let soft = ich_soft
+            .update_with_min_bars(180.0, 180.0, 180.0, 9)
+            .unwrap();
+        let strict = ich_strict.update(180.0, 180.0, 180.0).unwrap();
+        // Once buffer ≥ 52 the soft-floor reading is identical to the strict
+        // reading (both windows are full).
+        assert_eq!(soft.tenkan, strict.tenkan);
+        assert_eq!(soft.kijun, strict.kijun);
+        assert_eq!(soft.senkou_a, strict.senkou_a);
+        assert_eq!(soft.senkou_b, strict.senkou_b);
+    }
+
+    fn feed_ramp_with<F: Fn(usize) -> (f64, f64, f64)>(
+        ich: &mut Ichimoku,
+        n: usize,
+        f: F,
+        min_bars: usize,
+    ) -> Option<IchimokuOutput> {
+        let mut out = None;
+        for i in 0..n {
+            let (h, l, c) = f(i);
+            out = ich.update_with_min_bars(h, l, c, min_bars);
+        }
+        out
     }
 }

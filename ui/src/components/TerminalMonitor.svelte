@@ -34,7 +34,8 @@
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
-    import { buildMetricsExportJson, copyJsonToClipboard } from '../lib/metricsExport';
+    import { buildMetricsExportJson } from '../lib/metricsExport';
+    import ExportDataButton from './ExportDataButton.svelte';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -79,6 +80,7 @@
     function toggleActiveOnly() { filters = { ...filters, activeOnly: !filters.activeOnly }; }
     function toggleConfirmed() { filters = { ...filters, confirmedPlusOnly: !filters.confirmedPlusOnly }; }
     function toggleHideGates() { filters = { ...filters, hideGates: !filters.hideGates }; }
+    function toggleHideOverlays() { filters = { ...filters, hideOverlays: !filters.hideOverlays }; }
     function clearFilters() { filters = defaultFilters(); }
 
     // ── Per-facet counts ──────────────────────────────────────────────
@@ -144,16 +146,14 @@
     );
 
     // ── Export JSON ──────────────────────────────────────────────────
-    let exportLabel = $state('Export JSON');
-    let exportTimer: ReturnType<typeof setTimeout> | null = null;
-
-    async function handleExportJson() {
-        if (!pair || !activeTfObj) return;
+    function buildMetricsExport() {
+        if (!pair || !activeTfObj) return null;
         const markPrice = parseFloat(activeTfObj.priceText ?? '') || 0;
         const microSnap = (pair as any)?.microTerm?.latestSnapshot ?? {};
         const opportunity = (microSnap as any)?.opportunity ?? null;
         const decisionContext = (microSnap as any)?.decision_context ?? null;
-        const text = buildMetricsExportJson({
+        return buildMetricsExportJson({
+            sourceTab: 'metrics',
             symbol: pair.symbol,
             tfLabel: activeTfEntry.label,
             tfSecs: activeTfEntry.secs ?? 0,
@@ -165,6 +165,7 @@
                 activeOnly: filters.activeOnly,
                 confirmedPlusOnly: filters.confirmedPlusOnly,
                 hideGates: filters.hideGates,
+                hideOverlays: filters.hideOverlays,
             },
             analysis: pair.analysis ?? null,
             risk: pair.risk ?? null,
@@ -177,10 +178,6 @@
             liquiditySignals: ((pair as any)?.microTerm?.liquiditySignals ?? []) as any[],
             decisionContext,
         });
-        const ok = await copyJsonToClipboard(text);
-        exportLabel = ok ? 'Copied!' : 'Copy failed';
-        if (exportTimer) clearTimeout(exportTimer);
-        exportTimer = setTimeout(() => { exportLabel = 'Export JSON'; }, 2000);
     }
 </script>
 
@@ -218,14 +215,11 @@
                         {activeTfEntry.label} · {activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}
                     {/if}
                 </span>
-                <button
-                    class={styles.exportBtn}
-                    onclick={handleExportJson}
+                <ExportDataButton
+                    onExport={buildMetricsExport}
                     title="Copy current timeframe's indicators + signals as JSON"
                     disabled={activeTf === 'Mtf'}
-                >
-                    {exportLabel}
-                </button>
+                />
             </div>
 
             {#if activeTf === 'Mtf'}
@@ -250,7 +244,14 @@
                         >
                             Hide gates
                         </button>
-                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
+                        <button
+                            class="{styles.pill} {filters.hideOverlays ? styles.pillActive : ''}"
+                            onclick={toggleHideOverlays}
+                            title="Hide price overlays / price levels / marker rows — they live on the chart and in the Structural Anchors Strip"
+                        >
+                            Hide overlays
+                        </button>
+                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates || filters.hideOverlays}
                             <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
                         {/if}
                     </div>
@@ -331,7 +332,14 @@
                         >
                             Hide gates
                         </button>
-                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
+                        <button
+                            class="{styles.pill} {filters.hideOverlays ? styles.pillActive : ''}"
+                            onclick={toggleHideOverlays}
+                            title="Hide price overlays / price levels / marker rows — they live on the chart and in the Structural Anchors Strip"
+                        >
+                            Hide overlays
+                        </button>
+                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates || filters.hideOverlays}
                             <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
                         {/if}
                     </div>
@@ -356,7 +364,7 @@
                     {:else if activeFacet === 'levels'}
                         <LevelsView tf={activeTfObj} registry={registry} filters={filters} />
                     {:else if activeFacet === 'liquidity'}
-                        <LiquidityView pairKey={pairKey} />
+                        <LiquidityView tf={activeTfObj} />
                     {/if}
                 </div>
             {/if}

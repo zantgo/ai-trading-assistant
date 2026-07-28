@@ -247,6 +247,7 @@ describe('filtering', () => {
         expect(f.activeOnly).toBe(false);
         expect(f.confirmedPlusOnly).toBe(false);
         expect(f.hideGates).toBe(false);
+        expect(f.hideOverlays).toBe(false);
         expect(f.kinds).toEqual([]);
     });
 
@@ -273,6 +274,21 @@ describe('filtering', () => {
         ];
         expect(filterRegistry(r, { ...defaultFilters(), hideGates: true }).map((m) => m.key))
             .toEqual(['rsi']);
+    });
+
+    it('filterRegistry respects hideOverlays — drops PriceLevels/PriceOverlay/Marker, keeps Pane', () => {
+        const r = [
+            makeMeta({ key: 'rsi',          render: 'Pane' }),
+            makeMeta({ key: 'volume_profile', render: 'PriceLevels' }),
+            makeMeta({ key: 'fibonacci',    render: 'PriceLevels' }),
+            makeMeta({ key: 'psar',         render: 'PriceOverlay' }),
+            makeMeta({ key: 'patterns',     render: 'Marker' }),
+        ];
+        expect(filterRegistry(r, { ...defaultFilters(), hideOverlays: true }).map((m) => m.key))
+            .toEqual(['rsi']);
+        // Sanity: with hideOverlays off, all five survive.
+        expect(filterRegistry(r, defaultFilters()).map((m) => m.key))
+            .toEqual(['rsi', 'volume_profile', 'fibonacci', 'psar', 'patterns']);
     });
 
     it('filterRegistry respects query against display_name and key', () => {

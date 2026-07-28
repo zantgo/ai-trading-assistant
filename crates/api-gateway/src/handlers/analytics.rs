@@ -25,10 +25,9 @@ pub async fn serve_strategy_analytics(
         )
         .await
     } else {
-        let on_demand = performance_analytics::performance_evaluator::compute_strategy_on_demand(
-            &state.pool,
-        )
-        .await;
+        let on_demand =
+            performance_analytics::performance_evaluator::compute_strategy_on_demand(&state.pool)
+                .await;
         if on_demand.is_empty() {
             database_storage::query_strategy_analytics_history(
                 &state.pool,
@@ -56,14 +55,13 @@ pub async fn serve_strategy_analytics_history(
     Json(rows)
 }
 
-pub async fn serve_risk_analytics(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn serve_risk_analytics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let persisted = database_storage::query_risk_analytics_latest(&state.pool).await;
     if let Some(risk) = persisted {
         return Json(risk);
     }
-    let risk = performance_analytics::performance_evaluator::compute_risk_on_demand(&state.pool).await;
+    let risk =
+        performance_analytics::performance_evaluator::compute_risk_on_demand(&state.pool).await;
     Json(risk)
 }
 
@@ -72,16 +70,13 @@ pub async fn serve_performance_matrix(
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
     let rows = if let Some(ref pid) = query.policy_id {
-        database_storage::query_performance_matrix_latest(
-            &state.pool,
-            Some(pid),
-        )
-        .await
+        database_storage::query_performance_matrix_latest(&state.pool, Some(pid)).await
     } else {
-        let on_demand = performance_analytics::performance_evaluator::compute_performance_on_demand(
-            &state.pool,
-        )
-        .await;
+        let on_demand =
+            performance_analytics::performance_evaluator::compute_performance_on_demand(
+                &state.pool,
+            )
+            .await;
         if on_demand.is_empty() {
             database_storage::query_performance_matrix_latest(&state.pool, None).await
         } else {
@@ -95,11 +90,8 @@ pub async fn serve_optimization_report(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
-    let persisted = database_storage::query_optimization_reports(
-        &state.pool,
-        query.limit.unwrap_or(10),
-    )
-    .await;
+    let persisted =
+        database_storage::query_optimization_reports(&state.pool, query.limit.unwrap_or(10)).await;
     if !persisted.is_empty() {
         return Json(persisted);
     }
@@ -132,7 +124,10 @@ pub async fn serve_optimization_report(
     let mut recommendations = Vec::new();
 
     for (regime, regime_trades) in &by_regime {
-        let wins = regime_trades.iter().filter(|t| t.realized_pnl > 0.0).count();
+        let wins = regime_trades
+            .iter()
+            .filter(|t| t.realized_pnl > 0.0)
+            .count();
         let gross_profit: f64 = regime_trades
             .iter()
             .filter(|t| t.realized_pnl > 0.0)
@@ -203,7 +198,8 @@ pub async fn serve_trade_analytics(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
-    let trades = performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
+    let trades =
+        performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
     let filtered: Vec<_> = if let Some(ref pid) = query.policy_id {
         trades
             .into_iter()
@@ -224,12 +220,20 @@ pub async fn serve_performance_summary(
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
     let summaries = if query.policy_id.is_some() {
-        let _trades = performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
-        let mut all = performance_analytics::performance_evaluator::compute_performance_summary_on_demand(&state.pool).await;
+        let _trades =
+            performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
+        let mut all =
+            performance_analytics::performance_evaluator::compute_performance_summary_on_demand(
+                &state.pool,
+            )
+            .await;
         all.retain(|s| Some(s.policy_id.clone()) == query.policy_id);
         all
     } else {
-        performance_analytics::performance_evaluator::compute_performance_summary_on_demand(&state.pool).await
+        performance_analytics::performance_evaluator::compute_performance_summary_on_demand(
+            &state.pool,
+        )
+        .await
     };
     Json(summaries)
 }

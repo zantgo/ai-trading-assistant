@@ -7,7 +7,6 @@ use config_models::TimeframeConfig;
 
 use crate::analyzer::normalize::{series_divergence_state, ExtraDivergence};
 use crate::analyzer::update_sr_levels;
-use crate::sr_engine::SrRoleTracker;
 use crate::indicators::normalized::PreviousBarState;
 use crate::indicators::{
     detect_pattern, Adx, AnchoredVwap, Aroon, Atr, AwesomeOscillator, Bbwp, BollingerBands,
@@ -16,6 +15,7 @@ use crate::indicators::{
     Macd, Mfi, Obv, ParabolicSar, PivotMethod, PivotPoints, Rsi, SeriesDivergence, SmartMoney,
     SqueezeMomentum, StdDevChannel, Stochastic, Supertrend, VolumeProfile, WilliamsR, ZScore,
 };
+use crate::sr_engine::SrRoleTracker;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle};
 use core_domain::volume_profile::VolumeProfileSnapshot;
@@ -218,24 +218,23 @@ pub fn warm_indicators_for_timeframe(
         let volume_f = completed.volume.to_f64().unwrap_or(0.0);
 
         // Session Pivot Points: accumulate H/L/C; publish on day rollover.
-        let pivot_levels = pivot_points_indicator.update(
-            high_f,
-            low_f,
-            close_f,
-            day_index,
-        );
+        let pivot_levels = pivot_points_indicator.update(high_f, low_f, close_f, day_index);
 
         // Candlestick recognition (warmed through history).
-        let candlestick_reading = candlestick_indicator.update(
-            open_f,
-            high_f,
-            low_f,
-            close_f,
-        );
+        let candlestick_reading = candlestick_indicator.update(open_f, high_f, low_f, close_f);
 
         // Ichimoku Cloud (warmed through history).
-        let ichimoku_reading =
-            ichimoku_indicator.update(high_f, low_f, close_f);
+        // Soft-floor (min_bars=9) mirrors the Volume Profile pattern below
+        // and Hull MA's soft-floor variant — the strict `update()` returns
+        // `None` until `senkou_b_period=52` candles are accumulated, which
+        // would otherwise leave the seeded history producing no Ichimoku
+        // reading on sub-minute TFs whose venue-capped fetch falls short of
+        // 52 bars. With min_bars=9 (the smallest configured window),
+        // `update_with_min_bars` produces a partial reading that converges
+        // to the strict result once the live path takes over.
+        let ichimoku_reading = ichimoku_indicator
+            .update(high_f, low_f, close_f)
+            .or_else(|| ichimoku_indicator.update_with_min_bars(high_f, low_f, close_f, 9));
 
         // CCI (warmed through history).
         let cci_reading = cci_indicator.update(high_f, low_f, close_f);
@@ -244,18 +243,24 @@ pub fn warm_indicators_for_timeframe(
         let psar_reading = psar_indicator.update(high_f, low_f);
 
         let wr_reading = wr_indicator.update(high_f, low_f, close_f);
-        let hma_reading = hma_indicator.update(close_f);
+        // Hull MA soft-floor: the strict `update()` returns `None` until
+        // `hull_ma_period` bars are accumulated. Sub-minute timeframes whose
+        // historical fetch was bypassed (HFP-03) or capped below the
+        // configured period would otherwise stay stuck in `WARMING`. The
+        // soft-floor mirrors Volume Profile's `compute_with_min_bars(25)`
+        // pattern (see this file ~L256) — the warm path uses a relaxed floor
+        // (sqrt(period) ≈ 5 for period=21) so the seeded history produces a
+        // partial Hull MA reading that converges to the strict reading once
+        // the live path takes over and `values.len() >= period`.
+        let hma_reading = hma_indicator
+            .update(close_f)
+            .or_else(|| hma_indicator.update_with_min_bars(close_f, 5));
         let ao_reading = ao_indicator.update(high_f, low_f);
         let fi_reading = fi_indicator.update(close_f, volume_f);
         let sdc_reading = sdc_indicator.update(close_f);
 
-        let volume_profile_reading = volume_profile_indicator.update_with_open(
-            high_f,
-            low_f,
-            open_f,
-            close_f,
-            volume_f,
-        );
+        let volume_profile_reading =
+            volume_profile_indicator.update_with_open(high_f, low_f, open_f, close_f, volume_f);
         // Per-warm-candle bin snapshot — same source-of-truth builder as the
         // live per-candle path uses (see `super::build_volume_profile_snapshot`).
         // The strict `window_size / 2` gate is preserved for *live* correctness
@@ -276,15 +281,12 @@ pub fn warm_indicators_for_timeframe(
             slot,
             timeframe_secs,
             &seeded_reading,
-            volume_profile_indicator.compute_bins_with_min_bars(25).as_ref(),
+            volume_profile_indicator
+                .compute_bins_with_min_bars(25)
+                .as_ref(),
             completed.start_time_ms,
         );
-        let smc_reading = smc_indicator.update(
-            open_f,
-            high_f,
-            low_f,
-            close_f,
-        );
+        let smc_reading = smc_indicator.update(open_f, high_f, low_f, close_f);
 
         let typical_price = (completed.high + completed.low + completed.close) / Decimal::from(3);
         vwap_sum_tp_vol += typical_price * completed.volume;
@@ -333,31 +335,17 @@ pub fn warm_indicators_for_timeframe(
         let final_bb = bollinger.update(close_f);
         let final_atr = atr_standalone.update(high_f, low_f, close_f);
         let final_bbwp = bbwp_indicator.update(close_f);
-        let final_stoch =
-            stochastic_indicator.update(high_f, low_f, close_f);
+        let final_stoch = stochastic_indicator.update(high_f, low_f, close_f);
         let final_cmo = chandemo_indicator.update(close_f);
-        let final_supertrend =
-            supertrend_indicator.update(high_f, low_f, close_f);
-        let final_keltner =
-            keltner_indicator.update(high_f, low_f, close_f);
+        let final_supertrend = supertrend_indicator.update(high_f, low_f, close_f);
+        let final_keltner = keltner_indicator.update(high_f, low_f, close_f);
         let final_donchian = donchian_indicator.update(high_f, low_f);
         let final_obv = obv_indicator.update(close_f, volume_f);
-        let final_cmf = cmf_indicator.update(
-            high_f,
-            low_f,
-            close_f,
-            volume_f,
-        );
-        let final_mfi = mfi_indicator.update(
-            high_f,
-            low_f,
-            close_f,
-            volume_f,
-        );
+        let final_cmf = cmf_indicator.update(high_f, low_f, close_f, volume_f);
+        let final_mfi = mfi_indicator.update(high_f, low_f, close_f, volume_f);
         let final_hv = hv_indicator.update(close_f);
         let final_aroon = aroon_indicator.update(high_f, low_f);
-        let final_chop =
-            choppiness_indicator.update(high_f, low_f, close_f);
+        let final_chop = choppiness_indicator.update(high_f, low_f, close_f);
         let final_linreg = linreg_indicator.update(close_f);
         let final_zscore = zscore_indicator.update(close_f);
 
@@ -379,34 +367,25 @@ pub fn warm_indicators_for_timeframe(
                 .unwrap_or_default(),
             mfi: final_mfi
                 .map(|v| {
-                    series_divergence_state(
-                        &mfi_div.update(close_f, v.to_f64().unwrap_or(0.0)),
-                    )
+                    series_divergence_state(&mfi_div.update(close_f, v.to_f64().unwrap_or(0.0)))
                 })
                 .unwrap_or_default(),
             cmf: final_cmf
                 .map(|v| {
-                    series_divergence_state(
-                        &cmf_div.update(close_f, v.to_f64().unwrap_or(0.0)),
-                    )
+                    series_divergence_state(&cmf_div.update(close_f, v.to_f64().unwrap_or(0.0)))
                 })
                 .unwrap_or_default(),
             obv: final_obv
                 .as_ref()
                 .map(|o| {
-                    series_divergence_state(
-                        &obv_div.update(close_f, o.obv.to_f64().unwrap_or(0.0)),
-                    )
+                    series_divergence_state(&obv_div.update(close_f, o.obv.to_f64().unwrap_or(0.0)))
                 })
                 .unwrap_or_default(),
             squeeze: final_sqz
                 .as_ref()
                 .map(|s| {
                     series_divergence_state(
-                        &squeeze_div.update(
-                            close_f,
-                            s.momentum_value.to_f64().unwrap_or(0.0),
-                        ),
+                        &squeeze_div.update(close_f, s.momentum_value.to_f64().unwrap_or(0.0)),
                     )
                 })
                 .unwrap_or_default(),
@@ -506,7 +485,9 @@ pub fn warm_indicators_for_timeframe(
     // discard the bulk of the non-sub-minute seed and break `/api/history`'s
     // 1000-candle contract for freshly-bootstrapped engines.
     if snapshot_history.len() > crate::analyzer::warm::HIST_BUFFER_MAX {
-        snapshot_history = snapshot_history[snapshot_history.len() - crate::analyzer::warm::HIST_BUFFER_MAX..].to_vec();
+        snapshot_history = snapshot_history
+            [snapshot_history.len() - crate::analyzer::warm::HIST_BUFFER_MAX..]
+            .to_vec();
     }
 
     WarmedPipelineState {
@@ -724,6 +705,7 @@ fn build_historical_snapshot(
             prev: PreviousBarState::default(),
         },
         all_candles.len() as u32,
+        false,
     );
 
     MarketSnapshot {

@@ -141,6 +141,12 @@ fn build_stub_instance(
     Arc::new(portfolio_supervisor::instance::Instance::new(
         id.to_string(),
         (base.to_string(), quote.to_string()),
+        // The previous hardcoded `Exchange::Hyperliquid` initial value at
+        // `instance.rs:300` is overridden by this argument. Per-pair
+        // exchange tagging drives the per-bucket counts in the
+        // ExchangeStatusPanel; defaulting to Hyperliquid for tests that
+        // don't care keeps the helper signature stable.
+        portfolio_supervisor::session::ExchangeChoice::Hyperliquid,
         active,
         pool,
         workspace,
@@ -267,4 +273,141 @@ async fn sync_is_idempotent() {
         second.exchanges.iter().find(|e| e.name == "Hyperliquid").map(|e| e.active_pairs),
         "calling sync twice in a row must be a no-op"
     );
+}
+
+/// Regression: prior to the parity sweep, the helper hardcoded the
+/// exchange label to "Hyperliquid" so Bitget's bucket always read 0
+/// even when Bitget instances were live. The fix tags each instance
+/// with its `ExchangeChoice` at construction and the helper buckets
+/// accordingly. This test inserts one HL + one BG instance and asserts
+/// each bucket carries the right count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sync_buckets_per_exchange() {
+    use portfolio_supervisor::session::ExchangeChoice;
+    let (ctx, exchange_status) = build_context().await;
+
+    // HL: 1 instance
+    ctx.workspace.insert(
+        HL_PAIR.to_string(),
+        build_stub_instance_v2(
+            ctx.pool.clone(),
+            ctx.workspace.clone(),
+            "inst_btc",
+            "BTC",
+            "USDC",
+            ExchangeChoice::Hyperliquid,
+        ),
+    )
+    .await;
+    // BG: 2 instances
+    for (id, base) in [("inst_eth", "ETH"), ("inst_sol_bg", "SOL")] {
+        ctx.workspace.insert(
+            format!("{}-USDT", base),
+            build_stub_instance_v2(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                id,
+                base,
+                "USDT",
+                ExchangeChoice::Bitget,
+            ),
+        )
+        .await;
+    }
+
+    sync_exchange_status_active_pairs(&ctx).await;
+    let after = active_pairs_by_name(&exchange_status.report().await);
+    assert_eq!(
+        after.get("Hyperliquid"),
+        Some(&1),
+        "Hyperliquid bucket must carry exactly 1 instance"
+    );
+    assert_eq!(
+        after.get("Bitget"),
+        Some(&2),
+        "Bitget bucket must carry exactly 2 instances (was hardcoded 0 before parity sweep)"
+    );
+}
+
+/// Variant of `build_stub_instance` that lets the caller pick the
+/// `ExchangeChoice` so the per-bucket test can stamp HL vs BG tags.
+fn build_stub_instance_v2(
+    pool: SqlitePool,
+    workspace: WorkspaceState,
+    id: &str,
+    base: &str,
+    quote: &str,
+    exchange: portfolio_supervisor::session::ExchangeChoice,
+) -> Arc<portfolio_supervisor::instance::Instance> {
+    use std::collections::VecDeque;
+    use core_domain::normalized::NormalizedEvent;
+    use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
+    use market_analyzer::indicators::DivergenceDetector;
+    use market_analyzer::sr_engine::SrRoleTracker;
+    use config_models::FibonacciConfig;
+    use portfolio_supervisor::instance::TimeframeBuffers;
+
+    let (bcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(8);
+    let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
+    let build_pipe = |slot: TimeframeSlot, secs: u64, tx| TimeframePipeline {
+        slot,
+        history: Arc::new(RwLock::new(VecDeque::new())),
+        broadcast_tx: tx,
+        latest_snapshot: Arc::new(RwLock::new(None)),
+        snapshot_history: snap_hist.clone(),
+        timeframe_secs: secs,
+        timeframe_label: "Test",
+        divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+        sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+        fibonacci: FibonacciConfig::default(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
+        active_set: Default::default(),
+        cluster_matrix: Arc::new(RwLock::new(None)),
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST-USD", slot.as_str()),
+        )),
+        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
+    };
+
+    let active = Arc::new(ActivePair {
+        symbol: format!("{}-{}", base, quote),
+        micro: build_pipe(TimeframeSlot::Micro,   60,  bcast_tx.clone()),
+        fast: build_pipe(TimeframeSlot::Fast,    180, bcast_tx.clone()),
+        slow: build_pipe(TimeframeSlot::Slow,    300, bcast_tx.clone()),
+        r#macro: build_pipe(TimeframeSlot::Macro, 900, bcast_tx),
+        snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
+        cancel: tokio_util::sync::CancellationToken::new(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
+        latency_tracker: Arc::new(Default::default()),
+    });
+
+    let micro_buf = TimeframeBuffers { history: active.micro.history.clone(),   latest: active.micro.latest_snapshot.clone(),    snapshot_history: snap_hist.clone() };
+    let fast_buf  = TimeframeBuffers { history: active.fast.history.clone(),    latest: active.fast.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
+    let slow_buf  = TimeframeBuffers { history: active.slow.history.clone(),    latest: active.slow.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
+    let macro_buf = TimeframeBuffers { history: active.r#macro.history.clone(), latest: active.r#macro.latest_snapshot.clone(),  snapshot_history: snap_hist.clone() };
+
+    Arc::new(portfolio_supervisor::instance::Instance::new(
+        id.to_string(),
+        (base.to_string(), quote.to_string()),
+        exchange,
+        active,
+        pool,
+        workspace,
+        Default::default(),
+        Default::default(),
+        micro_buf,
+        fast_buf,
+        slow_buf,
+        macro_buf,
+        Default::default(),
+    ))
 }

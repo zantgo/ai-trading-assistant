@@ -46,6 +46,7 @@ use market_analyzer::sr_engine::SrRoleTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::{Instance, TimeframeBuffers};
+use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
@@ -97,8 +98,8 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
         liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
-    pipeline_state: core_domain::models::CandlePipelineState::default(),
-    indicator_lifecycle: std::collections::HashMap::new(),
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
     }
 }
 
@@ -142,11 +143,15 @@ fn build_active_pair_with_channels(
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
-            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            buffer_size: 500,
-            stale_threshold_secs: 300,
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+        )),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
     };
     let pair = Arc::new(ActivePair {
         symbol: pair_key.to_string(),
@@ -162,16 +167,17 @@ fn build_active_pair_with_channels(
         snapshot_tx,
         cancel,
     });
-    (
-        pair,
-        micro_bcast,
-        fast_bcast,
-        slow_bcast,
-        macro_bcast,
-    )
+    (pair, micro_bcast, fast_bcast, slow_bcast, macro_bcast)
 }
 
-fn make_buffers_for(pair: &ActivePair) -> (TimeframeBuffers, TimeframeBuffers, TimeframeBuffers, TimeframeBuffers) {
+fn make_buffers_for(
+    pair: &ActivePair,
+) -> (
+    TimeframeBuffers,
+    TimeframeBuffers,
+    TimeframeBuffers,
+    TimeframeBuffers,
+) {
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
     let micro = TimeframeBuffers {
         history: pair.micro.history.clone(),
@@ -207,7 +213,11 @@ async fn setup_app_with_pair() -> (
     database_storage::run_migrations(&pool).await.unwrap();
     let symbol_mapper = Arc::new(SymbolMapper::new());
     symbol_mapper
-        .register(core_domain::normalized::Exchange::Hyperliquid, "BTC", PAIR_KEY)
+        .register(
+            core_domain::normalized::Exchange::Hyperliquid,
+            "BTC",
+            PAIR_KEY,
+        )
         .await;
     let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
 
@@ -219,6 +229,7 @@ async fn setup_app_with_pair() -> (
     let instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
+        ExchangeChoice::Hyperliquid,
         pair.clone(),
         pool.clone(),
         workspace.clone(),
@@ -269,8 +280,7 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     // channel stays silent even though the publisher kept firing on the
     // NEW channel.
 
-    let (state, micro_old, _fast_old, _slow_old, _macro_old) =
-        setup_app_with_pair().await;
+    let (state, micro_old, _fast_old, _slow_old, _macro_old) = setup_app_with_pair().await;
 
     // Keep at least one subscriber alive on the recharge channel so the
     // `send` below doesn't fail with `SendError(no receivers)`. In
@@ -300,6 +310,7 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     let new_instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
+        ExchangeChoice::Hyperliquid,
         new_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),
@@ -339,8 +350,9 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     let old_seen_new = tokio::time::timeout(Duration::from_millis(150), async {
         loop {
             match old_rx.recv().await {
-                Ok(snap) if snap.mid_price == rust_decimal::Decimal::from(200)
-                    || snap.mid_price == rust_decimal::Decimal::from(201) =>
+                Ok(snap)
+                    if snap.mid_price == rust_decimal::Decimal::from(200)
+                        || snap.mid_price == rust_decimal::Decimal::from(201) =>
                 {
                     return true;
                 }
@@ -382,8 +394,7 @@ async fn ws_handler_rebinds_after_recharge_notice() {
     use futures_util::StreamExt;
     use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
-    let (state, micro_old, _fast_old, _slow_old, _macro_old) =
-        setup_app_with_pair().await;
+    let (state, micro_old, _fast_old, _slow_old, _macro_old) = setup_app_with_pair().await;
 
     let router = api_gateway::build_router(state.clone());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -425,6 +436,7 @@ async fn ws_handler_rebinds_after_recharge_notice() {
     let new_instance = Arc::new(Instance::new(
         INSTANCE_ID.to_string(),
         ("BTC".to_string(), "USDT".to_string()),
+        ExchangeChoice::Hyperliquid,
         new_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),

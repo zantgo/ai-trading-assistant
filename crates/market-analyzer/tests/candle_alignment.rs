@@ -44,7 +44,10 @@ fn completed_candle_closes_on_integer_epoch_multiple() {
 
     assert_eq!(completed.start_time_ms % duration_ms, 0, "open aligned");
     let close_instant = completed.start_time_ms + completed.duration_ms;
-    assert_eq!(close_instant, 120_000, "close = interval_start + duration_ms");
+    assert_eq!(
+        close_instant, 120_000,
+        "close = interval_start + duration_ms"
+    );
     assert_eq!(close_instant % duration_ms, 0, "close on epoch multiple");
 }
 
@@ -54,8 +57,7 @@ fn utc_boundary_map_for_all_default_tiers() {
     // multiples of their duration (03-01-03 §3.1 UTC boundary map).
     for duration_secs in [60u64, 180, 300, 900] {
         let duration_ms = duration_secs * 1000;
-        let mut generator =
-            CandleGenerator::new("BTC-USDT", duration_secs, Exchange::Hyperliquid);
+        let mut generator = CandleGenerator::new("BTC-USDT", duration_secs, Exchange::Hyperliquid);
         let t0 = 1_000_003_337u64; // arbitrary unaligned ms timestamp
         generator.process_trade(&trade(t0, dec!(100)));
         let (completed, _) = generator.process_trade(&trade(t0 + duration_ms, dec!(101)));

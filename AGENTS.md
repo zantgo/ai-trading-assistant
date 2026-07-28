@@ -123,7 +123,8 @@ Start at `docs/README.md` for a guided reading order.
 | TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation e2e, performance analytics, network adapters, daemon (`database-storage`, `api-gateway`, `portfolio-supervisor`, `performance-analytics`, `network-adapters`, `execution-daemon`) | ~177 | <10s |
 | TEST-DOC | `./manage.sh test-doc` | Documentation corpus: file inventory, worked-example recomputation, grep-based consistency sweeps (`docs/`) | — | <5s |
 | TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots, LiquidityPanel | 24 | <10s |
-| All | `./manage.sh test` | Core → Engine → UI sequentially; `test-doc` runs at release time | 481 | <20s |
+| TEST-INDICATORS | `./manage.sh test-indicators` | Per-indicator pipeline e2e (37 candle-based) with terminal console reporting. Exercises calculator → normalizer → signal deriver → lifecycle builder across 4 market patterns. Catches duplicate `(label, kind)` signal pairs that would trigger `each_key_duplicate` in the UI, lifecycle regressions, value-map key collisions. | 37 | ~8s |
+| All | `./manage.sh test` | Core → Engine → UI → Indicators sequentially; `test-doc` runs at release time | 518 | <30s |
 
 ### Liquidity Intelligence (Phases 0-4) test coverage
 
@@ -148,6 +149,7 @@ Start at `docs/README.md` for a guided reading order.
 - **Modifying indicators, Fibonacci, models** → `./manage.sh test-core` (fast, <3s)
 - **Modifying DB schemas, server APIs** → `./manage.sh test-engine` (<10s)
 - **Modifying Svelte 5 runes, components, charts** → `./manage.sh test-ui` (<10s)
+- **Modifying normalizer / signal deriver / indicator soft-floor / close-only lifecycle** → `./manage.sh test-indicators` (~8s) — validates no duplicate `(label, kind)` signal pairs are emitted that would trigger `each_key_duplicate` in the frontend.
 - **Pre-commit / PR validation** → `./manage.sh test` (full sequential run)
 
 ## Architecture notes

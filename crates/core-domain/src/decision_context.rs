@@ -75,9 +75,7 @@ impl DecisionContext {
         .to_string();
 
         // -- expected_reward_risk_ratio = L4.expected_rr_internal × (1 − overall_risk/100)
-        let expected_rr_internal = opportunity
-            .map(|o| o.expected_rr_internal)
-            .unwrap_or(2.5);
+        let expected_rr_internal = opportunity.map(|o| o.expected_rr_internal).unwrap_or(2.5);
         let risk_disc = 1.0 - risk.overall_risk.score / 100.0;
         let expected_reward_risk_ratio = expected_rr_internal * risk_disc;
 
@@ -89,9 +87,7 @@ impl DecisionContext {
             crate::analysis::QualityLevel::Weak => 70.0,
             crate::analysis::QualityLevel::Poor => 80.0,
         };
-        let opportunity_score = opportunity
-            .map(|o| o.opportunity_score)
-            .unwrap_or(50.0);
+        let opportunity_score = opportunity.map(|o| o.opportunity_score).unwrap_or(50.0);
         let entry_danger =
             ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
 
@@ -132,10 +128,9 @@ mod tests {
     use super::*;
     use crate::analysis::{
         AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment, OpportunityType,
-        QualityLevel, StructureAssessment, TrendAssessment, VolatilityAssessment,
-        VolumeAssessment,
+        QualityLevel, StructureAssessment, TrendAssessment, VolatilityAssessment, VolumeAssessment,
     };
-    use crate::risk::{RiskDimension, RiskMatrix, RiskLevel, RiskState};
+    use crate::risk::{RiskDimension, RiskLevel, RiskMatrix, RiskState};
 
     fn make_analysis_with_quality(q: QualityLevel) -> AnalysisMatrix {
         AnalysisMatrix {

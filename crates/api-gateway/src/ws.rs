@@ -46,6 +46,46 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key, tf_secs, slot))
 }
 
+/// Serialize and send a `broadcast.market_snapshot` notification for the
+/// supplied snapshot over the WebSocket. Returns `false` on send failure
+/// so the caller can `break` out of the per-frame loop.
+async fn send_snapshot_to_socket(
+    socket: &mut WebSocket,
+    snapshot: &MarketSnapshot,
+    requested_slot: TimeframeSlot,
+) -> bool {
+    let symbol = snapshot.symbol.clone();
+    let tf = snapshot.timeframe_secs;
+    let slot_str = snapshot
+        .timeframe_slot
+        .map(|s| s.as_str())
+        .unwrap_or(requested_slot.as_str())
+        .to_string();
+    let payload = match serde_json::to_value(snapshot) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("WS: failed to serialize cached snapshot: {e}");
+            return true;
+        }
+    };
+    let notif = JsonRpcNotification::new(
+        "broadcast.market_snapshot",
+        serde_json::json!({
+            "symbol": symbol,
+            "timeframe_slot": slot_str,
+            "timeframe_secs": tf,
+            "snapshot": payload,
+        }),
+    );
+    match serde_json::to_string(&notif) {
+        Ok(json_str) => socket.send(AxumMessage::Text(json_str)).await.is_ok(),
+        Err(e) => {
+            eprintln!("WS: failed to encode cached snapshot notification: {e}");
+            true
+        }
+    }
+}
+
 async fn handle_ws_socket(
     mut socket: WebSocket,
     state: Arc<AppState>,
@@ -86,33 +126,31 @@ async fn handle_ws_socket(
         }
     }
 
+    // Immediately send the most recent completed snapshot for this slot so
+    // the frontend's Metrics Indicators table is populated with real
+    // values before the next live tick lands. Without this, the WS
+    // consumer waits for the next shadow OR completed frame (which can
+    // be many seconds for sub-minute TFs) and the Metrics table shows
+    // `Raw --` / `Norm 0.00` / `State WARMING` for every entry until
+    // then — the regression behind the indicator-table gaps the user
+    // reported. The cached snapshot carries the full indicator map +
+    // lifecycle map + signals, so the first WS frame is identical in
+    // shape to a normal live frame.
+    if let Some(pair) = current_pair.as_ref() {
+        if let Some(cached) = pair.latest_snapshot_for_slot(requested_slot).await {
+            if !send_snapshot_to_socket(&mut socket, &cached, requested_slot).await {
+                return;
+            }
+        }
+    }
+
     loop {
         tokio::select! {
             result = rx_stream.recv() => {
                 match result {
                     Ok(snapshot) => {
-                        let symbol = snapshot.symbol.clone();
-                        let tf = snapshot.timeframe_secs;
-                        let slot_str = snapshot
-                            .timeframe_slot
-                            .map(|s| s.as_str())
-                            .unwrap_or(requested_slot.as_str())
-                            .to_string();
-                        if let Ok(payload) = serde_json::to_value(&snapshot) {
-                            let notif = JsonRpcNotification::new(
-                                "broadcast.market_snapshot",
-                                serde_json::json!({
-                                    "symbol": symbol,
-                                    "timeframe_slot": slot_str,
-                                    "timeframe_secs": tf,
-                                    "snapshot": payload,
-                                }),
-                            );
-                            if let Ok(json_str) = serde_json::to_string(&notif) {
-                                if socket.send(AxumMessage::Text(json_str)).await.is_err() {
-                                    break;
-                                }
-                            }
+                        if !send_snapshot_to_socket(&mut socket, &snapshot, requested_slot).await {
+                            break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(missed)) => {
@@ -146,6 +184,24 @@ async fn handle_ws_socket(
                                 current_pair = Some(new_pair.clone());
                                 rx_stream =
                                     new_pair.subscribe_broadcast_by_slot(requested_slot);
+                                // Replay the latest cached snapshot from the
+                                // freshly installed pair so the frontend
+                                // does not see an empty slot while the
+                                // first live frame is still in flight.
+                                if let Some(cached) = new_pair
+                                    .latest_snapshot_for_slot(requested_slot)
+                                    .await
+                                {
+                                    if !send_snapshot_to_socket(
+                                        &mut socket,
+                                        &cached,
+                                        requested_slot,
+                                    )
+                                    .await
+                                    {
+                                        break;
+                                    }
+                                }
                             }
                         } else {
                             // Pair was deleted; the underlying broadcast

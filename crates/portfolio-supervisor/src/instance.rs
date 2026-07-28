@@ -84,6 +84,11 @@ pub struct TimeframeBuffers {
 pub struct Instance {
     pub id: String,
     pub pair: (String, String),
+    /// Exchange this instance is wired to. Stamped at construction time so
+    /// helpers that walk the workspace (e.g.
+    /// `sync_exchange_status_active_pairs`) can bucket by exchange without
+    /// having to derive it from `pair` or symbol conventions.
+    pub exchange: crate::session::ExchangeChoice,
     pub cancel: CancellationToken,
 
     pub trading: RwLock<TradingState>,
@@ -111,6 +116,7 @@ impl Instance {
     pub fn new(
         id: String,
         pair: (String, String),
+        exchange: crate::session::ExchangeChoice,
         active_pair: Arc<analyzer::ActivePair>,
         pool: SqlitePool,
         workspace: WorkspaceState,
@@ -141,6 +147,7 @@ impl Instance {
         Self {
             id,
             pair,
+            exchange,
             cancel: active_pair.cancel.clone(),
             trading: RwLock::new(TradingState::default()),
             config_state: RwLock::new(ConfigState::new(inter_config, operational_mode)),
@@ -294,6 +301,7 @@ impl Instance {
         Self {
             id,
             pair,
+            exchange: crate::session::ExchangeChoice::Hyperliquid,
             cancel,
             trading: RwLock::new(TradingState::default()),
             config_state: RwLock::new(ConfigState::new(

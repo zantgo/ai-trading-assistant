@@ -1,23 +1,23 @@
-use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
-use core_domain::models::TimeframeSlot;
-use config_models::{FibonacciConfig, PlatformConfig, WorkspaceConfig};
-use database_storage;
-use portfolio_supervisor::instance::TimeframeBuffers;
 use api_gateway::{self, AppState};
-use market_analyzer::sr_engine::SrRoleTracker;
-use market_analyzer::indicators::DivergenceDetector;
+use config_models::{FibonacciConfig, PlatformConfig, WorkspaceConfig};
 use core_domain::models::MarketSnapshot;
+use core_domain::models::TimeframeSlot;
 use core_domain::normalized::SymbolMapper;
+use database_storage;
+use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
+use market_analyzer::indicators::DivergenceDetector;
+use market_analyzer::sr_engine::SrRoleTracker;
+use network_adapters::clock_monitor::ClockMonitor;
+use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
+use portfolio_supervisor::instance::TimeframeBuffers;
+use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tower::ServiceExt;
-use network_adapters::clock_monitor::ClockMonitor;
-use network_adapters::pipeline_reliability::ReliabilityTracker;
-use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 
 async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -37,7 +37,9 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
+        connection_quality: Arc::new(
+            network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new(),
+        ),
         ws_url: ws_url.clone(),
         bitget_ws_url: ws_url,
         clock_monitor: None,
@@ -153,7 +155,8 @@ async fn test_websocket_stream_with_active_pair() {
     let (macro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (supermacro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
 
-    let (snapshot_tx, _snapshot_rx) = mpsc::channel::<core_domain::normalized::NormalizedEvent>(100);
+    let (snapshot_tx, _snapshot_rx) =
+        mpsc::channel::<core_domain::normalized::NormalizedEvent>(100);
     let cancel = tokio_util::sync::CancellationToken::new();
 
     let snap_hist = Arc::new(RwLock::new(
@@ -183,8 +186,12 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
             buffer_size: 500,
             stale_threshold_secs: 300,
@@ -206,8 +213,12 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
             buffer_size: 500,
             stale_threshold_secs: 300,
@@ -229,8 +240,12 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
             buffer_size: 500,
             stale_threshold_secs: 300,
@@ -252,8 +267,12 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
-            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
-            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"),
+            )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
             buffer_size: 500,
             stale_threshold_secs: 300,
@@ -265,6 +284,7 @@ async fn test_websocket_stream_with_active_pair() {
     let instance = Arc::new(portfolio_supervisor::instance::Instance::new(
         "inst_test".to_string(),
         ("BTC".to_string(), "USDT".to_string()),
+        portfolio_supervisor::session::ExchangeChoice::Hyperliquid,
         pair.clone(),
         pool.clone(),
         workspace.clone(),
@@ -302,7 +322,9 @@ async fn test_websocket_stream_with_active_pair() {
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
+        connection_quality: Arc::new(
+            network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new(),
+        ),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: "".to_string(),
         clock_monitor: None,

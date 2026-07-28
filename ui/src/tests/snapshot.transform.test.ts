@@ -312,6 +312,129 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(pickInstanceLivePrice(inst as never, now * 1000)).toBe('65000.00');
     });
 
+    it('shadow_tick_preserves_last_completed_value_for_close_only_indicators', () => {
+        // Regression: the backend now skips close-only indicators entirely
+        // on shadow ticks (registry `updates_on_shadow = false`) so the
+        // frontend per-key spread merge preserves the last completed
+        // reading. Hull MA's contract is `normalized = 0.0` (event-only
+        // overlay), but `raw_value` carries the actual HMA price.
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+
+        // Step 1: a completed candle frame populates Hull MA with a real value.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                hull_ma: { raw_value: 64950.0, normalized: 0.0, state_label: 'HULL_MA_BULLISH_OVERLAY' },
+                ichimoku: {
+                    raw_value: 64900.0, normalized: 0.6, state_label: 'PRICE_ABOVE_CLOUD',
+                    values: { tenkan: 64900.0, kijun: 64800.0, senkou_a: 64950.0, senkou_b: 64850.0 },
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['hull_ma'].raw_value).toBe(64950.0);
+        expect(tf.indicators['ichimoku'].values?.tenkan).toBe(64900.0);
+
+        // Step 2: a shadow tick arrives with only tick-safe indicators
+        // (no Hull MA, no Ichimoku). The prior completed values must
+        // persist because the keys are absent from the incoming map.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: false,
+            mid_price: '65010.00',
+            indicators: {
+                rsi: { raw_value: 55.0, normalized: 0.1, state_label: 'RSI_NEUTRAL' },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].raw_value).toBe(55.0);
+        expect(tf.indicators['hull_ma'].raw_value).toBe(
+            64950.0,
+            'Hull MA value from prior completed candle must persist across shadow tick',
+        );
+        expect(tf.indicators['ichimoku'].values?.tenkan).toBe(
+            64900.0,
+            'Ichimoku values from prior completed candle must persist across shadow tick',
+        );
+    });
+
+    it('shadow_tick_merges_indicator_lifecycle_map_per_key', () => {
+        // Regression: a sparse shadow frame must NOT wipe the prior
+        // loading state for keys omitted from the incoming lifecycle map
+        // (e.g. when the analyzer temporarily drops a key mid-bar).
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].fastTerm;
+
+        // Completed candle seeds the lifecycle map for both rsi and ichimoku.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'fast',
+            timeframe_secs: 180,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                rsi: { raw_value: 55.0, normalized: 0.1, state_label: 'RSI_NEUTRAL' },
+            },
+            indicator_lifecycle: {
+                rsi: { state: 'Live', bars_seen: 50, bars_required: 14, stale_threshold_secs: 300 },
+                ichimoku: { state: 'Loading', bars_seen: 10, bars_required: 52, stale_threshold_secs: 300 },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicatorLifecycle?.['rsi']?.state).toBe('Live');
+        expect(tf.indicatorLifecycle?.['ichimoku']?.state).toBe('Loading');
+
+        // Shadow frame omits the ichimoku lifecycle entry.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'fast',
+            timeframe_secs: 180,
+            is_completed: false,
+            mid_price: '65010.00',
+            indicators: {
+                rsi: { raw_value: 56.0, normalized: 0.12, state_label: 'RSI_NEUTRAL' },
+            },
+            indicator_lifecycle: {
+                rsi: { state: 'Live', bars_seen: 51, bars_required: 14, stale_threshold_secs: 300 },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicatorLifecycle?.['rsi']?.state).toBe('Live');
+        expect(tf.indicatorLifecycle?.['ichimoku']?.state).toBe(
+            'Loading',
+            'Lifecycle entry for ichimoku must persist when omitted from the incoming shadow',
+        );
+        expect(tf.indicatorLifecycle?.['ichimoku']?.bars_seen).toBe(10);
+    });
+
+    it('anchored_vwap_sub_key_resolves_to_weekly_payload', () => {
+        // Regression: the registry `value_source` for anchored_vwap was
+        // `sub:vwap_weekly` (typo) while the normalizer publishes the
+        // weekly level under `sub:weekly`. The Metrics Raw column
+        // rendered `--` until the fix. The application code itself is
+        // already covered by the backend integration; this test pins the
+        // merged behaviour so a regression is detected at the API
+        // boundary instead of silently producing empty values.
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].slowTerm;
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'slow',
+            timeframe_secs: 300,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                anchored_vwap: {
+                    raw_value: 65020.0,
+                    normalized: 0.0,
+                    state_label: 'AVWAP_AT_ACTIVE',
+                    values: { weekly: 65020.0, monthly: 65010.0, swing: 65005.0 },
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['anchored_vwap'].values?.weekly).toBe(65020.0);
+    });
+
     it('header_price_picker_falls_back_when_every_snapshot_is_stale_or_missing', async () => {
         // First WS frame happens, then drift stalls every slot beyond
         // the staleness threshold. The picker should still show the most

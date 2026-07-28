@@ -242,7 +242,12 @@ impl IndicatorLifecycleStatus {
     }
 
     /// Promote to `Live` after the first successful calculator update.
-    pub fn live(bars_seen: u32, bars_required: u32, last_updated_at: u64, stale_threshold_secs: u32) -> Self {
+    pub fn live(
+        bars_seen: u32,
+        bars_required: u32,
+        last_updated_at: u64,
+        stale_threshold_secs: u32,
+    ) -> Self {
         Self {
             state: IndicatorLifecycleState::Live,
             bars_seen,

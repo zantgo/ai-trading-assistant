@@ -11,14 +11,14 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use config_models::PlatformConfig;
+use network_adapters::clock_monitor::ClockMonitor;
 use network_adapters::connection_quality_tracker::ConnectionQualityRegistry;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
-use network_adapters::clock_monitor::ClockMonitor;
-use portfolio_supervisor::session::{Currency, ExchangeChoice, SessionState};
-use portfolio_supervisor::instance::Instance;
-use portfolio_supervisor::workspace_state::WorkspaceState;
 use portfolio_supervisor::execution::ExecutionEngine;
+use portfolio_supervisor::instance::Instance;
+use portfolio_supervisor::session::{Currency, ExchangeChoice, SessionState};
+use portfolio_supervisor::workspace_state::WorkspaceState;
 
 pub mod handlers;
 pub mod helpers;
@@ -163,27 +163,61 @@ impl AppState {
     pub async fn quit_session(&self) -> Result<(), String> {
         println!("🛑 Initiating graceful shutdown of all instances...");
 
-        let instance_ids: Vec<String> = {
+        // (1) Capture the live pair keys BEFORE we touch anything. The
+        // `WorkspaceState` keeps two separate state holders — `config`
+        // (declarative) and `instances` (live runtime map) — and
+        // `set_config` does NOT reconcile the live map. We have to drop
+        // every entry from both sides, otherwise the next
+        // `/api/instances` call (which reads the live map) returns
+        // rows that the persisted TOML says shouldn't exist.
+        let live_pair_keys: Vec<String> = {
             self.workspace
                 .list()
                 .await
                 .iter()
-                .map(|i| i.id.clone())
+                .map(|i| i.pair_key())
                 .collect()
         };
 
-        for instance_id in &instance_ids {
-            if let Some(instance) = self.workspace.get(instance_id).await {
+        // (2) Cancel every running pipeline task. `cancel.cancel()` is
+        // idempotent so it's safe even when an instance is already
+        // Stopped.
+        for pair_key in &live_pair_keys {
+            if let Some(instance) = self.workspace.get(pair_key).await {
                 instance.cancel.cancel();
             }
         }
 
+        // Let cancellation propagate so the orphaned tasks can observe
+        // it before we drop their `Arc<Instance>` references.
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
+        // (3) Drop every live instance from the runtime map. Without
+        // this, `/api/instances` (which reads `WorkspaceState::list()`,
+        // NOT `WorkspaceState::config()`) keeps returning the just-quit
+        // instances and the dashboard shows them on re-entry.
+        for pair_key in &live_pair_keys {
+            self.workspace.remove(pair_key).await;
+        }
+
+        // (4) Clear the declarative config + persist to TOML.
         let mut ws = self.workspace.config().await;
         ws.instances.clear();
-        self.workspace.set_config(ws).await;
+        self.workspace.set_config(ws.clone()).await;
 
+        if let Err(e) = config_models::save_workspace(&ws) {
+            eprintln!("⚠️  Failed to persist workspace after quit: {}", e);
+            // Don't fail the quit — the in-memory state is already
+            // correct and the operator can recover with `destroy` if
+            // the TOML is unreadable.
+        } else {
+            println!(
+                "💾 Workspace persisted: 0 instances after quit (deleted {} entries from config.toml)",
+                live_pair_keys.len()
+            );
+        }
+
+        // (5) Mark session inactive.
         self.session
             .active
             .store(false, std::sync::atomic::Ordering::Relaxed);
@@ -244,7 +278,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/workspace/toml",
-            get(handlers::config::serve_workspace_toml).post(handlers::config::serve_workspace_toml_import),
+            get(handlers::config::serve_workspace_toml)
+                .post(handlers::config::serve_workspace_toml_import),
         )
         .route(
             "/api/rules",
@@ -549,14 +584,14 @@ mod tests {
         });
         // Push a Divergence signal onto the RSI entry (divergence lives on parent).
         if let Some(rsi_entry) = map.get_mut("rsi") {
-            rsi_entry
-                .signals
-                .push(market_analyzer::indicators::normalized::IndicatorSignal::new(
+            rsi_entry.signals.push(
+                market_analyzer::indicators::normalized::IndicatorSignal::new(
                     market_analyzer::indicators::normalized::SignalKind::Divergence,
                     market_analyzer::indicators::normalized::SignalDirection::Bullish,
                     market_analyzer::indicators::normalized::SignalStatus::Potential,
                     "POTENTIAL_BULLISH_DIVERGENCE",
-                ));
+                ),
+            );
         }
         map.insert("atr".into(), {
             let mut v = HashMap::new();

@@ -147,13 +147,15 @@ mod tests {
         assert!(upper > lower, "Bands must have non-zero width");
         let pct_b = (close - lower) / (upper - lower);
         assert!(
-            pct_b >= Decimal::from_f64_retain(0.00).unwrap() && pct_b <= Decimal::from_f64_retain(1.00).unwrap(),
+            pct_b >= Decimal::from_f64_retain(0.00).unwrap()
+                && pct_b <= Decimal::from_f64_retain(1.00).unwrap(),
             "%B should stay in [0,1], got {}",
             pct_b
         );
         // At the middle of the price range, %B should be near 0.5
         assert!(
-            (pct_b - Decimal::from_f64_retain(0.5).unwrap()).abs() < Decimal::from_f64_retain(0.4).unwrap(),
+            (pct_b - Decimal::from_f64_retain(0.5).unwrap()).abs()
+                < Decimal::from_f64_retain(0.4).unwrap(),
             "%B should be near 0.5 at mid-range, got {}",
             pct_b
         );

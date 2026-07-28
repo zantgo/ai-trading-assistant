@@ -47,10 +47,7 @@ pub async fn override_readiness(
                         from: current,
                         to: current,
                         timestamp_ms: now_ms,
-                        metadata: Some(format!(
-                            "Gate 2 readiness override: {}",
-                            req.new_readiness
-                        )),
+                        metadata: Some(format!("Gate 2 readiness override: {}", req.new_readiness)),
                     },
                 );
 

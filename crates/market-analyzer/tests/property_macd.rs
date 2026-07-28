@@ -1,6 +1,6 @@
+use market_analyzer::indicators::{Macd, TrendState};
 use proptest::prelude::*;
 use rust_decimal::Decimal;
-use market_analyzer::indicators::{Macd, TrendState};
 
 proptest! {
     #[test]

@@ -1,12 +1,53 @@
 <script lang="ts">
-    import type { AnalysisMatrix, AlignmentMatrix } from '../types';
+    import type { AnalysisMatrix, AlignmentMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import { buildPanelExportJson } from '../lib/metricsExport';
+    import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AnalysisPanel.module.css';
 
     const app = useAppStore();
     const instance = $derived(app.activeInstance());
     const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
+    const opportunity = $derived((microSnap?.opportunity ?? null) as any);
+    const decisionContext = $derived((microSnap?.decision_context ?? null) as Record<string, unknown> | null);
+    const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
+    const timestamp = $derived<number | null>(
+        microSnap && typeof (microSnap as any).timestamp === 'number'
+            ? (microSnap as any).timestamp
+            : null
+    );
+    const registry = $derived(app.indicatorRegistry ?? []);
+    const pairKey = $derived(app.activeSymbol ?? '');
+
+    function buildExport() {
+        return buildPanelExportJson({
+            sourceTab: 'analysis',
+            pairKey,
+            resolvers: {
+                symbol: pairKey,
+                tfLabel: 'Micro',
+                tfSecs: microTerm?.barDurationSec ?? 0,
+                timestamp,
+                markPrice,
+                registry: registry as any,
+                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
+                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+                analysis,
+                risk: instance?.risk ?? null,
+                alignment: (alignment as unknown as Record<string, unknown>) ?? null,
+                opportunity,
+                advisory: instance?.advisory ?? null,
+                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
+                liquidity: (microTerm as any)?.liquidity ?? null,
+                cluster: (microTerm as any)?.cluster ?? null,
+                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
+                decisionContext,
+            },
+        });
+    }
 
     function biasClass(b: string): string {
         switch (b) {
@@ -174,7 +215,10 @@
 </script>
 
 <div class={styles.panel}>
-    <h2 class={styles.title}>Market Analysis</h2>
+    <div class={styles.panelHeader}>
+        <h2 class={styles.title}>Market Analysis</h2>
+        <ExportDataButton onExport={buildExport} title="Copy all Analysis data as JSON" />
+    </div>
 
     {#if !analysis || !analysis.timeframes_considered}
         <div class={styles.noData}>Awaiting market analysis data — all values will populate once cross-TF consensus forms</div>

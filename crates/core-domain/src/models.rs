@@ -99,7 +99,9 @@ impl CandlePipelineState {
     }
 
     /// Most-severe aggregation across an iterator (DCP-10).
-    pub fn most_severe<'a>(iter: impl IntoIterator<Item = &'a CandlePipelineState>) -> CandlePipelineState {
+    pub fn most_severe<'a>(
+        iter: impl IntoIterator<Item = &'a CandlePipelineState>,
+    ) -> CandlePipelineState {
         let mut best = CandlePipelineState::Live;
         for s in iter {
             if s.severity() > best.severity() {

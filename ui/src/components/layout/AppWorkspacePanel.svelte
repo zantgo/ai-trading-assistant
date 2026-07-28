@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { tick } from 'svelte';
+    import { onDestroy, tick, untrack } from 'svelte';
     import { useAppStore } from '../../state.svelte';
     import {
         connectWsForInstance, disconnectWsForInstance,
@@ -13,11 +13,15 @@
     interface Props {
         isOpen: boolean;
         wssMap: Record<string, WsState>;
+        /** Inline error surfaced from the App-level delete call. The
+         *  panel renders this above the list when set and auto-clears
+         *  it after 6 s. */
+        errorMessage: string | null;
         onclose: () => void;
-        onrequestConfirm: (id: string, action: 'start' | 'stop' | 'pause' | 'delete', pair?: string) => void;
+        onrequestConfirm: (id: string, action: 'delete', pair?: string) => void;
     }
 
-    let { isOpen, wssMap, onclose, onrequestConfirm }: Props = $props();
+    let { isOpen, wssMap, errorMessage, onclose, onrequestConfirm }: Props = $props();
 
     const app = useAppStore();
     let createInputEl = $state<HTMLInputElement | null>(null);
@@ -75,6 +79,15 @@
     }
 
     async function fetchWorkspaces() {
+        // Defer the synchronous prelude past the current $effect's
+        // tracking scope. Without this `await`, the immediate
+        // `wsLoading = true` below runs inside the effect's call stack
+        // with `current_sources` already populated and `wsLoading` not
+        // a tracked dependency — Svelte 5 throws
+        // `state_unsafe_mutation` (the dashboard then "freezes": the
+        // effect is marked errored and stops re-running, so
+        // `wsInstances` never refreshes again until full reload).
+        await Promise.resolve();
         wsLoading = true;
         try {
             const res = await fetch('/api/instances');
@@ -118,15 +131,40 @@
         if (isOpen) fetchWorkspaces();
     });
 
+    // Polling backstop: even if the effect chain above ever breaks again
+    // (any future reactivity regression that marks the effect as
+    // errored), the panel still refreshes while it's open. We restart
+    // the interval on every open and clear it on close / teardown.
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    $effect(() => {
+        if (isOpen) {
+            if (!pollTimer) pollTimer = setInterval(() => fetchWorkspaces(), 3000);
+        } else if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    });
+    onDestroy(() => {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    });
+
     // Auto-focus the symbol input as soon as the panel opens. We watch
     // the `isOpen` edge (false → true), wait one microtask via `tick()`
     // so the input is mounted, then call `.focus()` and place the caret
     // at the end. The 250 ms `slideInRight` animation finishes well
     // before this resolves, so the user sees a smooth slide-in ending
     // with a blinking cursor ready to receive input.
+    //
+    // Both the read of `prevIsOpen` and the write back to it must happen
+    // inside `untrack(...)`: this effect's only real dependency is
+    // `isOpen`, and mutating an unrelated $state from inside the
+    // effect's tracking scope triggers `state_unsafe_mutation`.
     $effect(() => {
-        const opened = isOpen && !prevIsOpen;
-        prevIsOpen = isOpen;
+        const opened = untrack(() => isOpen && !prevIsOpen);
+        untrack(() => { prevIsOpen = isOpen; });
         if (!opened) return;
         tick().then(() => {
             const el = createInputEl;
@@ -158,6 +196,7 @@
             </button>
         </div>
         {#if createError}<div class={styles.wsPanelError}>{createError}</div>{/if}
+        {#if errorMessage}<div class={styles.wsPanelError}>{errorMessage}</div>{/if}
         <div class={styles.wsPanelList}>
             {#if wsLoading}
                 <div class={styles.wsPanelEmpty}>Loading instances…</div>
@@ -167,7 +206,7 @@
                 {#each wsInstances as inst (inst.id)}
                     {@const pk = inst.pair}
                     {@const chg = changeStr(pk)}
-                    <a href={buildEngineHash('market_monitor', 'workspace', pk)} class={styles.wsPanelRow} onclick={(e) => { handleNavClick(e); app.enterInstance(pk); onclose(); }}>
+                    <a href={buildEngineHash('market_monitor', 'workspace', pk)} class={styles.wsPanelRow} onclick={(e) => { handleNavClick(e); app.enterInstance(pk); app.middleTab = 'workspace'; onclose(); }}>
                         <div class={styles.wsPanelPair}>
                             <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
                             <span class={styles.wsPanelSym}>{pairDisplay(pk)}</span>
@@ -176,9 +215,6 @@
                                 <span class="{styles.change} {changeCls(chg)}">{chg}</span>
                             {/if}
                         </div>
-                        <div class={styles.wsPanelActionBtn} title="Pause" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, 'pause'); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, 'pause'); } }}><SvgIcon name="pause" size={12} /></div>
-                        <div class="{styles.wsPanelActionBtn} {styles.start}" title="Start" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, 'start'); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, 'start'); } }}><SvgIcon name="play" size={12} /></div>
-                        <div class="{styles.wsPanelActionBtn} {styles.stop}" title="Stop" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, 'stop'); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, 'stop'); } }}><SvgIcon name="stop" size={12} /></div>
                         <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); onrequestConfirm(inst.id, 'delete', pk); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onrequestConfirm(inst.id, 'delete', pk); } }}><SvgIcon name="trash" size={12} /></div>
                     </a>
                 {/each}

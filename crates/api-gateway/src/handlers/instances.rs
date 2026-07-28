@@ -1,4 +1,3 @@
-use portfolio_supervisor::registry;
 use crate::types::{
     AddInstanceRequest, InstanceConfigPayload, InstanceDetailQuery, InstanceIntervalsRequest,
     InstanceListResponse, InstanceManualRequest,
@@ -9,6 +8,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use portfolio_supervisor::registry;
 use std::sync::Arc;
 
 pub async fn serve_start_instance(
@@ -88,20 +88,22 @@ pub async fn serve_delete_instance(
     State(state): State<Arc<AppState>>,
     Path(instance_id): Path<String>,
 ) -> impl IntoResponse {
+    // DELETE accepts any state (Running, Paused, Stopped) — the
+    // dashboard UI is binary (instance exists or it doesn't), so we
+    // cancel the pipeline, drain the buffers, and remove from the
+    // workspace in one shot. The only 4xx we ever emit is 404 if the
+    // instance_id is unknown to the workspace.
     match registry::delete_instance(&state.registry_context(), &instance_id).await {
         Ok(()) => (
             axum::http::StatusCode::OK,
             format!("Instance {} deleted", instance_id),
         )
             .into_response(),
-        Err(e) => {
-            let status = if e.contains("STOPPED") || e.contains("Cannot delete") {
-                axum::http::StatusCode::CONFLICT
-            } else {
-                axum::http::StatusCode::NOT_FOUND
-            };
-            (status, e).into_response()
-        }
+        Err(e) => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -109,11 +111,7 @@ pub async fn serve_delete_instance_by_pair(
     State(state): State<Arc<AppState>>,
     Path(pair_key): Path<String>,
 ) -> impl IntoResponse {
-    let instance_id = state
-        .workspace
-        .get(&pair_key)
-        .await
-        .map(|i| i.id.clone());
+    let instance_id = state.workspace.get(&pair_key).await.map(|i| i.id.clone());
 
     match instance_id {
         Some(id) => match registry::delete_instance(&state.registry_context(), &id).await {
@@ -122,14 +120,11 @@ pub async fn serve_delete_instance_by_pair(
                 format!("Instance {} deleted", pair_key),
             )
                 .into_response(),
-            Err(e) => {
-                let status = if e.contains("STOPPED") || e.contains("Cannot delete") {
-                    axum::http::StatusCode::CONFLICT
-                } else {
-                    axum::http::StatusCode::NOT_FOUND
-                };
-                (status, e).into_response()
-            }
+            Err(e) => (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e })),
+            )
+                .into_response(),
         },
         None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
@@ -262,11 +257,9 @@ pub async fn serve_update_instance_config(
             // would silently freeze (its `Receiver` would block forever on
             // a channel whose Sender is now kept alive only by the
             // handler itself — no `Closed`, no `onclose`, no reconnect).
-            let _ = state
-                .recharge_tx
-                .send(crate::RechargeNotice {
-                    pair_key: pair_key.clone(),
-                });
+            let _ = state.recharge_tx.send(crate::RechargeNotice {
+                pair_key: pair_key.clone(),
+            });
             (
                 axum::http::StatusCode::OK,
                 "Instance configuration saved and pipelines recharged",
@@ -279,7 +272,7 @@ pub async fn serve_update_instance_config(
                 axum::http::StatusCode::OK,
                 format!("Config saved but pipeline recharge failed: {}", e),
             )
-            .into_response()
+                .into_response()
         }
     }
 }
@@ -447,32 +440,36 @@ pub async fn serve_release_veto(
     let instance = state.get_instance_by_id(&instance_id).await;
 
     match instance {
-        Some(inst) => {
-            match inst.safety.release_veto(body.reset_peak).await {
-                Ok(()) => {
-                    let mut stances = inst.stances.write().await;
-                    for (_sym, stance) in stances.iter_mut() {
-                        *stance = config_models::Stance::Active;
-                    }
-                    drop(stances);
+        Some(inst) => match inst.safety.release_veto(body.reset_peak).await {
+            Ok(()) => {
+                let mut stances = inst.stances.write().await;
+                for (_sym, stance) in stances.iter_mut() {
+                    *stance = config_models::Stance::Active;
+                }
+                drop(stances);
 
-                    (axum::http::StatusCode::OK, Json(serde_json::json!({
+                (
+                    axum::http::StatusCode::OK,
+                    Json(serde_json::json!({
                         "success": true,
                         "message": format!("Safety veto released for instance {}", instance_id),
                         "instance_id": instance_id,
                         "reset_peak": body.reset_peak,
                         "stances_restored": true,
-                    }))).into_response()
-                }
-                Err(e) => {
-                    (axum::http::StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({
-                        "success": false,
-                        "error": e,
-                        "message": "Veto condition still active — cannot release"
-                    }))).into_response()
-                }
+                    })),
+                )
+                    .into_response()
             }
-        }
+            Err(e) => (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": e,
+                    "message": "Veto condition still active — cannot release"
+                })),
+            )
+                .into_response(),
+        },
         None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
 }
@@ -492,15 +489,19 @@ pub async fn serve_get_safety(
             let initial_cap = inst.trading.read().await.initial_capital;
             let context = inst.safety.get_safety_context().await;
 
-            (axum::http::StatusCode::OK, Json(serde_json::json!({
-                "instance_id": instance_id,
-                "safety_state": safety_state,
-                "consecutive_losses": losses_map,
-                "peak_equity": peak_eq,
-                "current_equity": current_eq,
-                "initial_capital": initial_cap,
-                "context": context,
-            }))).into_response()
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!({
+                    "instance_id": instance_id,
+                    "safety_state": safety_state,
+                    "consecutive_losses": losses_map,
+                    "peak_equity": peak_eq,
+                    "current_equity": current_eq,
+                    "initial_capital": initial_cap,
+                    "context": context,
+                })),
+            )
+                .into_response()
         }
         None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
@@ -526,17 +527,21 @@ pub async fn serve_get_portfolio(
                 .map(|(k, v)| (k.clone(), v.as_str().to_string()))
                 .collect();
 
-            (axum::http::StatusCode::OK, Json(serde_json::json!({
-                "instance_id": instance_id,
-                "symbol": inst.symbol(),
-                "current_equity": trading.current_equity,
-                "initial_capital": trading.initial_capital,
-                "peak_equity": peak_eq.to_string(),
-                "safety_state": safety_state.as_str(),
-                "consecutive_losses": losses_map,
-                "active_stances": stances,
-                "position_count": 0u32,
-            }))).into_response()
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!({
+                    "instance_id": instance_id,
+                    "symbol": inst.symbol(),
+                    "current_equity": trading.current_equity,
+                    "initial_capital": trading.initial_capital,
+                    "peak_equity": peak_eq.to_string(),
+                    "safety_state": safety_state.as_str(),
+                    "consecutive_losses": losses_map,
+                    "active_stances": stances,
+                    "position_count": 0u32,
+                })),
+            )
+                .into_response()
         }
         None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }

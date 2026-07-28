@@ -24,7 +24,9 @@ fn per_tick_candle_update_p95_under_threshold() {
     let mut seed = hasher.finish();
 
     let mut pseudo_rand = || {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         seed
     };
 

@@ -1,6 +1,6 @@
+use market_analyzer::indicators::Bbwp;
 use proptest::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
-use market_analyzer::indicators::Bbwp;
 
 proptest! {
     #[test]

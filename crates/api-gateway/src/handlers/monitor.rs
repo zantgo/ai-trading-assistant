@@ -1,7 +1,3 @@
-use portfolio_supervisor::profile_evaluation::{
-    calculate_registry_confluence, evaluate_mtf_alignment, indicator_to_snapshot_values,
-    SnapshotValues,
-};
 use crate::helpers::{default_pair_key, get_active_pair};
 use crate::types::{
     HistoryQuery, MonitorResponse, MonitorTimeframe, MtfConfirmation, MtfIndicatorRow,
@@ -12,8 +8,12 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use market_analyzer::indicators::registry::INDICATORS;
 use core_domain::models::MarketSnapshot;
+use market_analyzer::indicators::registry::INDICATORS;
+use portfolio_supervisor::profile_evaluation::{
+    calculate_registry_confluence, evaluate_mtf_alignment, indicator_to_snapshot_values,
+    SnapshotValues,
+};
 use std::sync::Arc;
 
 fn snap_values(s: &Option<MarketSnapshot>) -> Option<SnapshotValues> {

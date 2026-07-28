@@ -103,21 +103,28 @@ pub struct LiquidityEventAccumulator {
     cascade_window_candles: usize,
     /// Rolling per-candle cascade intensity (last N completed bars).
     rolling_intensity: VecDeque<f64>,
+    /// Configured number of significant events required to promote
+    /// `Detected → Sustained`. Wired from `[workspace.liquidity].cascade_sustained_events`.
+    cascade_sustained_events: u32,
 }
 
 impl LiquidityEventAccumulator {
-    /// Create a new accumulator for `symbol`. `max_events` caps memory
-    /// regardless of WS flood rate.
+    /// Create a new accumulator for `symbol` with sensible production defaults.
+    /// `max_events` caps memory regardless of WS flood rate.
     pub fn new(symbol: impl Into<String>) -> Self {
-        Self::with_config(symbol, 1_000, 2.5, 5)
+        Self::with_config(symbol, 1_000, 2.5, 5, 3)
     }
 
-    /// Full-configuration constructor.
+    /// Full-configuration constructor. `cascade_sustained_events` is the
+    /// count of significant events (notional ≥ threshold) within the
+    /// rolling window required to escalate to `CascadeState::Sustained`.
+    /// Mirrors `[workspace.liquidity].cascade_sustained_events`.
     pub fn with_config(
         symbol: impl Into<String>,
         max_events: usize,
         cascade_event_zscore: f64,
         cascade_window_candles: usize,
+        cascade_sustained_events: u32,
     ) -> Self {
         Self {
             symbol: symbol.into(),
@@ -128,6 +135,7 @@ impl LiquidityEventAccumulator {
             cascade_event_zscore,
             cascade_window_candles: cascade_window_candles.max(2),
             rolling_intensity: VecDeque::with_capacity(cascade_window_candles.max(2) * 2),
+            cascade_sustained_events: cascade_sustained_events.max(1),
         }
     }
 
@@ -231,8 +239,10 @@ impl LiquidityEventAccumulator {
                 significant_events += 1;
             }
         }
-        // >= 3 in the last 50 events = Sustained; 1-2 = Detected.
-        if significant_events >= 3 {
+        // >= cascade_sustained_events in the last 50 events = Sustained;
+        // 1 to sustained-1 = Detected.
+        let sustained_threshold = self.cascade_sustained_events.max(1) as u32;
+        if significant_events >= sustained_threshold {
             CascadeState::Sustained
         } else if significant_events >= 1 {
             CascadeState::Detected
@@ -333,7 +343,7 @@ mod tests {
 
     #[test]
     fn bounded_event_history() {
-        let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 5, 2.5, 3);
+        let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 5, 2.5, 3, 3);
         for i in 0..20 {
             acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 0.1, i));
         }
@@ -355,7 +365,7 @@ mod tests {
 
     #[test]
     fn cascade_state_progression_with_large_events() {
-        let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.5, 5);
+        let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.5, 5, 3);
         // Build up baseline with small events.
         for i in 0..5 {
             acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 0.01, i * 1000));
@@ -1264,6 +1274,14 @@ pub struct SignalInput<'a> {
     pub funding_extreme_pct: f64,
     pub oi_funding_divergence_pct: f64,
     pub magnet_activation_distance_pct: f64,
+    /// Liquidity-vacuum depth threshold. The vacuum signal fires when
+    /// the observed `book_depth_ratio` is below `liquidity_vacuum_depth_low`
+    /// or above `liquidity_vacuum_depth_high` (its reciprocal). When the
+    /// configured `liquidity_vacuum_threshold` (default 0.3) is given,
+    /// `low = threshold` and `high = 1 / threshold`. The legacy hardcoded
+    /// `0.5` / `2.0` pair corresponds to `liquidity_vacuum_threshold = 0.5`.
+    pub liquidity_vacuum_depth_low: f64,
+    pub liquidity_vacuum_depth_high: f64,
     /// Previous bar's funding rate for FundingFlip detection.
     /// None if not available.
     pub prev_funding_rate: Option<f64>,
@@ -1285,6 +1303,8 @@ impl<'a> Default for SignalInput<'a> {
             funding_extreme_pct: 0.0005,
             oi_funding_divergence_pct: 2.0,
             magnet_activation_distance_pct: 0.5,
+            liquidity_vacuum_depth_low: 0.5,
+            liquidity_vacuum_depth_high: 2.0,
             prev_funding_rate: None,
             price_bias: 0.0,
             prev_cascade_state: None,
@@ -1418,7 +1438,8 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
 
     // 4. Liquidity vacuum: thin book + dense liquidations behind price.
     if let (Some(depth), Some(flow)) = (input.book_depth_ratio, input.flow) {
-        let thin = depth < 0.5 || depth > 2.0;
+        let thin =
+            depth < input.liquidity_vacuum_depth_low || depth > input.liquidity_vacuum_depth_high;
         let dense = flow.event_count >= 3 || flow.largest_event_usd > 50_000.0;
         if thin && dense {
             out.push(LiquiditySignal {
@@ -1495,8 +1516,10 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     if let (Some(flow), Some(cluster)) = (input.flow, input.cluster) {
         let cascade_bearish = flow.net_liquidation_usd > 0.0;
         let asymmetry_bearish = cluster.cascade_asymmetry > 0.0;
-        if matches!(flow.cascade_state, CascadeState::Detected | CascadeState::Sustained)
-            && cascade_bearish == asymmetry_bearish
+        if matches!(
+            flow.cascade_state,
+            CascadeState::Detected | CascadeState::Sustained
+        ) && cascade_bearish == asymmetry_bearish
             && cluster.cascade_asymmetry.abs() > 0.2
         {
             let dir = if cascade_bearish {
@@ -1519,9 +1542,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
 
     // 8. Funding flip: funding_rate changed sign from prev bar (Phase 3 spec #6).
     if let Some(prev) = input.prev_funding_rate {
-        if (prev > 0.0 && input.funding_rate < 0.0)
-            || (prev < 0.0 && input.funding_rate > 0.0)
-        {
+        if (prev > 0.0 && input.funding_rate < 0.0) || (prev < 0.0 && input.funding_rate > 0.0) {
             let dir = if input.funding_rate > 0.0 {
                 LiquidityDirection::Bearish
             } else {

@@ -58,13 +58,7 @@ impl SmartMoney {
         }
     }
 
-    pub fn update(
-        &mut self,
-        open: f64,
-        high: f64,
-        low: f64,
-        close: f64,
-    ) -> Option<SmcOutput> {
+    pub fn update(&mut self, open: f64, high: f64, low: f64, close: f64) -> Option<SmcOutput> {
         let open = Decimal::from_f64_retain(open).unwrap_or(Decimal::ZERO);
         let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
         let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
@@ -250,9 +244,7 @@ mod tests {
         for _ in 0..5 {
             smc.update(100.0, 110.0, 90.0, 105.0);
         }
-        assert!(smc
-            .update(100.0, 110.0, 90.0, 105.0)
-            .is_some());
+        assert!(smc.update(100.0, 110.0, 90.0, 105.0).is_some());
     }
 
     #[test]

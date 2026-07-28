@@ -23,6 +23,7 @@ use core_domain::normalized::SymbolMapper;
 use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
+use portfolio_supervisor::session::ExchangeChoice;
 use market_analyzer::sr_engine::SrRoleTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
@@ -88,7 +89,9 @@ fn make_pipe(slot: TimeframeSlot, secs: u64) -> TimeframePipeline {
             "BTC-USDC",
             slot.as_str(),
         ))),
-        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
         buffer_size: 500,
         stale_threshold_secs: 300,
@@ -120,6 +123,7 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
     let instance = Arc::new(portfolio_supervisor::instance::Instance::new(
         "inst_test".to_string(),
         ("BTC".to_string(), "USDC".to_string()),
+        ExchangeChoice::Hyperliquid,
         active_pair,
         state.pool.clone(),
         state.workspace.clone(),
@@ -325,7 +329,8 @@ async fn cluster_status_preserves_skip_reason_in_payload() {
 
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
     let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro);
-    let expected_reason = "no open_interest yet (HL derivatives poller hasn't populated this symbol)";
+    let expected_reason =
+        "no open_interest yet (HL derivatives poller hasn't populated this symbol)";
     {
         let mut guard = micro_pipe.cluster_status.write().await;
         guard.status = ClusterRefreshStatus::Skipped;

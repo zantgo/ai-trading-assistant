@@ -405,7 +405,14 @@ pub fn derive_analysis(
     // Opportunity from alignment dimensions (deprecated — L4 owns the canonical tree).
     // Kept for backward compat on `analysis.opportunity_analysis` field.
     let opp_dim = alignment.dimensions.get(9).map(|d| d.score).unwrap_or(50.0);
-    let opportunity = if trend_dim >= 75.0 && (matches!(bias, MarketBias::Bullish | MarketBias::StrongBullish | MarketBias::Bearish | MarketBias::StrongBearish)) {
+    let opportunity = if trend_dim >= 75.0
+        && (matches!(
+            bias,
+            MarketBias::Bullish
+                | MarketBias::StrongBullish
+                | MarketBias::Bearish
+                | MarketBias::StrongBearish
+        )) {
         OpportunityType::TrendContinuation
     } else if vol_dim >= 70.0 && struct_dim >= 60.0 {
         OpportunityType::Breakout
@@ -656,7 +663,14 @@ mod tests {
     #[test]
     fn transition_from_regime_shift_with_low_adx() {
         let c = simple_alignment(4, 5.0, 45.0, 1);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), Some(MarketRegime::TrendingBull), None);
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(5.0),
+            Some(MarketRegime::TrendingBull),
+            None,
+        );
         assert_eq!(d.market_regime, MarketRegime::Transition);
     }
 

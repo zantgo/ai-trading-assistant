@@ -259,13 +259,7 @@ impl Candlestick {
     }
 
     /// Feed a completed candle. Returns the recognition result for this bar.
-    pub fn update(
-        &mut self,
-        open: f64,
-        high: f64,
-        low: f64,
-        close: f64,
-    ) -> CandlestickResult {
+    pub fn update(&mut self, open: f64, high: f64, low: f64, close: f64) -> CandlestickResult {
         let open = Decimal::from_f64_retain(open).unwrap_or(Decimal::ZERO);
         let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
         let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);

@@ -1,6 +1,8 @@
 <script lang="ts">
-    import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo } from '../types';
+    import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import { buildPanelExportJson } from '../lib/metricsExport';
+    import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AlignmentPanel.module.css';
 
     const app = useAppStore();
@@ -8,6 +10,44 @@
 
     const instance = $derived(app.instancesMap[pairKey]);
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
+    const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
+    const opportunity = $derived((microSnap?.opportunity ?? null) as any);
+    const decisionContext = $derived((microSnap?.decision_context ?? null) as Record<string, unknown> | null);
+    const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
+    const timestamp = $derived<number | null>(
+        microSnap && typeof (microSnap as any).timestamp === 'number'
+            ? (microSnap as any).timestamp
+            : null
+    );
+    const registry = $derived(app.indicatorRegistry ?? []);
+
+    function buildExport() {
+        return buildPanelExportJson({
+            sourceTab: 'alignment',
+            pairKey,
+            resolvers: {
+                symbol: pairKey,
+                tfLabel: 'Micro',
+                tfSecs: microTerm?.barDurationSec ?? 0,
+                timestamp,
+                markPrice,
+                registry: registry as any,
+                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
+                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+                analysis: instance?.analysis ?? null,
+                risk: instance?.risk ?? null,
+                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
+                opportunity,
+                advisory: instance?.advisory ?? null,
+                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
+                liquidity: (microTerm as any)?.liquidity ?? null,
+                cluster: (microTerm as any)?.cluster ?? null,
+                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
+                decisionContext,
+            },
+        });
+    }
 
     function dimFillClass(score: number, state: string): string {
         if (score >= 100) return styles.dimFillConfluent;
@@ -99,7 +139,10 @@
 </script>
 
 <div class={styles.panel}>
-    <h2 class={styles.title}>Cross-Timeframe Alignment</h2>
+    <div class={styles.panelHeader}>
+        <h2 class={styles.title}>Cross-Timeframe Alignment</h2>
+        <ExportDataButton onExport={buildExport} title="Copy all Alignment data as JSON" />
+    </div>
 
     {#if !alignment || !alignment.timeframes_present}
         <div class={styles.noDataBanner}>Multi-timeframe alignment forming — all values will populate once candles complete across all timeframes.</div>

@@ -100,8 +100,8 @@ impl VolumeProfileSnapshot {
         }
     }
 
-/// Compute the dynamic bin count for a given price range, tick size,
-/// and bar duration. Clamped to `[30, 120]`.
+    /// Compute the dynamic bin count for a given price range, tick size,
+    /// and bar duration. Clamped to `[30, 120]`.
     pub fn dynamic_bin_count(price_range: f64, tick_size: f64, bar_duration_secs: u64) -> usize {
         if price_range <= 0.0 || tick_size <= 0.0 {
             return 30;
@@ -138,15 +138,24 @@ mod tests {
     #[test]
     fn dynamic_bin_count_clamps_high() {
         // Massive range / tiny tick → raw count way above 120 → clamped to 120.
-        assert_eq!(VolumeProfileSnapshot::dynamic_bin_count(100_000.0, 0.0001, 60), 120);
+        assert_eq!(
+            VolumeProfileSnapshot::dynamic_bin_count(100_000.0, 0.0001, 60),
+            120
+        );
     }
 
     #[test]
     fn dynamic_bin_count_within_range() {
         // Mid-range example: 1000 / 1.0 = 1000 + tf_bonus → clamped to 120.
-        assert_eq!(VolumeProfileSnapshot::dynamic_bin_count(1000.0, 1.0, 60), 120);
+        assert_eq!(
+            VolumeProfileSnapshot::dynamic_bin_count(1000.0, 1.0, 60),
+            120
+        );
         // Small but valid: 100 / 1.0 = 100 + tf_bonus(5) = 105, clamped to 120.
-        assert_eq!(VolumeProfileSnapshot::dynamic_bin_count(100.0, 1.0, 60), 105);
+        assert_eq!(
+            VolumeProfileSnapshot::dynamic_bin_count(100.0, 1.0, 60),
+            105
+        );
     }
 
     #[test]

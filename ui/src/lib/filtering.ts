@@ -1,9 +1,9 @@
 // Filtering helpers used by the redesigned Metrics view.
 //
 // The redesign uses filter pills (e.g. "Active signals only", "Confirmed+",
-// "Hide gates") plus a free-text search bar. These pure functions are the
-// canonical implementations shared by all six facet views so behavior is
-// consistent.
+// "Hide gates", "Hide overlays") plus a free-text search bar. These pure
+// functions are the canonical implementations shared by all six facet views
+// so behavior is consistent.
 
 import type {
     IndicatorMeta,
@@ -20,6 +20,10 @@ export interface FilterState {
     confirmedPlusOnly: boolean;
     /** When true, non-directional gate indicators are hidden. */
     hideGates: boolean;
+    /** When true, price-overlay / price-levels / marker indicators are hidden
+     *  (these belong on the chart and in the Structural Anchors Strip, not
+     *  in the per-pane indicators table). */
+    hideOverlays: boolean;
     /** Optional SignalKind whitelist — if non-empty, only these kinds pass. */
     kinds: SignalKind[];
 }
@@ -31,6 +35,7 @@ export function defaultFilters(): FilterState {
         activeOnly: false,
         confirmedPlusOnly: false,
         hideGates: false,
+        hideOverlays: false,
         kinds: [],
     };
 }
@@ -45,12 +50,17 @@ export function matchesQuery(haystack: string | undefined | null, needle: string
 /**
  * Filter the registry against the global filter state.
  *
- *   - `hideGates: true`  → drops non-directional indicators (Volume, RVOL, ATR, BBWP, HV,
- *                          Choppiness, Funding, Spread, OI).
- *   - `query`            → matches against `display_name` and `key`.
- *   - `activeOnly`       → drops indicators whose snapshot entry has no signals.
- *                          (Caller must provide `signalsFor(key)` — see
- *                          `filterRegistryWithSignals` below.)
+ *   - `hideGates: true`    → drops non-directional indicators (Volume, RVOL, ATR, BBWP, HV,
+ *                            Choppiness, Funding, Spread, OI).
+ *   - `hideOverlays: true` → drops rows whose `render` is anything other than
+ *                            `Pane` (drops `PriceOverlay`, `PriceLevels`, and
+ *                            `Marker` indicators — they have dedicated UI
+ *                            surfaces on the chart and in the Structural
+ *                            Anchors Strip).
+ *   - `query`              → matches against `display_name` and `key`.
+ *   - `activeOnly`         → drops indicators whose snapshot entry has no signals.
+ *                            (Caller must provide `signalsFor(key)` — see
+ *                            `filterRegistryWithSignals` below.)
  */
 export function filterRegistry(
     registry: IndicatorMeta[],
@@ -60,6 +70,7 @@ export function filterRegistry(
     return registry.filter((m) => {
         if (!m.default_enabled) return false;
         if (filters.hideGates && !m.directional) return false;
+        if (filters.hideOverlays && m.render !== 'Pane') return false;
         if (filters.query) {
             const hit = matchesQuery(m.display_name, filters.query)
                      || matchesQuery(m.key, filters.query);

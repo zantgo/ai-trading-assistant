@@ -135,7 +135,6 @@ fn liquidity_config_default_is_safe() {
     assert!(cfg.enabled);
     // Polling cadence is sane (>= 1s to avoid hot loops).
     assert!(cfg.mark_price_poll_ms >= 1000);
-    assert!(cfg.funding_refresh_ms >= 1000);
     // Cluster refresh: v6.5 changed the default from 300 s to 0
     // (means "synchronize with TF candle cadence"). Operators may still
     // override with any value ≥ 1, but the v6.5 default is 0 so the

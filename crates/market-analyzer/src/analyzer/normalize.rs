@@ -213,13 +213,27 @@ pub fn series_divergence_confirmed(
 /// timeframe.  Each indicator is only inserted when `bar_count >=
 /// registry.bars_required` — gating premature calculator output from the
 /// live path during buffer fill (sub-minute TFs).
+///
+/// `shadow` is `true` for the live tick path (`broadcast_live_snapshot`).
+/// It suppresses the WARMING fill for close-only indicators so the
+/// frontend per-key merge can preserve the last completed-candle value
+/// across shadow ticks (see [`NormalizationEngine::normalize_all`]).
 pub fn build_indicator_map(
     p: NormalizeParams,
     bar_count: u32,
+    shadow: bool,
 ) -> HashMap<String, NormalizedIndicatorValue> {
     /// Look up the canonical minimum-bar gate for an indicator.  Returns 0
     /// (always ready) when the key is not in the registry or when the
-    /// indicator uses a non-candle data source (DerivativesWs / OrderBook).
+    /// indicator uses a non-candle data source (DerivativesWs / OrderBook
+    /// / EventDriven). For EventDriven, `bars_required` is still meaningful
+    /// for the lifecycle's `Loading → Live` transition — see
+    /// `crates/market-analyzer/src/analyzer/mod.rs::build_indicator_lifecycle_map`
+    /// which reads `bars_required` directly from the registry. This helper
+    /// only governs whether the WARMING fill gate at
+    /// `crates/market-analyzer/src/indicators/normalized/all.rs` is allowed
+    /// to run, and `map.retain(|key, _| ready(key))` is allowed to evict
+    /// an entry.
     fn bars_needed(key: &str) -> u32 {
         use crate::indicators::registry::IndicatorDataSource;
         crate::indicators::registry::get(key)
@@ -415,10 +429,13 @@ pub fn build_indicator_map(
         prev: p.prev,
     };
 
-    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);
+    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx, shadow);
     // Gate: evict any indicator whose bars_required > bar_count.
     // This enforces that no indicator appears as `Live` before the
-    // pipeline has accumulated enough completed candles.
+    // pipeline has accumulated enough completed candles.  On the shadow
+    // path close-only indicators are already absent (`normalize_all` skips
+    // them in the WARMING fill), so the `bars_required` gate still
+    // applies to the tick-safe ones we kept.
     map.retain(|key, _| ready(key));
     inject_ema_values(
         &mut map,
@@ -443,12 +460,24 @@ pub fn build_indicator_map(
         // by FibonacciRange::compute_from_candles() but never serialised to
         // the indicator wire. The UI (Levels facet, StructuralAnchorsStrip)
         // now reads them directly from tf.indicators['fibonacci'].values.
-        if let Some(v) = od2f(fibr.fib_0236) { vals.insert("fib_0236".to_string(), v); }
-        if let Some(v) = od2f(fibr.fib_0382) { vals.insert("fib_0382".to_string(), v); }
-        if let Some(v) = od2f(fibr.fib_0500) { vals.insert("fib_0500".to_string(), v); }
-        if let Some(v) = od2f(fibr.fib_0618) { vals.insert("fib_0618".to_string(), v); }
-        if let Some(v) = od2f(fibr.fib_0660) { vals.insert("fib_0660".to_string(), v); }
-        if let Some(v) = od2f(fibr.fib_0786) { vals.insert("fib_0786".to_string(), v); }
+        if let Some(v) = od2f(fibr.fib_0236) {
+            vals.insert("fib_0236".to_string(), v);
+        }
+        if let Some(v) = od2f(fibr.fib_0382) {
+            vals.insert("fib_0382".to_string(), v);
+        }
+        if let Some(v) = od2f(fibr.fib_0500) {
+            vals.insert("fib_0500".to_string(), v);
+        }
+        if let Some(v) = od2f(fibr.fib_0618) {
+            vals.insert("fib_0618".to_string(), v);
+        }
+        if let Some(v) = od2f(fibr.fib_0660) {
+            vals.insert("fib_0660".to_string(), v);
+        }
+        if let Some(v) = od2f(fibr.fib_0786) {
+            vals.insert("fib_0786".to_string(), v);
+        }
         if let Some(v) = od2f(fibr.ext_1618) {
             vals.insert("ext_1618".to_string(), v);
         }
@@ -603,7 +632,46 @@ pub fn build_indicator_map_from_scalars(
         ..Default::default()
     };
 
-    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);
+    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
     inject_ema_values(&mut map, s.ema_fast, s.ema_medium, s.ema_slow, s.ema_long);
     map
+}
+
+#[cfg(test)]
+mod tests {
+    //! Phase 3.8 — `bars_needed` EventDriven gate test.
+    //!
+    //! Confirms the parity contract: for `EventDriven` SMC indicators the
+    //! `bars_needed` helper returns 0 (so the WARMING fill is suppressed),
+    //! while the lifecycle builder still reads the full `bars_required` from
+    //! the registry to gate the `Loading → Live` transition.
+
+    use crate::indicators::registry::{get, IndicatorDataSource};
+
+    #[test]
+    fn smc_event_driven_indicators_are_correctly_tagged() {
+        // `bars_needed` is a private nested fn inside `build_indicator_map`
+        // and isn't directly callable from outside this module. The WARMING
+        // fill that runs at the end of `normalize_all` is gated on
+        // `meta.data_source != CandleBased`, which matches the catch-all
+        // branch in `bars_needed`. The observable behavior — EventDriven
+        // indicators don't receive WARMING placeholders — is covered by
+        // `crates/market-analyzer/src/indicators/normalized/mod.rs::
+        // warming_fill_covers_all_registry_keys`. This test pins the
+        // registry-level contract that the gate depends on.
+        for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+            let meta = get(key).unwrap_or_else(|| panic!("{key} registered"));
+            assert_eq!(
+                meta.data_source,
+                Some(IndicatorDataSource::EventDriven),
+                "{key}: registry must declare EventDriven so the WARMING fill is suppressed"
+            );
+            // `bars_required` is still 50: the lifecycle builder reads
+            // this directly (not through `bars_needed`) to drive the
+            // `Loading → Live` transition. The SMC calculator needs
+            // enough bars to bootstrap (≥5 for swing detection at the
+            // minimum, and the registry default is 50).
+            assert_eq!(meta.bars_required, 50, "{key}: bars_required must be 50");
+        }
+    }
 }

@@ -17,7 +17,51 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     let label = |k: &str| snapshot.ind_label(k).map(|s| s.to_string());
 
     // Full indicator map serialized as the auxiliary catch-all JSON blob.
+    // The cluster + liquidity full payloads are persisted as separate
+    // sibling columns (`cluster_json`, `liquidity_json`) so the chart's
+    // `/api/history` fallback can render liquidation levels before the
+    // WS has caught up after a daemon restart.
     let auxiliary_json = serde_json::to_string(&snapshot.indicators).ok();
+    let cluster_json = snapshot
+        .cluster
+        .as_ref()
+        .and_then(|c| serde_json::to_string(c).ok());
+    let liquidity_json = snapshot
+        .liquidity
+        .as_ref()
+        .and_then(|l| serde_json::to_string(l).ok());
+
+    // Phase 0-4: serialize per-bar LiquidityFlow + LiquidationClusterMatrix
+    // summaries. `cluster_total_notional_usd` is the sum of
+    // `total_long_oi_usd` + `total_short_oi_usd` (so the cluster heatmap
+    // chart can render a confidence-coloured tile without the full
+    // matrix payload, which lives in `auxiliary_normalized_data`).
+    let (liq_long, liq_short, liq_net, liq_events, liq_state, liq_intensity) =
+        match snapshot.liquidity.as_ref() {
+            Some(flow) => (
+                Some(flow.long_liquidations_usd),
+                Some(flow.short_liquidations_usd),
+                Some(flow.net_liquidation_usd),
+                Some(flow.event_count as i64),
+                Some(format!("{:?}", flow.cascade_state).to_uppercase()),
+                Some(flow.cascade_intensity),
+            ),
+            None => (None, None, None, None, None, None),
+        };
+    let (
+        cluster_long_count,
+        cluster_short_count,
+        cluster_total_notional_usd,
+        cluster_estimation_confidence,
+    ) = match snapshot.cluster.as_ref() {
+        Some(c) => (
+            Some(c.long_clusters.len() as i64),
+            Some(c.short_clusters.len() as i64),
+            Some(c.total_long_oi_usd + c.total_short_oi_usd),
+            Some(c.estimation_confidence),
+        ),
+        None => (None, None, None, None),
+    };
 
     if let Err(e) = sqlx::query(
         "INSERT INTO market_snapshots (
@@ -40,8 +84,13 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             hv_normalized, hv_state_label,
             aroon_normalized, aroon_state_label, choppiness_normalized, choppiness_state_label,
             linreg_slope_normalized, linreg_slope_state_label, zscore_normalized, zscore_state_label,
+            liquidity_long_usd, liquidity_short_usd, liquidity_net_usd, liquidity_events,
+            liquidity_cascade_state, liquidity_cascade_intensity,
+            cluster_long_count, cluster_short_count, cluster_total_notional_usd,
+            cluster_estimation_confidence,
+            liquidity_json, cluster_json,
             auxiliary_normalized_data
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83)"
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95)"
     )
     .bind(exchange_label)
     .bind(snapshot.timeframe_secs as i64)
@@ -125,6 +174,18 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     .bind(label("linreg_slope"))
     .bind(norm("zscore"))
     .bind(label("zscore"))
+    .bind(liq_long)
+    .bind(liq_short)
+    .bind(liq_net)
+    .bind(liq_events)
+    .bind(liq_state)
+    .bind(liq_intensity)
+    .bind(cluster_long_count)
+    .bind(cluster_short_count)
+    .bind(cluster_total_notional_usd)
+    .bind(cluster_estimation_confidence)
+    .bind(liquidity_json)
+    .bind(cluster_json)
     .bind(auxiliary_json)
     .execute(pool)
     .await
@@ -300,6 +361,7 @@ pub async fn query_latest_snapshot(
                 ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
                 macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
                 squeeze_on, squeeze_momentum, bbwp, support_levels, resistance_levels,
+                liquidity_json, cluster_json,
                 auxiliary_normalized_data
          FROM market_snapshots
          WHERE symbol = ?1 AND timeframe_secs = ?2 AND close IS NOT NULL
@@ -324,7 +386,20 @@ pub async fn query_latest_snapshot(
 
         // Prefer the authoritative auxiliary JSON map; fall back to scalar
         // reconstruction for legacy rows predating this migration.
-        let aux_json = r.get::<Option<String>, _>(33);
+        let aux_json = r.get::<Option<String>, _>(35);
+        // Phase 0-4 round-trip: deserialize cluster + liquidity payloads
+        // from their dedicated JSON columns (added in migration
+        // 20260726000000_liquidity_snapshot_persistence.sql). Legacy
+        // rows (pre-migration) have NULLs here, which is fine — the
+        // chart's WS will populate them on the next live tick.
+        let cluster = r
+            .get::<Option<String>, _>(34)
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<core_domain::liquidity::LiquidationClusterMatrix>(s).ok());
+        let liquidity = r
+            .get::<Option<String>, _>(33)
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<core_domain::liquidity::LiquidityFlow>(s).ok());
         let indicators = aux_json
             .as_deref()
             .and_then(|s| {
@@ -407,8 +482,8 @@ pub async fn query_latest_snapshot(
             statistical_context: None,
             indicators,
             risk_profile: None,
-            liquidity: None,
-            cluster: None,
+            liquidity,
+            cluster,
             volume_profile: None,
             liquidity_signals: vec![],
             metrics_config: None,

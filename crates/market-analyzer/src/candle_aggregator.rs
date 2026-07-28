@@ -29,8 +29,7 @@ impl TargetAggregator {
     /// Process one source candle. Returns a completed `AggregatedCandle`
     /// when the interval rolls over, or `None` otherwise.
     fn process(&mut self, symbol: &str, candle: &NormalizedCandle) -> Option<AggregatedCandle> {
-        let interval_start =
-            (candle.start_time_ms / self.duration_ms) * self.duration_ms;
+        let interval_start = (candle.start_time_ms / self.duration_ms) * self.duration_ms;
 
         let mut completed = None;
 
@@ -97,7 +96,10 @@ impl CandleAggregator {
         let mut targets: Vec<u64> = target_durations_secs.to_vec();
         targets.sort_unstable();
         targets.dedup();
-        assert!(!targets.is_empty(), "CandleAggregator requires at least one target duration");
+        assert!(
+            !targets.is_empty(),
+            "CandleAggregator requires at least one target duration"
+        );
         Self {
             symbol: symbol.to_string(),
             targets: targets.into_iter().map(TargetAggregator::new).collect(),

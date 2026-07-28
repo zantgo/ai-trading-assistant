@@ -37,12 +37,7 @@ impl Supertrend {
         }
     }
 
-    pub fn update(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-    ) -> Option<SupertrendOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<SupertrendOutput> {
         if self.period == 0 {
             return None;
         }

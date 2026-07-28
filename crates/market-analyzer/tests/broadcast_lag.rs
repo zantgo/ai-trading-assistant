@@ -48,7 +48,10 @@ async fn lagged_consumer_gets_lagged_error_and_resyncs() {
     assert!(!received.is_empty(), "consumer resynchronized");
     assert_eq!(*received.last().unwrap(), 9, "caught up to the head");
     // Frames are in production order.
-    assert!(received.windows(2).all(|w| w[0] < w[1]), "ordering preserved");
+    assert!(
+        received.windows(2).all(|w| w[0] < w[1]),
+        "ordering preserved"
+    );
 }
 
 #[tokio::test]

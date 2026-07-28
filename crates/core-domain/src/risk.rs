@@ -212,7 +212,8 @@ fn assess_market_risk(
     if analysis.state_confidence > 0.7 {
         score -= 10.0;
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess volatility risk: danger from abnormal price movement.
@@ -242,7 +243,8 @@ fn assess_volatility_risk(
         let rel_atr = score_mag(atr, 500.0);
         score = (score + rel_atr) / 2.0;
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess liquidity risk: quality of market participation.
@@ -271,7 +273,8 @@ fn assess_execution_liquidity_risk(
         score -= 10.0;
         evidence.push("Tight spread".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess structure risk: uncertainty from weak/damaged price structure.
@@ -304,7 +307,8 @@ fn assess_structure_risk(
         score += 15.0;
         evidence.push("S/R level flip".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess momentum risk: vulnerability from exhausted/diverging momentum.
@@ -330,7 +334,8 @@ fn assess_momentum_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         }
         _ => {}
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess signal risk: uncertainty from conflicting/unreliable signals.
@@ -353,7 +358,8 @@ fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         score += 15.0;
         evidence.push("Low analysis confidence".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess execution risk: practical difficulties from spread/movement.
@@ -376,7 +382,8 @@ fn assess_execution_risk(
         score += 15.0;
         evidence.push("Low participation".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+        .with_evidence(evidence)
 }
 
 /// Assess cascade risk (Phase 3): danger from forced liquidation
@@ -469,7 +476,8 @@ pub fn compute_risk(
         + cascade.score * 0.14)
         .max(0.0)
         .min(100.0);
-    let overall = RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence);
+    let overall =
+        RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence);
 
     RiskMatrix {
         symbol: symbol.to_string(),

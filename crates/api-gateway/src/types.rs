@@ -25,12 +25,12 @@ pub struct CompletedTradesBufferRow {
     pub closed_at: i64,
 }
 
-use rust_decimal::Decimal;
-use rust_decimal::prelude::FromPrimitive;
-use rust_decimal_macros::dec;
-use serde::{Deserialize, Serialize};
 use market_analyzer::indicators::normalized::NormalizedIndicatorValue;
 use market_analyzer::indicators::normalized::{SignalKind, SignalStatus};
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 
@@ -533,6 +533,13 @@ pub struct HistoryResponse {
     /// One entry per TF slot. Cost: ~2 KB per TF.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub volume_profiles: HashMap<String, core_domain::volume_profile::VolumeProfileSnapshot>,
+    /// Phase 0-4: per-timeframe latest `LiquidityFlow` (per-bar real
+    /// liquidation aggregates). One entry per TF slot. Cost: ~200 B
+    /// per TF. Lets the dashboard render the Metrics-tab Flow / Cluster
+    /// / Context cards immediately after a daemon restart, before the
+    /// WS delivers the next completed bar.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub liquidity_flows: HashMap<String, core_domain::liquidity::LiquidityFlow>,
 }
 
 // ─── Terminal Monitor (cross-timeframe meta-intelligence) ──────

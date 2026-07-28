@@ -12,17 +12,22 @@
     // The TypeScript types in `types.ts` were also updated to match the wire
     // format; this component hands the snapshot data to the LiquidityPanel
     // unchanged so the styling works as intended.
+    //
+    // v6.5+ refactor: the panel now takes the **active** `TimeframeTelemetry`
+    // (the per-TF object the parent Metrics workspace already owns), not a
+    // `pairKey`. This removes the panel's redundant internal flow-TF selector.
 
+    import type { TimeframeTelemetry } from '../../types';
     import LiquidityPanel from '../LiquidityPanel.svelte';
     import styles from './LiquidityView.module.css';
 
     interface Props {
-        pairKey: string;
+        tf: TimeframeTelemetry | undefined;
     }
 
-    let { pairKey }: Props = $props();
+    let { tf }: Props = $props();
 </script>
 
 <div class={styles.view}>
-    <LiquidityPanel {pairKey} />
+    <LiquidityPanel {tf} />
 </div>

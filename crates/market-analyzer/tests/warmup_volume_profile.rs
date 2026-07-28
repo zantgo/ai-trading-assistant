@@ -139,7 +139,7 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         "BTC-USDC",
         60,
         core_domain::models::TimeframeSlot::Micro,
-    500,
+        500,
     );
 
     assert!(
@@ -215,7 +215,11 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         .iter()
         .find(|b| b.is_poc)
         .expect("exactly one bin must be POC");
-    let max_vol = last_vp.bins.iter().map(|b| b.volume).fold(0.0_f64, f64::max);
+    let max_vol = last_vp
+        .bins
+        .iter()
+        .map(|b| b.volume)
+        .fold(0.0_f64, f64::max);
     assert!(
         (poc_bin.volume - max_vol).abs() < 1e-9,
         "POC bin must be the highest-volume bin",
@@ -238,7 +242,7 @@ fn warmup_sub_minute_timeframes_also_populate() {
         "BTC-USDC",
         5,
         core_domain::models::TimeframeSlot::Micro,
-    500,
+        500,
     );
 
     let last_vp = warmed
@@ -268,7 +272,7 @@ fn seeded_volume_profile_clears_at_25_bars() {
         "BTC-USDC",
         15,
         core_domain::models::TimeframeSlot::Micro,
-    500,
+        500,
     );
 
     let populated: Vec<_> = warmed
@@ -307,13 +311,7 @@ fn volume_profile_indicator_keeps_strict_live_gate() {
     let mut last_reading = None;
     for i in 0..249 {
         let price = 50_000.0 + i as f64 * 0.01;
-        last_reading = vp.update_with_open(
-            price,
-            price,
-            price,
-            price,
-            1.0,
-        );
+        last_reading = vp.update_with_open(price, price, price, price, 1.0);
     }
     assert!(
         last_reading.is_none(),

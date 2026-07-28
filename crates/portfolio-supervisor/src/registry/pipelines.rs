@@ -320,6 +320,7 @@ pub async fn build_pipelines(
     let instance = Arc::new(Instance::new(
         format!("inst_{}", uuid_v4_simple()),
         (ctx.base.clone(), ctx.quote.as_str().to_string()),
+        ctx.exchange_choice.clone(),
         active_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),
@@ -583,6 +584,7 @@ async fn spawn_tasks(
         let a_latest_funding = active_pair.latest_funding.clone();
         let a_latest_mark = active_pair.latest_mark_px.clone();
         let a_latest_index = active_pair.latest_index_px.clone();
+        let a_liquidity_config = liquidity_config.clone();
         // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
         // pipeline owns its own `Arc<RwLock<...>>` so the 4 charts in the
         // dashboard each see the cluster at their own horizon. See
@@ -638,6 +640,7 @@ async fn spawn_tasks(
                 a_latest_mark,
                 a_latest_index,
                 a_cluster_matrix,
+                Some(a_liquidity_config),
                 config_models::OrderBookConfig::default(),
                 ct_a,
                 ct_b,
@@ -668,6 +671,7 @@ async fn spawn_tasks(
     } else {
         state.ws_url.clone()
     };
+    let hl_user_address = liquidity_config.hyperliquid_user_address.clone();
     let exchange_for_spawn = exchange_choice.clone();
     let exchange_label = exchange_for_spawn.as_str().to_string();
     let es_tracker = state.exchange_status.clone();
@@ -675,7 +679,14 @@ async fn spawn_tasks(
         let es = es_tracker.clone();
         let es_label = exchange_label.clone();
         let es_url = ws_url.clone();
-        es.register_exchange(&es_label, 1u32, &es_url).await;
+        // Initial active_pairs is 0 — the sync helper at the end of
+        // add_instance (`crates/portfolio-supervisor/src/registry/mod.rs`)
+        // walks the workspace and writes the real per-exchange count. The
+        // hardcoded `1u32` that used to live here was overwritten on every
+        // workspace mutation and produced a brief startup misreport on
+        // multi-exchange workspaces (Bitget's bucket was always 0 because
+        // it was never written).
+        es.register_exchange(&es_label, 0u32, &es_url).await;
         es.set_connecting(&es_label).await;
     }
     let es_disconnect = es_tracker.clone();
@@ -774,6 +785,7 @@ async fn spawn_tasks(
                     ws_tx.clone(),
                     ws_cancel.clone(),
                     &ws_url,
+                    &hl_user_address,
                 )
                 .await;
             }
@@ -1135,7 +1147,7 @@ pub async fn compute_cluster_for_tf(
         funding_modulation_active: true,
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
-        min_cluster_notional_usd: 50_000.0,
+        min_cluster_notional_usd: config.min_cluster_notional_usd,
     };
     Ok(estimate_clusters(&input))
 }

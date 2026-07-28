@@ -35,6 +35,7 @@ show_help() {
     echo "  test-engine        DB, server, failover (engine crate)"
     echo "  test-engine-full   Engine suite including load/stress test"
     echo "  test-ui            Svelte 5 visual state & component tests"
+    echo "  test-indicators    Per-indicator pipeline e2e with console reporting"
     echo "  test-property      Generative property tests across indicators"
     echo "  test-doc           Documentation corpus consistency checks (Phases 8/9/10 gate)"
     echo "  clean              Delete build targets, dependencies, and temporary locks"
@@ -190,6 +191,14 @@ test_engine() {
     cargo test -p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
 }
 
+test_indicators() {
+    echo "🦀 TEST-INDICATORS: Per-indicator pipeline e2e with terminal console reporting..."
+    echo "    Each indicator (37 candle-based) is exercised through calculator → normalizer → signal deriver → lifecycle builder"
+    echo "    with synthesized OHLCV candles in 4 market patterns (uptrend, downtrend, range, volatile)."
+    echo "    Failures surface duplicate (label, kind) signal pairs that would trigger each_key_duplicate in the UI."
+    cargo test -p market-analyzer --test indicator_pipeline_e2e -- --nocapture --test-threads=1
+}
+
 test_engine_full() {
     echo "🦀 TEST-ENGINE-FULL: Running all engine tests including load/stress..."
     cargo test --workspace -- --include-ignored
@@ -285,6 +294,9 @@ case "$1" in
         ;;
     test-engine)
         test_engine
+        ;;
+    test-indicators)
+        test_indicators
         ;;
     test-engine-full)
         test_engine_full

@@ -8,12 +8,15 @@
     let error = $state<string | null>(null);
     let loading = $state(false);
 
-    // Perpetual-futures settlement rules per exchange:
-    //  - Hyperliquid settles exclusively in USDC.
-    //  - Bitget supports USDT-M futures only.
-    const supportedCurrencies = $derived(
-        exchange === 'Hyperliquid' ? ['USDC'] : ['USDT']
-    );
+// Perpetual-futures settlement rules per exchange:
+//  - Hyperliquid settles exclusively in USDC.
+//  - Bitget's dashboard exposes only USDT-M futures. (The backend's
+//    `ExchangeChoice::supports_currency` still returns true for USDC,
+//    but we don't surface it in the welcome modal — keeping the
+//    selector aligned with the operator's preferred Bitget product.)
+const supportedCurrencies = $derived(
+    exchange === 'Hyperliquid' ? ['USDC'] : ['USDT']
+);
 
     // Keep the selected currency valid whenever the exchange changes.
     $effect(() => {

@@ -1,7 +1,7 @@
+use market_analyzer::indicators::{MomentumDirection, SqueezeMomentum};
 use proptest::prelude::*;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
-use market_analyzer::indicators::{MomentumDirection, SqueezeMomentum};
 
 proptest! {
     #[test]

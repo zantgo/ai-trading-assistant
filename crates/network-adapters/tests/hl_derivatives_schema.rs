@@ -17,12 +17,13 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use network_adapters::adapters::hyperliquid_rest::fetch_meta_and_asset_ctxs;
+use network_adapters::adapters::hyperliquid_rest::{derivatives_ctx_to_events, fetch_meta_and_asset_ctxs};
 
 /// One-shot HTTP server that always returns the canned body, regardless of
 /// the request path. Captures the port it bound to so the test can target it.
@@ -192,4 +193,70 @@ async fn fetch_meta_and_asset_ctxs_returns_unknown_index_when_universe_missing()
 #[allow(dead_code)]
 fn unused_mutex_helper() -> Arc<Mutex<()>> {
     Arc::new(Mutex::new(()))
+}
+
+// =============================================================================
+// OI unit-conversion regression
+// =============================================================================
+//
+// Hyperliquid's `openInterest` field is in **base-asset units** (e.g.
+// 39925 BTC for BTC perpetuals). The cluster estimator downstream
+// treats `total_oi_usd` as USD notional. Without conversion,
+// `total_oi_usd ≈ 39925` is misinterpreted as `≈ $39,925`, giving a
+// confidence of `39925 / 1e6 ≈ 4%` and pushing every estimated bin
+// below the `$50,000` noise threshold. The fix is to multiply by
+// `markPx` inside `derivatives_ctx_to_events`.
+
+#[test]
+fn derivatives_ctx_to_events_converts_oi_to_usd() {
+    use core_domain::normalized::{NormalizedEvent, OpenInterestEvent};
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    let ctx = network_adapters::adapters::hyperliquid_rest::HlDerivativesCtx {
+        mark_px: Decimal::from_str("65134.0").ok(),
+        oracle_px: Decimal::from_str("65175.4").ok(),
+        open_interest: Decimal::from_str("39925.94496").ok(),
+        funding: Some(Decimal::from_str("-0.0000198009").unwrap()),
+        prev_day_px: Some(Decimal::from_str("64431.0").unwrap()),
+    };
+    let events = derivatives_ctx_to_events("BTC-USDT", &ctx, None);
+    let oi_event = events
+        .iter()
+        .find_map(|e| match e {
+            NormalizedEvent::OpenInterest(o) => Some(o.clone()),
+            _ => None,
+        })
+        .expect("an OpenInterest event must be emitted");
+    let usd: f64 = oi_event.oi.to_string().parse().unwrap();
+    // 39925.94496 × 65134 ≈ $2.6B, NOT $39,925.
+    assert!(
+        usd > 2_000_000_000.0,
+        "OI must be USD notional; got ${} (expected > $2B)",
+        usd
+    );
+    assert!(usd < 3_000_000_000.0);
+}
+
+#[test]
+fn derivatives_ctx_to_events_skips_oi_when_mark_missing() {
+    use core_domain::normalized::NormalizedEvent;
+    use rust_decimal::Decimal;
+
+    // No markPx → OI cannot be converted to USD; we must NOT emit a
+    // base-asset value downstream (it would poison cluster confidence).
+    let ctx = network_adapters::adapters::hyperliquid_rest::HlDerivativesCtx {
+        mark_px: None,
+        oracle_px: None,
+        open_interest: Some(Decimal::from_str("1000").unwrap()),
+        funding: None,
+        prev_day_px: None,
+    };
+    let events = derivatives_ctx_to_events("BTC-USDT", &ctx, None);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, NormalizedEvent::OpenInterest(_))),
+        "OI event must be skipped when markPx is absent"
+    );
 }

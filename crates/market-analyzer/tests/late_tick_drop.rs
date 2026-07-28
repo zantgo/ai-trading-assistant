@@ -33,7 +33,10 @@ fn tick_in_previous_interval_is_late() {
     assert!(generator.is_late_tick(119_999), "prior interval → late");
     assert!(generator.is_late_tick(60_000), "far prior interval → late");
     assert!(!generator.is_late_tick(120_001), "same interval → not late");
-    assert!(!generator.is_late_tick(180_000), "future interval → not late");
+    assert!(
+        !generator.is_late_tick(180_000),
+        "future interval → not late"
+    );
 }
 
 #[test]
@@ -72,13 +75,23 @@ fn completed_candle_is_immutable_after_late_tick() {
     generator.process_trade(&trade(60_100));
     let (completed, _) = generator.process_trade(&trade(120_100));
     let completed = completed.expect("boundary crossing emits candle");
-    let frozen = (completed.open, completed.high, completed.low, completed.close);
+    let frozen = (
+        completed.open,
+        completed.high,
+        completed.low,
+        completed.close,
+    );
 
     // The late tick targets the closed [60000,120000) interval; the L3 rule
     // drops it before it can touch state, so the emitted candle is unchanged.
     assert!(generator.is_late_tick(61_000));
     assert_eq!(
-        (completed.open, completed.high, completed.low, completed.close),
+        (
+            completed.open,
+            completed.high,
+            completed.low,
+            completed.close
+        ),
         frozen
     );
 }

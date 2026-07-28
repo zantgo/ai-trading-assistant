@@ -132,6 +132,7 @@ async fn pristine_candle_scores_100() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
+            None,
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -153,7 +154,11 @@ async fn pristine_candle_scores_100() {
             symbol: "BTC-USDT".to_string(),
             price: dec!(50_000) + Decimal::from(i),
             size: dec!(0.5),
-            side: if i % 2 == 0 { TradeSide::Buy } else { TradeSide::Sell },
+            side: if i % 2 == 0 {
+                TradeSide::Buy
+            } else {
+                TradeSide::Sell
+            },
             timestamp_ms: i * 60_000,
             trade_id: format!("t{i}"),
         };
@@ -177,10 +182,7 @@ async fn pristine_candle_scores_100() {
                         .expect("completed snapshot carries CandleQualityEnvelope");
                     assert!(envelope.is_valid, "pristine candle must be valid");
                     assert!(!envelope.is_gap_filled, "no gap in this stream");
-                    assert!(
-                        !envelope.had_outliers_rejected,
-                        "no spikes in this stream"
-                    );
+                    assert!(!envelope.had_outliers_rejected, "no spikes in this stream");
                     assert_eq!(
                         envelope.quality_score, 100.0,
                         "fully-valid candle scores exactly 100"

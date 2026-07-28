@@ -129,12 +129,7 @@ impl DivergenceDetector {
 
     /// Feeds price + RSI + MACD histogram into the detector.
     /// Returns the combined divergence result with potential status.
-    pub fn update_full(
-        &mut self,
-        price: f64,
-        rsi: f64,
-        macd_histogram: f64,
-    ) -> DivergenceResult {
+    pub fn update_full(&mut self, price: f64, rsi: f64, macd_histogram: f64) -> DivergenceResult {
         let price = Decimal::from_f64_retain(price).unwrap_or(Decimal::ZERO);
         let rsi = Decimal::from_f64_retain(rsi).unwrap_or(Decimal::ZERO);
         let macd_histogram = Decimal::from_f64_retain(macd_histogram).unwrap_or(Decimal::ZERO);
@@ -729,12 +724,7 @@ mod tests {
         let result = det.update_full(91.0, 58.0, 0.0);
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
 
-        let confirmed = det.check_divergence_confirmation(
-            &result,
-            89.50,
-            Some(90.00),
-            None,
-        );
+        let confirmed = det.check_divergence_confirmation(&result, 89.50, Some(90.00), None);
         assert_eq!(confirmed.rsi_status, DivergenceStatus::Confirmed);
     }
 
@@ -749,12 +739,7 @@ mod tests {
         let result = det.update_full(91.0, 58.0, 0.0);
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
 
-        let still_potential = det.check_divergence_confirmation(
-            &result,
-            90.10,
-            Some(90.00),
-            None,
-        );
+        let still_potential = det.check_divergence_confirmation(&result, 90.10, Some(90.00), None);
         assert_eq!(still_potential.rsi_status, DivergenceStatus::Potential);
     }
 
@@ -770,12 +755,7 @@ mod tests {
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
         assert_eq!(result.rsi_divergence, DivergenceType::RsiBearish);
 
-        let confirmed = det.check_divergence_confirmation(
-            &result,
-            120.50,
-            None,
-            Some(120.00),
-        );
+        let confirmed = det.check_divergence_confirmation(&result, 120.50, None, Some(120.00));
         assert_eq!(confirmed.rsi_status, DivergenceStatus::Confirmed);
     }
 

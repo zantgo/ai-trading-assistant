@@ -42,14 +42,41 @@
         addError = null;
     }
 
-    function removeInstance(pairKey: string) {
-        // TODO: Phase 4 — delete via /api/instances with instance ID lookup
-        app.removeInstance(pairKey);
-        const remaining = Object.keys(app.instancesMap);
-        if (remaining.length > 0) {
-            if (pairKey === app.activeTab) {
+    /// Close the tab — single `DELETE /api/instances/{id}` call. The
+    /// backend accepts DELETE on any state (Running, Paused, Stopped)
+    /// and tears down the pipeline + drops from `config.toml` in one
+    /// go. When the tab was never round-tripped to the server (e.g.
+    /// the daemon is offline and the instance was created locally),
+    /// we fall back to a local-only removal so the user can still
+    /// clear the tab.
+    async function removeInstance(pairKey: string) {
+        const entry = app.instancesMap[pairKey];
+        const instanceId: string | undefined = entry?.instanceId;
+        const finishLocal = () => {
+            app.removeInstance(pairKey);
+            const remaining = Object.keys(app.instancesMap);
+            if (remaining.length > 0 && pairKey === app.activeTab) {
                 app.activeTab = remaining[0];
             }
+        };
+
+        if (!instanceId) {
+            finishLocal();
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}`, { method: 'DELETE' });
+            if (!res.ok) {
+                // Don't drop the tab on a 4xx — leave it visible so the
+                // user can retry without losing context.
+                const msg = await res.text().catch(() => '');
+                console.error(`Cannot close ${pairKey}: ${msg || `HTTP ${res.status}`}`);
+                return;
+            }
+            finishLocal();
+        } catch (e: any) {
+            console.error(`Cannot close ${pairKey}: ${e?.message ?? 'network error'}`);
         }
     }
 </script>
@@ -64,7 +91,7 @@
                 >
                     <span class={styles.tabLabel}>[{symbol}]</span>
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <span class={styles.tabClose} role="button" tabindex="0" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') removeInstance(symbol); }} onclick={(e: MouseEvent) => { e.stopPropagation(); removeInstance(symbol); }}>&times;</span>
+                    <span class={styles.tabClose} role="button" tabindex="0" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') removeInstance(symbol); }} onclick={(e: MouseEvent) => { e.stopPropagation(); removeInstance(symbol); }}>×</span>
                 </button>
             {/each}
 

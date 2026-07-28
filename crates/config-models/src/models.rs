@@ -1109,8 +1109,6 @@ pub struct LiquidityConfig {
     pub signals: bool,
     #[serde(default = "default_mark_poll_ms")]
     pub mark_price_poll_ms: u64,
-    #[serde(default = "default_funding_refresh_ms")]
-    pub funding_refresh_ms: u64,
     #[serde(default = "default_liquidation_retention_days")]
     pub event_retention_days: u32,
     #[serde(default = "default_liquidation_bucket_retention_days")]
@@ -1131,6 +1129,24 @@ pub struct LiquidityConfig {
     pub liquidity_vacuum_threshold: f64,
     #[serde(default = "default_oi_funding_divergence_pct")]
     pub oi_funding_divergence_pct: f64,
+    /// Minimum cluster notional (USD) below which a bin is treated as
+    /// noise and dropped from the cluster list. Default 50_000 — matches
+    /// the legacy hardcoded production value so the visible behaviour
+    /// does not regress for existing operators.
+    #[serde(default = "default_min_cluster_notional_usd")]
+    pub min_cluster_notional_usd: f64,
+    /// Hyperliquid user address (0x-prefixed 40-hex-char string). When
+    /// **non-empty**, the engine subscribes to the user's `userFills`
+    /// channel and emits a `LiquidationEvent` for every forced close on
+    /// that account. When **empty** (default), no HL liquidations are
+    /// ingested — operators who want HL liquidations must configure
+    /// their own address (Hyperliquid does not expose a public
+    /// liquidation stream; the only channel that carries liquidations is
+    /// user-scoped). Bitget, by contrast, exposes public liquidation
+    /// fills on the `fill` channel and is always active when
+    /// `liquidation_feed = true`.
+    #[serde(default)]
+    pub hyperliquid_user_address: String,
 }
 
 impl Default for LiquidityConfig {
@@ -1141,7 +1157,6 @@ impl Default for LiquidityConfig {
             cluster_estimation: true,
             signals: true,
             mark_price_poll_ms: default_mark_poll_ms(),
-            funding_refresh_ms: default_funding_refresh_ms(),
             event_retention_days: default_liquidation_retention_days(),
             bucket_retention_days: default_liquidation_bucket_retention_days(),
             cluster_refresh_secs: default_cluster_refresh_secs(),
@@ -1152,6 +1167,8 @@ impl Default for LiquidityConfig {
             magnet_activation_distance_pct: default_magnet_activation_distance_pct(),
             liquidity_vacuum_threshold: default_liquidity_vacuum_threshold(),
             oi_funding_divergence_pct: default_oi_funding_divergence_pct(),
+            min_cluster_notional_usd: default_min_cluster_notional_usd(),
+            hyperliquid_user_address: String::new(),
         }
     }
 }
@@ -1160,9 +1177,6 @@ fn default_liquidity_enabled() -> bool {
     true
 }
 fn default_mark_poll_ms() -> u64 {
-    60_000
-}
-fn default_funding_refresh_ms() -> u64 {
     60_000
 }
 fn default_liquidation_retention_days() -> u32 {
@@ -1201,6 +1215,9 @@ fn default_liquidity_vacuum_threshold() -> f64 {
 }
 fn default_oi_funding_divergence_pct() -> f64 {
     2.0
+}
+fn default_min_cluster_notional_usd() -> f64 {
+    50_000.0
 }
 
 impl Default for IntervalsConfig {

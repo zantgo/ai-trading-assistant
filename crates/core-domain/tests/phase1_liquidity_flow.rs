@@ -4,10 +4,10 @@
 //! payload parsers. Real WS connection is not exercised here — that is
 //! covered by the integration tests in `tests/engine/`.
 
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use core_domain::liquidity::{CascadeState, LiquidityEventAccumulator, LiquidityFlow};
 use core_domain::normalized::{Exchange, LiquidationEvent, LiquidationSide};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 fn ev(side: LiquidationSide, price: f64, size: f64, ts_ms: u64) -> LiquidationEvent {
     LiquidationEvent {
@@ -79,7 +79,7 @@ fn flow_event_count_matches_recorded() {
 
 #[test]
 fn flow_bounded_history_drops_oldest() {
-    let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 3, 2.5, 5);
+    let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 3, 2.5, 5, 3);
     for i in 0..10 {
         acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.1, i));
     }
@@ -108,7 +108,7 @@ fn flow_cascade_state_starts_none() {
 
 #[test]
 fn flow_cascade_state_detected_after_large_event() {
-    let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.5, 5);
+    let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.5, 5, 3);
     // Warm baseline with 3 small bars.
     for i in 0..3 {
         acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.01, i * 1000));
@@ -142,7 +142,7 @@ fn flow_recent_events_returns_newest_first() {
 #[test]
 fn flow_intensity_capped_at_100() {
     // Force a very high-intensity bar and check the cap.
-    let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.0, 5);
+    let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.0, 5, 3);
     for i in 0..3 {
         acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.0001, i * 1000));
         let _ = acc.flush_to_flow();

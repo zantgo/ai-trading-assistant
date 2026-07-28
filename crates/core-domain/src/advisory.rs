@@ -259,12 +259,16 @@ pub fn compute_advisory(
         }
     } else {
         match analysis.opportunity_analysis {
-            crate::analysis::OpportunityType::TrendContinuation => OpportunityClass::TrendContinuation,
+            crate::analysis::OpportunityType::TrendContinuation => {
+                OpportunityClass::TrendContinuation
+            }
             crate::analysis::OpportunityType::Breakout => OpportunityClass::Breakout,
             crate::analysis::OpportunityType::Pullback => OpportunityClass::Pullback,
             crate::analysis::OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
             crate::analysis::OpportunityType::Reversal => OpportunityClass::Reversal,
-            crate::analysis::OpportunityType::LiquiditySqueeze => OpportunityClass::LiquiditySqueeze,
+            crate::analysis::OpportunityType::LiquiditySqueeze => {
+                OpportunityClass::LiquiditySqueeze
+            }
             crate::analysis::OpportunityType::Scalp => OpportunityClass::Scalp,
             crate::analysis::OpportunityType::NoClearOpportunity => {
                 OpportunityClass::NoClearOpportunity
@@ -290,7 +294,8 @@ pub fn compute_advisory(
     } else if matches!(
         analysis.trend_assessment,
         crate::analysis::TrendAssessment::Strong | crate::analysis::TrendAssessment::Healthy
-    ) && risk.volatility_risk.score < 40.0 {
+    ) && risk.volatility_risk.score < 40.0
+    {
         EntryGuidance::Immediate
     } else if matches!(
         analysis.trend_assessment,
@@ -312,7 +317,8 @@ pub fn compute_advisory(
         ExitGuidance::RiskIncreasing
     } else if matches!(
         analysis.structure_assessment,
-        crate::analysis::StructureAssessment::Broken | crate::analysis::StructureAssessment::Unknown
+        crate::analysis::StructureAssessment::Broken
+            | crate::analysis::StructureAssessment::Unknown
     ) {
         ExitGuidance::StructureBreakdown
     } else if analysis.momentum_assessment == crate::analysis::MomentumAssessment::Reversing {
@@ -352,7 +358,8 @@ pub fn compute_advisory(
     // Target strategy: ordered first-match rules (spec §3.7)
     let target = if matches!(
         analysis.structure_assessment,
-        crate::analysis::StructureAssessment::Strong | crate::analysis::StructureAssessment::Healthy
+        crate::analysis::StructureAssessment::Strong
+            | crate::analysis::StructureAssessment::Healthy
     ) {
         TargetStrategy::ResistanceBased
     } else if risk.overall_risk.score < 40.0 {
@@ -367,13 +374,14 @@ pub fn compute_advisory(
     let environment_favorability = compute_environment_favorability(analysis);
 
     // Confidence: analysis.state_confidence × (1 - risk.overall/100)
-    let confidence =
-        (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0).clamp(0.0, 100.0);
+    let confidence = (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
+        .clamp(0.0, 100.0);
 
     // Stop-loss distance: ATR-based structural boundary for the TAE type-boundary handoff.
     // Uses 1.5× ATR as default, tightened to 1.0× when structure is Strong.
     let stop_loss_distance_pct = {
-        let base_multiplier = if analysis.structure_assessment == crate::analysis::StructureAssessment::Strong
+        let base_multiplier = if analysis.structure_assessment
+            == crate::analysis::StructureAssessment::Strong
             || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy
         {
             1.0

@@ -1,6 +1,8 @@
 <script lang="ts">
-    import type { AdvisoryMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix } from '../types';
+    import type { AdvisoryMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import { buildPanelExportJson } from '../lib/metricsExport';
+    import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AdvisoryPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
 
@@ -10,10 +12,44 @@
     const instance = $derived(app.instancesMap[pairKey]);
     const advisory = $derived<AdvisoryMatrix | null>(instance?.advisory ?? null);
 
+    const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const snapshot = $derived(instance?.microTerm.latestSnapshot as unknown as MarketSnapshot | undefined);
     const decisionCtx = $derived<DecisionContext | null>(snapshot?.decision_context ?? null);
     const opportunity = $derived<OpportunityMatrix | null>(snapshot?.opportunity ?? null);
     const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
+    const timestamp = $derived<number | null>(
+        snapshot && typeof (snapshot as any).timestamp === 'number'
+            ? (snapshot as any).timestamp
+            : null
+    );
+    const registry = $derived(app.indicatorRegistry ?? []);
+
+    function buildExport() {
+        return buildPanelExportJson({
+            sourceTab: 'decision',
+            pairKey,
+            resolvers: {
+                symbol: pairKey,
+                tfLabel: 'Micro',
+                tfSecs: microTerm?.barDurationSec ?? 0,
+                timestamp,
+                markPrice,
+                registry: registry as any,
+                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
+                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+                analysis: instance?.analysis ?? null,
+                risk: instance?.risk ?? null,
+                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
+                opportunity,
+                advisory,
+                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
+                liquidity: (microTerm as any)?.liquidity ?? null,
+                cluster: (microTerm as any)?.cluster ?? null,
+                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
+                decisionContext: (decisionCtx as unknown as Record<string, unknown>) ?? null,
+            },
+        });
+    }
 
     const tradePlan = $derived(deriveTradePlan({
         symbol: pairKey,
@@ -121,7 +157,10 @@
 </script>
 
 <div class={styles.panel}>
-    <h2 class={styles.title}>Decision Guidance</h2>
+    <div class={styles.panelHeader}>
+        <h2 class={styles.title}>Decision Guidance</h2>
+        <ExportDataButton onExport={buildExport} title="Copy all Decision data as JSON" />
+    </div>
 
     {#if !advisory}
         <div class={styles.noData}>Awaiting decision guidance data — all values will populate once L6 synthesis runs</div>

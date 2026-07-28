@@ -268,7 +268,13 @@ impl AlignmentMatrix {
 /// `core-domain` free of any registry / indicator dependency.
 pub fn compute_alignment(
     symbol: &str,
-    tf_data: &[(&str, u64, f64, &HashMap<String, NormalizedIndicatorValue>, &MarketContext)],
+    tf_data: &[(
+        &str,
+        u64,
+        f64,
+        &HashMap<String, NormalizedIndicatorValue>,
+        &MarketContext,
+    )],
 ) -> AlignmentMatrix {
     if tf_data.is_empty() {
         return AlignmentMatrix::empty(symbol);
@@ -287,11 +293,7 @@ pub fn compute_alignment(
     let mut confidences: Vec<f64> = Vec::new();
     let mut ctxs: Vec<MarketContext> = Vec::new();
 
-    let divisor = tf_data
-        .iter()
-        .map(|d| d.1)
-        .max()
-        .unwrap_or(900) as f64;
+    let divisor = tf_data.iter().map(|d| d.1).max().unwrap_or(900) as f64;
 
     for &(label, secs, price, map, ctx) in tf_data {
         let tf_signals: u32 = map.values().map(|v| v.signals.len() as u32).sum();
@@ -462,8 +464,16 @@ mod tests {
 
     fn bull_ctx(score: i32) -> MarketContext {
         MarketContext {
-            trend: ContextDimension { score: 0.7, confidence: 0.8, label: "STRONG_BULL".into() },
-            momentum: ContextDimension { score: 0.6, confidence: 0.7, label: "WEAK_BULL".into() },
+            trend: ContextDimension {
+                score: 0.7,
+                confidence: 0.8,
+                label: "STRONG_BULL".into(),
+            },
+            momentum: ContextDimension {
+                score: 0.6,
+                confidence: 0.7,
+                label: "WEAK_BULL".into(),
+            },
             volatility: ContextDimension::neutral(),
             volume: ContextDimension::neutral(),
             liquidity: ContextDimension::neutral(),
@@ -475,8 +485,16 @@ mod tests {
 
     fn bear_ctx(score: i32) -> MarketContext {
         MarketContext {
-            trend: ContextDimension { score: -0.7, confidence: 0.8, label: "STRONG_BEAR".into() },
-            momentum: ContextDimension { score: -0.6, confidence: 0.7, label: "WEAK_BEAR".into() },
+            trend: ContextDimension {
+                score: -0.7,
+                confidence: 0.8,
+                label: "STRONG_BEAR".into(),
+            },
+            momentum: ContextDimension {
+                score: -0.6,
+                confidence: 0.7,
+                label: "WEAK_BEAR".into(),
+            },
             volatility: ContextDimension::neutral(),
             volume: ContextDimension::neutral(),
             liquidity: ContextDimension::neutral(),
@@ -497,10 +515,7 @@ mod tests {
     #[test]
     fn single_tf_has_10_dims() {
         let map = build_map(40.0, 0.6, 30.0, 55.0, 1.2);
-        let c = compute_alignment(
-            "BTC-USD",
-            &[("fast180", 180, 64000.0, &map, &empty_ctx())],
-        );
+        let c = compute_alignment("BTC-USD", &[("fast180", 180, 64000.0, &map, &empty_ctx())]);
         assert_eq!(c.timeframes_present, 1);
         assert_eq!(c.dimensions.len(), 10);
     }

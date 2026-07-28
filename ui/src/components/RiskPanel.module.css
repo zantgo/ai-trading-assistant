@@ -8,8 +8,8 @@
 
 /* ─────────── Head ─────────── */
 .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(148, 163, 184, 0.10); }
-.headTitleBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.headHeadline { font-size: 11px; color: #94a3b8; max-width: 240px; text-align: right; line-height: 1.45; }
+.headTitleBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.headHeadline { font-size: 11px; color: #94a3b8; max-width: 240px; text-align: left; line-height: 1.45; }
 
 /* ─────────── Hero ─────────── */
 .hero { display: flex; gap: 18px; align-items: stretch; padding: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; margin-bottom: 14px; }

@@ -509,6 +509,19 @@ export type IndicatorGroup =
     | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Institutional' | 'DerivativesData';
 export type IndicatorClass = 'Leading' | 'Hybrid' | 'Lagging';
 export type RenderKind = 'Pane' | 'PriceOverlay' | 'PriceLevels' | 'Marker';
+/**
+ * How the indicator contributes to the directional confluence and the
+ * UI Norm column. Mirrors `IndicatorNormalizationMode` in
+ * `crates/market-analyzer/src/indicators/registry.rs`.
+ *
+ * - `Directional` — emits a real `[-1, 1]` score; UI shows the score.
+ * - `ContextOnly` — non-directional gate; `normalized` is contractually
+ *   0.0; UI shows `N/A` to honor the published contract.
+ * - `EventOnly` — overlay (Hull MA); `normalized` is contractually 0.0
+ *   and the value is read from `raw_value` or `values`; UI shows `N/A`
+ *   and the value lives in the Raw column.
+ */
+export type IndicatorNormalizationMode = 'Directional' | 'ContextOnly' | 'EventOnly';
 export interface IndicatorMeta {
     key: string;
     display_name: string;
@@ -527,6 +540,8 @@ export interface IndicatorMeta {
     guide_section: string;
     /** Whether this indicator recomputes on shadow (live) ticks. */
     updates_on_shadow?: boolean;
+    /** How the indicator contributes to the UI Norm column. */
+    normalization_mode?: IndicatorNormalizationMode;
 }
 
 export type IndicatorMap = Record<string, IndicatorDto>;
