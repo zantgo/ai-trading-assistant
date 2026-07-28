@@ -5,8 +5,8 @@ use tokio::sync::{mpsc, RwLock};
 
 use market_analyzer::analyzer;
 use config_models::{
-    FibonacciConfig, IntervalsConfig, LiquidityConfig, OperationalMode, PositionScalingConfig,
-    SafetyConfig, TimeframeConfig,
+    FibonacciConfig, HeatmapConfig, IntervalsConfig, LiquidityConfig, OperationalMode,
+    PositionScalingConfig, SafetyConfig, TimeframeConfig,
 };
 use database_storage;
 use crate::instance::{Instance, TimeframeBuffers};
@@ -41,6 +41,11 @@ pub struct PipelineContext {
     #[allow(dead_code)]
     pub position_scaling: Option<PositionScalingConfig>,
     pub liquidity_config: LiquidityConfig,
+    /// Heatmap bucketing configuration (Block B). Independent from
+    /// `liquidity_config` so the bucket aggregation can be disabled
+    /// without affecting the rest of the liquidity pipeline. See
+    /// `config_models::HeatmapConfig`.
+    pub heatmap_config: HeatmapConfig,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     pub buffer_size: usize,
     /// Per-TF stale-threshold (CB-04 / DCP-05 / ILS-07).
@@ -284,6 +289,7 @@ pub async fn build_pipelines(
         ctx.exchange_choice.clone(),
         ctx.quote.clone(),
         ctx.liquidity_config.clone(),
+        ctx.heatmap_config.clone(),
         &micro_cluster_matrix,
         &fast_cluster_matrix,
         &slow_cluster_matrix,
@@ -381,6 +387,7 @@ async fn spawn_tasks(
     exchange_choice: ExchangeChoice,
     quote: Currency,
     liquidity_config: LiquidityConfig,
+    heatmap_config: HeatmapConfig,
     micro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     fast_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     slow_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
@@ -585,6 +592,7 @@ async fn spawn_tasks(
         let a_latest_mark = active_pair.latest_mark_px.clone();
         let a_latest_index = active_pair.latest_index_px.clone();
         let a_liquidity_config = liquidity_config.clone();
+        let a_heatmap_config = heatmap_config.clone();
         // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
         // pipeline owns its own `Arc<RwLock<...>>` so the 4 charts in the
         // dashboard each see the cluster at their own horizon. See
@@ -641,6 +649,7 @@ async fn spawn_tasks(
                 a_latest_index,
                 a_cluster_matrix,
                 Some(a_liquidity_config),
+                Some(a_heatmap_config),
                 config_models::OrderBookConfig::default(),
                 ct_a,
                 ct_b,

@@ -149,6 +149,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),
                     None,
+                    None,
                     OrderBookConfig::default(),
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),

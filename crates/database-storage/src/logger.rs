@@ -51,8 +51,11 @@ pub enum TelemetryMsg {
 }
 
 /// Delete aged rows: `market_snapshots` older than 7 days (timestamp in
-/// seconds) and `liquidation_events` older than `liq_retention_days`
-/// (timestamp in milliseconds; 90-day default per 02-12-liquidity-matrix.md).
+/// seconds), `liquidation_events` older than `liq_retention_days`
+/// (timestamp in milliseconds; 90-day default per 02-12-liquidity-matrix.md),
+/// and `liquidation_real_buckets` older than 24h (Block D — the
+/// bucketed aggregation's persistence is display-only so a 24h rolling
+/// window matches the in-memory cap).
 async fn run_retention_cleanup(pool: &SqlitePool, liq_retention_days: u32) {
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -76,6 +79,18 @@ async fn run_retention_cleanup(pool: &SqlitePool, liq_retention_days: u32) {
         .await
     {
         eprintln!("DB cleanup error (liquidation_events): {}", e);
+    }
+
+    // Block D: 24h rolling retention for the price-bucketed aggregation.
+    // last_updated_ms is also in milliseconds (matches `liquidation_events`).
+    let bucket_cutoff_ms =
+        now_secs.saturating_sub(86_400).saturating_mul(1000) as i64;
+    if let Err(e) = sqlx::query("DELETE FROM liquidation_real_buckets WHERE last_updated_ms < ?1")
+        .bind(bucket_cutoff_ms)
+        .execute(pool)
+        .await
+    {
+        eprintln!("DB cleanup error (liquidation_real_buckets): {}", e);
     }
 }
 

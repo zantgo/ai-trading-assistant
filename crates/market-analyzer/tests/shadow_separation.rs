@@ -131,6 +131,7 @@ async fn shadow_candles_never_completed() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             None,
+            None,  // heatmap_config (None)
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

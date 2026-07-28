@@ -206,6 +206,21 @@ min_cluster_notional_usd = 50000
 # (40-hex chars, 0x-prefixed) to enable HL liquidations.
 hyperliquid_user_address = ""
 
+# ── Liquidation Heatmap (Block B/C/D) ──
+# Price-bucketed real-event aggregation overlaid on the estimated
+# cluster matrix. Display-only — does not feed `cascade_risk` or
+# `LiquiditySqueeze`. Block A (Bitget's public `liquidation` channel)
+# populates the real layer; Hyperliquid without `hyperliquid_user_address`
+# stays empty on the real layer and surfaces a caveat watermark.
+
+[workspace.heatmap]
+enabled = true
+bucket_size_pct = 0.001        # 0.1% bins relative to mid-price
+retention_secs = 86400         # 24-hour rolling window
+render_real = true
+render_estimated = true
+render_hl_caveat = true
+
 # ──────────────────────────────────────────────────────────────────────────────
 # INSTANCES — trading pairs
 # ──────────────────────────────────────────────────────────────────────────────

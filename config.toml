@@ -179,6 +179,14 @@ oi_funding_divergence_pct = 2.0
 min_cluster_notional_usd = 50000.0
 hyperliquid_user_address = ""
 
+[workspace.heatmap]
+enabled = true
+bucket_size_pct = 0.001
+retention_secs = 86400
+render_real = true
+render_estimated = true
+render_hl_caveat = true
+
 [workspace.activation]
 disabled_indicators = []
 disabled_signals = []
@@ -201,9 +209,9 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c64d2a363979ba"
-symbol = "BTC-USDT"
-quote = "USDT"
+id = "inst_18c688bcc2890328"
+symbol = "BTC-USDC"
+quote = "USDC"
 initial_capital_usd = 1000.0
 status = "running"
 operational_mode = "advisory"

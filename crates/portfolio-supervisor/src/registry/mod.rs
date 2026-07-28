@@ -178,6 +178,7 @@ pub async fn add_instance(
     let weight_overrides = pair_cfg.as_ref().and_then(|p| p.weight_overrides.clone());
     let position_scaling = pair_cfg.as_ref().and_then(|p| p.position_scaling.clone());
     let liquidity_config_first = config_guard.liquidity.clone();
+    let heatmap_config_first = config_guard.heatmap.clone();
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -242,6 +243,7 @@ pub async fn add_instance(
         weight_overrides: weight_overrides.clone(),
         position_scaling: position_scaling.clone(),
         liquidity_config: liquidity_config_first,
+        heatmap_config: heatmap_config_first,
         buffer_size,
         stale_threshold_secs,
     };
@@ -575,6 +577,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let weight_overrides = pair_cfg.weight_overrides.clone();
     let position_scaling = pair_cfg.position_scaling.clone();
     let liquidity_config_recharge = config_guard.liquidity.clone();
+    let heatmap_config_recharge = config_guard.heatmap.clone();
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
@@ -647,6 +650,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         weight_overrides,
         position_scaling,
         liquidity_config: liquidity_config_recharge,
+        heatmap_config: heatmap_config_recharge,
         buffer_size,
         stale_threshold_secs,
     };

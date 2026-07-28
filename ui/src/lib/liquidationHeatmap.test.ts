@@ -310,9 +310,14 @@ describe('LiquidationHeatmapPrimitive render path', () => {
         const fillRects: Array<{ x: number; y: number; w: number; h: number; fillStyle: string }> = [];
         const ctxStub: any = {
             fillStyle: '',
+            globalAlpha: 1,
+            font: '',
             fillRect: vi.fn((x: number, y: number, w: number, h: number) => {
                 fillRects.push({ x, y, w, h, fillStyle: ctxStub.fillStyle });
             }),
+            fillText: vi.fn(),
+            save: vi.fn(),
+            restore: vi.fn(),
         };
         return {
             target: {
@@ -483,14 +488,18 @@ describe('LiquidationHeatmapPrimitive render path', () => {
         const { target, fillRects } = makeCanvasTarget({ width: 800, height: 600 });
 
         const heatmap = new LiquidationHeatmapPrimitive(chart, series);
-        heatmap.updateData(matrix);
+        // Block C: exchange='' so the HL caveat is not triggered.
+        heatmap.updateData({ cluster: matrix, flow: null, exchange: '' });
         heatmap.setVisible(true);
 
         const views = heatmap.paneViews();
         const renderer = views[0].renderer();
-        expect(renderer).not.toBeNull();
-        // Should not throw, should produce no fillRects.
-        expect(() => renderer!.draw(target)).not.toThrow();
+        // Two valid outcomes (Block C): either renderer is suppressed
+        // entirely (no data + no caveat) OR it draws nothing. Both are
+        // correct no-throw no-fillRect behaviors.
+        if (renderer !== null) {
+            expect(() => renderer.draw(target)).not.toThrow();
+        }
         expect(fillRects.length).toBe(0);
     });
 });

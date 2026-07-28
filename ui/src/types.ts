@@ -804,6 +804,31 @@ export interface LiquidityFlow {
     largest_event_side?: LiquidationSide;
     cascade_state: CascadeState;
     cascade_intensity: number; // 0..100
+    /**
+     * Price-bucketed USD notional over the rolling 24h window. Keyed by
+     * packed `(bucket_index, side)` integer from the Rust accumulator.
+     * Bins follow current mid at the time the event was ingested, so
+     * bands migrate with the chart rather than being pinned to absolute
+     * dollars. Empty when no liquidations have been observed for this
+     * symbol (e.g. Hyperliquid without `hyperliquid_user_address` set).
+     */
+    recent_real_buckets?: Record<string, RealLiquidationBucket>;
+}
+
+/** One observed liquidation bucket from `LiquidityFlow.recent_real_buckets`.
+ * `bucket_index` is `((price / mid_at_event_time) - 1) / bucket_size_pct`,
+ * rounded to int — so `+50` with `bucket_size_pct = 0.001` means "5%
+ * above mid". The same `bucket_index` always maps to the same
+ * approximate price position while the mid is stable. */
+export interface RealLiquidationBucket {
+    bucket_index: number;
+    side: LiquidationSide;
+    price_low: number;
+    price_high: number;
+    peak_price: number;
+    notional_usd: number;
+    event_count: number;
+    last_updated_ms: number;
 }
 
 export interface LeverageAssumptions {

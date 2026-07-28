@@ -104,6 +104,13 @@ pub async fn run_for_symbol(
     // Bitget V2 mix (perpetual futures) public channels: instType is the
     // productType (USDT-FUTURES / USDC-FUTURES); instId is the contract symbol
     // (e.g. BTCUSDT for USDT-M, BTCUSD for USDC-M).
+    //
+    // The dedicated `liquidation` public channel (1 Hz aggregated, top-1 per
+    // side per second) is preferred for the heatmap because side semantics
+    // are unambiguous and the parse path is simpler. The `fill` channel with
+    // `execType == "L"` is kept as a fallback that exposes every individual
+    // forced close (useful for forensics). Side mappings differ between the
+    // two — see `bitget_derivatives` module doc.
     let sub_request = serde_json::json!({
         "op": "subscribe",
         "args": [
@@ -114,11 +121,14 @@ pub async fn run_for_symbol(
             {"instType": &product_type, "channel": "open-interest", "instId": &symbol},
             // Phase 1: `fill` channel exposes real liquidation events.
             // execType == "L" marks a forced-close liquidation fill.
-            {"instType": &product_type, "channel": "fill", "instId": &symbol}
+            {"instType": &product_type, "channel": "fill", "instId": &symbol},
+            // Phase 1+ (Block A): dedicated public liquidation channel
+            // (per-instType, top-1 record per side per second per symbol).
+            {"instType": &product_type, "channel": "liquidation", "instId": &symbol}
         ]
     });
     println!(
-        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker + funding-rate + open-interest + fill streams ({})",
+        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker + funding-rate + open-interest + fill + liquidation streams ({})",
         symbol, product_type
     );
     if let Err(e) = write
@@ -410,6 +420,20 @@ pub async fn run_for_symbol(
                         // liquidation fill.
                         emit_bitget_fill_liquidations(&internal_symbol, &data_val, &event_tx).await;
                     }
+                    "liquidation" => {
+                        // Bitget public liquidation channel: 1 Hz aggregated,
+                        // top-1 record per side per second per symbol. Each
+                        // row carries `side` (buy = long liquidated / sell =
+                        // short liquidated — OPPOSITE the `fill`-channel
+                        // convention; see `bitget_derivatives` module doc)
+                        // and `amount` (base-asset quantity).
+                        emit_bitget_public_liquidations(
+                            &internal_symbol,
+                            &data_val,
+                            &event_tx,
+                        )
+                        .await;
+                    }
                     _ => {}
                 }
             }
@@ -543,6 +567,57 @@ async fn emit_bitget_fill_liquidations_impl(
                 },
             ))
             .await;
+    }
+}
+
+// =============================================================================
+// Bitget public `liquidation` channel extraction (Phase 1+ / Block A)
+// =============================================================================
+//
+// Bitget's public `liquidation` channel is **aggregated**: at most one
+// record per side per symbol per second (the highest-quantity forced
+// close in that window). It is simpler to parse than the `fill` channel
+// because no `execType` filter is needed and the payload is small.
+//
+// IMPORTANT — Side semantics are **INVERTED** vs. the `fill` channel:
+//   side == "buy"   -> a LONG was closed  (long liquidation)
+//   side == "sell"  -> a SHORT was closed (short liquidation)
+//
+// See the module-level inversion table in `bitget_derivatives.rs`.
+
+async fn emit_bitget_public_liquidations(
+    internal_symbol: &str,
+    data_val: &serde_json::Value,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
+    emit_bitget_public_liquidations_impl(internal_symbol, data_val, event_tx).await;
+}
+
+/// Test-only entry point mirroring `emit_bitget_fill_liquidations_for_test`.
+pub async fn emit_bitget_public_liquidations_for_test(
+    internal_symbol: &str,
+    data_val: &serde_json::Value,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
+    emit_bitget_public_liquidations_impl(internal_symbol, data_val, event_tx).await;
+}
+
+async fn emit_bitget_public_liquidations_impl(
+    internal_symbol: &str,
+    data_val: &serde_json::Value,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
+    let rows: Vec<crate::adapters::bitget_derivatives::BitgetPublicLiquidationData> =
+        match serde_json::from_value(data_val.clone()) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+    for row in rows {
+        if let Some(ev) =
+            crate::adapters::bitget_derivatives::pub_liquidation_to_event(internal_symbol, &row)
+        {
+            let _ = event_tx.send(ev).await;
+        }
     }
 }
 

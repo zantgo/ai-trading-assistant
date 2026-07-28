@@ -133,6 +133,7 @@ async fn pristine_candle_scores_100() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             None,
+            None,  // heatmap_config (None)
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

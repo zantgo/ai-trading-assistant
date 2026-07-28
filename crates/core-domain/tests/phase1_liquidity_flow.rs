@@ -8,6 +8,7 @@ use core_domain::liquidity::{CascadeState, LiquidityEventAccumulator, LiquidityF
 use core_domain::normalized::{Exchange, LiquidationEvent, LiquidationSide};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use std::collections::BTreeMap;
 
 fn ev(side: LiquidationSide, price: f64, size: f64, ts_ms: u64) -> LiquidationEvent {
     LiquidationEvent {
@@ -38,7 +39,7 @@ fn flow_net_sign_convention() {
     // Long liquidations = longs dumped = bearish pressure.
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 1.0, 1));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(1000);
     assert!(
         flow.net_liquidation_usd > 0.0,
         "net should be positive for long liqs (sign convention)"
@@ -46,7 +47,7 @@ fn flow_net_sign_convention() {
 
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Short, 50_000.0, 1.0, 1));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(2000);
     assert!(
         flow.net_liquidation_usd < 0.0,
         "net should be negative for short liqs"
@@ -59,7 +60,7 @@ fn flow_largest_event_tracks_max() {
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.5, 1));
     acc.record_event(ev(LiquidationSide::Long, 51_000.0, 2.0, 2));
     acc.record_event(ev(LiquidationSide::Short, 49_000.0, 0.1, 3));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(3000);
     // Largest: 51000 × 2.0 = 102_000 USD.
     assert!((flow.largest_event_usd - 102_000.0).abs() < 1.0);
     assert_eq!(flow.largest_event_price, Some(51_000.0));
@@ -72,7 +73,7 @@ fn flow_event_count_matches_recorded() {
     for i in 0..5 {
         acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.1, i));
     }
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(4000);
     assert_eq!(flow.event_count, 5);
     assert!((flow.long_liquidations_usd - 25_000.0).abs() < 1.0); // 5 * 5000
 }
@@ -90,10 +91,10 @@ fn flow_bounded_history_drops_oldest() {
 fn flow_flush_resets_per_bar() {
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 1.0, 1));
-    let first = acc.flush_to_flow();
+    let first = acc.flush_to_flow(5000);
     assert_eq!(first.event_count, 1);
     // Second flush with no events in between → empty.
-    let second = acc.flush_to_flow();
+    let second = acc.flush_to_flow(6000);
     assert_eq!(second.event_count, 0);
     assert_eq!(second.long_liquidations_usd, 0.0);
 }
@@ -102,7 +103,7 @@ fn flow_flush_resets_per_bar() {
 fn flow_cascade_state_starts_none() {
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     // No history, no events → None.
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(7000);
     assert_eq!(flow.cascade_state, CascadeState::None);
 }
 
@@ -112,11 +113,11 @@ fn flow_cascade_state_detected_after_large_event() {
     // Warm baseline with 3 small bars.
     for i in 0..3 {
         acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.01, i * 1000));
-        let _ = acc.flush_to_flow();
+        let _ = acc.flush_to_flow(8000);
     }
     // Now a large event.
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 10.0, 9999));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(9000);
     assert!(
         matches!(
             flow.cascade_state,
@@ -145,11 +146,11 @@ fn flow_intensity_capped_at_100() {
     let mut acc = LiquidityEventAccumulator::with_config("BTC-USDT", 100, 1.0, 5, 3);
     for i in 0..3 {
         acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.0001, i * 1000));
-        let _ = acc.flush_to_flow();
+        let _ = acc.flush_to_flow(10000);
     }
     // Huge event.
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 100.0, 9999));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(11000);
     assert!(
         flow.cascade_intensity <= 100.0,
         "intensity must be capped at 100, got {}",
@@ -164,7 +165,7 @@ fn flow_decimal_serialization() {
     // rides on the WebSocket frame.
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 1.0, 1));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(12000);
     let json = serde_json::to_string(&flow).expect("flow serializes");
     let parsed: LiquidityFlow = serde_json::from_str(&json).expect("flow deserializes");
     assert!((parsed.long_liquidations_usd - flow.long_liquidations_usd).abs() < 1e-9);
@@ -176,7 +177,7 @@ fn flow_decimal_serialization() {
 fn flow_handles_zero_size_event() {
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 0.0, 1));
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(13000);
     assert_eq!(flow.event_count, 1);
     assert_eq!(flow.long_liquidations_usd, 0.0);
 }
@@ -185,12 +186,12 @@ fn flow_handles_zero_size_event() {
 fn flow_multiple_bars_track_separately() {
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 1.0, 1));
-    let bar1 = acc.flush_to_flow();
+    let bar1 = acc.flush_to_flow(14000);
     assert_eq!(bar1.event_count, 1);
 
     acc.record_event(ev(LiquidationSide::Long, 51_000.0, 2.0, 2));
     acc.record_event(ev(LiquidationSide::Short, 52_000.0, 0.5, 3));
-    let bar2 = acc.flush_to_flow();
+    let bar2 = acc.flush_to_flow(15000);
     assert_eq!(bar2.event_count, 2);
     assert!((bar2.long_liquidations_usd - 102_000.0).abs() < 1.0);
     assert!((bar2.short_liquidations_usd - 26_000.0).abs() < 1.0);
@@ -209,6 +210,7 @@ fn flow_serialization_uses_screaming_snake_case_cascade() {
         largest_event_side: Some(LiquidationSide::Long),
         cascade_state: CascadeState::Sustained,
         cascade_intensity: 75.0,
+        recent_real_buckets: BTreeMap::new(),
     };
     let json = serde_json::to_string(&flow).unwrap();
     assert!(

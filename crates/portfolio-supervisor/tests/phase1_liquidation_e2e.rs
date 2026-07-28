@@ -130,7 +130,8 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
-            None,
+            None, // liquidity_config (None → cascade defaults)
+            None, // heatmap_config (None → default 0.1% / 24h)
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

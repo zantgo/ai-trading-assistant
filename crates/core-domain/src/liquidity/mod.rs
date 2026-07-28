@@ -36,7 +36,7 @@
 //! risk (price likely to rally), positive = long squeeze risk
 //! (price likely to drop).
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
@@ -69,6 +69,70 @@ pub struct LiquidityFlow {
     pub largest_event_side: Option<LiquidationSide>,
     pub cascade_state: CascadeState,
     pub cascade_intensity: f64, // 0..100
+    /// Price-bucketed notional aggregation across the rolling 24h window
+    /// (configurable). Bucketed relative to current mid-price so bands
+    /// follow price rather than being pinned to absolute dollar levels.
+    ///
+    /// The key is `(bucket_index, side)` packed into one i64 — high 32
+    /// bits = bucket_index (i32), low 32 bits = side (0 = long, 1 = short).
+    /// This keeps the public API a `BTreeMap<i64, RealLiquidationBucket>`
+    /// that is JSON-serializable and ordered.
+    ///
+    /// Used by the frontend heatmap to render **observed** liquidation
+    /// bands layered on top of the **estimated** cluster matrix. This
+    /// field is display-only — `cascade_risk`, `LiquiditySqueeze`, and
+    /// all decision math continue to consume the per-bar totals above.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub recent_real_buckets: BTreeMap<i64, RealLiquidationBucket>,
+}
+
+/// One price bucket of **observed** liquidations, relative to the most
+/// recent mid at bucket-write time. Consumed by the heatmap primitive to
+/// draw real-event bands layered over the estimated cluster matrix.
+///
+/// `bucket_index` is `floor(price / mid_price / bucket_size_pct)` — i.e.,
+/// `% distance from mid in units of bucket_size_pct`. A value of `+50`
+/// with `bucket_size_pct = 0.001` means "5% above mid", in 0.1% steps.
+/// The same bucket_index always maps to the same approximate price
+/// position while the mid is roughly stable, so the band stays anchored
+/// to the chart.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RealLiquidationBucket {
+    pub bucket_index: i64,
+    /// `"long"` for long-liquidations, `"short"` for short-liquidations.
+    pub side: LiquidationSide,
+    pub price_low: f64,
+    pub price_high: f64,
+    pub peak_price: f64,
+    pub notional_usd: f64,
+    pub event_count: u32,
+    pub last_updated_ms: u64,
+}
+
+impl RealLiquidationBucket {
+    /// Pack `(bucket_index, side)` into one `i64` so it can serve as a
+    /// `BTreeMap` key while remaining JSON-serializable.
+    pub fn pack_key(bucket_index: i64, side: LiquidationSide) -> i64 {
+        let side_bits: i64 = match side {
+            LiquidationSide::Long => 0,
+            LiquidationSide::Short => 1,
+        };
+        // High 56 bits = bucket_index (signed), low 8 bits = side.
+        // Bucket index is bounded by `bucket_size_pct`: even at 0.0005
+        // (~2000 buckets across ±50% from mid) we're nowhere near 2^56.
+        (bucket_index << 8) | side_bits
+    }
+
+    pub fn unpack_key(key: i64) -> (i64, LiquidationSide) {
+        let side = if key & 1 == 0 {
+            LiquidationSide::Long
+        } else {
+            LiquidationSide::Short
+        };
+        // Arithmetic right shift preserves sign on the i64.
+        let bucket_index = key >> 8;
+        (bucket_index, side)
+    }
 }
 
 impl Default for LiquidityFlow {
@@ -83,6 +147,7 @@ impl Default for LiquidityFlow {
             largest_event_side: None,
             cascade_state: CascadeState::None,
             cascade_intensity: 0.0,
+            recent_real_buckets: BTreeMap::new(),
         }
     }
 }
@@ -106,6 +171,29 @@ pub struct LiquidityEventAccumulator {
     /// Configured number of significant events required to promote
     /// `Detected → Sustained`. Wired from `[workspace.liquidity].cascade_sustained_events`.
     cascade_sustained_events: u32,
+    /// Bucket size as a fraction of mid-price (e.g. 0.001 = 0.1%). Each
+    /// liquidation event is rounded into a bucket relative to the
+    /// current mid so the heatmap band tracks price rather than
+    /// absolute dollar levels. Mirrors
+    /// `[heatmap].bucket_size_pct`.
+    heatmap_bucket_size_pct: f64,
+    /// Sliding-window retention for the heatmap buckets (seconds).
+    /// Buckets older than `now - retention_secs_ms` are evicted on
+    /// every `recent_real_buckets()` call. Mirrors
+    /// `[heatmap].retention_secs`.
+    heatmap_retention_ms: u64,
+    /// Mid anchor used to compute the next bucket_index. Updated by
+    /// `record_event_with_mid()` so the same engine can refresh mid
+    /// from the latest WS mark before bucketing.
+    current_mid: Option<f64>,
+    /// Aggregate USD notional per packed `(bucket_index, side)` key.
+    /// Buckets older than `heatmap_retention_ms` are evicted on read
+    /// via `recent_real_buckets()`.
+    pub(crate) bucket_map: HashMap<i64, RealLiquidationBucket>,
+    /// Number of distinct (bucket, side) pairs ever seen — used for
+    /// memory cap. Soft cap at 4 × retention-bars (≈ 4 × 1440min of
+    /// bucket rows at 1 min resolution × both sides).
+    max_buckets: usize,
 }
 
 impl LiquidityEventAccumulator {
@@ -115,10 +203,7 @@ impl LiquidityEventAccumulator {
         Self::with_config(symbol, 1_000, 2.5, 5, 3)
     }
 
-    /// Full-configuration constructor. `cascade_sustained_events` is the
-    /// count of significant events (notional ≥ threshold) within the
-    /// rolling window required to escalate to `CascadeState::Sustained`.
-    /// Mirrors `[workspace.liquidity].cascade_sustained_events`.
+    /// Backward-compatible default — no heatmap bucketing.
     pub fn with_config(
         symbol: impl Into<String>,
         max_events: usize,
@@ -126,6 +211,31 @@ impl LiquidityEventAccumulator {
         cascade_window_candles: usize,
         cascade_sustained_events: u32,
     ) -> Self {
+        Self::with_full_config(
+            symbol,
+            max_events,
+            cascade_event_zscore,
+            cascade_window_candles,
+            cascade_sustained_events,
+            0.001,
+            86_400,
+        )
+    }
+
+    /// Full-configuration constructor with heatmap bucketing knobs.
+    /// `heatmap_bucket_size_pct` is the bucket width as a fraction of
+    /// mid-price (default 0.001 = 0.1%). `heatmap_retention_secs` is
+    /// the sliding window in seconds (default 86_400 = 24h).
+    pub fn with_full_config(
+        symbol: impl Into<String>,
+        max_events: usize,
+        cascade_event_zscore: f64,
+        cascade_window_candles: usize,
+        cascade_sustained_events: u32,
+        heatmap_bucket_size_pct: f64,
+        heatmap_retention_secs: u64,
+    ) -> Self {
+        let max_buckets = ((heatmap_retention_secs as usize) / 60 + 1).max(2_000);
         Self {
             symbol: symbol.into(),
             events: VecDeque::with_capacity(max_events.min(8_000)),
@@ -136,12 +246,96 @@ impl LiquidityEventAccumulator {
             cascade_window_candles: cascade_window_candles.max(2),
             rolling_intensity: VecDeque::with_capacity(cascade_window_candles.max(2) * 2),
             cascade_sustained_events: cascade_sustained_events.max(1),
+            heatmap_bucket_size_pct: heatmap_bucket_size_pct.max(1e-6),
+            heatmap_retention_ms: heatmap_retention_secs.saturating_mul(1_000),
+            current_mid: None,
+            bucket_map: HashMap::with_capacity(1024),
+            max_buckets,
         }
     }
 
     /// Symbol this accumulator tracks.
     pub fn symbol(&self) -> &str {
         &self.symbol
+    }
+
+    /// Update the latest known mid-price anchor used when bucketing.
+    /// Producers should call this on every WS mark/funding event so
+    /// subsequent `record_event` calls bucket against an up-to-date
+    /// mid. `record_event` falls back to the last known mid if this is
+    /// never called.
+    pub fn set_mid(&mut self, mid: f64) {
+        if mid.is_finite() && mid > 0.0 {
+            self.current_mid = Some(mid);
+        }
+    }
+
+    /// Bucket one liquidation event into the heatmap aggregation.
+    /// Without a known mid, the event is bucketed against the event's
+    /// own price (degenerate but consistent — bands will migrate once a
+    /// mid is set).
+    fn bucket_event(&mut self, ev: &LiquidationEvent, notional: f64) {
+        let price = ev.price.to_string().parse::<f64>().unwrap_or(0.0);
+        if price <= 0.0 || notional <= 0.0 {
+            return;
+        }
+        // Choose mid anchor: prefer the latest known mid; fall back to
+        // the event's own price so the bucket stays at index 0 in
+        // pre-mid warm-up.
+        let anchor = self.current_mid.unwrap_or(price).max(price * 0.5);
+        if anchor <= 0.0 {
+            return;
+        }
+        // bucket_index = ((price / mid) - 1) / bucket_size_pct, rounded to int.
+        let ratio = price / anchor;
+        let bucket_size = self.heatmap_bucket_size_pct.max(1e-6);
+        let bucket_index = ((ratio - 1.0) / bucket_size).round() as i64;
+        let key = RealLiquidationBucket::pack_key(bucket_index, ev.side);
+
+        let (price_low, price_high) = self.bucket_price_range(anchor, bucket_index, bucket_size);
+
+        let b = self.bucket_map.entry(key).or_insert_with(|| RealLiquidationBucket {
+            bucket_index,
+            side: ev.side,
+            price_low,
+            price_high,
+            peak_price: price,
+            notional_usd: 0.0,
+            event_count: 0,
+            last_updated_ms: ev.timestamp_ms,
+        });
+        b.notional_usd += notional;
+        b.event_count = b.event_count.saturating_add(1);
+        b.last_updated_ms = b.last_updated_ms.max(ev.timestamp_ms);
+
+        // Memory cap: oldest bucket by `last_updated_ms` is dropped.
+        if self.bucket_map.len() > self.max_buckets {
+            if let Some(oldest_key) = self
+                .bucket_map
+                .iter()
+                .min_by_key(|(_, v)| v.last_updated_ms)
+                .map(|(k, _)| *k)
+            {
+                self.bucket_map.remove(&oldest_key);
+            }
+        }
+    }
+
+    /// Map `(anchor, bucket_index, bucket_size)` back to the absolute
+    /// `[price_low, price_high]` window. Bucket index 0 corresponds to
+    /// `[anchor*(1-bucket_size/2), anchor*(1+bucket_size/2)]`, etc.
+    fn bucket_price_range(
+        &self,
+        anchor: f64,
+        bucket_index: i64,
+        bucket_size: f64,
+    ) -> (f64, f64) {
+        let low_ratio = 1.0 + (bucket_index as f64 - 0.5) * bucket_size;
+        let high_ratio = 1.0 + (bucket_index as f64 + 0.5) * bucket_size;
+        (
+            (anchor * low_ratio).max(0.0),
+            (anchor * high_ratio).max(0.0),
+        )
     }
 
     /// Record one event. Updates bar-level counters immediately. The
@@ -167,6 +361,12 @@ impl LiquidityEventAccumulator {
         }
         self.bar_flow.event_count += 1;
 
+        // Heatmap bucketing (Block B): each event also feeds the
+        // price-bucketed aggregation so the heatmap can render real
+        // bands. No-op if `current_mid` was never set (degenerate
+        // bucketing against the event's own price).
+        self.bucket_event(&ev, notional);
+
         // Bounded event history (newest at back).
         if self.events.len() >= self.max_events {
             self.events.pop_front();
@@ -174,10 +374,44 @@ impl LiquidityEventAccumulator {
         self.events.push_back(ev);
     }
 
+    /// Number of distinct (bucket, side) pairs currently tracked.
+    pub fn real_bucket_count(&self) -> usize {
+        self.bucket_map.len()
+    }
+
+    /// Take a snapshot of all currently-tracked buckets (display-only).
+    /// Stale buckets (older than `now_ms - heatmap_retention_ms`) are
+    /// evicted first; the returned map is ordered and owned.
+    pub fn snapshot_real_buckets(&mut self, now_ms: u64) -> BTreeMap<i64, RealLiquidationBucket> {
+        let cutoff = now_ms.saturating_sub(self.heatmap_retention_ms);
+        let stale: Vec<i64> = self
+            .bucket_map
+            .iter()
+            .filter(|(_, b)| b.last_updated_ms < cutoff)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in stale {
+            self.bucket_map.remove(&k);
+        }
+        let mut ordered: BTreeMap<i64, RealLiquidationBucket> = BTreeMap::new();
+        for (k, v) in self.bucket_map.iter() {
+            ordered.insert(*k, v.clone());
+        }
+        ordered
+    }
+
     /// Flush the per-bar counters and return the aggregated `LiquidityFlow`.
     /// After this call, the per-bar counters are reset to zero. The rolling
     /// intensity deque is updated with the bar's intensity.
-    pub fn flush_to_flow(&mut self) -> LiquidityFlow {
+    ///
+    /// The `recent_real_buckets` field carries the price-bucketed
+    /// aggregation across the configured retention window (Block B),
+    /// allowing the frontend heatmap to render observed liquidation
+    /// bands layered on top of the estimated cluster matrix. Decoupling
+    /// this field from the bar interval means a candle flip does NOT
+    /// reset the rolling 24h window — buckets survive bar boundaries
+    /// and refresh at most once per flush call.
+    pub fn flush_to_flow(&mut self, now_ms: u64) -> LiquidityFlow {
         // Net flow: positive = longs got dumped = bearish pressure.
         self.bar_flow.net_liquidation_usd =
             self.bar_flow.long_liquidations_usd - self.bar_flow.short_liquidations_usd;
@@ -192,6 +426,11 @@ impl LiquidityEventAccumulator {
         }
         self.rolling_intensity
             .push_back(self.bar_flow.cascade_intensity);
+
+        // Snapshot the rolling-window buckets with stale-bucket eviction.
+        // Clone is cheap — the btree only contains ~hundreds of entries
+        // in normal regimes (24h × 2 sides × 5-min TF cadence ≈ 600).
+        self.bar_flow.recent_real_buckets = self.snapshot_real_buckets(now_ms);
 
         let out = self.bar_flow.clone();
         self.bar_flow = LiquidityFlow::default();
@@ -291,7 +530,7 @@ mod tests {
     #[test]
     fn empty_accumulator_returns_zero_flow() {
         let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
-        let flow = acc.flush_to_flow();
+        let flow = acc.flush_to_flow(0);
         assert_eq!(flow.event_count, 0);
         assert_eq!(flow.long_liquidations_usd, 0.0);
         assert_eq!(flow.short_liquidations_usd, 0.0);
@@ -304,7 +543,7 @@ mod tests {
         let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
         // 1 BTC at $50,000 = $50,000 notional.
         acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 1.0, 1));
-        let flow = acc.flush_to_flow();
+        let flow = acc.flush_to_flow(2_000);
         assert_eq!(flow.event_count, 1);
         assert!((flow.long_liquidations_usd - 50_000.0).abs() < 0.01);
         assert_eq!(flow.short_liquidations_usd, 0.0);
@@ -318,7 +557,7 @@ mod tests {
     fn short_liquidation_increments_short_bucket() {
         let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
         acc.record_event(make_event(LiquidationSide::Short, 50_000.0, 2.0, 1));
-        let flow = acc.flush_to_flow();
+        let flow = acc.flush_to_flow(2_000);
         assert_eq!(flow.event_count, 1);
         assert_eq!(flow.long_liquidations_usd, 0.0);
         assert!((flow.short_liquidations_usd - 100_000.0).abs() < 0.01);
@@ -334,7 +573,7 @@ mod tests {
         acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 0.5, 1));
         acc.record_event(make_event(LiquidationSide::Long, 51_000.0, 2.0, 2));
         acc.record_event(make_event(LiquidationSide::Short, 49_000.0, 0.1, 3));
-        let flow = acc.flush_to_flow();
+        let flow = acc.flush_to_flow(4_000);
         // Largest: 51000 * 2 = 102000.
         assert!((flow.largest_event_usd - 102_000.0).abs() < 0.01);
         assert_eq!(flow.largest_event_price, Some(51_000.0));
@@ -355,10 +594,10 @@ mod tests {
     fn flush_resets_per_bar_counters() {
         let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
         acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 1.0, 1));
-        let first = acc.flush_to_flow();
+        let first = acc.flush_to_flow(2_000);
         assert_eq!(first.event_count, 1);
         // Second flush should be empty.
-        let second = acc.flush_to_flow();
+        let second = acc.flush_to_flow(3_000);
         assert_eq!(second.event_count, 0);
         assert_eq!(second.long_liquidations_usd, 0.0);
     }
@@ -369,11 +608,11 @@ mod tests {
         // Build up baseline with small events.
         for i in 0..5 {
             acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 0.01, i * 1000));
-            let _ = acc.flush_to_flow();
+            let _ = acc.flush_to_flow((i + 1) * 1000);
         }
         // Now produce a big event.
         acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 5.0, 9999));
-        let flow = acc.flush_to_flow();
+        let flow = acc.flush_to_flow(10_000);
         assert!(
             matches!(
                 flow.cascade_state,
@@ -381,6 +620,115 @@ mod tests {
             ),
             "expected Detected or Sustained, got {:?}",
             flow.cascade_state
+        );
+    }
+
+    /// Block B: bucket key round-trips correctly across (bucket_index, side).
+    #[test]
+    fn pack_unpack_round_trip() {
+        for idx in [-200i64, -50, -1, 0, 1, 50, 200, 12_345] {
+            for side in [LiquidationSide::Long, LiquidationSide::Short] {
+                let key = RealLiquidationBucket::pack_key(idx, side);
+                let (out_idx, out_side) = RealLiquidationBucket::unpack_key(key);
+                assert_eq!(idx, out_idx, "bucket_index round-trip failed for {idx}");
+                assert_eq!(side, out_side, "side round-trip failed for {idx}");
+            }
+        }
+    }
+
+    /// Block B: events bucketed against a known mid land in the expected
+    /// (bucket_index, side) cells.
+    #[test]
+    fn events_bucket_relative_to_mid() {
+        let mut acc = LiquidityEventAccumulator::with_full_config(
+            "BTC-USDT",
+            100,
+            2.5,
+            5,
+            3,
+            0.001,    // 0.1% buckets
+            86_400,   // 24h retention
+        );
+        // Set mid to 50_000.
+        acc.set_mid(50_000.0);
+        // Event 0.5% above mid → bucket_index = 0.5 / 0.1 = 5.
+        acc.record_event(make_event(LiquidationSide::Long, 50_250.0, 1.0, 10_000));
+        // Event 0.5% below mid (use 49_750 to keep clear of the
+        // -0.499999.../-0.5 f64 edge case → bucket_index = -5).
+        acc.record_event(make_event(LiquidationSide::Short, 49_750.0, 1.0, 10_100));
+        let flow = acc.flush_to_flow(11_000);
+        assert_eq!(flow.recent_real_buckets.len(), 2, "two distinct buckets");
+        // Find the long bucket (positive index) and the short (negative).
+        let long_buckets: Vec<&RealLiquidationBucket> = flow
+            .recent_real_buckets
+            .values()
+            .filter(|b| b.side == LiquidationSide::Long)
+            .collect();
+        let short_buckets: Vec<&RealLiquidationBucket> = flow
+            .recent_real_buckets
+            .values()
+            .filter(|b| b.side == LiquidationSide::Short)
+            .collect();
+        assert_eq!(long_buckets.len(), 1);
+        assert_eq!(short_buckets.len(), 1);
+        assert_eq!(long_buckets[0].bucket_index, 5);
+        assert_eq!(short_buckets[0].bucket_index, -5);
+        // Bucket 5 spans [mid*(1 + 4.5*0.001), mid*(1 + 5.5*0.001)]
+        //   = [50_225, 50_275]   for mid=50_000 and size=0.1%.
+        assert!(long_buckets[0].price_low >= 50_224.0 && long_buckets[0].price_low <= 50_226.0);
+        assert!(long_buckets[0].price_high >= 50_274.0 && long_buckets[0].price_high <= 50_276.0);
+    }
+
+    /// Block B: stale buckets are evicted after the retention window
+    /// expires on snapshot.
+    #[test]
+    fn stale_buckets_evicted_on_snapshot() {
+        let mut acc = LiquidityEventAccumulator::with_full_config(
+            "BTC-USDT",
+            100,
+            2.5,
+            5,
+            3,
+            0.001,
+            60, // 60-second retention for the test
+        );
+        acc.set_mid(50_000.0);
+        // Single event at t=1_000.
+        acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 1.0, 1_000));
+        // Snapshot well past retention: now=1_000 + 100_000.
+        let snap = acc.snapshot_real_buckets(101_000);
+        assert!(snap.is_empty(), "old bucket should be evicted");
+    }
+
+    /// Block B: serializing a non-empty `recent_real_buckets` includes the
+    /// field; an empty one is skipped (avoids noisy payloads).
+    #[test]
+    fn real_buckets_serialization_skips_when_empty() {
+        let mut flow = LiquidityFlow::default();
+        let json_empty = serde_json::to_string(&flow).unwrap();
+        assert!(
+            !json_empty.contains("recent_real_buckets"),
+            "empty buckets should skip serialization: {}",
+            json_empty
+        );
+        flow.recent_real_buckets.insert(
+            0,
+            RealLiquidationBucket {
+                bucket_index: 0,
+                side: LiquidationSide::Long,
+                price_low: 49_950.0,
+                price_high: 50_050.0,
+                peak_price: 50_000.0,
+                notional_usd: 25_000.0,
+                event_count: 1,
+                last_updated_ms: 1000,
+            },
+        );
+        let json_full = serde_json::to_string(&flow).unwrap();
+        assert!(
+            json_full.contains("recent_real_buckets"),
+            "non-empty buckets should serialize: {}",
+            json_full
         );
     }
 }

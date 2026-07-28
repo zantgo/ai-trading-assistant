@@ -66,7 +66,7 @@ fn sustained_burst_with_mixed_sides() {
         };
         acc.record_event(ev);
     }
-    let flow = acc.flush_to_flow();
+    let flow = acc.flush_to_flow(1000);
     assert!(flow.long_liquidations_usd > 0.0);
     assert!(flow.short_liquidations_usd > 0.0);
 }

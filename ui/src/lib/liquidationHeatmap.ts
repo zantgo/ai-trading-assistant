@@ -8,7 +8,12 @@ import type {
     Time,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
-import type { LiquidationCluster, LiquidationClusterMatrix } from '../types';
+import type {
+    LiquidationCluster,
+    LiquidationClusterMatrix,
+    LiquidityFlow,
+    RealLiquidationBucket,
+} from '../types';
 
 const DEBUG_TAG = '[LH]';
 
@@ -29,6 +34,9 @@ const MIN_INTENSITY = 0.05;
 /// for the typical chart height.
 const CELL_HEIGHT_PX = 3;
 
+/** Color ramp for the **estimated** cluster matrix (Block C fallback).
+ *  Mirrors the original TradingView-style ramp: navy → blue → cyan →
+ *  green → yellow → orange → red. Alpha ramps with intensity. */
 function intensityColor(intensity: number): string {
     const i = Math.min(1, Math.max(0, intensity));
     if (i <= 0.01) return 'transparent';
@@ -41,33 +49,83 @@ function intensityColor(intensity: number): string {
     return `rgba(255, 40, 0, 0.55)`;
 }
 
+/** Color ramp for the **observed** real-event buckets (Block C). Higher
+ *  saturation than the estimated layer so the trader can distinguish
+ *  "the exchange actually saw this" from "the model estimated it".
+ *  Side coloring: long liquidations lean pink/red (aggressive dump),
+ *  short liquidations lean teal/blue (short squeeze). */
+function realBucketColor(bucket: RealLiquidationBucket, intensity: number): string {
+    const i = Math.min(1, Math.max(0, intensity));
+    if (i <= 0.01) return 'transparent';
+    // Long dump — magenta → red, opacity 0.55..0.85
+    if (bucket.side === 'LONG') {
+        if (i < 0.30) return `rgba(180, 60, 140, ${0.55 + i * 0.3})`;
+        if (i < 0.60) return `rgba(220, 40, 100, ${0.60 + i * 0.25})`;
+        if (i < 0.85) return `rgba(255, 30, 60, ${0.70 + i * 0.18})`;
+        return `rgba(255, 10, 20, ${0.80 + i * 0.15})`;
+    }
+    // Short dump — teal → cyan, opacity 0.55..0.85
+    if (i < 0.30) return `rgba(40, 130, 140, ${0.55 + i * 0.3})`;
+    if (i < 0.60) return `rgba(30, 170, 200, ${0.60 + i * 0.25})`;
+    if (i < 0.85) return `rgba(20, 210, 230, ${0.70 + i * 0.18})`;
+    return `rgba(10, 240, 250, ${0.80 + i * 0.15})`;
+}
+
 function clusterIntensity(cluster: LiquidationCluster, maxNotional: number): number {
     if (maxNotional <= 0) return 0;
     return Math.min(1, (cluster.notional_usd / maxNotional) * (cluster.magnet_strength / 100));
 }
 
-/// Renders an estimated liquidation cluster matrix as horizontal colored
-/// bands spanning the full candle pane width. Per-cluster color encodes
-/// intensity = (cluster.notional / max notional across all clusters) ×
-/// (magnet_strength / 100); the cell-by-cell rasterization mirrors
-/// TradingView's liquidation-heatmap convention.
+/// Renders a **layered** liquidation heatmap: real (observed) event
+/// bands drawn first at full saturation, then estimated cluster bands
+/// drawn underneath at reduced opacity. The dual layer is the
+/// visualization the trader can use as "where the exchange actually
+/// saw liquidations" vs "where the model says future liquidations are
+/// likely to cluster".
+///
+/// Backend caveat: the real-bucket layer is only populated for symbols
+/// whose exchange publishes market-wide liquidation data. Today this is
+/// Bitget (via the public `liquidation` channel) and Hyperliquid only
+/// if `hyperliquid_user_address` is configured (account-scoped
+/// `userFills`). Hyperliquid columns without an address configured
+/// stay empty on the real layer — the frontend surfaces this with the
+/// "Model only — no public liquidation feed" watermark.
 ///
 /// Architecture (mirrors `VolumeProfilePrimitive`):
-/// - `setVisible()` is **decoupled** from `updateData()` so that flipping
-///   the toggle pill on/off never nulls the cluster — the previous
-///   pattern `updateData(visible ? data : null)` raced with the WS push
-///   cadence and could leave the heatmap empty for several candle
-///   intervals after a toggle.
+/// - `setVisible()` is **decoupled** from `updateData()` so that
+///   flipping the toggle pill on/off never nulls the data — the
+///   previous pattern `updateData(visible ? data : null)` raced with
+///   the WS push cadence and could leave the heatmap empty for several
+///   candle intervals after a toggle.
 /// - `updateData()` has a **deferred-dispatch** fallback via
-///   `requestAnimationFrame` for the case where the WS delivers cluster
-///   data before `attached()` has fired (early boot / Vite HMR). Without
-///   this fallback, the redraw request is silently dropped and the
-///   heatmap stays empty until the next WS push.
-/// - `attached()` **flushes** any cluster that arrived before attach.
+///   `requestAnimationFrame` for the case where the WS delivers data
+///   before `attached()` has fired (early boot / Vite HMR).
+/// - `attached()` **flushes** any data that arrived before attach.
+export interface LiquidationHeatmapInput {
+    cluster: LiquidationClusterMatrix | null | undefined;
+    flow: LiquidityFlow | null | undefined;
+    /** Show the estimated cluster bands in addition to the real bands.
+     *  When false, only the observed buckets are drawn (rarely useful —
+     *  the trader is generally expected to want both layers). */
+    showEstimated: boolean;
+    /** Show the observed real-event bucket layer. When false, only the
+     *  estimated clusters render and the primitive behaves identically
+     *  to the pre-Block-C version. */
+    showReal: boolean;
+    /** Show the HL caveat watermark when no real buckets exist. Defaults
+     *  to true; off for shared exports where an operator is OK with a
+     *  blank layer. */
+    showHlCaveat: boolean;
+    /** Current symbol's exchange — used to decide whether the HL caveat
+     *  fires. The two supported exchanges are "Hyperliquid" and
+     *  "Bitget"; any other exchange falls back to the caveat. */
+    exchange: string;
+}
+
 export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesAttachedParameter<Time, 'Candlestick'>> {
     private _chart: IChartApi;
     private _candleSeries: ISeriesApi<'Candlestick'>;
-    private _cluster: LiquidationClusterMatrix | null = null;
+    private _input: LiquidationHeatmapInput | null = null;
     private _requestUpdate?: () => void;
     private _visible: boolean = false;
 
@@ -76,21 +134,74 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
         this._candleSeries = candleSeries;
     }
 
-    /// Store the latest cluster. Decoupled from visibility — callers
-    /// must invoke `setVisible()` independently if they want to hide
-    /// the overlay while preserving the data (toggle pill behavior).
-    updateData(cluster: LiquidationClusterMatrix | null | undefined) {
-        this._cluster = cluster ?? null;
+    /// Store the latest input (cluster + flow + toggle state). Decoupled
+    /// from visibility — callers must invoke `setVisible()` independently
+    /// if they want to hide the overlay while preserving the data
+    /// (toggle pill behavior).
+    ///
+    /// Backward-compat: legacy callers pass a bare `LiquidationClusterMatrix`
+    /// or `null`. New callers pass `Partial<LiquidationHeatmapInput>` with
+    /// the `cluster` + `flow` + flag fields. We auto-detect the shape:
+    /// if `input` has a `short_clusters` field, it's the legacy matrix
+    /// shape and we wrap it.
+    updateData(
+        input: LiquidationHeatmapInput | Partial<LiquidationHeatmapInput> | LiquidationClusterMatrix | null | undefined,
+    ) {
+        const prev: LiquidationHeatmapInput = this._input ?? {
+            cluster: null,
+            flow: null,
+            showEstimated: true,
+            showReal: true,
+            showHlCaveat: true,
+            exchange: '',
+        };
+
+        // Auto-detect the legacy "bare matrix" shape.
+        let resolved: Partial<LiquidationHeatmapInput>;
+        if (input == null) {
+            resolved = { cluster: null, flow: null };
+        } else if (
+            typeof input === 'object' &&
+            'short_clusters' in (input as object) &&
+            'long_clusters' in (input as object)
+        ) {
+            resolved = { cluster: input as LiquidationClusterMatrix };
+        } else {
+            resolved = input as Partial<LiquidationHeatmapInput>;
+        }
+
+        const next: LiquidationHeatmapInput = {
+            cluster: 'cluster' in resolved ? (resolved.cluster ?? null) : prev.cluster,
+            flow: 'flow' in resolved ? (resolved.flow ?? null) : prev.flow,
+            showEstimated: resolved.showEstimated ?? prev.showEstimated,
+            showReal: resolved.showReal ?? prev.showReal,
+            showHlCaveat: resolved.showHlCaveat ?? prev.showHlCaveat,
+            exchange: resolved.exchange ?? prev.exchange,
+        };
+        this._input = next;
         if (this._requestUpdate) {
             this._requestUpdate();
-            dbg('updateData: short=', this._cluster?.short_clusters.length ?? 0,
-                'long=', this._cluster?.long_clusters.length ?? 0,
-                'visible=', this._visible);
+            const bc = next.flow?.recent_real_buckets
+                ? Object.keys(next.flow.recent_real_buckets).length
+                : 0;
+            dbg(
+                'updateData: cluster.short=',
+                next.cluster?.short_clusters.length ?? 0,
+                'cluster.long=',
+                next.cluster?.long_clusters.length ?? 0,
+                'realBuckets=',
+                bc,
+                'visible=',
+                this._visible,
+            );
         } else {
-            dbg('updateData: queued (no _requestUpdate yet) clusters=',
-                (this._cluster?.short_clusters.length ?? 0) + (this._cluster?.long_clusters.length ?? 0));
-            // Defer one rAF and try again — the chart's attached() callback
-            // will set _requestUpdate on its next render tick.
+            const bc = next.flow?.recent_real_buckets
+                ? Object.keys(next.flow.recent_real_buckets).length
+                : 0;
+            dbg(
+                'updateData: queued (no _requestUpdate yet) buckets=',
+                bc,
+            );
             requestAnimationFrame(() => {
                 if (this._requestUpdate) {
                     this._requestUpdate();
@@ -101,8 +212,8 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
     }
 
     /// Toggle whether the heatmap should be drawn. Independent of
-    /// `updateData()` so flipping the pill off then back on does not
-    /// race the WS push cadence. Mirrors `VolumeProfilePrimitive.setVisible`.
+    /// `updateData()` so flipping the pill off then back on does not race
+    /// the WS push cadence. Mirrors `VolumeProfilePrimitive.setVisible`.
     setVisible(visible: boolean): void {
         const next = !!visible;
         if (next === this._visible) return;
@@ -114,18 +225,17 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
                 if (this._requestUpdate) this._requestUpdate();
             });
         }
-        dbg('setVisible(', next, ') hasCluster=', this._cluster != null);
+        dbg('setVisible(', next, ') hasInput=', this._input != null);
     }
 
     attached(param: SeriesAttachedParameter<Time, 'Candlestick'>): void {
         this._requestUpdate = param.requestUpdate;
-        // If we received cluster data before attached() fired, request a
-        // redraw now so the freshly-attached primitive renders the queued
-        // matrix. Without this, the heatmap stays empty until the next WS
-        // push (which may be minutes away for low-TF slots).
-        if (this._cluster) {
+        // If we received data before attached() fired, request a redraw
+        // now so the freshly-attached primitive renders the queued
+        // payload.
+        if (this._input) {
             this._requestUpdate();
-            dbg('attached: flushed queued cluster');
+            dbg('attached: flushed queued input');
         }
     }
 
@@ -138,9 +248,17 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
         return [{
             renderer(): IPrimitivePaneRenderer | null {
                 if (!self._visible) return null;
-                if (!self._cluster) return null;
-                // lightweight-charts' priceToCoordinate throws "Value is null"
-                // on an empty series. Bail early so we don't fall into that path.
+                if (!self._input) return null;
+                // Suppress the renderer entirely when both layers are
+                // empty AND the HL caveat is off — this preserves the
+                // legacy contract where `updateData(null)` + `setVisible(true)`
+                // returns `null` from `renderer()`.
+                const cluster = self._input.cluster;
+                const flow = self._input.flow;
+                const hasCluster = !!cluster && (cluster.short_clusters?.length || cluster.long_clusters?.length);
+                const hasReal = !!flow?.recent_real_buckets && Object.keys(flow.recent_real_buckets).length > 0;
+                const wantsCaveat = self._input.showHlCaveat && self._input.exchange === 'Hyperliquid';
+                if (!hasCluster && !hasReal && !wantsCaveat) return null;
                 try {
                     if (!self._chart.timeScale().getVisibleLogicalRange()) return null;
                 } catch (_) {
@@ -167,55 +285,151 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
     }
 
     private _renderGrid(target: CanvasRenderingTarget2D) {
-        const cl = this._cluster;
-        if (!cl) return;
+        const input = this._input;
+        if (!input) return;
+        const cluster = input.cluster;
+        const flow = input.flow;
+        const realBuckets = flow?.recent_real_buckets
+            ? Object.entries(flow.recent_real_buckets).map(([key, b]) => ({
+                  key,
+                  ...b,
+              }))
+            : [];
 
-        const allClusters = [...(cl.short_clusters ?? []), ...(cl.long_clusters ?? [])];
-        if (allClusters.length === 0) return;
+        const clusterArr = cluster
+            ? [...(cluster.short_clusters ?? []), ...(cluster.long_clusters ?? [])]
+            : [];
+        const hasEstimated = input.showEstimated && clusterArr.length > 0;
+        const hasReal = input.showReal && realBuckets.length > 0;
 
-        const maxNotional = Math.max(...allClusters.map(c => c.notional_usd || 0), 1);
+        if (!hasEstimated && !hasReal && !input.showHlCaveat) return;
+
+        const maxRealNotional = hasReal
+            ? Math.max(...realBuckets.map(b => b.notional_usd || 0), 1)
+            : 1;
+        const maxClusterNotional = hasEstimated
+            ? Math.max(...clusterArr.map(c => c.notional_usd || 0), 1)
+            : 1;
 
         target.useMediaCoordinateSpace(({ context: ctx, mediaSize: { width, height } }) => {
             if (width <= 0 || height <= 0) return;
 
             const topY = 0;
             const bottomY = height;
-            let maxIntensity = 0;
             let drawn = 0;
             let skippedIntensity = 0;
             let skippedCoordinate = 0;
+            let realDrawn = 0;
 
-            for (const cluster of allClusters) {
-                const intensity = clusterIntensity(cluster, maxNotional);
-                if (intensity > maxIntensity) maxIntensity = intensity;
-                if (intensity < MIN_INTENSITY) { skippedIntensity++; continue; }
-
-                const priceLow = Math.min(cluster.price_low, cluster.price_high);
-                const priceHigh = Math.max(cluster.price_low, cluster.price_high);
-                if (priceLow <= 0 || priceHigh <= 0) continue;
-
-                const yHigh = this._safePriceToCoordinate(priceHigh);
-                const yLow = this._safePriceToCoordinate(priceLow);
-                if (yHigh === null || yLow === null) { skippedCoordinate++; continue; }
-
-                const startY = Math.min(yHigh, yLow);
-                const endY = Math.max(yHigh, yLow);
-
-                let ry = Math.floor(startY / CELL_HEIGHT_PX) * CELL_HEIGHT_PX;
-                while (ry < endY && ry < bottomY) {
-                    if (ry >= topY) {
-                        ctx.fillStyle = intensityColor(intensity);
-                        ctx.fillRect(0, ry, width, CELL_HEIGHT_PX);
+            // Layer 1: real observed buckets at full saturation. We draw
+            // these first so they sit visually underneath the cell rows
+            // that the estimated layer will paint next.
+            if (hasReal) {
+                for (const bucket of realBuckets) {
+                    const intensity = Math.min(
+                        1,
+                        (bucket.notional_usd || 0) / maxRealNotional,
+                    );
+                    if (intensity < MIN_INTENSITY) {
+                        skippedIntensity++;
+                        continue;
                     }
-                    ry += CELL_HEIGHT_PX;
+                    const priceLow = Math.min(bucket.price_low, bucket.price_high);
+                    const priceHigh = Math.max(bucket.price_low, bucket.price_high);
+                    if (priceLow <= 0 || priceHigh <= 0) continue;
+
+                    const yHigh = this._safePriceToCoordinate(priceHigh);
+                    const yLow = this._safePriceToCoordinate(priceLow);
+                    if (yHigh === null || yLow === null) {
+                        skippedCoordinate++;
+                        continue;
+                    }
+                    const startY = Math.min(yHigh, yLow);
+                    const endY = Math.max(yHigh, yLow);
+
+                    ctx.fillStyle = realBucketColor(bucket, intensity);
+                    let ry = Math.floor(startY / CELL_HEIGHT_PX) * CELL_HEIGHT_PX;
+                    while (ry < endY && ry < bottomY) {
+                        if (ry >= topY) {
+                            ctx.fillRect(0, ry, width, CELL_HEIGHT_PX);
+                        }
+                        ry += CELL_HEIGHT_PX;
+                    }
+                    realDrawn++;
                 }
-                drawn++;
             }
 
-            dbg('_rendered clusters=', drawn, '/', allClusters.length,
-                'maxIntensity=', maxIntensity.toFixed(3),
-                'skippedIntensity=', skippedIntensity,
-                'skippedCoordinate=', skippedCoordinate);
+            // Layer 2: estimated clusters at reduced opacity (0.45×) so
+            // they read as background context rather than primary
+            // signal. The trader reads them as "where the model thinks
+            // liquidations are likely".
+            if (hasEstimated) {
+                ctx.save();
+                ctx.globalAlpha = 0.45;
+                for (const cl of clusterArr) {
+                    const intensity = clusterIntensity(cl, maxClusterNotional);
+                    if (intensity < MIN_INTENSITY) {
+                        skippedIntensity++;
+                        continue;
+                    }
+                    const priceLow = Math.min(cl.price_low, cl.price_high);
+                    const priceHigh = Math.max(cl.price_low, cl.price_high);
+                    if (priceLow <= 0 || priceHigh <= 0) continue;
+
+                    const yHigh = this._safePriceToCoordinate(priceHigh);
+                    const yLow = this._safePriceToCoordinate(priceLow);
+                    if (yHigh === null || yLow === null) {
+                        skippedCoordinate++;
+                        continue;
+                    }
+                    const startY = Math.min(yHigh, yLow);
+                    const endY = Math.max(yHigh, yLow);
+
+                    ctx.fillStyle = intensityColor(intensity);
+                    let ry = Math.floor(startY / CELL_HEIGHT_PX) * CELL_HEIGHT_PX;
+                    while (ry < endY && ry < bottomY) {
+                        if (ry >= topY) {
+                            ctx.fillRect(0, ry, width, CELL_HEIGHT_PX);
+                        }
+                        ry += CELL_HEIGHT_PX;
+                    }
+                    drawn++;
+                }
+                ctx.restore();
+            }
+
+            // Caveat watermark: when the exchange has no public
+            // liquidation feed (today: Hyperliquid without a configured
+            // user address), we surface a thin subtitle so the trader
+            // is not misled into reading the estimated bands as observed
+            // data. Drawn in the top-left corner so it doesn't obscure
+            // the chart.
+            if (input.showHlCaveat && input.exchange === 'Hyperliquid' && !hasReal) {
+                ctx.save();
+                ctx.font = '11px ui-monospace, SFMono-Regular, monospace';
+                ctx.fillStyle = 'rgba(220, 220, 240, 0.75)';
+                ctx.fillText(
+                    '⚠ Model only — no public liquidation feed',
+                    10,
+                    14,
+                );
+                ctx.restore();
+            }
+
+            dbg(
+                '_rendered real=',
+                realDrawn,
+                ' / ',
+                realBuckets.length,
+                ' estimated=',
+                drawn,
+                '/',
+                clusterArr.length,
+                'skippedIntensity=',
+                skippedIntensity,
+                'skippedCoordinate=',
+                skippedCoordinate,
+            );
         });
     }
 }

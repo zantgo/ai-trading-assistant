@@ -662,6 +662,25 @@
         patternMarkers.pushOiPriceDiv(t, m['oi_price_divergence'] ?? null);
     });
 
+    /// SMC structure / liquidity markers (BOS↑ / CHoCH↓ / SWEEP↑ / ...).
+    /// Same toggle-gate pattern as the three pattern-marker $effects above:
+    /// clear() runs whenever the toggle flips (or latestSnapshot advances)
+    /// so a stale BO↑ / CH↑ / SP↑ doesn't linger after the user clicks
+    /// BOS/CHoCH off.
+    $effect(() => {
+        const show = tf?.showSmcStructure ?? false;
+        if (!smcMarkers || !candleSeries) return;
+        smcMarkers.clear();
+        if (!show) return;
+        const snap = tf?.latestSnapshot;
+        const m = (tf?.indicators ?? {}) as IndicatorMap;
+        const t = (snap?.timestamp as number) ?? 0;
+        smcMarkers.push(t, {
+            structure: m['smc_structure'] ?? null,
+            liquidity: m['smc_liquidity'] ?? null,
+        });
+    });
+
     let _lastUpdateTs = 0;
     const candleCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
@@ -765,13 +784,15 @@
                 liquidity: m['smc_liquidity'] ?? null,
             });
         }
-        // Push chart-pattern / candlestick / OI-price-divergence markers
-        // (each is toggle-gated by its own $effect; here we only feed
-        // data — the consumer is no-op when the toggle is off).
+        // Push chart-pattern / candlestick / OI-price-divergence markers.
+        // Each is gated by its own toggle so the snapshot handler is a
+        // no-op when the user has switched the marker off — without this
+        // gate, new ticks would re-push markers that the toggle $effect
+        // had just cleared, making the pills appear unresponsive.
         if (patternMarkers) {
-            patternMarkers.pushPatterns(timeSec, m['patterns'] ?? null);
-            patternMarkers.pushCandlestick(timeSec, m['candlestick'] ?? null);
-            patternMarkers.pushOiPriceDiv(timeSec, m['oi_price_divergence'] ?? null);
+            if (tfVal.showChartPatterns) patternMarkers.pushPatterns(timeSec, m['patterns'] ?? null);
+            if (tfVal.showCandlestickPatterns) patternMarkers.pushCandlestick(timeSec, m['candlestick'] ?? null);
+            if (tfVal.showOiPriceDivergence) patternMarkers.pushOiPriceDiv(timeSec, m['oi_price_divergence'] ?? null);
         }
     });
     $effect(() => {
@@ -864,12 +885,25 @@
     // Mirror of `volumeProfile`'s pattern: prefer the live WS cluster,
     // fall back to history-sourced `historyCluster` until the first
     // per-TF refresh tick fires after a daemon restart.
+    //
+    // Block C: feeds both the **estimated** cluster matrix AND the
+    // **observed** real-event buckets (from `tf.liquidity.recent_real_buckets`).
+    // The shared frontend renderer draws them in two layers. When the
+    // exchange has no public feed (Hyperliquid without
+    // `hyperliquid_user_address`), the real layer stays empty and the
+    // HL caveat watermark surfaces above the chart.
     $effect(() => {
         const visible = tf?.showLiqHeatmap ?? false;
-        const data = tf?.cluster ?? historyCluster ?? null;
         if (!liqHeatmapPrim) return;
         liqHeatmapPrim.setVisible(visible);
-        liqHeatmapPrim.updateData(data);
+        // Always feed data so the toggle can flip back on without race.
+        // `updateData` accepts partial inputs and merges against the
+        // previous shape — passing `null` is intentional when no data
+        // has arrived yet (the primitive suppresses rendering on null).
+        const cluster = tf?.cluster ?? historyCluster ?? null;
+        const flow = tf?.liquidity ?? null;
+        const ex = tf?.exchange ?? '';
+        liqHeatmapPrim.updateData({ cluster, flow, exchange: ex });
     });
 
     // SMC Fair Value Gap zones — toggle visibility + rolling zone list.

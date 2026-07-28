@@ -1220,6 +1220,85 @@ fn default_min_cluster_notional_usd() -> f64 {
     50_000.0
 }
 
+/// Liquidation Heatmap configuration.
+///
+/// Independent feature gate for the price-bucketed real-event heatmap
+/// overlay (Blocks B/C/D). Operators can keep `[liquidity]` enabled
+/// while disabling the heatmap bucket aggregation (e.g. when memory is
+/// constrained or when an external backtest pipeline is the primary
+/// consumer of `liquidation_events`).
+///
+/// Defaults match the platform-wide spec: 0.1% bucket size relative to
+/// mid-price, 24-hour rolling retention. The bucket layer is
+/// **display-only** — it does not feed `cascade_risk`,
+/// `LiquiditySqueeze`, or any policy decision.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HeatmapConfig {
+    /// Master switch for the price-bucketed aggregation. When
+    /// `false`, the accumulator skips `bucket_event` and the
+    /// `recent_real_buckets` field stays empty. The estimated cluster
+    /// matrix (separately gated by `[liquidity].cluster_estimation`)
+    /// continues to render in that case.
+    #[serde(default = "default_heatmap_enabled")]
+    pub enabled: bool,
+    /// Bucket width as a fraction of mid-price. `0.001` = 0.1%
+    /// bins, so a 50_000 BTC mid produces 0.05% wide absolute bins
+    /// of ~$50 each. Smaller bins are finer but produce more
+    /// entries; the memory cap (4 × retention periods, ≈ 6000
+    /// pairs at default) bounds the worst case.
+    #[serde(default = "default_heatmap_bucket_size_pct")]
+    pub bucket_size_pct: f64,
+    /// Sliding-window retention for the bucketed aggregation
+    /// (seconds). Default 86_400 (24h) so per-bar bucket churn does
+    /// not flood the payload. At cascade volume this can be
+    /// reduced to 6–12h to cap memory.
+    #[serde(default = "default_heatmap_retention_secs")]
+    pub retention_secs: u64,
+    /// Whether the frontend should render the layered real-bucket
+    /// + estimated-cluster view. Independent of `enabled`: with
+    /// `render_real = false`, the buckets are still aggregated but
+    /// the chart shows only the estimated clusters. Useful for
+    /// isolating the two signal sources for diagnosis.
+    #[serde(default = "default_true_bool")]
+    pub render_real: bool,
+    /// Whether the frontend should render the estimated cluster
+    /// bands underneath the real buckets. When both are true,
+    /// real events are saturated and the estimated bands fade in
+    /// only where no real events have ever landed.
+    #[serde(default = "default_true_bool")]
+    pub render_estimated: bool,
+    /// Hyperliquid has no public market-wide liquidation feed. The
+    /// UI can still render the estimated cluster bands for HL by
+    /// default; toggling this flag hides them entirely (so the
+    /// panel reads "Model only — no public liquidation feed"). Does
+    /// not affect Bitget.
+    #[serde(default = "default_true_bool")]
+    pub render_hl_caveat: bool,
+}
+
+impl Default for HeatmapConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_heatmap_enabled(),
+            bucket_size_pct: default_heatmap_bucket_size_pct(),
+            retention_secs: default_heatmap_retention_secs(),
+            render_real: true,
+            render_estimated: true,
+            render_hl_caveat: true,
+        }
+    }
+}
+
+fn default_heatmap_enabled() -> bool {
+    true
+}
+fn default_heatmap_bucket_size_pct() -> f64 {
+    0.001
+}
+fn default_heatmap_retention_secs() -> u64 {
+    86_400
+}
+
 impl Default for IntervalsConfig {
     fn default() -> Self {
         Self {

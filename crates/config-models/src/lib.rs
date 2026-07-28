@@ -181,6 +181,8 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub liquidity: LiquidityConfig,
     #[serde(default)]
+    pub heatmap: HeatmapConfig,
+    #[serde(default)]
     pub activation: ActivationConfig,
     /// Schema version counter — incremented on every successful POST /api/config.
     #[serde(default)]
@@ -223,6 +225,7 @@ impl Default for WorkspaceConfig {
             fees: FeesConfig::default(),
             intervals: IntervalsConfig::default(),
             liquidity: LiquidityConfig::default(),
+            heatmap: HeatmapConfig::default(),
             activation: ActivationConfig::default(),
             config_version: 1,
             scoring: ScoringConfig::default(),

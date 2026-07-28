@@ -34,7 +34,7 @@
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
-    import { buildMetricsExportJson } from '../lib/metricsExport';
+    import { buildMetricsExportJson, buildMtfExportJson } from '../lib/metricsExport';
     import ExportDataButton from './ExportDataButton.svelte';
 
     const app = useAppStore();
@@ -146,6 +146,8 @@
     );
 
     // ── Export JSON ──────────────────────────────────────────────────
+    /// Single-TF export (existing behaviour — used when activeTf is Micro /
+    /// Fast / Slow / Macro).
     function buildMetricsExport() {
         if (!pair || !activeTfObj) return null;
         const markPrice = parseFloat(activeTfObj.priceText ?? '') || 0;
@@ -178,6 +180,35 @@
             liquiditySignals: ((pair as any)?.microTerm?.liquiditySignals ?? []) as any[],
             decisionContext,
         });
+    }
+
+    /// Cross-timeframe export — used when the MTF sidebar item is active.
+    /// Returns the MtfView-shaped payload (4 × N grid + agreement labels).
+    function buildMtfExport() {
+        if (!pair) return null;
+        return buildMtfExportJson({
+            symbol: pair.symbol,
+            pair: {
+                microTerm: pair.microTerm,
+                fastTerm:  pair.fastTerm,
+                slowTerm:  pair.slowTerm,
+                macroTerm: pair.macroTerm,
+            },
+            registry,
+            filters: {
+                activeOnly: filters.activeOnly,
+                confirmedPlusOnly: filters.confirmedPlusOnly,
+                hideGates: filters.hideGates,
+                hideOverlays: filters.hideOverlays,
+            },
+        });
+    }
+
+    /// Header EXPORT DATA button routes between the two builders based on
+    /// the active TF (single-TF vs MTF). Returns null when nothing is loaded.
+    function buildHeaderExport(): string | null {
+        if (activeTf === 'Mtf') return buildMtfExport();
+        return buildMetricsExport();
     }
 </script>
 
@@ -216,9 +247,10 @@
                     {/if}
                 </span>
                 <ExportDataButton
-                    onExport={buildMetricsExport}
-                    title="Copy current timeframe's indicators + signals as JSON"
-                    disabled={activeTf === 'Mtf'}
+                    onExport={buildHeaderExport}
+                    title={activeTf === 'Mtf'
+                        ? "Copy the cross-timeframe grid as JSON"
+                        : "Copy current timeframe's indicators + signals as JSON"}
                 />
             </div>
 

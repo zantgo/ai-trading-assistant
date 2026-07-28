@@ -1,7 +1,7 @@
 // Phase 2 tests — verify the export JSON includes all visible Metrics sections.
 
 import { describe, it, expect } from 'vitest';
-import { buildMetricsExportJson, buildPanelExportJson } from '../lib/metricsExport';
+import { buildMetricsExportJson, buildPanelExportJson, buildMtfExportJson } from '../lib/metricsExport';
 
 // Module-level fixtures reused by both describe blocks.
 function makeTf() {
@@ -489,5 +489,213 @@ describe('TEST-UI: Registry metadata contract (normalization_mode, AVWAP sub-key
             value_source: 'sub:weekly',
         });
         expect(avwap.value_source).toBe('sub:weekly');
+    });
+});
+
+// ── Cross-timeframe (MTF) export builder ────────────────────────────────
+//
+// Pin down the payload shape produced by `buildMtfExportJson` so a future
+// schema drift can't silently break the Metrics → MTF → EXPORT DATA flow.
+
+describe('buildMtfExportJson — cross-timeframe grid payload', () => {
+    function mtfTf(slot: 'micro' | 'fast' | 'slow' | 'macro', secs: number, opts: {
+        priceText?: string;
+        ts?: number;
+        rsiNorm?: number | null;
+        macdNorm?: number | null;
+        bbwpNorm?: number | null;
+        rsiSigLabel?: string | null;
+    } = {}) {
+        const indicators: Record<string, any> = {};
+        if (opts.rsiNorm != null) {
+            indicators['rsi'] = {
+                normalized: opts.rsiNorm,
+                signals: opts.rsiSigLabel
+                    ? [{ label: opts.rsiSigLabel, direction: 'Bullish', kind: 'Threshold', status: 'Confirmed', strength: 0.8, age_bars: 1 }]
+                    : [],
+            };
+        }
+        if (opts.macdNorm != null) {
+            indicators['macd'] = { normalized: opts.macdNorm, signals: [] };
+        }
+        if (opts.bbwpNorm != null) {
+            indicators['bbwp'] = { normalized: opts.bbwpNorm, signals: [] };
+        }
+        return {
+            slot,
+            symbol: 'BTC-USDT',
+            exchange: 'Hyperliquid',
+            barDurationSec: secs,
+            indicators,
+            priceText: opts.priceText ?? '0',
+            volText: '0',
+            avgVolText: '0',
+            showPatterns: false,
+            isCompleted: true,
+            latestSnapshot: { timestamp: opts.ts ?? 1700000000 },
+            historyPrices: [],
+            pipelineState: 'LIVE',
+        } as any;
+    }
+
+    function makeMeta(key: string, display: string, group: string, overrides: Partial<any> = {}): any {
+        return {
+            key,
+            display_name: display,
+            group,
+            directional: true,
+            class: 'oscillator',
+            weight: 1,
+            value_format: 'decimals2',
+            value_source: 'raw',
+            color: '#fff',
+            guide_section: '',
+            ...overrides,
+        };
+    }
+
+    it('returns valid JSON with the canonical top-level keys', () => {
+        const out = buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60,    { priceText: '65000', ts: 100 }),
+                fastTerm:  mtfTf('fast',  180,   { priceText: '65100', ts: 200 }),
+                slowTerm:  mtfTf('slow',  300,   { priceText: '64900', ts: 300 }),
+                macroTerm: mtfTf('macro', 900,   { priceText: '64800', ts: 400 }),
+            },
+            registry: [makeMeta('rsi', 'RSI', 'Momentum')],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        });
+        const parsed = JSON.parse(out);
+        expect(parsed.source_tab).toBe('mtf');
+        expect(parsed.symbol).toBe('BTC-USDT');
+        expect(parsed.exported_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+        expect(parsed.timeframes).toHaveLength(4);
+        expect(parsed.timeframes.map((t: any) => t.label)).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
+        expect(parsed.timeframes[0].duration_seconds).toBe(60);
+        expect(parsed.timeframes[0].mark_price).toBe(65000);
+        expect(parsed.timeframes[0].timestamp).toBe(100);
+        expect(parsed.timeframes[0].is_completed).toBe(true);
+        expect(parsed.timeframes[0].pipeline_state).toBe('LIVE');
+        expect(parsed.filter_state.active_only).toBe(false);
+    });
+
+    it('captures per-TF indicator values + classifies agreement', () => {
+        // Micro & Fast bullish, Slow & Macro bearish → agreement = avg ≈ 0 (MIXED).
+        const out = JSON.parse(buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60,  { rsiNorm:  0.8 }),
+                fastTerm:  mtfTf('fast',  180, { rsiNorm:  0.6 }),
+                slowTerm:  mtfTf('slow',  300, { rsiNorm: -0.4 }),
+                macroTerm: mtfTf('macro', 900, { rsiNorm: -0.7 }),
+            },
+            registry: [makeMeta('rsi', 'RSI', 'Momentum')],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        }));
+        expect(out.indicators).toHaveLength(1);
+        const rsi = out.indicators[0];
+        expect(rsi.key).toBe('rsi');
+        expect(rsi.values).toHaveLength(4);
+        expect(rsi.values.map((v: any) => v.timeframe)).toEqual(['Micro', 'Fast', 'Slow', 'Macro']);
+        expect(rsi.values[0]).toEqual({ timeframe: 'Micro', normalized: 0.8, active: true });
+        // Avg ≈ (0.8+0.6-0.4-0.7)/4 = 0.075 → MIXED
+        expect(rsi.agreement_label).toBe('MIXED');
+        expect(Math.abs(rsi.agreement - 0.075)).toBeLessThan(1e-9);
+    });
+
+    it('flags inactive TFs as active=false and excludes them from agreement', () => {
+        // Macro has no RSI indicator → active=false. Agreement should be the
+        // mean of the 3 active TFs only.
+        const out = JSON.parse(buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60,  { rsiNorm:  0.6 }),
+                fastTerm:  mtfTf('fast',  180, { rsiNorm:  0.6 }),
+                slowTerm:  mtfTf('slow',  300, { rsiNorm:  0.6 }),
+                macroTerm: mtfTf('macro', 900, { rsiNorm:  null as any }), // no rsi
+            },
+            registry: [makeMeta('rsi', 'RSI', 'Momentum')],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        }));
+        const rsi = out.indicators[0];
+        expect(rsi.values[3]).toEqual({ timeframe: 'Macro', normalized: 0, active: false });
+        expect(rsi.agreement).toBeCloseTo(0.6, 9);
+        expect(rsi.agreement_label).toBe('BULL');
+    });
+
+    it('sums unique signal labels across all 4 TFs into signals_total', () => {
+        const out = JSON.parse(buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60,  { rsiNorm: 0.5, rsiSigLabel: 'RSI oversold' }),
+                fastTerm:  mtfTf('fast',  180, { rsiNorm: 0.5, rsiSigLabel: 'RSI oversold' }), // duplicate
+                slowTerm:  mtfTf('slow',  300, { rsiNorm: 0.5, rsiSigLabel: 'RSI cross up' }),
+                macroTerm: mtfTf('macro', 900, { rsiNorm: 0.5 }),
+            },
+            registry: [makeMeta('rsi', 'RSI', 'Momentum')],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        }));
+        // 'RSI oversold' (Micro+Fast dedupe to 1) + 'RSI cross up' (Slow) = 2 unique
+        expect(out.signals_total).toBe(2);
+    });
+
+    it('rolls up groups from GROUP_ORDER and includes accent + count', () => {
+        const out = JSON.parse(buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60),
+                fastTerm:  mtfTf('fast',  180),
+                slowTerm:  mtfTf('slow',  300),
+                macroTerm: mtfTf('macro', 900),
+            },
+            registry: [
+                makeMeta('rsi',  'RSI',  'Momentum'),
+                makeMeta('macd', 'MACD', 'Momentum'),
+                makeMeta('bbwp', 'BBWP', 'Volatility', { directional: false }),
+            ],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        }));
+        const labels = out.groups.map((g: any) => g.label);
+        expect(labels).toContain('Momentum');
+        expect(labels).toContain('Volatility');
+        const momentum = out.groups.find((g: any) => g.label === 'Momentum');
+        expect(momentum.indicator_count).toBe(2);
+        expect(momentum.accent).toMatch(/^#[0-9a-f]{6}$/i);
+    });
+
+    it('filters out groups with zero indicators', () => {
+        const out = JSON.parse(buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60,  { rsiNorm: 0.5 }),
+                fastTerm:  mtfTf('fast',  180),
+                slowTerm:  mtfTf('slow',  300),
+                macroTerm: mtfTf('macro', 900),
+            },
+            registry: [makeMeta('rsi', 'RSI', 'Momentum')],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        }));
+        // No Volume/Trend/Structure/... indicators present → only Momentum.
+        expect(out.groups).toHaveLength(1);
+        expect(out.groups[0].label).toBe('Momentum');
+    });
+
+    it('serializes mark_price as null when priceText is invalid', () => {
+        const out = JSON.parse(buildMtfExportJson({
+            symbol: 'BTC-USDT',
+            pair: {
+                microTerm: mtfTf('micro', 60, { priceText: '--' }),
+                fastTerm:  mtfTf('fast',  180, { priceText: '' }),
+                slowTerm:  mtfTf('slow',  300, { priceText: 'abc' }),
+                macroTerm: mtfTf('macro', 900, { priceText: '0' }),
+            },
+            registry: [],
+            filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
+        }));
+        expect(out.timeframes[0].mark_price).toBeNull();
+        expect(out.timeframes[1].mark_price).toBeNull();
+        expect(out.timeframes[2].mark_price).toBeNull();
+        expect(out.timeframes[3].mark_price).toBeNull();
     });
 });

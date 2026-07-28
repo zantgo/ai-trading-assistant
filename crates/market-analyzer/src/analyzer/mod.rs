@@ -11,7 +11,7 @@ use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use config_models::FibonacciConfig;
-use config_models::LiquidityConfig;
+use config_models::{HeatmapConfig, LiquidityConfig};
 use config_models::OrderBookConfig;
 use config_models::QualityConfig;
 use config_models::TimeframeConfig;
@@ -583,6 +583,10 @@ pub async fn run_single(
     // reads the micro TF's cluster.
     cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>,
     liquidity_config: Option<LiquidityConfig>,
+    // Heatmap bucketing config (Block B). Optional so callers that
+    // don't need it (e.g. legacy tests) can pass `None` and fall
+    // back to default 0.1% / 24h bucketing.
+    heatmap_config: Option<HeatmapConfig>,
     ob_config: OrderBookConfig,
     cross_tf_snapshot_a: Arc<RwLock<Option<MarketSnapshot>>>,
     cross_tf_snapshot_b: Arc<RwLock<Option<MarketSnapshot>>>,
@@ -871,15 +875,42 @@ pub async fn run_single(
     // (cascade_detected_zscore, cascade_sustained_events) actually take
     // effect — the legacy `LiquidityEventAccumulator::new` defaults were
     // hardcoded `2.5 / 5 / 3`.
-    let mut liquidity_acc = match liquidity_config.as_ref() {
-        Some(cfg) => core_domain::liquidity::LiquidityEventAccumulator::with_config(
+    //
+    // Block B (heatmap bucketing): the heatmap knobs come from the
+    // optional `heatmap_config` (defaults to 0.1% / 24h). When the
+    // heatmap is disabled in config, bucketing is a no-op but the
+    // accumulator keeps the existing per-bar aggregation.
+    let mut liquidity_acc = match (liquidity_config.as_ref(), heatmap_config.as_ref()) {
+        (Some(cfg), Some(hc)) if hc.enabled => {
+            core_domain::liquidity::LiquidityEventAccumulator::with_full_config(
+                &symbol,
+                1_000,
+                cfg.cascade_detected_zscore,
+                5,
+                cfg.cascade_sustained_events,
+                hc.bucket_size_pct,
+                hc.retention_secs,
+            )
+        }
+        (Some(cfg), _) => core_domain::liquidity::LiquidityEventAccumulator::with_config(
             &symbol,
             1_000,
             cfg.cascade_detected_zscore,
             5,
             cfg.cascade_sustained_events,
         ),
-        None => core_domain::liquidity::LiquidityEventAccumulator::new(&symbol),
+        (None, Some(hc)) if hc.enabled => {
+            core_domain::liquidity::LiquidityEventAccumulator::with_full_config(
+                &symbol,
+                1_000,
+                2.5,
+                5,
+                3,
+                hc.bucket_size_pct,
+                hc.retention_secs,
+            )
+        }
+        (None, _) => core_domain::liquidity::LiquidityEventAccumulator::new(&symbol),
     };
 
     let mut candle_gen = CandleGenerator::new(
@@ -1962,7 +1993,16 @@ pub async fn run_single(
                         cross_tf_snaps.iter().map(|(secs, s)| (*secs, s)).collect();
 
                     let cluster_guard = cluster_matrix.read().await.clone();
-                    let liquidity_flow = liquidity_acc.flush_to_flow();
+                    // Block B: feed the latest mid into the accumulator
+                    // before flushing so the buckets are anchored to the
+                    // most recent mark. `latest_mark_px` is the upstream
+                    // shared state updated by `MarkPrice` events.
+                    let mid_for_buckets = latest_mark_px.read().await.and_then(|m| m.to_f64());
+                    if let Some(m) = mid_for_buckets {
+                        liquidity_acc.set_mid(m);
+                    }
+                    let flush_now_ms = core_domain::LatencyTracker::now_ms();
+                    let liquidity_flow = liquidity_acc.flush_to_flow(flush_now_ms);
                     last_cascade_state = liquidity_flow.cascade_state;
                     // Thread configured signal thresholds from
                     // `[workspace.liquidity]` instead of using the

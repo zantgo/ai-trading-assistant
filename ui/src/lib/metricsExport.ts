@@ -767,3 +767,194 @@ export function buildPanelExportJson(args: PanelExportArgs): string | null {
         decisionContext: r.decisionContext,
     });
 }
+
+// ── Cross-timeframe (MTF) export ───────────────────────────────────────
+//
+// Mirrors the structure rendered on the MTF page (`MtfView.svelte`): a 4 × N
+// grid of indicators × timeframes with per-row agreement labels. The single-
+// timeframe `buildMetricsExportJson` can't be reused because it only carries
+// one TF's indicator snapshot — wrong shape for the MTF grid.
+
+export type MtfSlotLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
+
+export interface MtfExportArgs {
+    symbol: string;
+    pair: {
+        microTerm: TimeframeTelemetry;
+        fastTerm: TimeframeTelemetry;
+        slowTerm: TimeframeTelemetry;
+        macroTerm: TimeframeTelemetry;
+    };
+    registry: IndicatorMeta[];
+    filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
+}
+
+interface MtfTimeframeEntry {
+    label: MtfSlotLabel;
+    duration_seconds: number;
+    mark_price: number | null;
+    timestamp: number | null;
+    pipeline_state: string | null;
+    is_completed: boolean;
+}
+
+interface MtfIndicatorValue {
+    timeframe: MtfSlotLabel;
+    normalized: number;
+    active: boolean;
+}
+
+interface MtfIndicatorEntry {
+    key: string;
+    display_name: string;
+    group: string;
+    directional: boolean;
+    values: MtfIndicatorValue[];
+    agreement: number;
+    agreement_label: 'BULL' | 'BEAR' | 'MIXED';
+}
+
+interface MtfGroupEntry {
+    key: string;
+    label: string;
+    accent: string;
+    indicator_count: number;
+}
+
+interface MtfExportPayload {
+    exported_at: string;
+    source_tab: 'mtf';
+    symbol: string;
+    filter_state: {
+        active_only: boolean;
+        confirmed_plus_only: boolean;
+        hide_gates: boolean;
+        hide_overlays: boolean;
+    };
+    timeframes: MtfTimeframeEntry[];
+    groups: MtfGroupEntry[];
+    indicators: MtfIndicatorEntry[];
+    /** Sum of unique signal labels across all 4 TFs (matches the SIGNALS
+     *  badge in FacetTabs but lifted to the cross-TF scope). */
+    signals_total: number;
+}
+
+/** Same threshold used by `MtfView.svelte` to classify agreement rows. */
+function classifyAgreement(value: number): 'BULL' | 'BEAR' | 'MIXED' {
+    if (value > 0.2) return 'BULL';
+    if (value < -0.2) return 'BEAR';
+    return 'MIXED';
+}
+
+function parseMarkPrice(priceText: string | undefined | null): number | null {
+    const v = parseFloat(priceText ?? '');
+    if (!Number.isFinite(v) || v <= 0) return null;
+    return v;
+}
+
+function parseSnapshotTimestamp(snap: unknown): number | null {
+    if (!snap) return null;
+    const ts = (snap as { timestamp?: unknown }).timestamp;
+    return typeof ts === 'number' ? ts : null;
+}
+
+export function buildMtfExportJson(args: MtfExportArgs): string {
+    const { symbol, pair, registry, filters } = args;
+
+    const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] = [
+        { label: 'Micro', tf: pair.microTerm },
+        { label: 'Fast',  tf: pair.fastTerm  },
+        { label: 'Slow',  tf: pair.slowTerm  },
+        { label: 'Macro', tf: pair.macroTerm },
+    ];
+
+    const timeframes: MtfTimeframeEntry[] = slotDefs.map(({ label, tf }) => ({
+        label,
+        duration_seconds: tf.barDurationSec ?? 0,
+        mark_price: parseMarkPrice(tf.priceText),
+        timestamp: parseSnapshotTimestamp(tf.latestSnapshot),
+        pipeline_state: (tf.pipelineState ?? null) as string | null,
+        is_completed: tf.isCompleted ?? false,
+    }));
+
+    const indicators: MtfIndicatorEntry[] = registry.map((meta) => {
+        const values: MtfIndicatorValue[] = slotDefs.map(({ label, tf }) => {
+            const dto = tf.indicators?.[meta.key];
+            return {
+                timeframe: label,
+                normalized: dto?.normalized ?? 0,
+                active: dto != null,
+            };
+        });
+        const presentNorms = values.filter((v) => v.active).map((v) => v.normalized);
+        const agreement = presentNorms.length > 0
+            ? presentNorms.reduce((a, b) => a + b, 0) / presentNorms.length
+            : 0;
+        return {
+            key: meta.key,
+            display_name: meta.display_name,
+            group: meta.group,
+            directional: meta.directional ?? true,
+            values,
+            agreement,
+            agreement_label: classifyAgreement(agreement),
+        };
+    });
+
+    // Group rollup — mirrors the GROUP_ORDER layout used by MtfView.svelte.
+    const groupOrder: string[] = [
+        'Trend', 'Momentum', 'Volume', 'Volatility',
+        'Structure', 'Regime', 'Institutional', 'DerivativesData',
+    ];
+    const groupCounts = new Map<string, number>();
+    for (const ind of indicators) {
+        groupCounts.set(ind.group, (groupCounts.get(ind.group) ?? 0) + 1);
+    }
+    const groupMeta: Record<string, { label: string; accent: string }> = {
+        Trend:           { label: 'Trend',        accent: '#22d3ee' },
+        Momentum:        { label: 'Momentum',     accent: '#a78bfa' },
+        Volume:          { label: 'Volume',       accent: '#fb923c' },
+        Volatility:      { label: 'Volatility',   accent: '#ef4444' },
+        Structure:       { label: 'Structure',    accent: '#60a5fa' },
+        Regime:          { label: 'Regime',       accent: '#facc15' },
+        Institutional:   { label: 'SMC',          accent: '#ec4899' },
+        DerivativesData: { label: 'Derivatives',  accent: '#34d399' },
+    };
+    const groups: MtfGroupEntry[] = groupOrder
+        .filter((k) => (groupCounts.get(k) ?? 0) > 0)
+        .map((k) => ({
+            key: k,
+            label: groupMeta[k]?.label ?? k,
+            accent: groupMeta[k]?.accent ?? 'rgba(255,255,255,0.4)',
+            indicator_count: groupCounts.get(k) ?? 0,
+        }));
+
+    // Sum of unique signal labels across all 4 TFs × all indicators.
+    const uniqueLabels = new Set<string>();
+    for (const { tf } of slotDefs) {
+        const inds = (tf.indicators ?? {}) as Record<string, IndicatorDto>;
+        for (const k of Object.keys(inds)) {
+            for (const s of inds[k]?.signals ?? []) {
+                if (s.label) uniqueLabels.add(s.label);
+            }
+        }
+    }
+
+    const payload: MtfExportPayload = {
+        exported_at: new Date().toISOString(),
+        source_tab: 'mtf',
+        symbol,
+        filter_state: {
+            active_only: filters.activeOnly,
+            confirmed_plus_only: filters.confirmedPlusOnly,
+            hide_gates: filters.hideGates,
+            hide_overlays: filters.hideOverlays,
+        },
+        timeframes,
+        groups,
+        indicators,
+        signals_total: uniqueLabels.size,
+    };
+
+    return JSON.stringify(payload, null, 2);
+}
