@@ -1024,6 +1024,13 @@
     letter-spacing: 0.04em;
 }
 
+/* Loading dots inside the empty/loading area need to contrast against
+   the dark page background. The base `.wavingDot` is black-on-white
+   (it lives inside the plus button), so we override here. */
+.wsPanelLoader .wavingDot {
+    background-color: var(--text-dim);
+}
+
 /* ── Confirm mini-modal ─────────────────────────────────────────────── */
 .confirmOverlay {
     position: fixed;

@@ -195,9 +195,44 @@
     animation: warmingPulse 2s ease-in-out infinite;
 }
 
+/* Layer 2: SILENT — the indicator is computing but no discrete signal
+   has fired recently on this bar (BOS, CHoCH, FVG, S/R flip, chart
+   patterns, OI-Price Divergence, etc.). Subtle grey with a slow pulse
+   so the trader reads it as "alive but nothing of note right now" —
+   distinct from the red ❌/amber ⏳/grey ❔ messaging. */
+.stateSilent {
+    color: #94a3b8;
+    animation: silentBreathe 3.2s ease-in-out infinite;
+}
+
+/* Layer 2 (v6.6+): WAITING FEED — lifecycle reached Live but the
+   upstream feed hasn't delivered yet (e.g. Bitget ticker channel's
+   `holdingAmount` field absent on cold start). Amber tone with a
+   faster pulse so the operator reads it as "expected, just hasn't
+   arrived" rather than "broken" or "zero reading". Distinct from
+   SILENT ⚡ (feed delivered, says zero) and AWAITING DATA (not yet
+   warmed up). */
+.stateWaitingFeed {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.10);
+    padding: 1px 4px;
+    border-radius: 3px;
+    animation: waitingFeedPulse 1.6s ease-in-out infinite;
+}
+
 @keyframes warmingPulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
+}
+
+@keyframes silentBreathe {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+@keyframes waitingFeedPulse {
+    0%, 100% { opacity: 0.65; }
+    50% { opacity: 1; }
 }
 
 .colConf {
@@ -243,6 +278,17 @@
 
 .dotUnknown {
     background: #475569;
+}
+
+/* Layer 2: silent lifecycle dot — grey ring, no green halo. The
+   contrast is intentional: an always-active indicator in Live state
+   DOES light up green (real signal fired), but a Conditional/
+   DataOnly indicator in Live+Silent does not. The trader reads grey ⚡
+   as "running, just quiet". */
+.dotSilent {
+    background: transparent;
+    border: 1.5px solid #94a3b8;
+    box-shadow: none;
 }
 
 @keyframes dotPulse {

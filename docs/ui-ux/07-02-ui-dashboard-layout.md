@@ -113,9 +113,55 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 {:else if app.currentEngine === 'portfolio'}
     <PortfolioDashboard />
 {:else if app.currentEngine === 'exchange_settings'}
-    <ExchangeSettings />
-{/if}
+        <ExchangeSettings />
+    {/if}
 ```
+
+### 3.4 Watchlist Scanner (Market Monitor Overview)
+
+A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is a dashed-divider button labeled **Scan Watchlist** that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, and runs the full Market Monitor pipeline on each pair one at a time. Pairs whose first `decision_context.trade_readiness === 'READY'` AND whose `advisory.directional_guidance ∈ {StrongLong, Long, Short, StrongShort}` are kept; all others are DELETE-removed from the workspace (§3.4.3). Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
+
+The three phases share a single dialog (`phase: 'input' | 'running' | 'done'`):
+
+- **Phase 1 — Input** — Textarea, parsed by `parseSymbols()` (drops dupes, enforces ≤10 chars per symbol). Live count chip. `Continue` is disabled when the session is inactive or the parsed list is empty.
+- **Phase 2 — Running** — Per-pair status rows showing `Queued → Add → Wait → Keep|Remove`. Footer reads `Processing N of M`. Cancel button forcibly aborts the run (already-added pairs stay added).
+- **Phase 3 — Done** — Summary card with `Added / Kept / Removed / Skipped` counts and group chips for each pair's reason. Single `Accept` button closes the modal.
+
+#### 3.4.1 Decision Rule
+
+A pair is kept iff both:
+
+| Field | Source | Required value |
+|---|---|---|
+| `decision_context.trade_readiness` | L6 Decision Context (mirrored from `pair.decisionContext` via WS handler) | `'READY'` |
+| `advisory.directional_guidance` | L4.75 Advisory Matrix (mirrored from `pair.advisory` via WS handler) | `StrongLong`, `Long`, `Short`, `StrongShort` |
+
+The two fields are sourced from different WS frames — the scanner polls `pair.decisionContext.trade_readiness` first and then re-reads `pair.advisory` once the decision is in. The `decide()` helper in `ui/src/lib/watchlistScanner.ts` is the canonical implementation and is unit-tested.
+
+#### 3.4.2 Execution Cadence
+
+Sequential `await` — one pair per loop iteration. Per pair:
+
+1. `POST /api/instances` (existing endpoint, `createInstance()` helper)
+2. `connectWsForInstance()` to attach the per-TF WS subscribers
+3. `waitForAdvisory(pairKey, 30_000)` — poll `pair.decisionContext.trade_readiness`
+4. Apply `decide()` → `KEEP` or `DELETE`
+5. `DELETE` branch: `DELETE /api/instances/:id` + `app.removeInstance(pairKey)`
+
+#### 3.4.3 Filtering Outcomes
+
+DELETE mappings by reason (for the summary chips):
+
+| `decide()` result → reason | Condition |
+|---|---|
+| `NOT_READY` | `trade_readiness ∈ {FORMING, WATCH, STAND_ASIDE}` |
+| `DIRECTION_NEUTRAL` | `trade_readiness === READY` AND `directional_guidance === Neutral` |
+| `AVOID_DIRECTIONAL` | `trade_readiness === READY` AND `directional_guidance === AvoidDirectionalExposure` |
+| `NO_DECISION` | `decisionContext` is null/never arrived |
+| `TIMEOUT` | 30s deadline elapsed without a `READY` populating `pair.decisionContext` |
+| `UNAVAILABLE` | Backend rejected `POST /api/instances` (e.g. symbol not on selected exchange) |
+| `DUPLICATE` | Backend returned "already exists" — pair is left untouched in the workspace |
+| `NETWORK_ERROR` | Any other `POST /api/instances` failure |
 
 ---
 

@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.6 (2026-07-29) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -17,10 +17,15 @@ the strict L4 / L5 orthogonality invariant.
 **Inputs:**
 - Hyperliquid `activeAssetCtx` channel (live mark price, OI, funding)
 - Hyperliquid `metaAndAssetCtxs` REST polling (60s fallback)
-- Bitget `ticker` channel (mark price)
-- Bitget `funding-rate` channel
+- Bitget `ticker` channel (V2: **mark price + `holdingAmount` (OI) +
+  `fundingRate` + `nextFundingTime`** in a single push payload — the
+  dedicated `open-interest` and `funding-rate` channels from V1 were
+  removed; see `docs/engines/data-infrastructure-engine/03-01-08-die-bitget-v2-derivatives.md`)
 - Hyperliquid `userFills` (Phase 1: liquidation events)
 - Bitget `fill` channel with `execType == "L"` (Phase 1: liquidation events)
+- Bitget public `liquidation` channel (Phase 1+ Block A: top-1 per side
+  per second, side-inverted vs the `fill` channel — see
+  `bitget_derivatives` module doc)
 
 **Outputs:**
 - `latest_mark_px: Option<Decimal>` (per ActivePair)

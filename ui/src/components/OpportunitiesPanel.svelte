@@ -150,40 +150,52 @@
         </div>
     </div>
 
-    <!-- ── Tactical Bracket ── -->
+    <!-- ── Directional Setups ── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Tactical Bracket</div>
-        <div class={styles.bracket}>
-            <div class="{styles.bracketStep} {styles.bracketTarget}">
-                <span class={styles.bracketLabel}>TARGET ZONE</span>
-                <span class={styles.bracketValue}>
-                    {opportunity ? `${fmtPx(opportunity.target_zone.low)} \u2013 ${fmtPx(opportunity.target_zone.high)}` : '\u2014'}
-                </span>
-                <span class={styles.bracketHint}>
-                    {opportunity ? 'Take-Profit Range' : 'Waiting for structural pivot to define targets...'}
-                </span>
+        <div class={styles.sectionTitle}>Directional Setups</div>
+        <div class={styles.directionalGrid}>
+            <div class="{styles.sideCard} {styles.sideCardLong}">
+                <div class={styles.sideCardHeader}>
+                    <span class={styles.sideCardLabel}>LONG SETUP</span>
+                </div>
+                <div class={styles.zoneRow}>
+                    <span class={styles.zoneLabel}>ENTRY ZONE</span>
+                    <span class={styles.zoneValue}>
+                        {opportunity ? `${fmtPx(opportunity.long_entry_zone.low)} \u2013 ${fmtPx(opportunity.long_entry_zone.high)}` : '\u2014'}
+                    </span>
+                </div>
+                <div class={styles.zoneRow}>
+                    <span class={styles.zoneLabel}>TARGET ZONE</span>
+                    <span class={styles.zoneValue}>
+                        {opportunity ? `${fmtPx(opportunity.long_target_zone.low)} \u2013 ${fmtPx(opportunity.long_target_zone.high)}` : '\u2014'}
+                    </span>
+                </div>
+                <div class={styles.zoneRow}>
+                    <span class={styles.zoneLabel}>INVALIDATION</span>
+                    <span class={styles.zoneValue}>{fmtPx(opportunity?.long_invalidation_level)}</span>
+                </div>
             </div>
-            <div class={styles.bracketConnector}></div>
-            <div class="{styles.bracketStep} {styles.bracketMid}">
-                <span class={styles.bracketLabel}>CURRENT MID</span>
-                <span class={styles.bracketValue}>{markPrice > 0 ? `$${markPrice.toFixed(0)}` : '\u2014'}</span>
-                <span class={styles.bracketHint}>Market Reference</span>
-            </div>
-            <div class={styles.bracketConnector}></div>
-            <div class="{styles.bracketStep} {styles.bracketEntry}">
-                <span class={styles.bracketLabel}>ENTRY ZONE</span>
-                <span class={styles.bracketValue}>
-                    {opportunity ? `${fmtPx(opportunity.entry_zone.low)} \u2013 ${fmtPx(opportunity.entry_zone.high)}` : '\u2014'}
-                </span>
-                <span class={styles.bracketHint}>
-                    {opportunity ? 'Optimal Buy Zone' : 'Analyzing structure for entry alignment...'}
-                </span>
-            </div>
-            <div class={styles.bracketConnector}></div>
-            <div class="{styles.bracketStep} {styles.bracketInvalidation}">
-                <span class={styles.bracketLabel}>INVALIDATION</span>
-                <span class={styles.bracketValue}>{fmtPx(opportunity?.invalidation_level)}</span>
-                <span class={styles.bracketHint}>Hard Stop Price</span>
+
+            <div class="{styles.sideCard} {styles.sideCardShort}">
+                <div class={styles.sideCardHeader}>
+                    <span class={styles.sideCardLabel}>SHORT SETUP</span>
+                </div>
+                <div class={styles.zoneRow}>
+                    <span class={styles.zoneLabel}>ENTRY ZONE</span>
+                    <span class={styles.zoneValue}>
+                        {opportunity ? `${fmtPx(opportunity.short_entry_zone.low)} \u2013 ${fmtPx(opportunity.short_entry_zone.high)}` : '\u2014'}
+                    </span>
+                </div>
+                <div class={styles.zoneRow}>
+                    <span class={styles.zoneLabel}>TARGET ZONE</span>
+                    <span class={styles.zoneValue}>
+                        {opportunity ? `${fmtPx(opportunity.short_target_zone.low)} \u2013 ${fmtPx(opportunity.short_target_zone.high)}` : '\u2014'}
+                    </span>
+                </div>
+                <div class={styles.zoneRow}>
+                    <span class={styles.zoneLabel}>INVALIDATION</span>
+                    <span class={styles.zoneValue}>{fmtPx(opportunity?.short_invalidation_level)}</span>
+                </div>
             </div>
         </div>
     </div>

@@ -271,6 +271,12 @@ pub async fn add_instance(
             &artifacts.fast.snapshot_history,
             &artifacts.slow.snapshot_history,
             &artifacts.r#macro.snapshot_history,
+            &artifacts.instance.active_pair.latest_oi,
+            &artifacts.instance.active_pair.latest_funding,
+            &artifacts.instance.active_pair.latest_mark_px,
+            &artifacts.instance.active_pair.latest_index_px,
+            &artifacts.instance.active_pair.oi_history,
+            &artifacts.instance.active_pair.funding_history,
         )
         .await;
     }
@@ -678,6 +684,12 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
             &artifacts.fast.snapshot_history,
             &artifacts.slow.snapshot_history,
             &artifacts.r#macro.snapshot_history,
+            &artifacts.instance.active_pair.latest_oi,
+            &artifacts.instance.active_pair.latest_funding,
+            &artifacts.instance.active_pair.latest_mark_px,
+            &artifacts.instance.active_pair.latest_index_px,
+            &artifacts.instance.active_pair.oi_history,
+            &artifacts.instance.active_pair.funding_history,
         )
         .await;
     }

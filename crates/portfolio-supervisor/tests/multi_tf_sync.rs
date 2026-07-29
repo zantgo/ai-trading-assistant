@@ -147,6 +147,8 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+                    Arc::new(RwLock::new(VecDeque::with_capacity(8))),
                     Arc::new(RwLock::new(None)),
                     None,
                     None,

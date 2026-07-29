@@ -1,214 +1,220 @@
-.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0;      }
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0; }
 .panelHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0; text-transform: uppercase; }
 .section { margin-bottom: 16px; }
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
-.recRow { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid rgba(255,255,255,0.04); }
-.recLabel { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-.recLong { color: #22c55e; }
-.recShort { color: #ef4444; }
-.recNeutral { color: #94a3b8; }
-.recAvoid { color: #f59e0b; }
-.stanceBadge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
-.stanceAggressive { background: rgba(34,197,94,0.18); color: #22c55e; }
-.stanceConstructive { background: rgba(74,222,128,0.15); color: #4ade80; }
-.stanceNeutral { background: rgba(148,163,184,0.12); color: #94a3b8; }
-.stanceCautious { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.stanceAvoid { background: rgba(239,68,68,0.18); color: #ef4444; }
-.readinessBadge { font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
-.ready { background: rgba(34,197,94,0.20); color: #22c55e; }
-.forming { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); }
-.watch { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.aside { background: rgba(239,68,68,0.15); color: #ef4444; }
-
-/* ── Trade Readiness hero badge ── */
-.readinessHero {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);
-}
-.readinessHero.ready { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.3); }
-.readinessHero.forming { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.2); }
-.readinessHero.watch { background: rgba(34,211,238,0.10); border-color: rgba(34,211,238,0.2); }
-.readinessHero.aside { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.2); box-shadow: 0 0 24px rgba(239,83,80,0.10), inset 0 0 24px rgba(239,83,80,0.04); }
-.readinessLabel {
-    font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: #64748b; text-transform: uppercase;
-}
-.readinessValue {
-    font-size: 20px; font-weight: 800; letter-spacing: 0.04em; font-family: var(--mono, monospace);
-}
-.readinessHero.ready .readinessValue { color: #22c55e; }
-.readinessHero.forming .readinessValue { color: #f59e0b; }
-.readinessHero.watch .readinessValue { color: #22d3ee; }
-.readinessHero.aside .readinessValue { color: #ef4444; }
-
 .noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; margin-bottom: 12px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.card { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
-.cardLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
-.cardValue { font-size: 12px; font-weight: 600; color: #e2e8f0; }
-.recommendation { font-size: 11px; color: #cbd5e1; line-height: 1.55; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
 
-/* ── Structured Plan (TP1/TP2/TP3 + SL) ─────────────────────────── */
-.planHorizon {
-    margin-left: 8px;
-    font-size: 9px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: rgba(34, 211, 238, 0.12);
-    color: #22d3ee;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    font-family: var(--mono, monospace);
-}
-
-.planGrid {
-    display: grid;
-    grid-template-columns: 1fr 1.4fr 1fr;
-    gap: 6px;
-    margin-top: 4px;
-}
-
-.planEntry, .planTps, .planStop {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 5px;
-    padding: 8px 10px;
+/* ── Unified Decision Hero ───────────────────────────────────────────── */
+.decisionHero {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-}
-
-.planLabel {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: #22d3ee;
-    text-transform: uppercase;
-    font-family: var(--mono, monospace);
-}
-
-.planPrice {
-    font-size: 17px;
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.95);
-    font-family: var(--mono, monospace);
-}
-
-.planRange {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.7);
-    font-family: var(--mono, monospace);
-}
-
-.planStopDist {
-    font-size: 10px;
-    color: #ef4444;
-    font-weight: 700;
-    font-family: var(--mono, monospace);
-}
-
-.planFallback {
-    display: flex;
-    align-items: baseline;
-    gap: 5px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.08);
-    padding-top: 3px;
-    margin-top: 2px;
-    font-family: var(--mono, monospace);
-}
-
-.planFallbackLabel {
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.5);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.planFallbackPrice {
-    font-size: 11px;
-    color: rgba(239, 68, 68, 0.7);
-    font-weight: 700;
-}
-
-.planSources {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 2px;
-}
-
-.planSourceTag {
-    font-size: 8px;
-    font-weight: 700;
-    padding: 2px 5px;
-    border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-family: var(--mono, monospace);
-}
-
-.planTpRow {
-    display: grid;
-    grid-template-columns: 28px 1fr 38px 1fr auto;
-    gap: 6px;
     align-items: center;
-    padding: 3px 5px;
-    border-radius: 3px;
-    background: rgba(34, 197, 94, 0.06);
-    border: 1px solid rgba(34, 197, 94, 0.18);
+    gap: 6px;
+    padding: 14px 16px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 12px;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+.heroLabel {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: #64748b;
+    text-transform: uppercase;
+}
+.heroHeadline {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
     font-family: var(--mono, monospace);
+    text-transform: uppercase;
+}
+.heroSubtitle {
     font-size: 10px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+}
+.heroReady    { background: rgba(34, 197, 94, 0.10);  border-color: rgba(34, 197, 94, 0.35); }
+.heroForming  { background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.30); }
+.heroWatch    { background: rgba(34, 211, 238, 0.10); border-color: rgba(34, 211, 238, 0.30); }
+.heroAside    { background: rgba(239, 68, 68, 0.10);  border-color: rgba(239, 68, 68, 0.32);
+                box-shadow: 0 0 24px rgba(239, 83, 80, 0.10), inset 0 0 24px rgba(239, 83, 80, 0.04); }
+.heroReady   .heroHeadline { color: #22c55e; }
+.heroForming .heroHeadline { color: #f59e0b; }
+.heroWatch   .heroHeadline { color: #22d3ee; }
+.heroAside   .heroHeadline { color: #ef4444; }
+
+/* ── Rank row (Long / Short / Hold) ──────────────────────────────────── */
+.rankRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+}
+.rankCell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}
+.rankAction {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+}
+.rankPct {
+    font-size: 16px;
+    font-weight: 800;
+    font-family: var(--mono, monospace);
+}
+.rankBarBg {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.rankBarFill {
+    height: 100%;
+    border-radius: 2px;
+}
+.rankLong  .rankAction { color: #22c55e; }
+.rankLong  .rankPct    { color: #22c55e; }
+.rankLong  .rankBarFill { background: #22c55e; }
+.rankShort .rankAction { color: #ef4444; }
+.rankShort .rankPct    { color: #ef4444; }
+.rankShort .rankBarFill { background: #ef4444; }
+.rankHold  .rankAction { color: #94a3b8; }
+.rankHold  .rankPct    { color: #94a3b8; }
+.rankHold  .rankBarFill { background: #94a3b8; }
+
+/* ── Rationale list ──────────────────────────────────────────────────── */
+.rationaleList {
+    margin: 0;
+    padding: 0 0 0 18px;
+    list-style: disc;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 11px;
+    line-height: 1.55;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    padding-top: 8px;
+    padding-right: 10px;
+    padding-bottom: 8px;
+}
+.rationaleItem {
     margin-bottom: 2px;
 }
-
-.planTpLabel {
-    font-weight: 800;
-    color: #22c55e;
+.rationaleItem:last-child {
+    margin-bottom: 0;
 }
 
-.planTpPrice {
+/* ── Setups (Long + Short cards) ─────────────────────────────────────── */
+.setupPair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.setupCard {
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.setupCardActive {
+    border-color: rgba(255, 255, 255, 0.18);
+}
+.setupCardInactive {
+    opacity: 0.62;
+}
+.setupHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.setupHeaderLong   { background: rgba(34, 197, 94, 0.10); }
+.setupHeaderShort  { background: rgba(239, 68, 68, 0.10); }
+.setupHeaderTitle {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.92);
+}
+.setupHeaderLong  .setupHeaderTitle { color: #22c55e; }
+.setupHeaderShort .setupHeaderTitle { color: #ef4444; }
+.setupStatus {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+}
+.setupBody {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px 10px;
+    gap: 4px;
+}
+.setupRow {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono, monospace);
+    font-size: 11px;
+}
+.setupRowLabel {
+    font-size: 9px;
+    font-weight: 800;
+    color: #22d3ee;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.setupRowValue {
     font-weight: 700;
     color: rgba(255, 255, 255, 0.95);
     text-align: right;
 }
-
-.planTpPct {
-    background: rgba(34, 211, 238, 0.2);
-    color: #67e8f9;
-    padding: 1px 4px;
-    border-radius: 3px;
-    text-align: center;
-    font-weight: 700;
-    font-size: 9px;
+.setupRowStop {
+    color: #ef4444;
 }
-
-.planTpRr {
+.setupRowRr {
     font-size: 9px;
     color: rgba(255, 255, 255, 0.55);
 }
 
-.planTpSource {
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.45);
-    font-style: italic;
-}
-
-.planEmpty {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
-    font-style: italic;
-}
-
+/* ── Key Metrics bars ────────────────────────────────────────────────── */
 .metricBar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .metricLabel { font-size: 10px; color: #94a3b8; width: 90px; flex-shrink: 0; }
 .metricBarBg { flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px; overflow: hidden; }
 .metricFill { height: 100%; border-radius: 3px; }
 .metricVal { font-size: 10px; font-weight: 700; width: 40px; text-align: right; color: #e2e8f0; }
-.green { background: #22c55e; }
-.amber { background: #f59e0b; }
-.red { background: #ef4444; }
-.blue { background: rgba(255,255,255,0.55); }
+.green   { background: #22c55e; }
+.amber   { background: #f59e0b; }
+.red     { background: #ef4444; }
+.blue    { background: rgba(255,255,255,0.55); }
+.rrNone  { color: #94a3b8; }
+
+/* ── Price Levels / Strategy cards ────────────────────────────────────── */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.card { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
+.cardLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
+.cardValue { font-size: 12px; font-weight: 600; color: #e2e8f0; }
+.recommendation { font-size: 11px; color: #cbd5e1; line-height: 1.55; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

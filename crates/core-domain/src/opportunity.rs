@@ -19,6 +19,12 @@
 //!
 //! This module is the **canonical source** of the L4 → L6 contract. See
 //! [02-00-matrix-field-ownership.md §2.4](../matrices/02-00-matrix-field-ownership.md).
+//!
+//! The matrix publishes a balanced prospectus: entry / target / invalidation
+//! zones for **both** directional sides (`long_*` and `short_*`). It does not
+//! take a directional stance — the Decision tab picks. The legacy scalar
+//! `entry_zone` / `target_zone` / `invalidation_level` are projections of the
+//! per-direction fields and are retained so PME/TAE consumers do not break.
 
 use crate::analysis::{OpportunityProfile, OpportunityType, SetupQuality};
 use serde::{Deserialize, Serialize};
@@ -72,9 +78,29 @@ pub struct OpportunityMatrix {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contributing_signals: Vec<String>,
     pub invalidation_note: String,
+    /// Legacy single-bias projection of `long_entry_zone` / `short_entry_zone`.
+    /// PME/TAE consumers read this. The Opportunities tab reads the per-direction
+    /// siblings instead.
     pub entry_zone: PriceRange,
+    /// Legacy single-bias projection of `long_target_zone` / `short_target_zone`.
     pub target_zone: PriceRange,
+    /// Legacy single-bias projection of `long_invalidation_level` /
+    /// `short_invalidation_level`.
     pub invalidation_level: f64,
+    /// Per-direction entry zone for a long setup (entry below close).
+    pub long_entry_zone: PriceRange,
+    /// Per-direction target zone for a long setup (target above close).
+    pub long_target_zone: PriceRange,
+    /// Per-direction invalidation trigger for a long setup (price below which the
+    /// long thesis is invalidated).
+    pub long_invalidation_level: f64,
+    /// Per-direction entry zone for a short setup (entry above close).
+    pub short_entry_zone: PriceRange,
+    /// Per-direction target zone for a short setup (target below close).
+    pub short_target_zone: PriceRange,
+    /// Per-direction invalidation trigger for a short setup (price above which
+    /// the short thesis is invalidated).
+    pub short_invalidation_level: f64,
     pub expected_rr_internal: f64,
     pub time_horizon: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

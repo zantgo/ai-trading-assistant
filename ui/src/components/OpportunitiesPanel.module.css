@@ -56,26 +56,15 @@
 .profilePreFill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .profileNotes { font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4; }
 
-/* ── Tactical Bracket ── */
-.bracket { display: flex; flex-direction: column; gap: 0; padding: 4px 0; }
-.bracketStep {
-    display: flex; flex-direction: column; gap: 2px;
-    padding: 8px 12px;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 6px;
-    position: relative;
-}
-.bracketLabel { font-size: 8px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
-.bracketValue { font-size: 13px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; font-family: var(--mono, monospace); }
-.bracketHint { font-size: 9px; color: rgba(245, 245, 247, 0.30); font-style: italic; }
-.bracketTarget { border-left: 2px solid #22c55e; }
-.bracketEntry { border-left: 2px solid #4dd0e1; }
-.bracketInvalidation { border-left: 2px solid #ef5350; }
-.bracketMid { border-left: 2px solid #64748b; }
-.bracketConnector {
-    width: 0;
-    height: 10px;
-    margin-left: 12px;
-    border-left: 2px solid rgba(255,255,255,0.06);
-}
+/* ── Directional Setups ── */
+.directionalGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 720px) { .directionalGrid { grid-template-columns: 1fr; } }
+.sideCard { padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; border-top-width: 2px; }
+.sideCardLong { border-top-color: #22c55e; }
+.sideCardShort { border-top-color: #ef4444; }
+.sideCardHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sideCardLabel { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.sideCardLong .sideCardLabel { color: #22c55e; }
+.sideCardShort .sideCardLabel { color: #ef4444; }
+.zoneRow { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-top: 1px solid rgba(255,255,255,0.04); font-size: 11px; }
+.zoneRow:first-of-type { border-top: none; }

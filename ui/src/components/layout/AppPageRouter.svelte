@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { CurrentView } from '../../types';
     import type { InstanceState } from '../../types';
+    import type { WsState } from '../../lib/websocket.svelte';
     import styles from '../../styles/brutalist-grid.module.css';
 
     import LiveTerminal from '../LiveTerminal.svelte';
@@ -24,9 +25,10 @@
         selectedInstance: string | null;
         activePair: InstanceState | undefined;
         activeTab: string;
+        wssMap: Record<string, WsState>;
     }
 
-    let { currentEngine, middleTab, selectedInstance, activePair, activeTab }: Props = $props();
+    let { currentEngine, middleTab, selectedInstance, activePair, activeTab, wssMap }: Props = $props();
 </script>
 
 <main class={styles.contentArea}>
@@ -61,10 +63,10 @@
                     <AdvisoryPanel pairKey={activeTab} />
                 {/if}
             {:else}
-                <GeneralDashboard />
+                <GeneralDashboard {wssMap} />
             {/if}
         {:else if middleTab === 'overview'}
-            <GeneralDashboard />
+            <GeneralDashboard {wssMap} />
         {:else}
             {#if activePair}
                 <WorkspaceSettings pair={activePair} tabKey={activeTab} />

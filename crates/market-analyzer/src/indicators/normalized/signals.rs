@@ -13,10 +13,25 @@ use std::collections::HashMap;
 
 type Map = HashMap<String, NormalizedIndicatorValue>;
 
-fn push_signal(map: &mut Map, key: &str, sig: IndicatorSignal) {
+/// Append a signal to the entry for `key`, deduplicating on the
+/// `(label, kind)` pair so a parent indicator can never accumulate two
+/// signals that would collide on the frontend's
+/// `{#each ... (label + kind)}` keying (which would otherwise throw
+/// `each_key_duplicate` in Svelte 5). Returns `true` when the signal
+/// was actually appended, `false` when the parent was missing or the
+/// pair was already present.
+fn push_signal(map: &mut Map, key: &str, sig: IndicatorSignal) -> bool {
     if let Some(entry) = map.get_mut(key) {
-        entry.signals.push(sig);
+        let already_present = entry
+            .signals
+            .iter()
+            .any(|existing| existing.label == sig.label && existing.kind == sig.kind);
+        if !already_present {
+            entry.signals.push(sig);
+            return true;
+        }
     }
+    false
 }
 
 fn threshold(dir: SignalDirection, label: &str) -> IndicatorSignal {
@@ -629,7 +644,15 @@ pub fn derive_signals(map: &mut Map) {
 
         if !sigs.is_empty() {
             if let Some(entry) = map.get_mut(&key) {
-                entry.signals.extend(sigs);
+                for sig in sigs {
+                    let already_present = entry
+                        .signals
+                        .iter()
+                        .any(|existing| existing.label == sig.label && existing.kind == sig.kind);
+                    if !already_present {
+                        entry.signals.push(sig);
+                    }
+                }
             }
         }
     }

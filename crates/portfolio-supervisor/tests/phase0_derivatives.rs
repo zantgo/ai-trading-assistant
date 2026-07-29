@@ -190,6 +190,9 @@ fn bitget_ticker_to_mark_price_extracts_fields() {
         mark_price: Some("50100.5".into()),
         index_price: Some("50000.0".into()),
         open_24h: Some("49000.0".into()),
+        holding_amount: None,
+        funding_rate: None,
+        next_funding_time: None,
     };
     let ev = ticker_to_mark_price("BTC-USDT", &d).expect("mark present");
     match ev {
@@ -206,6 +209,9 @@ fn bitget_ticker_to_mark_price_extracts_fields() {
         mark_price: None,
         index_price: Some("50000.0".into()),
         open_24h: None,
+        holding_amount: None,
+        funding_rate: None,
+        next_funding_time: None,
     };
     assert!(ticker_to_mark_price("BTC-USDT", &d).is_none());
 

@@ -1,8 +1,12 @@
 //! Bitget derivatives telemetry helpers.
 //!
-//! Bitget publishes mark price on the V2 `ticker` channel and the current
-//! funding rate on a dedicated `funding-rate` channel under the `mc` (mix
-//! contract) `instType`. Both are pushed natively; this module exposes
+//! Bitget V2 (mix contract) publishes **mark price**, **open interest**, and
+//! **funding rate** all on the single `ticker` channel under the
+//! `USDT-FUTURES` / `USDC-FUTURES` `instType`. Earlier V1 documentation
+//! described separate `open-interest` / `funding-rate` channels but those
+//! were removed in V2 — the data now rides on the ticker push with field
+//! names `markPrice`, `holdingAmount` (OI in base-asset units),
+//! `fundingRate`, and `nextFundingTime`. This module exposes the
 //! lightweight parsers used by the per-symbol WebSocket adapter in
 //! `bitget.rs`.
 //!
@@ -31,8 +35,16 @@ use std::str::FromStr;
 
 use core_domain::normalized::{
     FundingRateEvent, LiquidationEvent, LiquidationSide, MarkPriceEvent, NormalizedEvent,
+    OpenInterestEvent,
 };
 
+/// V2 ticker push payload (mix contract: USDT-FUTURES / USDC-FUTURES).
+///
+/// Bitget V2 ships mark price, open interest (`holdingAmount`, base-asset
+/// units), funding rate, and next-funding time all on the single `ticker`
+/// channel. Earlier V1 documentation described dedicated `open-interest`
+/// and `funding-rate` channels but those no longer exist on V2 — the
+/// fields are pushed together with the rest of the ticker snapshot.
 #[derive(Debug, Deserialize)]
 pub struct BitgetTickerData {
     #[serde(rename = "markPrice", default)]
@@ -41,6 +53,17 @@ pub struct BitgetTickerData {
     pub index_price: Option<String>,
     #[serde(rename = "open24h", default)]
     pub open_24h: Option<String>,
+    /// Open interest in **base-asset units** (contracts on USDT-M perps).
+    /// Must be multiplied by the mark price to obtain the USD notional
+    /// the cluster estimator expects.
+    #[serde(rename = "holdingAmount", default)]
+    pub holding_amount: Option<String>,
+    /// Current funding rate (per-8h decimal).
+    #[serde(rename = "fundingRate", default)]
+    pub funding_rate: Option<String>,
+    /// Next funding time as a 13-digit ms timestamp.
+    #[serde(rename = "nextFundingTime", default)]
+    pub next_funding_time: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,7 +98,7 @@ pub struct BitgetPublicLiquidationData {
     pub ts: Option<String>,
 }
 
-/// Convert a parsed Bitget ticker payload to a `MarkPriceEvent`.
+/// Convert a parsed Bitget V2 ticker payload to a `MarkPriceEvent`.
 /// Returns `None` if no mark price is present.
 pub fn ticker_to_mark_price(
     internal_symbol: &str,
@@ -95,8 +118,88 @@ pub fn ticker_to_mark_price(
     }))
 }
 
+/// Convert a parsed Bitget V2 ticker payload to its full derivatives event
+/// triple: MarkPrice (always when mark present), OpenInterest (USD-converted
+/// via `mark_px` when `holdingAmount` parses), FundingRate (when
+/// `fundingRate` parses).
+///
+/// Mirrors Hyperliquid's `hl_derivatives_poller::derivatives_ctx_to_events`
+/// in shape and downstream event variants — same `NormalizedEvent`
+/// surface, same `prev_oi: None` on the first OI observation (cluster
+/// estimator derives deltas from history).
+///
+/// `mark_px_override` is used by the adapter to pass a previously-cached
+/// mark price from a prior ticker frame when the current frame lacks one
+/// (first-frame race); pass `None` if no cached mark is available.
+pub fn ticker_to_derivatives_events(
+    internal_symbol: &str,
+    data: &BitgetTickerData,
+    mark_px_override: Option<Decimal>,
+) -> Vec<NormalizedEvent> {
+    let mut out: Vec<NormalizedEvent> = Vec::with_capacity(3);
+
+    // 1. Mark price (always first so downstream has it for OI conversion).
+    let parsed_mark = data
+        .mark_price
+        .as_deref()
+        .and_then(|s| s.parse::<Decimal>().ok());
+    if let Some(mark) = parsed_mark {
+        let idx = data
+            .index_price
+            .as_deref()
+            .and_then(|s| s.parse::<Decimal>().ok());
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        out.push(NormalizedEvent::MarkPrice(MarkPriceEvent {
+            symbol: internal_symbol.to_string(),
+            mark_px: mark,
+            index_px: idx,
+            timestamp_ms: ts,
+        }));
+    }
+
+    // 2. Open interest in USD — only if we have a positive mark price.
+    //    `holdingAmount` arrives in base-asset units (contracts on USDT-M
+    //    perps), so we multiply by the mark price for the USD notional.
+    let effective_mark = parsed_mark
+        .filter(|m| *m > Decimal::ZERO)
+        .or(mark_px_override.filter(|m| *m > Decimal::ZERO));
+    if let (Some(mark), Some(raw_oi_str)) = (effective_mark, data.holding_amount.as_deref()) {
+        if let Ok(raw_oi) = Decimal::from_str(raw_oi_str) {
+            if raw_oi > Decimal::ZERO {
+                let oi_usd = raw_oi * mark;
+                out.push(NormalizedEvent::OpenInterest(OpenInterestEvent {
+                    symbol: internal_symbol.to_string(),
+                    oi: oi_usd,
+                    prev_oi: None,
+                }));
+            }
+        }
+    }
+
+    // 3. Funding rate.
+    if let Some(rate_str) = data.funding_rate.as_deref() {
+        if let Ok(rate) = Decimal::from_str(rate_str) {
+            out.push(NormalizedEvent::FundingRate(FundingRateEvent {
+                symbol: internal_symbol.to_string(),
+                rate,
+            }));
+        }
+    }
+
+    out
+}
+
 /// Convert a parsed Bitget funding payload to a `FundingRateEvent`.
 /// Returns `None` if no rate is present.
+///
+/// This helper is retained for the **legacy** `BitgetFundingData`
+/// struct, which is used by tests that pin the old `funding-rate`
+/// channel payload schema. In production the V2 `ticker` payload is the
+/// source of truth (see `ticker_to_derivatives_events`); the dedicated
+/// `funding-rate` channel was removed in V2.
 pub fn funding_to_event(
     internal_symbol: &str,
     data: &BitgetFundingData,
@@ -167,13 +270,23 @@ pub fn pub_liquidation_to_event(
 mod tests {
     use super::*;
 
+    fn mk_ticker() -> BitgetTickerData {
+        BitgetTickerData {
+            mark_price: None,
+            index_price: None,
+            open_24h: None,
+            holding_amount: None,
+            funding_rate: None,
+            next_funding_time: None,
+        }
+    }
+
     #[test]
     fn ticker_to_mark_price_extracts_mark() {
-        let d = BitgetTickerData {
-            mark_price: Some("100.5".into()),
-            index_price: Some("100.4".into()),
-            open_24h: Some("99.0".into()),
-        };
+        let mut d = mk_ticker();
+        d.mark_price = Some("100.5".into());
+        d.index_price = Some("100.4".into());
+        d.open_24h = Some("99.0".into());
         let ev = ticker_to_mark_price("BTC-USDT", &d).unwrap();
         match ev {
             NormalizedEvent::MarkPrice(m) => {
@@ -187,11 +300,7 @@ mod tests {
 
     #[test]
     fn ticker_to_mark_price_returns_none_when_absent() {
-        let d = BitgetTickerData {
-            mark_price: None,
-            index_price: None,
-            open_24h: Some("99".into()),
-        };
+        let d = mk_ticker();
         assert!(ticker_to_mark_price("BTC-USDT", &d).is_none());
     }
 
@@ -209,6 +318,129 @@ mod tests {
             }
             _ => panic!("expected FundingRate event"),
         }
+    }
+
+    /// V2 ticker: only mark_price present — emit MarkPrice only.
+    #[test]
+    fn ticker_to_derivatives_emits_mark_only_when_only_mark_present() {
+        let mut d = mk_ticker();
+        d.mark_price = Some("65000".into());
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        assert_eq!(evs.len(), 1);
+        assert!(matches!(evs[0], NormalizedEvent::MarkPrice(_)));
+    }
+
+    /// V2 ticker: full payload — emit all three events in order.
+    #[test]
+    fn ticker_to_derivatives_emits_all_three_when_payload_full() {
+        let mut d = mk_ticker();
+        d.mark_price = Some("65000".into());
+        d.holding_amount = Some("1000".into());
+        d.funding_rate = Some("0.0001".into());
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        assert_eq!(evs.len(), 3, "expected MarkPrice + OpenInterest + FundingRate");
+        // Order: MarkPrice, OpenInterest, FundingRate.
+        let NormalizedEvent::MarkPrice(mp) = &evs[0] else {
+            panic!("expected MarkPrice at index 0");
+        };
+        assert_eq!(mp.mark_px.to_string(), "65000");
+        let NormalizedEvent::OpenInterest(oi) = &evs[1] else {
+            panic!("expected OpenInterest at index 1");
+        };
+        // 1000 contracts * $65_000 = $65_000_000 USD notional.
+        assert_eq!(oi.oi.to_string(), "65000000");
+        assert!(oi.prev_oi.is_none());
+        let NormalizedEvent::FundingRate(fr) = &evs[2] else {
+            panic!("expected FundingRate at index 2");
+        };
+        assert_eq!(fr.rate.to_string(), "0.0001");
+    }
+
+    /// V2 ticker: holdingAmount present but mark_price absent — OI is
+    /// dropped (first-frame race); mark_px_override can rescue it.
+    #[test]
+    fn ticker_to_derivatives_emits_oi_with_cached_mark_when_frame_lacks_mark() {
+        let mut d = mk_ticker();
+        d.holding_amount = Some("500".into());
+        d.funding_rate = Some("0.00005".into());
+        // Override mark as 60_000.
+        let evs = ticker_to_derivatives_events(
+            "BTC-USDT",
+            &d,
+            Some(Decimal::from_str("60000").unwrap()),
+        );
+        // Funding rate emits without needing mark.
+        // OI emits using override mark: 500 * 60000 = 30_000_000.
+        // MarkPrice is NOT emitted (frame didn't carry one).
+        assert_eq!(evs.len(), 2);
+        let NormalizedEvent::OpenInterest(oi) = &evs[0] else {
+            panic!("expected OpenInterest first");
+        };
+        assert_eq!(oi.oi.to_string(), "30000000");
+        let NormalizedEvent::FundingRate(fr) = &evs[1] else {
+            panic!("expected FundingRate second");
+        };
+        assert_eq!(fr.rate.to_string(), "0.00005");
+    }
+
+    /// V2 ticker: holdingAmount present, mark_price absent, no override —
+    /// OI must be DROPPED (cannot convert base-asset to USD safely).
+    #[test]
+    fn ticker_to_derivatives_drops_oi_when_no_mark_available() {
+        let mut d = mk_ticker();
+        d.holding_amount = Some("500".into());
+        d.funding_rate = Some("0.00005".into());
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        // No MarkPrice event because frame lacks markPrice.
+        // OI is dropped (no mark to convert).
+        // FundingRate still emits.
+        assert_eq!(evs.len(), 1);
+        assert!(matches!(evs[0], NormalizedEvent::FundingRate(_)));
+    }
+
+    /// V2 ticker: funding_rate absent — OI + Mark still emit.
+    #[test]
+    fn ticker_to_derivatives_emits_oi_without_funding() {
+        let mut d = mk_ticker();
+        d.mark_price = Some("65000".into());
+        d.holding_amount = Some("1000".into());
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        assert_eq!(evs.len(), 2);
+        assert!(matches!(evs[0], NormalizedEvent::MarkPrice(_)));
+        assert!(matches!(evs[1], NormalizedEvent::OpenInterest(_)));
+    }
+
+    /// V2 ticker: holdingAmount absent — only mark + funding emit.
+    #[test]
+    fn ticker_to_derivatives_emits_funding_without_oi() {
+        let mut d = mk_ticker();
+        d.mark_price = Some("65000".into());
+        d.funding_rate = Some("0.0001".into());
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        assert_eq!(evs.len(), 2);
+        assert!(matches!(evs[0], NormalizedEvent::MarkPrice(_)));
+        assert!(matches!(evs[1], NormalizedEvent::FundingRate(_)));
+    }
+
+    /// V2 ticker: completely empty payload — no events emitted.
+    #[test]
+    fn ticker_to_derivatives_emits_nothing_when_empty() {
+        let d = mk_ticker();
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        assert!(evs.is_empty());
+    }
+
+    /// V2 ticker: holdingAmount is "0" — dropped (zero OI is not a
+    /// meaningful reading, and would confuse the cluster estimator).
+    #[test]
+    fn ticker_to_derivatives_drops_zero_oi() {
+        let mut d = mk_ticker();
+        d.mark_price = Some("65000".into());
+        d.holding_amount = Some("0".into());
+        let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        // Only MarkPrice emits; OI dropped.
+        assert_eq!(evs.len(), 1);
+        assert!(matches!(evs[0], NormalizedEvent::MarkPrice(_)));
     }
 
     /// CRITICAL: Bitget's public `liquidation` channel reports `side == "buy"`

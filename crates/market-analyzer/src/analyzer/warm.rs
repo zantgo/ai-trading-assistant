@@ -25,6 +25,48 @@ use core_domain::volume_profile::VolumeProfileSnapshot;
 /// naturally up to this hard cap before eviction.
 pub const HIST_BUFFER_MAX: usize = 1000;
 
+/// Hard cap on the per-pipeline OI history replay length. The live
+/// `oi_history: VecDeque<f64>` used for `OI Delta` and the rolling-1h
+/// math is bounded to 60 entries at runtime (`analyzer/mod.rs:864`); we
+/// replay the same cap during warmup so the warmed state matches what the
+/// live runtime will see.
+pub const OI_HISTORY_MAX: usize = 60;
+
+/// Hard cap on the per-pipeline funding-rate history replay length.
+/// Capped at 8 (vs OI's 60) because funding rate only changes on the
+/// 8-hour exchange settlement, so 8 snapshots ≈ a one-week spread.
+pub const FUNDING_HISTORY_MAX: usize = 8;
+
+/// Derivatives-warmup snapshot: the state that we replay from historical
+/// `MarketSnapshot` rows so derivatives indicators (`open_interest`,
+/// `oi_delta`, `funding_rate`, `mark_index_spread`, and the orderbook-
+/// derived trio) read with the same statistical grounding at boot as
+/// candle-based indicators do.
+///
+/// The orderbook-derived trio (`order_flow_imbalance`, `spread`,
+/// `depth_bias`) cannot be replayed — exchanges don't publish historical
+/// orderbook depth. Those keep their existing "Awaiting WS feed"
+/// behaviour after this warmup change.
+#[derive(Clone, Default)]
+pub struct DerivativesWarmedState {
+    /// Replayed OI history (oldest → newest), used to seed
+    /// `oi_delta`'s rolling math. Length ≤ `OI_HISTORY_MAX`.
+    pub oi_history: VecDeque<f64>,
+    /// Replayed funding rate history (oldest → newest), used to seed
+    /// `OI_FUNDING_DIVERGENCE` and `FUNDING_FLIP` signals. Length ≤
+    /// `FUNDING_HISTORY_MAX`.
+    pub funding_history: VecDeque<f64>,
+    /// Latest observed values from the most-recent snapshot. Used to
+    /// seed the shared `latest_oi`/`latest_funding`/`latest_mark_px`/
+    /// `latest_index_px` locks so the first WS push after boot doesn't
+    /// start from `None`. `None` if the DB had no historical rows for
+    /// this symbol/TF (cold DB → first-WS-push behaviour preserved).
+    pub latest_oi: Option<Decimal>,
+    pub latest_funding: Option<Decimal>,
+    pub latest_mark_px: Option<Decimal>,
+    pub latest_index_px: Option<Decimal>,
+}
+
 /// Pre-warmed indicator state produced by feeding historical candles through
 /// all technical indicators before live WebSocket ingestion begins.
 #[derive(Clone)]
@@ -81,6 +123,88 @@ pub struct WarmedPipelineState {
     pub anchored_vwap_indicator: AnchoredVwap,
     pub latest_snapshot: Option<MarketSnapshot>,
     pub snapshot_history: Vec<MarketSnapshot>,
+    /// Replayed derivatives state (`oi_history`/`funding_history` plus
+    /// latest values) for the `open_interest`/`oi_delta`/`funding_rate`/
+    /// `mark_index_spread` indicator path. Fed back into the analyzer's
+    /// shared locks during `populate_buffers` so derivatives read with
+    /// the same statistical grounding as candle-based indicators at
+    /// boot. Default-constructed when no historical snapshots exist.
+    pub derivatives_state: DerivativesWarmedState,
+}
+
+/// Replay derivatives state from a chronological (oldest → newest)
+/// sequence of historical `MarketSnapshot` rows for the symbol/timeframe
+/// being warmed. Returns a `DerivativesWarmedState` whose fields mirror
+/// what the live runtime populates on the first WS push:
+/// - `oi_history`: bounded to `OI_HISTORY_MAX` recent OI samples (f64)
+///   so `OI Delta`'s rolling math seeds with real data instead of zero.
+/// - `funding_history`: bounded to `FUNDING_HISTORY_MAX` recent funding
+///   samples so `OI_FUNDING_DIVERGENCE` and `FUNDING_FLIP` have non-zero
+///   history at boot.
+/// - `latest_oi`/`latest_funding`/`latest_mark_px`/`latest_index_px`:
+///   the most-recent values, used to seed the shared per-pair locks so
+///   the WS handler doesn't start from `None`.
+///
+/// Snapshots whose top-level `open_interest`/`funding_rate`/`mark_price`/
+/// `index_price` fields are all `None` contribute nothing (they're the
+/// audit-V6-301 "phase-3 writer pending" rows). An empty input vec
+/// returns `DerivativesWarmedState::default()` so cold-DB installs
+/// preserve today's first-WS-push behaviour.
+pub fn warm_derivatives_from_snapshots(
+    snapshots: &[MarketSnapshot],
+    buffer_size: usize,
+) -> DerivativesWarmedState {
+    let oi_cap = buffer_size.min(OI_HISTORY_MAX);
+    let funding_cap = buffer_size.min(FUNDING_HISTORY_MAX);
+
+    let mut out = DerivativesWarmedState::default();
+
+    if snapshots.is_empty() {
+        return out;
+    }
+
+    // Take the most-recent `oi_cap` snapshots for the OI replay window.
+    let oi_window_start = snapshots.len().saturating_sub(oi_cap);
+    for snap in &snapshots[oi_window_start..] {
+        if let Some(oi) = snap.open_interest.and_then(|d| d.to_f64()) {
+            out.oi_history.push_back(oi);
+        }
+    }
+
+    // Same sliding-window approach for the funding-rate replay.
+    let funding_window_start = snapshots.len().saturating_sub(funding_cap);
+    for snap in &snapshots[funding_window_start..] {
+        if let Some(f) = snap.funding_rate.and_then(|d| d.to_f64()) {
+            out.funding_history.push_back(f);
+        }
+    }
+
+    // Latest values: the most-recent snapshot where each field is set.
+    // Walk backwards so a partial row in the latest few slots doesn't
+    // blank the field.
+    for snap in snapshots.iter().rev() {
+        if out.latest_oi.is_none() {
+            out.latest_oi = snap.open_interest;
+        }
+        if out.latest_funding.is_none() {
+            out.latest_funding = snap.funding_rate;
+        }
+        if out.latest_mark_px.is_none() {
+            out.latest_mark_px = snap.mark_price;
+        }
+        if out.latest_index_px.is_none() {
+            out.latest_index_px = snap.index_price;
+        }
+        if out.latest_oi.is_some()
+            && out.latest_funding.is_some()
+            && out.latest_mark_px.is_some()
+            && out.latest_index_px.is_some()
+        {
+            break;
+        }
+    }
+
+    out
 }
 
 /// Feed a sequence of historical candles through all technical indicators in
@@ -89,6 +213,14 @@ pub struct WarmedPipelineState {
 /// `buffer_size` is the canonical `[candle_buffer] size` from `config.toml`
 /// (CB-01). It replaces the per-instance `analysis_limit` field that lived on
 /// `TimeframeConfig.candles` before v6.5.
+///
+/// Derivatives warmup (`open_interest` / `oi_delta` / `funding_rate` /
+/// `mark_index_spread`) is replayed from the `snapshot_history` already
+/// built by this warm loop, which mirrors what the bootstrap path
+/// persisted in `market_snapshots.auxiliary_normalized_data` (the
+/// `MarketSnapshot.top_level` derivatives fields on each row). Cold
+/// databases — where no historical rows exist — produce a default
+/// `DerivativesWarmedState`, preserving the first-WS-push behaviour.
 pub fn warm_indicators_for_timeframe(
     mut candles: Vec<NormalizedCandle>,
     tf_config: &TimeframeConfig,
@@ -490,6 +622,10 @@ pub fn warm_indicators_for_timeframe(
             .to_vec();
     }
 
+    // Clone once so we can both move `snapshot_history` into the struct
+    // literal AND borrow it for the derivatives warmup.
+    let trimmed_snapshot_history = snapshot_history.clone();
+
     WarmedPipelineState {
         ema_fast,
         ema_medium,
@@ -542,7 +678,11 @@ pub fn warm_indicators_for_timeframe(
         smc_indicator,
         anchored_vwap_indicator,
         latest_snapshot,
-        snapshot_history,
+        snapshot_history: trimmed_snapshot_history.clone(),
+        derivatives_state: warm_derivatives_from_snapshots(
+            &trimmed_snapshot_history,
+            buffer_size,
+        ),
     }
 }
 
@@ -786,5 +926,202 @@ fn build_historical_snapshot(
         cluster: None,
         volume_profile: volume_profile_snapshot,
         quality_envelope: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the derivatives warmup path. Asserts that
+    //! `warm_derivatives_from_snapshots` correctly replays the
+    //! `oi_history`/`funding_history` rolling buffers and the
+    //! `latest_*` Decimal fields from chronological `MarketSnapshot`
+    //! rows so that derivatives indicators (`open_interest`,
+    //! `oi_delta`, `funding_rate`, `mark_index_spread`) read with
+    //! non-zero priors at boot instead of starting from `None` for
+    //! the first WS frame.
+    use super::*;
+    use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
+    use rust_decimal_macros::dec;
+    use std::collections::VecDeque;
+
+    fn make_snap_with_derivs(
+        ts_ms: u64,
+        oi: Option<Decimal>,
+        funding: Option<Decimal>,
+        mark: Option<Decimal>,
+        index: Option<Decimal>,
+    ) -> MarketSnapshot {
+        // Mints a minimal MarketSnapshot that the warmup helper can
+        // consume.
+        MarketSnapshot {
+            exchange: Some(core_domain::normalized::Exchange::Bitget),
+            timeframe_secs: 60,
+            timestamp: ts_ms / 1000,
+            symbol: "BTC-USDT".into(),
+            mid_price: Decimal::from(50_000),
+            open: Some(Decimal::from(50_000)),
+            high: Some(Decimal::from(50_000)),
+            low: Some(Decimal::from(50_000)),
+            close: Some(Decimal::from(50_000)),
+            volume: Some(Decimal::ZERO),
+            bid_size: None,
+            ask_size: None,
+            bid_price: Decimal::ZERO,
+            ask_price: Decimal::ZERO,
+            average_volume: None,
+            is_completed: Some(true),
+            open_interest: oi,
+            funding_rate: funding,
+            mark_price: mark,
+            index_price: index,
+            mark_index_spread_pct: None,
+            oi_delta_1h: None,
+            prev_day_px: None,
+            pipeline_state: CandlePipelineState::Loading,
+            timeframe_slot: Some(TimeframeSlot::Micro),
+            indicator_lifecycle: std::collections::HashMap::new(),
+            indicators: Default::default(),
+            alignment: None,
+            risk: None,
+            analysis: None,
+            advisory: None,
+            opportunity: None,
+            liquidity_signals: vec![],
+            metrics_config: None,
+            risk_profile: None,
+            liquidity: None,
+            cluster: None,
+            volume_profile: None,
+            quality_envelope: None,
+            context: None,
+            decision_context: None,
+            statistical_context: None,
+        }
+    }
+
+    #[test]
+    fn derivatives_warmup_with_empty_history_yields_default_state() {
+        let state = warm_derivatives_from_snapshots(&[], 500);
+        assert!(state.oi_history.is_empty());
+        assert!(state.funding_history.is_empty());
+        assert!(state.latest_oi.is_none());
+        assert!(state.latest_funding.is_none());
+        assert!(state.latest_mark_px.is_none());
+        assert!(state.latest_index_px.is_none());
+    }
+
+    #[test]
+    fn derivatives_warmup_seeds_oi_history_with_recent_60_samples() {
+        // Generate 100 rows of monotonically increasing OI. Warmup should
+        // keep only the most recent 60 (= OI_HISTORY_MAX).
+        let snapshots: Vec<MarketSnapshot> = (0..100u64)
+            .map(|i| {
+                let ts = 1_700_000_000_000 + i * 60_000;
+                let oi = dec!(100_000_000) + Decimal::from(i) * dec!(1_000);
+                make_snap_with_derivs(ts, Some(oi), None, None, None)
+            })
+            .collect();
+        let state = warm_derivatives_from_snapshots(&snapshots, 500);
+        assert_eq!(
+            state.oi_history.len(),
+            60,
+            "oi_history must cap at OI_HISTORY_MAX = 60"
+        );
+        // The most-recent 60 snapshots. The 99th sample corresponds to
+        // 100_000_000 + 99_000 = 100_099_000; the 40th (= 100 - 60) is
+        // 100_040_000.
+        assert_eq!(
+            state.oi_history.back().copied(),
+            Some(100_099_000.0),
+            "back of oi_history should be the most recent sample"
+        );
+        assert_eq!(
+            state.oi_history.front().copied(),
+            Some(100_040_000.0),
+            "front of oi_history should be the (len-60)th sample"
+        );
+        assert!(state.latest_oi.is_some(), "latest_oi should be populated");
+    }
+
+    #[test]
+    fn derivatives_warmup_seeds_funding_history_with_recent_8_samples() {
+        // 50 rows of funding rate. Warmup should keep only the most
+        // recent 8 (= FUNDING_HISTORY_MAX).
+        let snapshots: Vec<MarketSnapshot> = (0..50u64)
+            .map(|i| {
+                let ts = 1_700_000_000_000 + i * 60_000;
+                let f = dec!(0.0001) + Decimal::from(i) * dec!(0.00001);
+                make_snap_with_derivs(ts, None, Some(f), None, None)
+            })
+            .collect();
+        let state = warm_derivatives_from_snapshots(&snapshots, 500);
+        assert_eq!(
+            state.funding_history.len(),
+            8,
+            "funding_history must cap at FUNDING_HISTORY_MAX = 8"
+        );
+    }
+
+    #[test]
+    fn derivatives_warmup_with_buffer_size_smaller_than_max_uses_buffer_size() {
+        // buffer_size = 10 caps replay to 10 samples even though max
+        // would allow 60.
+        let snapshots: Vec<MarketSnapshot> = (0..100u64)
+            .map(|i| {
+                let ts = 1_700_000_000_000 + i * 60_000;
+                make_snap_with_derivs(ts, Some(Decimal::from(100_000 + i)), None, None, None)
+            })
+            .collect();
+        let state = warm_derivatives_from_snapshots(&snapshots, 10);
+        assert_eq!(state.oi_history.len(), 10);
+        assert_eq!(state.oi_history.front().copied(), Some(100_090.0));
+    }
+
+    #[test]
+    fn derivatives_warmup_latest_values_pick_most_recent_non_null_field() {
+        // Most-recent rows have None for mark/index; the warmup must
+        // walk backwards to find the previous non-null value, so cold
+        // spots in the schema don't blank the field.
+        let snapshots = vec![
+            make_snap_with_derivs(
+                1_700_000_000_000,
+                Some(dec!(100_000)),
+                Some(dec!(0.0001)),
+                Some(dec!(50_000)),
+                Some(dec!(50_000)),
+            ),
+            make_snap_with_derivs(
+                1_700_000_120_000,
+                Some(dec!(101_000)),
+                Some(dec!(0.0002)),
+                None,
+                None,
+            ),
+            make_snap_with_derivs(
+                1_700_000_180_000,
+                Some(dec!(102_000)),
+                None,
+                None,
+                None,
+            ),
+        ];
+        let state = warm_derivatives_from_snapshots(&snapshots, 500);
+        // latest_oi / funding → most recent values
+        assert_eq!(state.latest_oi, Some(dec!(102_000)));
+        assert_eq!(state.latest_funding, Some(dec!(0.0002)));
+        // latest_mark/index → walk backwards to first non-null row
+        assert_eq!(state.latest_mark_px, Some(dec!(50_000)));
+        assert_eq!(state.latest_index_px, Some(dec!(50_000)));
+    }
+
+    #[test]
+    fn derivatives_warmup_with_no_snapshots_behaves_like_today() {
+        // Cold DB scenario: empty input → default state, so the first
+        // WS push after boot continues to start from `None`. This
+        // preserves pre-warmup behaviour for fresh installs.
+        let state = warm_derivatives_from_snapshots(&[], 500);
+        assert_eq!(state.oi_history.len(), 0);
+        assert_eq!(state.funding_history.len(), 0);
+        assert!(state.latest_oi.is_none());
     }
 }

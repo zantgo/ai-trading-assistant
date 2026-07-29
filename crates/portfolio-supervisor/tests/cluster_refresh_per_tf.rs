@@ -22,6 +22,7 @@ use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
+use portfolio_supervisor::session::ExchangeChoice;
 use rust_decimal::Decimal;
 
 fn make_pipe(slot: TimeframeSlot, secs: u64, tx: broadcast::Sender<MarketSnapshot>) -> TimeframePipeline {
@@ -160,6 +161,8 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         latest_funding: Arc::new(RwLock::new(Some(Decimal::from_f64_retain(0.0001).unwrap()))),
         latest_mark_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         latest_index_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
@@ -167,17 +170,17 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
 
     // Compute one cluster for each TF; we use clone of the handle via
     // `active.{slot}.cluster_matrix` to confirm the per-TF isolation.
-    let micro_m = compute_cluster_for_tf(&active, TimeframeSlot::Micro, &cfg)
+    let micro_m = compute_cluster_for_tf(&active, TimeframeSlot::Micro, &cfg, ExchangeChoice::Hyperliquid)
         .await
         .expect("micro should compute");
     active.micro.cluster_matrix.write().await.replace(micro_m);
 
-    let fast_m = compute_cluster_for_tf(&active, TimeframeSlot::Fast, &cfg)
+    let fast_m = compute_cluster_for_tf(&active, TimeframeSlot::Fast, &cfg, ExchangeChoice::Hyperliquid)
         .await
         .expect("fast should compute");
     active.fast.cluster_matrix.write().await.replace(fast_m);
 
-    let macro_m = compute_cluster_for_tf(&active, TimeframeSlot::Macro, &cfg)
+    let macro_m = compute_cluster_for_tf(&active, TimeframeSlot::Macro, &cfg, ExchangeChoice::Hyperliquid)
         .await
         .expect("macro should compute");
     active.r#macro.cluster_matrix.write().await.replace(macro_m);
@@ -239,11 +242,13 @@ async fn per_tf_cluster_refresh_returns_error_when_no_snapshot() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
     // No snapshot populated → must return the NoSnapshotYet variant.
-    let result = compute_cluster_for_tf(&active, TimeframeSlot::Micro, &test_config()).await;
+    let result = compute_cluster_for_tf(&active, TimeframeSlot::Micro, &test_config(), ExchangeChoice::Hyperliquid).await;
     assert!(
         result.is_err(),
         "no snapshot → should return Err, got {:?}",
@@ -284,11 +289,100 @@ async fn per_tf_cluster_refresh_returns_error_when_no_oi() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
-    let result = compute_cluster_for_tf(&active, TimeframeSlot::Micro, &test_config()).await;
+    let result = compute_cluster_for_tf(&active, TimeframeSlot::Micro, &test_config(), ExchangeChoice::Hyperliquid).await;
     assert!(result.is_err(), "no OI → Err");
+}
+
+/// Regression: the cluster-refresh skip reason must be templated on the
+/// active exchange (v6.6). HL and Bitget have different OI carriers
+/// (REST poller vs ticker channel), so a generic message misleads the
+/// operator about which feed to investigate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cluster_refresh_skip_reason_templates_on_active_exchange() {
+    use portfolio_supervisor::registry::pipelines::compute_cluster_for_tf;
+
+    async fn build_active() -> Arc<ActivePair> {
+        let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(10);
+        let micro_pipe = make_pipe(TimeframeSlot::Micro, 60, bcast_tx);
+
+        // Snapshot exists but no OI → NoOpenInterest variant fires.
+        let mut snap = make_snap_history(vec![50_000.0]);
+        snap.open_interest = None;
+        *micro_pipe.latest_snapshot.write().await = Some(snap);
+
+        Arc::new(ActivePair {
+            symbol: "BTC-USDT".into(),
+            micro: micro_pipe,
+            fast: make_pipe(TimeframeSlot::Fast, 300, {
+                let (t, _) = broadcast::channel::<MarketSnapshot>(1);
+                t
+            }),
+            slow: make_pipe(TimeframeSlot::Slow, 600, {
+                let (t, _) = broadcast::channel::<MarketSnapshot>(1);
+                t
+            }),
+            r#macro: make_pipe(TimeframeSlot::Macro, 900, {
+                let (t, _) = broadcast::channel::<MarketSnapshot>(1);
+                t
+            }),
+            snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+            latency_tracker: Arc::new(Default::default()),
+        })
+    }
+
+    let active_hl = build_active().await;
+    let err_hl = compute_cluster_for_tf(
+        &active_hl,
+        TimeframeSlot::Micro,
+        &test_config(),
+        ExchangeChoice::Hyperliquid,
+    )
+    .await
+    .unwrap_err();
+    let msg_hl = err_hl.to_string();
+    assert!(
+        msg_hl.contains("HL derivatives poller"),
+        "HL skip reason should mention the HL poller, got: {}",
+        msg_hl
+    );
+    assert!(
+        !msg_hl.contains("Bitget"),
+        "HL skip reason must NOT mention Bitget, got: {}",
+        msg_hl
+    );
+
+    let active_bg = build_active().await;
+    let err_bg = compute_cluster_for_tf(
+        &active_bg,
+        TimeframeSlot::Micro,
+        &test_config(),
+        ExchangeChoice::Bitget,
+    )
+    .await
+    .unwrap_err();
+    let msg_bg = err_bg.to_string();
+    assert!(
+        msg_bg.contains("Bitget ticker channel"),
+        "Bitget skip reason should mention the Bitget ticker channel, got: {}",
+        msg_bg
+    );
+    assert!(
+        !msg_bg.contains("HL derivatives poller"),
+        "Bitget skip reason must NOT mention HL poller, got: {}",
+        msg_bg
+    );
 }
 
 // Avoid unused import warnings.

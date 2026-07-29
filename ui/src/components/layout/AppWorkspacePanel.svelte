@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onDestroy, tick, untrack } from 'svelte';
+    import { onDestroy, untrack } from 'svelte';
     import { useAppStore } from '../../state.svelte';
     import {
         connectWsForInstance, disconnectWsForInstance,
@@ -152,11 +152,9 @@
     });
 
     // Auto-focus the symbol input as soon as the panel opens. We watch
-    // the `isOpen` edge (false → true), wait one microtask via `tick()`
-    // so the input is mounted, then call `.focus()` and place the caret
-    // at the end. The 250 ms `slideInRight` animation finishes well
-    // before this resolves, so the user sees a smooth slide-in ending
-    // with a blinking cursor ready to receive input.
+    // the `isOpen` edge (false → true), wait for the 250 ms `slideInRight`
+    // animation to settle, then call `.focus()` and place the caret at
+    // the end so the user can immediately start typing a pair like BTC.
     //
     // Both the read of `prevIsOpen` and the write back to it must happen
     // inside `untrack(...)`: this effect's only real dependency is
@@ -166,13 +164,13 @@
         const opened = untrack(() => isOpen && !prevIsOpen);
         untrack(() => { prevIsOpen = isOpen; });
         if (!opened) return;
-        tick().then(() => {
+        setTimeout(() => {
             const el = createInputEl;
             if (!el) return;
             el.focus();
             const len = el.value.length;
             try { el.setSelectionRange(len, len); } catch (_) { /* not supported */ }
-        });
+        }, 260);
     });
 </script>
 
@@ -199,7 +197,9 @@
         {#if errorMessage}<div class={styles.wsPanelError}>{errorMessage}</div>{/if}
         <div class={styles.wsPanelList}>
             {#if wsLoading}
-                <div class={styles.wsPanelEmpty}>Loading instances…</div>
+                <div class={styles.wsPanelEmpty}>
+                    <span class="{styles.wavingDots} {styles.wsPanelLoader}" aria-label="Loading"><span class={styles.wavingDot}></span><span class={styles.wavingDot}></span><span class={styles.wavingDot}></span></span>
+                </div>
             {:else if wsInstances.length === 0}
                 <div class={styles.wsPanelEmpty}>No active instances. Create one above.</div>
             {:else}

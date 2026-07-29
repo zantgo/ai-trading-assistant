@@ -86,6 +86,8 @@ async fn spawn_analyzer(
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            Arc::new(RwLock::new(VecDeque::with_capacity(8))),
             Arc::new(RwLock::new(None)),
             None,
             None,  // heatmap_config (None)

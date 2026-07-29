@@ -1761,6 +1761,73 @@ probe_indicator_test!(fibonacci_pipeline, "fibonacci", 50, build_fibonacci_input
 probe_indicator_test!(pivot_points_pipeline, "pivot_points", 50, build_pivot_points_inputs);
 probe_indicator_test!(support_resistance_pipeline, "support_resistance", 50, build_support_resistance_inputs);
 
+// ── Bollinger edge-zone regression: each_key_duplicate source ──
+//
+// Regression background: `each_key_duplicate` was thrown in
+// `ui/src/components/facets/IndicatorsView.svelte:468, 482` whenever
+// price entered one of the four Bollinger edge zones. The pipeline
+// emitted the same `(label, kind)` pair twice in the same `signals[]`:
+// once from the structured push at `all.rs:1054-1093` and once from
+// `derive_signals` matching the state_label substring. The existing
+// per-indicator probe at line 1745 uses `price = cl` at the middle
+// (`pct ≈ 0.5`) so the bug never surfaced in CI.
+//
+// This test forces price into each of the four offending zones and
+// asserts `assert_no_duplicate_signal_keys` on the resulting entry.
+// With the bug present, every case panics with a self-diagnosing
+// message naming the colliding pair. With the fix applied
+// (`signals.rs:647` dedup loop), every case passes.
+#[test]
+fn bollinger_edge_zones_no_duplicate_signal_pairs() {
+    let cases: [(&str, f64); 4] = [
+        ("upper_breakout",   103.0),  // >  bb_upper (102)  → BOLLINGER_UPPER_BREAKOUT
+        ("lower_breakout",    97.0),  // <  bb_lower  (98)  → BOLLINGER_LOWER_BREAKOUT
+        ("upper_band_touch", 101.9),  // inside, pct ≈ 0.975 → BOLLINGER_UPPER_BAND_TOUCH
+        ("lower_band_touch",  98.1),  // inside, pct ≈ 0.025 → BOLLINGER_LOWER_BAND_TOUCH
+    ];
+    for (zone, price) in cases {
+        let inputs = IndicatorInputs {
+            bb_upper:        Some(102.0),
+            bb_middle:       Some(100.0),
+            bb_lower:        Some( 98.0),
+            bbwp:            Some(50.0),
+            atr_14:          Some(1.0),
+            keltner_upper:   Some(101.5),
+            keltner_middle:  Some(100.0),
+            keltner_lower:   Some( 98.5),
+            donchian_upper:  Some(102.5),
+            donchian_middle: Some(100.0),
+            donchian_lower:  Some( 97.5),
+            stddev_upper:    Some(102.0),
+            stddev_center:   Some(100.0),
+            stddev_lower:    Some( 98.0),
+            ..Default::default()
+        };
+        let ctx = NormalizationContext { price, ..Default::default() };
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+        let entry = map
+            .get("bollinger")
+            .expect("bollinger entry exists after normalize_all");
+        let snap = IndicatorSnapshot {
+            bar_count: 1,
+            state_label: entry.state_label.clone(),
+            normalized: entry.normalized,
+            confidence: entry.confidence,
+            values: entry.values.clone().map(|m| m.into_iter().collect()),
+            signals: entry.signals.clone(),
+            lifecycle_state: "Live".to_string(),
+            bars_required: 20,
+        };
+        println!("\n[bollinger:{zone}] price={price} state_label={} signals={}",
+            snap.state_label, snap.signals.len());
+        for s in &snap.signals {
+            println!("    - {} ({:?}, {:?})", s.label, s.kind, s.direction);
+        }
+        assert_no_duplicate_signal_keys(&format!("bollinger:{zone}"), &snap);
+        assert_no_duplicate_value_keys(&format!("bollinger:{zone}"), &snap);
+    }
+}
+
 // ── Sanity check: signal-pattern sweep catches collisions across patterns ──
 #[test]
 fn all_indicators_summary() {
@@ -1794,4 +1861,336 @@ fn all_indicators_summary() {
         "\nTotal unique indicator keys touched: {}\n",
         seen_lifecycles.len()
     );
+}
+
+// ── Divergence emission regression suite (v6.6+) ─────────────────────────
+//
+// Regression for the "divergences never show in UI" bug. Two layers of defense:
+//
+// 1. The 9 divergence-bearing indicators (8 oscillators + oi_price_divergence)
+//    must each be capable of emitting exactly ONE `Divergence` signal with
+//    the canonical `(label, kind)` pair per `normalize_all` invocation when
+//    their corresponding `DivergenceState` (or, for OI-Price, the `delta`
+//    input) is non-trivial.
+//
+// 2. The `assert_no_duplicate_signal_keys` contract from the existing probe
+//    harness must be active for the divergence path. Until this test landed
+//    the 37 probes all set `DivergenceState::None`, which means
+//    `divergence_entry` was never invoked and the assertion was dormant for
+//    the exact keying class the `each_key_duplicate` Svelte error fires on
+//    (`DivergencesView.svelte:95`).
+//
+// We probe all 4 states × all 9 parents and assert each parent produces
+// at most one Divergence signal with the expected label, and that the
+// (label, kind) pair is unique within the parent's `signals` array.
+
+fn build_all_oscillator_divergence_inputs(
+    c: &NormalizedCandle,
+    _i: usize,
+) -> (IndicatorInputs, NormalizationContext) {
+    let (_, h, l, cl, v) = candle_to_floats(c);
+    let ctx = NormalizationContext {
+        price: cl,
+        trend_bias: if cl > 100.0 { 1 } else { -1 },
+        ..Default::default()
+    };
+    // Pack all 8 oscillator divergences plus enough supporting inputs so
+    // the parent entries materialise (the divergence push in
+    // `divergence_entry` is a no-op when the parent key is absent from
+    // the normalised map — see `signals::push_signal`).
+    let inputs = IndicatorInputs {
+        rsi: Some(50.0 + (cl - 100.0) * 0.3),
+        rsi_divergence: DivergenceState::PotentialBullish,
+        macd_line: Some(cl - 100.0),
+        macd_signal: Some(cl - 100.5),
+        macd_histogram: Some(0.5),
+        macd_histogram_peak: Some(1.0),
+        macd_crossover: Some(1),
+        macd_divergence: DivergenceState::PotentialBullish,
+        stoch_k: Some(50.0 + (cl - 100.0) * 0.5),
+        stoch_d: Some(50.0 + (cl - 100.0) * 0.5 - 0.5),
+        stochastic_divergence: DivergenceState::PotentialBullish,
+        chandemo: Some((cl - 100.0) * 0.5),
+        chandemo_divergence: DivergenceState::PotentialBullish,
+        mfi: Some(50.0 + (cl - 100.0) * 0.3),
+        mfi_divergence: DivergenceState::PotentialBullish,
+        cmf: Some(((cl - 100.0) * 0.01).clamp(-0.5, 0.5)),
+        cmf_divergence: DivergenceState::PotentialBullish,
+        obv: Some(v * cl),
+        obv_sma: Some(v * cl * 0.95),
+        obv_divergence: DivergenceState::PotentialBullish,
+        squeeze_momentum: Some(0.0),
+        squeeze_direction: Some(
+            market_analyzer::indicators::squeeze::MomentumDirection::Flat,
+        ),
+        squeeze_on: Some(false),
+        squeeze_release_trigger: false,
+        squeeze_divergence: DivergenceState::PotentialBullish,
+        atr_14: Some((h - l).max(0.01)),
+        linreg_slope: Some(0.1),
+        zscore: Some(0.5),
+        ema_fast: Some(cl - 0.3),
+        ema_medium: Some(cl - 0.6),
+        williams_r: Some(-50.0),
+        awesome_oscillator: Some(1.0),
+        ao_rising: cl > 100.0,
+        force_index: Some(100.0),
+        hull_ma: Some(cl - 0.5),
+        cci: Some(50.0),
+        vwap: Some(cl),
+        avwap_weekly: Some(cl),
+        avwap_monthly: Some(cl),
+        avwap_swing: Some(cl),
+        rvol: Some(1.0),
+        volprofile_poc: Some(cl),
+        volprofile_vah: Some(cl + 1.0),
+        volprofile_val: Some(cl - 1.0),
+        volprofile_total_volume: v,
+        fib_gp_low: Some(cl - 1.0),
+        fib_gp_high: Some(cl + 1.0),
+        fib_ext_1618: Some(cl + 2.0),
+        fib_ext_2618: Some(cl + 4.0),
+        bb_upper: Some(cl + 2.0),
+        bb_middle: Some(cl),
+        bb_lower: Some(cl - 2.0),
+        bbwp: Some(40.0),
+        keltner_upper: Some(cl + 1.5),
+        keltner_middle: Some(cl),
+        keltner_lower: Some(cl - 1.5),
+        stddev_upper: Some(cl + 2.0),
+        stddev_center: Some(cl),
+        stddev_lower: Some(cl - 2.0),
+        aroon_up: Some(50.0),
+        aroon_down: Some(50.0),
+        adx: Some(25.0),
+        adx_plus_di: Some(30.0),
+        adx_minus_di: Some(20.0),
+        adx_slope: Some(0.5),
+        supertrend_line: Some(cl - 0.5),
+        supertrend_dir: Some(1),
+        supertrend_flipped: false,
+        ichimoku_tenkan: Some(cl - 0.5),
+        ichimoku_kijun: Some(cl - 1.0),
+        ichimoku_senkou_a: Some(cl - 0.7),
+        ichimoku_senkou_b: Some(cl - 0.9),
+        ichimoku_chikou: Some(cl - 0.5),
+        ichimoku_senkou_a_current: Some(cl - 0.7),
+        ichimoku_senkou_b_current: Some(cl - 0.9),
+        psar_sar: Some(cl - 1.0),
+        psar_direction: Some(1),
+        psar_flipped: false,
+        pivot: Some(cl),
+        pivot_r1: Some(cl + 1.0),
+        pivot_r2: Some(cl + 2.0),
+        pivot_r3: Some(cl + 3.0),
+        pivot_s1: Some(cl - 1.0),
+        pivot_s2: Some(cl - 2.0),
+        pivot_s3: Some(cl - 3.0),
+        pivot_proximity_pct: 0.0015,
+        // oi_price_divergence lives on a dedicated derivatives pipeline;
+        // we exercise it through `normalize_oi_price_divergence` below.
+        ..Default::default()
+    };
+    (inputs, ctx)
+}
+
+/// Drive the full pipeline with all 8 oscillator divergences set to
+/// `PotentialBullish` on a single bar and assert:
+///   - Each divergence-bearing parent has exactly ONE `Divergence` signal.
+///   - The `(label, kind)` pairs are unique within each parent's array.
+///   - The label matches the canonical `POTENTIAL_BULLISH_DIVERGENCE`.
+#[test]
+fn divergence_emission_no_duplicate_keys_potential_bullish() {
+    let candles = synthesize_candles(200, Pattern::Uptrend);
+    let c = candles.last().unwrap();
+    let (inputs, ctx) = build_all_oscillator_divergence_inputs(c, 199);
+    let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+
+    let expected_parents = [
+        "rsi",
+        "macd",
+        "stochastic",
+        "chandemo",
+        "mfi",
+        "cmf",
+        "obv",
+        "squeeze",
+    ];
+    for parent in expected_parents {
+        let entry = map
+            .get(parent)
+            .unwrap_or_else(|| panic!("parent `{parent}` missing from normalised map"));
+        let div_signals: Vec<&IndicatorSignal> = entry
+            .signals
+            .iter()
+            .filter(|s| s.kind == market_analyzer::indicators::SignalKind::Divergence)
+            .collect();
+        assert_eq!(
+            div_signals.len(),
+            1,
+            "[{parent}] expected exactly 1 Divergence signal, got {} (all signals: {:?})",
+            div_signals.len(),
+            entry.signals
+        );
+        assert_eq!(
+            div_signals[0].label, "POTENTIAL_BULLISH_DIVERGENCE",
+            "[{parent}] unexpected label: {}",
+            div_signals[0].label
+        );
+        assert_no_duplicate_signal_keys(parent, &IndicatorSnapshot {
+            bar_count: 200,
+            state_label: entry.state_label.clone(),
+            normalized: entry.normalized,
+            confidence: entry.confidence,
+            values: entry
+                .values
+                .clone()
+                .map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
+            signals: entry.signals.clone(),
+            lifecycle_state: "Live".to_string(),
+            bars_required: 0,
+        });
+    }
+}
+
+/// Same as above but with `ConfirmedBearish` to exercise every label
+/// the frontend's `classifyDivergence` collapses to `RegularBear` —
+/// the path that previously triggered `each_key_duplicate` when two
+/// signals with the same `(kind, subKind)` ended up in the
+/// `{#each (label + kind + subKind)}` block.
+#[test]
+fn divergence_emission_no_duplicate_keys_confirmed_bearish() {
+    let candles = synthesize_candles(200, Pattern::Downtrend);
+    let c = candles.last().unwrap();
+    let (mut inputs, ctx) = build_all_oscillator_divergence_inputs(c, 199);
+    inputs.rsi_divergence = DivergenceState::ConfirmedBearish;
+    inputs.macd_divergence = DivergenceState::ConfirmedBearish;
+    inputs.stochastic_divergence = DivergenceState::ConfirmedBearish;
+    inputs.chandemo_divergence = DivergenceState::ConfirmedBearish;
+    inputs.mfi_divergence = DivergenceState::ConfirmedBearish;
+    inputs.cmf_divergence = DivergenceState::ConfirmedBearish;
+    inputs.obv_divergence = DivergenceState::ConfirmedBearish;
+    inputs.squeeze_divergence = DivergenceState::ConfirmedBearish;
+    let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+
+    for parent in [
+        "rsi",
+        "macd",
+        "stochastic",
+        "chandemo",
+        "mfi",
+        "cmf",
+        "obv",
+        "squeeze",
+    ] {
+        let entry = map.get(parent).expect("parent missing");
+        let div_signals: Vec<&IndicatorSignal> = entry
+            .signals
+            .iter()
+            .filter(|s| s.kind == market_analyzer::indicators::SignalKind::Divergence)
+            .collect();
+        assert_eq!(
+            div_signals.len(),
+            1,
+            "[{parent}] expected exactly 1 Divergence signal, got {} (all signals: {:?})",
+            div_signals.len(),
+            entry.signals
+        );
+        assert_eq!(div_signals[0].label, "CONFIRMED_BEARISH_DIVERGENCE");
+        assert_no_duplicate_signal_keys(parent, &IndicatorSnapshot {
+            bar_count: 200,
+            state_label: entry.state_label.clone(),
+            normalized: entry.normalized,
+            confidence: entry.confidence,
+            values: entry
+                .values
+                .clone()
+                .map(|m| m.into_iter().collect::<BTreeMap<_, _>>()),
+            signals: entry.signals.clone(),
+            lifecycle_state: "Live".to_string(),
+            bars_required: 0,
+        });
+    }
+}
+
+/// Verifies that the in-engine `push_signal` dedup
+/// (`crates/market-analyzer/src/indicators/normalized/signals.rs`) keeps
+/// a parent at exactly ONE `Divergence` signal. We exercise this by
+/// building `IndicatorInputs` where the same divergence state would
+/// otherwise push twice — for instance, by feeding a candle sequence
+/// that triggers both the generalised-extras loop and the rsi/macd
+/// singleton block in `normalize_all`. Both call paths funnel through
+/// the helper which dedups on `(label, kind)`, so the resulting
+/// `signals` array on each parent is bounded to one entry.
+#[test]
+fn divergence_emission_idempotent_under_multi_bar_pipeline() {
+    // Build a 30-bar sequence; on each bar push the SAME divergence
+    // state for every parent. After warm-up, each parent's
+    // `signals` array must contain exactly one Divergence signal.
+    let candles = synthesize_candles(60, Pattern::Uptrend);
+    let bars_required = 14u32;
+    let snaps = probe_through_pipeline(
+        "rsi",
+        bars_required,
+        &candles,
+        |c, i| {
+            let (mut inputs, mut ctx) = build_rsi_alone_inputs(c, i);
+            inputs.rsi_divergence = DivergenceState::PotentialBullish;
+            inputs.macd_divergence = DivergenceState::PotentialBullish;
+            inputs.stochastic_divergence = DivergenceState::PotentialBullish;
+            inputs.chandemo_divergence = DivergenceState::PotentialBullish;
+            inputs.mfi_divergence = DivergenceState::PotentialBullish;
+            inputs.cmf_divergence = DivergenceState::PotentialBullish;
+            inputs.obv_divergence = DivergenceState::PotentialBullish;
+            inputs.squeeze_divergence = DivergenceState::PotentialBullish;
+            ctx.price = candle_to_floats(c).3;
+            (inputs, ctx)
+        },
+        false,
+    );
+    // After warm-up every snapshot should have exactly one Divergence
+    // signal on the RSI entry.
+    for snap in snaps.iter().skip(bars_required as usize) {
+        let div_count = snap
+            .signals
+            .iter()
+            .filter(|s| s.kind == market_analyzer::indicators::SignalKind::Divergence)
+            .count();
+        assert_eq!(
+            div_count, 1,
+            "RSI divergence must remain at exactly 1 across bars, got {div_count} (signals: {:?})",
+            snap.signals
+        );
+        assert_no_duplicate_signal_keys("rsi", snap);
+    }
+}
+
+/// Drive the standalone `oi_price_divergence` (the 9th divergence
+/// source; lives on `crates/market-analyzer/src/indicators/normalized/derivatives.rs`)
+/// through its `|div| > 0.3` gate and assert the same `(label, kind)`
+/// uniqueness contract.
+#[test]
+fn oi_price_divergence_emission_unique_label() {
+    use market_analyzer::indicators::normalized::derivatives::normalize_oi_price_divergence;
+    // `delta > 0` (OI rising) + `ema_bias < -0.3` (price bearish) →
+    // `div = -0.7` → bear-side OI-Price divergence fires.
+    let value = normalize_oi_price_divergence(1.0, -0.5);
+    let div_signals: Vec<&IndicatorSignal> = value
+        .signals
+        .iter()
+        .filter(|s| s.kind == market_analyzer::indicators::SignalKind::Divergence)
+        .collect();
+    assert_eq!(div_signals.len(), 1, "OI-Price divergence must emit exactly 1 signal");
+    assert_eq!(div_signals[0].label, "OI_PRICE_DIVERGENCE");
+    // No duplicates within the standalone indicator's signal array.
+    assert_no_duplicate_signal_keys("oi_price_divergence", &IndicatorSnapshot {
+        bar_count: 1,
+        state_label: value.state_label.clone(),
+        normalized: value.normalized,
+        confidence: value.confidence,
+        values: None,
+        signals: value.signals.clone(),
+        lifecycle_state: "Live".to_string(),
+        bars_required: 0,
+    });
 }

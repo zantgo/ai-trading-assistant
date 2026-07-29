@@ -217,11 +217,44 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     // incoming shape, which (a) lost the per-key `values` submap when
     // the incoming shadow didn't carry it and (b) re-introduced the
     // zero-valued WARMING placeholder for every close-only indicator.
+    //
+    // Divergence-signal preservation (v6.6+): divergence signals are
+    // structural markers computed on the completed-bar path; the shadow
+    // path does not re-emit them. Without this preservation branch, a
+    // shadow tick that arrives between candle closes wholesale-replaces
+    // the parent's `signals` array with an empty one, wiping the
+    // divergence from the UI until the next completed bar. We keep the
+    // prior tick's `Divergence` signals on each parent whose incoming
+    // value either drops the divergence or arrives with no `signals`
+    // at all — which is exactly the shape a shadow tick produces for
+    // every divergence-bearing oscillator (RSI/MACD/stochastic/
+    // chandemo/obv/cmf/mfi/squeeze).
     const incoming = (snapshot.indicators && typeof snapshot.indicators === 'object')
         ? (snapshot.indicators as IndicatorMap)
         : null;
     if (incoming != null && Object.keys(incoming).length > 0) {
-        tf.indicators = { ...tf.indicators, ...incoming };
+        const merged: IndicatorMap = { ...tf.indicators };
+        for (const [key, val] of Object.entries(incoming)) {
+            const prev = tf.indicators[key];
+            const prevDivergenceSignals = (prev?.signals ?? []).filter(
+                (s) => s.kind === 'Divergence',
+            );
+            const incomingDivergenceSignals = (val.signals ?? []).filter(
+                (s) => s.kind === 'Divergence',
+            );
+            if (prevDivergenceSignals.length > 0 && incomingDivergenceSignals.length === 0) {
+                const nonDivergenceIncoming = (val.signals ?? []).filter(
+                    (s) => s.kind !== 'Divergence',
+                );
+                merged[key] = {
+                    ...val,
+                    signals: [...nonDivergenceIncoming, ...prevDivergenceSignals],
+                };
+            } else {
+                merged[key] = val;
+            }
+        }
+        tf.indicators = merged;
     }
     tf.latestSnapshot = snapshot;
     tf.isCompleted = snapshot.is_completed === true;
@@ -283,6 +316,18 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         }
         if (snapshot.advisory && typeof snapshot.advisory === 'object') {
             pair.advisory = snapshot.advisory;
+        }
+        // Decision-context (L6) carries `trade_readiness`, the L4.75 gate
+        // the Watchlist Scanner polls for. Mirror the existing
+        // alignment/analysis/risk/advisory extraction so downstream
+        // consumers (including the scanner's `waitForAdvisory`) can read
+        // it from the pair-level store rather than trawling every TF's
+        // `latestSnapshot`. The scanner polls regardless of TF — the
+        // trade_readiness value is identical across the 4 WS streams once
+        // the macro context has settled, so the "first arrival wins"
+        // behavior is correct.
+        if (snapshot.decision_context && typeof snapshot.decision_context === 'object') {
+            pair.decisionContext = snapshot.decision_context;
         }
     }
     } catch (_) {}

@@ -287,6 +287,8 @@ impl Instance {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
             latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         });
         let empty_buffers = TimeframeBuffers::new();

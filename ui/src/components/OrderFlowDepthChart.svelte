@@ -121,6 +121,11 @@
     {#if showEmptyOverlay}
         <div class="empty-overlay">NO HISTORICAL DATA</div>
     {/if}
+    {#if liveReceived && !showEmptyOverlay}
+        <div class="live-pill" title="Live feed active (Layer 2: order-book data publishing, no discrete signal)">
+            ⚡ LIVE
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -134,5 +139,28 @@
         color: #ffb300;
         background: rgba(0, 0, 0, 0.6);
         pointer-events: none;
+    }
+
+    /* Layer 4: subtle ⚡ LIVE pill that distinguishes "WS feed
+       connected and pushing" from "no feed". The dashed-green/dashed
+       red/dashed-grey horizontal lines on the chart itself visually
+       show the spread buckets; the pill confirms the data-only OFI /
+       Depth-Bias pair is alive even if no discrete signal is firing. */
+    .live-pill {
+        position: absolute;
+        top: 6px;
+        left: 8px;
+        z-index: 3;
+        font-family: 'Courier New', monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #94a3b8;
+        background: rgba(20, 24, 32, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 3px;
+        padding: 3px 7px;
+        pointer-events: none;
+        backdrop-filter: blur(2px);
     }
 </style>

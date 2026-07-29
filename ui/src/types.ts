@@ -260,6 +260,16 @@ export interface IndicatorSignal {
 
 // ── Per-indicator operational lifecycle (v6.5, 03-02-15) ──
 export type IndicatorLifecycleState = 'Loading' | 'Live' | 'Stale' | 'Failed';
+/**
+ * Feed classification (v6.6+). Mirrors
+ * `core_domain::indicator_dtos::FeedState`. Default is `Live` when the
+ * field is absent on the wire so older snapshots deserialize cleanly.
+ * `WaitingFeed` indicates the lifecycle is Live but no value-map entry
+ * exists yet (e.g. Bitget ticker channel hasn't delivered
+ * `holdingAmount`); the dashboard renders this as `WAITING FEED ⏳`
+ * distinct from `SILENT ⚡` which means "feed arrived and said zero".
+ */
+export type FeedState = 'Live' | 'WaitingFeed' | 'Silent' | 'Stale';
 export interface IndicatorLifecycleStatus {
     state: IndicatorLifecycleState;
     bars_seen: number;
@@ -267,6 +277,13 @@ export interface IndicatorLifecycleStatus {
     last_updated_at?: number | null;
     last_error?: string | null;
     stale_threshold_secs: number;
+    /** v6.6+ — set to `WaitingFeed` when lifecycle is Live but no value
+     *  arrived yet. Optional so older snapshots that omit the field
+     *  continue to render as before. */
+    feed_state?: FeedState;
+    /** Legacy v6.5 bit kept for the SILENT ⚡ path; true when the
+     *  reading is silent (raw=0, no signals, no state_label). */
+    silent?: boolean;
 }
 export type IndicatorLifecycleMap = Record<string, IndicatorLifecycleStatus>;
 
@@ -714,6 +731,12 @@ export interface InstanceState {
     analysis: AnalysisMatrix | null;
     risk: RiskMatrix | null;
     advisory: AdvisoryMatrix | null;
+    /** Decision-context synthesis (L6) — surfaces trade_readiness and
+     *  confluence score across the most recent macro snapshot. Extracted
+     *  from the WS frame by `applySnapshotToTimeframe` so the Watchlist
+     *  Scanner can poll for the first `trade_readiness` value without
+     *  having to read every TF's `latestSnapshot`. */
+    decisionContext: DecisionContext | null;
     automationEnabled: boolean;
     automationIntervalMode: string;
     automationIntervalValue: number;
@@ -1064,6 +1087,12 @@ export interface OpportunityMatrix {
     entry_zone: PriceRange;
     target_zone: PriceRange;
     invalidation_level: number;
+    long_entry_zone: PriceRange;
+    long_target_zone: PriceRange;
+    long_invalidation_level: number;
+    short_entry_zone: PriceRange;
+    short_target_zone: PriceRange;
+    short_invalidation_level: number;
     expected_rr_internal: number;
     time_horizon: string;
     confluent_entry_levels: ConfluentLevel[];

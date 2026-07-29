@@ -31,10 +31,15 @@ struct BookItem {
     ts: String,
 }
 
-/// Open Interest item from the `open-interest` WS channel.
+/// Open Interest item from the V1 `open-interest` WS channel.
+///
+/// Retained as a parsed struct definition in case the field name
+/// (`openInterest` vs the V2 `holdingAmount`) ever needs to be tested
+/// against legacy mirrors. **The production handler no longer uses
+/// this** — V2 ships OI on the `ticker` payload under `holdingAmount`.
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case, dead_code)]
-struct OpenInterestItem {
+struct LegacyOpenInterestItem {
     instId: Option<String>,
     openInterest: Option<String>,
     ts: Option<String>,
@@ -74,7 +79,32 @@ pub async fn run_for_symbol(
     // first-frame OI drop (race condition where the `open-interest`
     // message arrives before the first `ticker` mark price). We only
     // surface it once to avoid flooding the Exchange Status panel.
-    let mut oi_drop_warned: bool = false;
+
+    // Per-channel activity trackers (Layer 5 of the silent-pill
+    // diagnostic pipeline). Each tick we record last_ts_after_event_ms;
+    // a periodic `tokio::time::interval` task logs once per 60 s per
+    // channel that has been silent for >60 s. The frontend renders
+    // these via the existing Exchange Status panel so the operator can
+    // distinguish "feed broken" from "feed silent".
+    //
+    // Bitget V2 dropped the dedicated `open-interest` and `funding-rate`
+    // channels — OI and funding rate now ride on the `ticker` push. The
+    // sub-trackers `ticker_with_oi_last` / `ticker_with_funding_last`
+    // record when the ticker payload **actually contained** those fields,
+    // so the diagnostic can warn when the channel is alive but a specific
+    // field has been absent for >60 s.
+    use std::sync::atomic::{AtomicI64, Ordering};
+    let ticker_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let ticker_with_oi_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let ticker_with_funding_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let books_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let trade_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let fill_liq_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let public_liq_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
+    let mark_now = || std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
     let url = match url::Url::parse(ws_url) {
         Ok(u) => u,
         Err(e) => {
@@ -105,6 +135,12 @@ pub async fn run_for_symbol(
     // productType (USDT-FUTURES / USDC-FUTURES); instId is the contract symbol
     // (e.g. BTCUSDT for USDT-M, BTCUSD for USDC-M).
     //
+    // The V2 `ticker` channel now carries **mark price + open interest
+    // (`holdingAmount`) + funding rate** all in a single push payload —
+    // the dedicated `open-interest` and `funding-rate` channels from V1
+    // were removed. The handler in the `"ticker"` arm below extracts
+    // all three via `ticker_to_derivatives_events`.
+    //
     // The dedicated `liquidation` public channel (1 Hz aggregated, top-1 per
     // side per second) is preferred for the heatmap because side semantics
     // are unambiguous and the parse path is simpler. The `fill` channel with
@@ -116,9 +152,8 @@ pub async fn run_for_symbol(
         "args": [
             {"instType": &product_type, "channel": "trade", "instId": &symbol},
             {"instType": &product_type, "channel": "books5", "instId": &symbol},
+            // V2 ticker push: markPrice + holdingAmount (OI) + fundingRate + nextFundingTime.
             {"instType": &product_type, "channel": "ticker", "instId": &symbol},
-            {"instType": &product_type, "channel": "funding-rate", "instId": &symbol},
-            {"instType": &product_type, "channel": "open-interest", "instId": &symbol},
             // Phase 1: `fill` channel exposes real liquidation events.
             // execType == "L" marks a forced-close liquidation fill.
             {"instType": &product_type, "channel": "fill", "instId": &symbol},
@@ -128,7 +163,7 @@ pub async fn run_for_symbol(
         ]
     });
     println!(
-        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker + funding-rate + open-interest + fill + liquidation streams ({})",
+        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker (mark+OI+funding) + fill + liquidation streams ({})",
         symbol, product_type
     );
     if let Err(e) = write
@@ -153,6 +188,84 @@ pub async fn run_for_symbol(
     );
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut awaiting_pongs: u32 = 0;
+
+    // Layer 5: per-channel "silent for N seconds" diagnostic. Spawned
+    // alongside the WS handler; ticks every 60s and emits a single line
+    // for each channel that has been silent for longer than the
+    // threshold. The operator reads it as part of the standard launch
+    // log, so a silent derivatives channel (the symptom the user
+    // reported) is no longer silent — they see exactly which channel
+    // is muted and for how long.
+    //
+    // `silent_secs` returns `None` when the atomic is still 0 (i.e. the
+    // channel has never produced a frame), so such channels are also
+    // surfaced in the diagnostic — previously they were invisible,
+    // masking the exact bug we just fixed (Bitget V2 dropped the
+    // dedicated OI/funding channels; if the subscription silently fails
+    // for any reason the operator sees the dead channel here).
+    let diag_ticker = ticker_last.clone();
+    let diag_ticker_oi = ticker_with_oi_last.clone();
+    let diag_ticker_funding = ticker_with_funding_last.clone();
+    let diag_books = books_last.clone();
+    let diag_trade = trade_last.clone();
+    let diag_fill = fill_liq_last.clone();
+    let diag_public_liq = public_liq_last.clone();
+    let diag_symbol = symbol.clone();
+    let diag_cancel = cancel.clone();
+    tokio::spawn(async move {
+        // Skip the first tick so we don't log on a freshly-connected
+        // socket before the first frame has a chance to land.
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tick.tick().await; // skip first immediate tick
+        loop {
+            tokio::select! {
+                _ = diag_cancel.cancelled() => break,
+                _ = tick.tick() => {}
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let silent_secs = |last: &std::sync::Arc<AtomicI64>| -> Option<i64> {
+                let v = last.load(Ordering::Relaxed);
+                if v == 0 {
+                    // Channel has never produced a frame. Surface this as
+                    // a sentinel duration so the diagnostic reports it
+                    // instead of silently skipping dead channels.
+                    Some(i64::MAX)
+                } else {
+                    Some((now - v) / 1000)
+                }
+            };
+            let channels: &[(&str, std::sync::Arc<AtomicI64>)] = &[
+                ("ticker", diag_ticker.clone()),
+                ("ticker.oi", diag_ticker_oi.clone()),
+                ("ticker.funding", diag_ticker_funding.clone()),
+                ("books5", diag_books.clone()),
+                ("trade", diag_trade.clone()),
+                ("fill (liquidation)", diag_fill.clone()),
+                ("liquidation (public)", diag_public_liq.clone()),
+            ];
+            for (name, last) in channels {
+                if let Some(s) = silent_secs(last) {
+                    if s >= 60 {
+                        let msg = if s == i64::MAX {
+                            format!(
+                                "never seen a frame (channel missing or unreachable since boot/connect)"
+                            )
+                        } else {
+                            format!("silent for {}s (no events since boot/connect)", s)
+                        };
+                        eprintln!(
+                            "⚠️  Bitget [{}]::{}: {}",
+                            diag_symbol, name, msg
+                        );
+                    }
+                }
+            }
+        }
+    });
 
     loop {
         let msg = tokio::select! {
@@ -214,8 +327,16 @@ pub async fn run_for_symbol(
                     None => continue,
                 };
 
+                // Layer 5: per-channel activity tracker. Each successful
+                // tick refreshes the corresponding `*_last` atomic; the
+                // diagnostic task (below) reads these and emits a
+                // user-visible "silent for N seconds" log for any channel
+                // that has been stale for >60s. Cheap and runs once per
+                // inbound WS frame, not per WS packet within a frame.
+                let _now = mark_now();
                 match channel {
                     "trade" => {
+                        trade_last.store(_now, Ordering::Relaxed);
                         let trades: Vec<TradeItem> = match serde_json::from_value(data_val) {
                             Ok(t) => t,
                             Err(_) => continue,
@@ -260,6 +381,7 @@ pub async fn run_for_symbol(
                         }
                     }
                     "books5" => {
+                        books_last.store(_now, Ordering::Relaxed);
                         let books: Vec<BookItem> = match serde_json::from_value(data_val) {
                             Ok(b) => b,
                             Err(_) => continue,
@@ -301,13 +423,17 @@ pub async fn run_for_symbol(
                         }
                     }
                     "ticker" => {
+                        ticker_last.store(_now, Ordering::Relaxed);
                         let tickers: Vec<crate::adapters::bitget_derivatives::BitgetTickerData> =
                             match serde_json::from_value(data_val) {
                                 Ok(t) => t,
                                 Err(_) => continue,
                             };
                         for tk in tickers {
-                            // Stash the latest mark price for the OI converter.
+                            // Stash the latest mark price for OI conversion
+                            // in case future ticker frames lack `markPrice`
+                            // but carry `holdingAmount` (Bitget occasionally
+                            // splits fields across snapshots).
                             if let Some(mp) = tk
                                 .mark_price
                                 .as_deref()
@@ -317,7 +443,7 @@ pub async fn run_for_symbol(
                                     *latest_mark_px.lock().await = Some(mp);
                                 }
                             }
-                            // Emit AssetContext (prev-day price)
+                            // Emit AssetContext (prev-day price).
                             if let Some(px) = tk
                                 .open_24h
                                 .as_deref()
@@ -332,95 +458,48 @@ pub async fn run_for_symbol(
                                         .await;
                                 }
                             }
-                            // Emit MarkPrice when mark/index data is present
-                            if let Some(mp_ev) =
-                                crate::adapters::bitget_derivatives::ticker_to_mark_price(
-                                    &internal_symbol,
-                                    &tk,
-                                )
-                            {
-                                let _ = event_tx.send(mp_ev).await;
-                            }
-                        }
-                    }
-                    "funding-rate" => {
-                        // Bitget funding-rate payload: array of {fundingRate, nextUpdate}.
-                        let rows: Vec<crate::adapters::bitget_derivatives::BitgetFundingData> =
-                            match serde_json::from_value(data_val) {
-                                Ok(r) => r,
-                                Err(_) => continue,
-                            };
-                        for row in rows {
-                            if let Some(ev) = crate::adapters::bitget_derivatives::funding_to_event(
+                            // V2 ticker payload carries mark + OI + funding
+                            // together. Extract all three via the helper;
+                            // pass the cached mark as override in case this
+                            // specific frame is missing `markPrice` but
+                            // carries `holdingAmount` (rare but possible).
+                            let cached_mark = *latest_mark_px.lock().await;
+                            let events = crate::adapters::bitget_derivatives::ticker_to_derivatives_events(
                                 &internal_symbol,
-                                &row,
-                            ) {
+                                &tk,
+                                cached_mark,
+                            );
+                            for ev in events {
+                                match &ev {
+                                    NormalizedEvent::OpenInterest(_) => {
+                                        ticker_with_oi_last.store(_now, Ordering::Relaxed);
+                                    }
+                                    NormalizedEvent::FundingRate(_) => {
+                                        ticker_with_funding_last.store(_now, Ordering::Relaxed);
+                                    }
+                                    _ => {}
+                                }
                                 let _ = event_tx.send(ev).await;
                             }
                         }
                     }
-                    "open-interest" => {
-                        let items: Vec<OpenInterestItem> =
-                            match serde_json::from_value(data_val) {
-                                Ok(i) => i,
-                                Err(_) => continue,
-                            };
-                        // Bitget publishes `openInterest` in base-asset
-                        // units (contracts on USDT-M perps). Convert to
-                        // USD by multiplying against the latest mark
-                        // price we've seen on the `ticker` channel. If
-                        // mark price is missing, skip — emitting a
-                        // base-asset value downstream poisons cluster
-                        // confidence (the 4% symptom).
-                        let mark_opt = *latest_mark_px.lock().await;
-                        for item in items {
-                            if let Some(oi_str) = item.openInterest.as_deref() {
-                                if let Ok(raw_oi) = Decimal::from_str(oi_str) {
-                                    let (oi_usd, prev_oi_usd) = match mark_opt {
-                                        Some(mp) if mp > Decimal::ZERO => (raw_oi * mp, None),
-                                        _ => {
-                                            // First-frame race: OI arrived
-                                            // before the first `ticker` mark
-                                            // price. Drop silently here, but
-                                            // emit a one-shot `Status` event
-                                            // so the operator sees the gap in
-                                            // the Exchange Status panel.
-                                            if !oi_drop_warned {
-                                                oi_drop_warned = true;
-                                                let _ = event_tx
-                                                    .send(NormalizedEvent::Status {
-                                                        exchange: Exchange::Bitget,
-                                                        status: ConnectionStatus::Connecting,
-                                                        message: format!(
-                                                            "{}: OI conversion deferred — waiting for first mark price",
-                                                            internal_symbol
-                                                        ),
-                                                    })
-                                                    .await;
-                                            }
-                                            continue;
-                                        }
-                                    };
-                                    let _ = event_tx
-                                        .send(NormalizedEvent::OpenInterest(
-                                            core_domain::normalized::OpenInterestEvent {
-                                                symbol: internal_symbol.clone(),
-                                                oi: oi_usd,
-                                                prev_oi: prev_oi_usd,
-                                            },
-                                        ))
-                                        .await;
-                                }
-                            }
-                        }
+                    // Legacy V1 channels removed in V2. They may still appear
+                    // in stale Bitget docs / older mirror servers; we no
+                    // longer subscribe to them, but if any frame ever lands
+                    // here, drop it cleanly without panicking. The per-TF
+                    // indicators are now fed from the `ticker` payload above.
+                    "funding-rate" | "open-interest" => {
+                        // Intentionally ignored: data now rides on `ticker`.
                     }
                     "fill" => {
+                        fill_liq_last.store(_now, Ordering::Relaxed);
                         // Bitget `fill` channel payload: array of fills. Each fill
                         // includes an `execType` field — "L" is a forced-close
                         // liquidation fill.
                         emit_bitget_fill_liquidations(&internal_symbol, &data_val, &event_tx).await;
                     }
                     "liquidation" => {
+                        public_liq_last.store(_now, Ordering::Relaxed);
                         // Bitget public liquidation channel: 1 Hz aggregated,
                         // top-1 record per side per second per symbol. Each
                         // row carries `side` (buy = long liquidated / sell =

@@ -253,6 +253,8 @@ pub async fn build_pipelines(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: state.latency_tracker.clone(),
     });
 
@@ -591,6 +593,11 @@ async fn spawn_tasks(
         let a_latest_funding = active_pair.latest_funding.clone();
         let a_latest_mark = active_pair.latest_mark_px.clone();
         let a_latest_index = active_pair.latest_index_px.clone();
+        // Derivatives-warmup history locks. Bootstrapped from prior
+        // `market_snapshots` rows by `populate_buffers` (or default-empty
+        // on cold DB).
+        let a_oi_history = active_pair.oi_history.clone();
+        let a_funding_history = active_pair.funding_history.clone();
         let a_liquidity_config = liquidity_config.clone();
         let a_heatmap_config = heatmap_config.clone();
         // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
@@ -647,6 +654,8 @@ async fn spawn_tasks(
                 a_latest_funding,
                 a_latest_mark,
                 a_latest_index,
+                a_oi_history,
+                a_funding_history,
                 a_cluster_matrix,
                 Some(a_liquidity_config),
                 Some(a_heatmap_config),
@@ -922,6 +931,7 @@ async fn spawn_tasks(
             let active_pair_clone = active_pair.clone();
             let refresh_config = liquidity_config.clone();
             let cancel_for_refresh = cancel.clone();
+            let exchange_for_refresh = exchange_choice;
             tokio::spawn(async move {
                 // ── First fire: immediate (don't wait one tick) ──
                 let started = std::time::Instant::now();
@@ -929,6 +939,7 @@ async fn spawn_tasks(
                     &active_pair_clone,
                     slot,
                     &refresh_config,
+                    exchange_for_refresh,
                 )
                 .await
                 {
@@ -993,6 +1004,7 @@ async fn spawn_tasks(
                         &active_pair_clone,
                         slot,
                         &refresh_config,
+                        exchange_for_refresh,
                     )
                     .await
                     {
@@ -1051,10 +1063,11 @@ pub enum ClusterRefreshError {
     /// `mid_price <= 0.0` is unphysical — usually means the snapshot's
     /// OHLC fields are NaN or empty.
     InvalidMidPrice(f64),
-    /// `open_interest` is missing or non-positive. The HL derivatives
-    /// poller feeds OI on a 60 s REST cadence; some symbols/perpetuals
-    /// may take a while to populate, especially against thin markets.
-    NoOpenInterest,
+    /// `open_interest` is missing or non-positive. The carrier depends on
+    /// the active exchange (Hyperliquid: REST poller on a 60 s cadence;
+    /// Bitget: `ticker` channel carrying `holdingAmount`). The variant
+    /// carries the exchange so the message can be templated correctly.
+    NoOpenInterest { exchange: ExchangeChoice },
     /// TF candle history has fewer than 5 bars; cluster estimation needs
     /// swing-low/high seeds which require non-trivial history.
     InsufficientHistory(usize),
@@ -1070,10 +1083,16 @@ impl std::fmt::Display for ClusterRefreshError {
             ClusterRefreshError::InvalidMidPrice(p) => {
                 write!(f, "invalid mid_price ({}); non-positive or NaN", p)
             }
-            ClusterRefreshError::NoOpenInterest => write!(
-                f,
-                "no open_interest yet (HL derivatives poller hasn't populated this symbol)"
-            ),
+            ClusterRefreshError::NoOpenInterest { exchange } => match exchange {
+                ExchangeChoice::Hyperliquid => write!(
+                    f,
+                    "no open_interest yet (HL derivatives poller hasn't populated this symbol)"
+                ),
+                ExchangeChoice::Bitget => write!(
+                    f,
+                    "no open_interest yet (Bitget ticker channel hasn't delivered holdingAmount)"
+                ),
+            },
             ClusterRefreshError::InsufficientHistory(n) => write!(
                 f,
                 "insufficient history ({} bars; need ≥5 for swing-low/high seeds)",
@@ -1095,6 +1114,7 @@ pub async fn compute_cluster_for_tf(
     active_pair: &Arc<analyzer::ActivePair>,
     slot: core_domain::models::TimeframeSlot,
     config: &config_models::LiquidityConfig,
+    exchange: ExchangeChoice,
 ) -> Result<core_domain::liquidity::LiquidationClusterMatrix, ClusterRefreshError> {
     use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
 
@@ -1121,7 +1141,7 @@ pub async fn compute_cluster_for_tf(
         .and_then(|d| d.to_f64())
         .unwrap_or(0.0);
     if oi <= 0.0 {
-        return Err(ClusterRefreshError::NoOpenInterest);
+        return Err(ClusterRefreshError::NoOpenInterest { exchange });
     }
 
     // 3. Build price history (last 200 candles of *this* TF, not micro).

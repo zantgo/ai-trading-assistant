@@ -1,7 +1,15 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import type { WsState } from '../lib/websocket.svelte';
     import styles from './GeneralDashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
+    import WatchlistRunnerButton from './WatchlistRunnerButton.svelte';
+
+    interface Props {
+        wssMap: Record<string, WsState>;
+    }
+
+    let { wssMap }: Props = $props();
 
     const app = useAppStore();
 
@@ -227,5 +235,7 @@
                 </table>
             </div>
         {/if}
+
+        <WatchlistRunnerButton {wssMap} />
     </div>
 </div>

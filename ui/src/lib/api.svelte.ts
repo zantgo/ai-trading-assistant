@@ -251,6 +251,74 @@ export async function postInstanceCreation(baseSymbol: string, quote: string): P
     return res.ok;
 }
 
+/** Delete a single instance by backend UUID. Returns `true` on a 2xx and
+ *  `false` on any non-2xx including 404. The error body is dropped — the
+ *  caller already has enough context (the user clicked delete on this id)
+ *  and can retry from the workspace panel on failure. */
+export async function deleteInstanceById(instanceId: string): Promise<boolean> {
+    try {
+        const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}`, {
+            method: 'DELETE',
+        });
+        return res.ok;
+    } catch (_) {
+        return false;
+    }
+}
+
+/** Poll a single pair's `decisionContext` slot until it has a `trade_readiness`
+ *  value (the first WS frame at any TF schedules the Decision pipeline,
+ *  so a `=== null` -> populated transition is the "decision is in" signal).
+ *
+ *  Used by the Watchlist Scanner to wait for the engine's first decision
+ *  per pair before deciding whether to keep or remove the instance. The
+ *  poll is a plain non-reactive read — we deliberately don't put it in a
+ *  `$effect` because the modal owns the loop and the polling timer is the
+ *  single source of truth for timeouts.
+ *
+ *  Resolves with `{ status: 'READY', decisionContext, advisory }` on the
+ *  first populated pair, or `{ status: 'TIMEOUT' }` after `timeoutMs`
+ *  elapses. We return both the `decisionContext` (for the modal's
+ *  trade_readiness read) and the `advisory` (for the directional bias
+ *  read) so the scanner can derive a verdict from one await.
+ *
+ *  Returns TIMEOUT early if the pair was removed from `app.instancesMap`
+ *  (the user cancelled the run mid-flight and the scanner deleted the
+ *  instance). */
+export async function waitForAdvisory(
+    app: AppStore,
+    pairKey: string,
+    timeoutMs: number,
+): Promise<
+    | {
+        status: 'READY';
+        decisionContext: NonNullable<InstanceState['decisionContext']>;
+        advisory: InstanceState['advisory'];
+    }
+    | { status: 'TIMEOUT' }
+> {
+    const start = Date.now();
+    const POLL_MS = 250;
+    const maxWaitMs = Math.max(POLL_MS, timeoutMs);
+    // Defer first read past the await microtask so the caller (the modal
+    // loop) has a chance to set up `app.instancesMap[pairKey]` and any
+    // initial WS frame from the just-connected subscription is given a
+    // tick to apply. Same deferral pattern used by AppWorkspacePanel.
+    await Promise.resolve();
+    while (Date.now() - start < maxWaitMs) {
+        const pair = app.instancesMap[pairKey];
+        if (!pair) {
+            return { status: 'TIMEOUT' };
+        }
+        const dc = pair.decisionContext;
+        if (dc && typeof dc === 'object' && typeof dc.trade_readiness === 'string') {
+            return { status: 'READY', decisionContext: dc, advisory: pair.advisory };
+        }
+        await new Promise<void>((r) => setTimeout(r, POLL_MS));
+    }
+    return { status: 'TIMEOUT' };
+}
+
 /** POST the instance config payload. `instanceId` is the backend-assigned
  * UUID (`inst_<hex>`); the previous pairKey-based slug still works as a
  * fallback while older deploys drain, but new callers should pass the UUID

@@ -362,6 +362,162 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         );
     });
 
+    it('shadow_tick_preserves_divergence_signals_on_completed_indicators', () => {
+        // Regression for the "divergences never show in UI" bug (v6.6+):
+        // divergence signals are structural markers computed on the
+        // completed-bar path; the shadow path does not re-emit them. A
+        // shadow tick that replaces the parent's `signals` array with
+        // an empty one would wipe the divergence from the UI between
+        // closes (which is what the user observed in
+        // `DivergencesView.svelte`). The WS handler must preserve any
+        // `Divergence`-kind signal from the prior tick when the incoming
+        // snapshot doesn't re-emit it.
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+
+        const potentialBullish = {
+            kind: 'Divergence',
+            direction: 'Bullish',
+            status: 'Potential',
+            label: 'POTENTIAL_BULLISH_DIVERGENCE',
+            strength: 0.5,
+            age_bars: 0,
+            points: null,
+        } as const;
+
+        // Step 1: completed candle arrives — RSI carries the divergence signal.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                rsi: {
+                    raw_value: 28.5,
+                    normalized: 0.75,
+                    state_label: 'OVERSOLD_ACCUMULATION',
+                    signals: [potentialBullish],
+                },
+                macd: {
+                    raw_value: 5.2,
+                    normalized: 0.85,
+                    state_label: 'BULLISH_CROSSOVER_ACCELERATING',
+                    signals: [],
+                },
+                obv: {
+                    raw_value: 100.0,
+                    normalized: 0.5,
+                    state_label: 'OBV_RISING',
+                    signals: [],
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].signals).toHaveLength(1);
+        expect(tf.indicators['rsi'].signals![0].label).toBe('POTENTIAL_BULLISH_DIVERGENCE');
+
+        // Step 2: shadow tick arrives — incoming RSI has refreshed
+        // numeric values but its `signals` array is empty (the backend
+        // shadow path doesn't re-emit divergence). The frontend merge
+        // must preserve the prior `Divergence` signals on each
+        // divergence-bearing parent so the UI keeps showing them until
+        // the next completed bar.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: false,
+            mid_price: '65010.00',
+            indicators: {
+                rsi: {
+                    raw_value: 32.0,
+                    normalized: 0.7,
+                    state_label: 'OVERSOLD_ACCUMULATION',
+                    signals: [],
+                },
+                macd: {
+                    raw_value: 5.4,
+                    normalized: 0.86,
+                    state_label: 'BULLISH_CROSSOVER_ACCELERATING',
+                    signals: [],
+                },
+                obv: {
+                    raw_value: 105.0,
+                    normalized: 0.55,
+                    state_label: 'OBV_RISING',
+                    signals: [],
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].raw_value).toBe(32.0);
+        expect(tf.indicators['rsi'].signals).toHaveLength(1);
+        expect(tf.indicators['rsi'].signals![0].label).toBe('POTENTIAL_BULLISH_DIVERGENCE');
+        expect(tf.indicators['rsi'].signals![0].kind).toBe('Divergence');
+    });
+
+    it('shadow_tick_replaces_divergence_when_completed_bar_re_emits_it', () => {
+        // The complement to the preservation test: when a completed-bar
+        // snapshot re-emits a divergence (e.g. flipped from Potential
+        // to Confirmed), the prior signal MUST be replaced by the new
+        // one. Without this the UI would show stale "Potential" tags
+        // even after the underlying detector upgraded to "Confirmed".
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+
+        const potentialBullish = {
+            kind: 'Divergence',
+            direction: 'Bullish',
+            status: 'Potential',
+            label: 'POTENTIAL_BULLISH_DIVERGENCE',
+            strength: 0.5,
+            age_bars: 0,
+            points: null,
+        } as const;
+        const confirmedBullish = {
+            kind: 'Divergence',
+            direction: 'Bullish',
+            status: 'Confirmed',
+            label: 'CONFIRMED_BULLISH_DIVERGENCE',
+            strength: 1.0,
+            age_bars: 0,
+            points: null,
+        } as const;
+
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                rsi: {
+                    raw_value: 28.5,
+                    normalized: 0.75,
+                    state_label: 'OVERSOLD_ACCUMULATION',
+                    signals: [potentialBullish],
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].signals![0].status).toBe('Potential');
+
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65010.00',
+            indicators: {
+                rsi: {
+                    raw_value: 32.0,
+                    normalized: 0.7,
+                    state_label: 'OVERSOLD_ACCUMULATION',
+                    signals: [confirmedBullish],
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].signals).toHaveLength(1);
+        expect(tf.indicators['rsi'].signals![0].status).toBe('Confirmed');
+        expect(tf.indicators['rsi'].signals![0].label).toBe('CONFIRMED_BULLISH_DIVERGENCE');
+    });
+
     it('shadow_tick_merges_indicator_lifecycle_map_per_key', () => {
         // Regression: a sparse shadow frame must NOT wipe the prior
         // loading state for keys omitted from the incoming lifecycle map

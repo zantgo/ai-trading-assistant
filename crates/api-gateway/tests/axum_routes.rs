@@ -13,7 +13,7 @@ use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::TimeframeBuffers;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -168,6 +168,8 @@ async fn test_websocket_stream_with_active_pair() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         micro: TimeframePipeline {
             slot: TimeframeSlot::Micro,

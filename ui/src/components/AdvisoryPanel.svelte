@@ -5,6 +5,7 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AdvisoryPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
+    import { computeDecisionRank, computeSymmetricSetups } from '../lib/decisionRank';
 
     const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
@@ -16,6 +17,7 @@
     const snapshot = $derived(instance?.microTerm.latestSnapshot as unknown as MarketSnapshot | undefined);
     const decisionCtx = $derived<DecisionContext | null>(snapshot?.decision_context ?? null);
     const opportunity = $derived<OpportunityMatrix | null>(snapshot?.opportunity ?? null);
+    const analysis = $derived(instance?.analysis ?? null);
     const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
         snapshot && typeof (snapshot as any).timestamp === 'number'
@@ -23,6 +25,22 @@
             : null
     );
     const registry = $derived(app.indicatorRegistry ?? []);
+
+    // ── Unified decision rank ─────────────────────────────────────────────
+    const rank = $derived(computeDecisionRank({
+        advisory,
+        decisionContext: decisionCtx,
+        opportunity,
+        analysis,
+    }));
+
+    // ── Symmetric Long / Short setups ─────────────────────────────────────
+    const setups = $derived(computeSymmetricSetups({
+        opportunity,
+        markPrice,
+        topAction: rank.top,
+        readiness: rank.headline.state,
+    }));
 
     function buildExport() {
         return buildPanelExportJson({
@@ -51,6 +69,7 @@
         });
     }
 
+    // Keep deriveTradePlan wired so BottomConsole / TradePlanStrip stay fed.
     const tradePlan = $derived(deriveTradePlan({
         symbol: pairKey,
         markPrice,
@@ -63,29 +82,7 @@
         overallRisk: instance?.risk?.overall_risk?.score,
     }));
 
-    function recClass(d: string): string {
-        if (d.includes('Long')) return styles.recLong;
-        if (d.includes('Short')) return styles.recShort;
-        if (d.includes('Avoid')) return styles.recAvoid;
-        return styles.recNeutral;
-    }
-    function stanceClass(m: string): string {
-        switch (m) {
-            case 'Aggressive': return styles.stanceAggressive;
-            case 'Constructive': return styles.stanceConstructive;
-            case 'Neutral': return styles.stanceNeutral;
-            case 'Cautious': return styles.stanceCautious;
-            default: return styles.stanceAvoid;
-        }
-    }
-    function readinessClass(r: string): string {
-        switch (r) {
-            case 'READY': return styles.ready;
-            case 'FORMING': return styles.forming;
-            case 'WATCH': return styles.watch;
-            default: return styles.aside;
-        }
-    }
+    // ── Cosmetic helpers ──────────────────────────────────────────────────
     function fillColor(v: number, t: 'rr' | 'danger' | 'conf'): string {
         if (t === 'rr') return v >= 2 ? styles.green : v >= 1 ? styles.amber : styles.red;
         if (t === 'danger') return v >= 70 ? styles.red : v >= 40 ? styles.amber : styles.green;
@@ -94,50 +91,34 @@
 
     function sanitizeLabel(s: string): string {
         if (!s) return '\u2014';
-        // Split camelCase/PascalCase (e.g. "LowActivity" -> "Low Activity")
         let cleaned = s.replace(/([a-z])([A-Z])/g, '$1 $2');
-        // Replace underscores with spaces (e.g. "LOW_ACTIVITY" -> "LOW ACTIVITY")
         cleaned = cleaned.replace(/_/g, ' ');
-        // Collapse multiple spaces
         cleaned = cleaned.trim().replace(/\s+/g, ' ');
-
         return cleaned
             .toLowerCase()
             .replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
-    /** Prettify enum values: ATRBased → ATR-Based, A_T_R_BASED → ATR-Based, etc. */
     function prettifyEnum(s: string): string {
         if (!s) return '\u2014';
-        // Separate acronyms followed by PascalCase words (e.g., "ATRBased" -> "ATR Based")
         let cleaned = s.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
-        // Split standard CamelCase/PascalCase
         cleaned = cleaned.replace(/([a-z])([A-Z])/g, '$1 $2');
-        // Replace underscores with spaces
         cleaned = cleaned.replace(/_/g, ' ');
         cleaned = cleaned.trim().replace(/\s+/g, ' ');
-
-        // Title Case
         cleaned = cleaned
             .toLowerCase()
             .replace(/\b\w/g, (c) => c.toUpperCase());
-            
-        // Apply hyphenation to "Based"
         cleaned = cleaned.replace(/\sBased$/i, '-Based');
-        
-        // Correct specific acronyms
         cleaned = cleaned
             .replace(/^Atr\b/i, 'ATR')
             .replace(/^Sr\b/i, 'S/R')
             .replace(/^Rr\b/i, 'R:R')
             .replace(/^Sl\b/i, 'SL');
-            
         return cleaned;
     }
 
     const rrDisplay = $derived(decisionCtx?.expected_reward_risk_ratio ?? 0);
     const dangerDisplay = $derived(decisionCtx?.entry_danger ?? 50);
-    const readinessDisplay = $derived(decisionCtx?.trade_readiness ?? 'STAND_ASIDE');
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
     const stopLossPct = $derived((advisory as any)?.stop_loss_distance_pct ?? 0);
 
@@ -154,6 +135,24 @@
         if (rr >= 1.0) return styles.amber;
         return styles.red;
     }
+
+    // ── Hero state-class mapping ──────────────────────────────────────────
+    function heroStateClass(s: 'READY' | 'FORMING' | 'WATCH' | 'STAND_ASIDE'): string {
+        switch (s) {
+            case 'READY': return styles.heroReady ?? '';
+            case 'FORMING': return styles.heroForming ?? '';
+            case 'WATCH': return styles.heroWatch ?? '';
+            default: return styles.heroAside ?? '';
+        }
+    }
+    function rankBarClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
+        if (action === 'LONG') return styles.rankLong ?? '';
+        if (action === 'SHORT') return styles.rankShort ?? '';
+        return styles.rankHold ?? '';
+    }
+    function setupHeaderClass(side: 'LONG' | 'SHORT'): string {
+        return side === 'LONG' ? (styles.setupHeaderLong ?? '') : (styles.setupHeaderShort ?? '');
+    }
 </script>
 
 <div class={styles.panel}>
@@ -166,25 +165,110 @@
         <div class={styles.noData}>Awaiting decision guidance data — all values will populate once L6 synthesis runs</div>
     {/if}
 
-    <!-- ── Trade Readiness — large prominent badge ── -->
-    <div class={styles.section}>
-        <div class="{styles.readinessHero} {readinessClass(readinessDisplay)}">
-            <span class={styles.readinessLabel}>TRADE READINESS</span>
-            <span class={styles.readinessValue}>{readinessDisplay.replace(/_/g, ' ')}</span>
+    <!-- ── Unified Final Decision hero ────────────────────────────────────── -->
+    <div class="{styles.decisionHero} {heroStateClass(rank.headline.state)}">
+        <div class={styles.heroLabel}>FINAL DECISION</div>
+        <div class={styles.heroHeadline}>{rank.headline.label}</div>
+        <div class={styles.heroSubtitle}>
+            Confidence {rank.headline.confidence_pct}%
+        </div>
+        <div class={styles.rankRow}>
+            {#each [
+                { action: 'LONG' as const, prob: rank.long.probability },
+                { action: 'SHORT' as const, prob: rank.short.probability },
+                { action: 'HOLD' as const, prob: rank.hold.probability },
+            ] as r (r.action)}
+                <div class="{styles.rankCell} {rankBarClass(r.action)}">
+                    <div class={styles.rankAction}>{r.action}</div>
+                    <div class={styles.rankPct}>{r.prob}%</div>
+                    <div class={styles.rankBarBg}>
+                        <div class="{styles.rankBarFill} {rankBarClass(r.action)}"
+                             style="width: {r.prob}%"></div>
+                    </div>
+                </div>
+            {/each}
         </div>
     </div>
 
+    <!-- ── Rationale ──────────────────────────────────────────────────────── -->
     <div class={styles.section}>
-        <div class={styles.recRow}>
-            <span class="{styles.recLabel} {recClass(advisory?.directional_guidance ?? '')}">
-                {advisory?.directional_guidance ?? '—'}
-            </span>
-            <span class="{styles.stanceBadge} {stanceClass(advisory?.market_stance ?? '')}">
-                {advisory?.market_stance ?? '—'}
-            </span>
+        <div class={styles.sectionTitle}>Rationale</div>
+        <ul class={styles.rationaleList}>
+            {#each rank.rationale as line, i (i)}
+                <li class={styles.rationaleItem}>{line}</li>
+            {/each}
+        </ul>
+    </div>
+
+    <!-- ── Setups (Long + Short, derived symmetrically) ───────────────────── -->
+    <div class={styles.section}>
+        <div class={styles.sectionTitle}>Setups</div>
+        <div class={styles.setupPair}>
+            <!-- Long Setup -->
+            <div class="{styles.setupCard} {setups.long.active ? styles.setupCardActive : styles.setupCardInactive}">
+                <div class="{styles.setupHeader} {setupHeaderClass('LONG')}">
+                    <span class={styles.setupHeaderTitle}>Long Setup</span>
+                    <span class={styles.setupStatus}>{setups.long.status}</span>
+                </div>
+                <div class={styles.setupBody}>
+                    <div class={styles.setupRow}>
+                        <span class={styles.setupRowLabel}>ENTRY</span>
+                        <span class={styles.setupRowValue}>
+                            {setups.long.entry ? fmtPx(setups.long.entry.price, markPrice) : '—'}
+                        </span>
+                    </div>
+                    {#each setups.long.targets as t (t.label)}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>{t.label}</span>
+                            <span class={styles.setupRowValue}>{fmtPx(t.price, markPrice)}</span>
+                            {#if t.label === 'TP1' && setups.long.rrRatio != null}
+                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.long.rrRatio)}>{setups.long.rrRatio.toFixed(2)}</span></span>
+                            {/if}
+                        </div>
+                    {/each}
+                    {#if setups.long.stop}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>SL</span>
+                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPx(setups.long.stop.price, markPrice)}</span>
+                        </div>
+                    {/if}
+                </div>
+            </div>
+
+            <!-- Short Setup -->
+            <div class="{styles.setupCard} {setups.short.active ? styles.setupCardActive : styles.setupCardInactive}">
+                <div class="{styles.setupHeader} {setupHeaderClass('SHORT')}">
+                    <span class={styles.setupHeaderTitle}>Short Setup</span>
+                    <span class={styles.setupStatus}>{setups.short.status}</span>
+                </div>
+                <div class={styles.setupBody}>
+                    <div class={styles.setupRow}>
+                        <span class={styles.setupRowLabel}>ENTRY</span>
+                        <span class={styles.setupRowValue}>
+                            {setups.short.entry ? fmtPx(setups.short.entry.price, markPrice) : '—'}
+                        </span>
+                    </div>
+                    {#each setups.short.targets as t (t.label)}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>{t.label}</span>
+                            <span class={styles.setupRowValue}>{fmtPx(t.price, markPrice)}</span>
+                            {#if t.label === 'TP1' && setups.short.rrRatio != null}
+                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.short.rrRatio)}>{setups.short.rrRatio.toFixed(2)}</span></span>
+                            {/if}
+                        </div>
+                    {/each}
+                    {#if setups.short.stop}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>SL</span>
+                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPx(setups.short.stop.price, markPrice)}</span>
+                        </div>
+                    {/if}
+                </div>
+            </div>
         </div>
     </div>
 
+    <!-- ── Key Metrics ─────────────────────────────────────────────────────── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Key Metrics</div>
         <div class={styles.metricBar}>
@@ -232,7 +316,7 @@
         {/if}
     </div>
 
-    <!-- ── Levels — always visible ── -->
+    <!-- ── Price Levels ───────────────────────────────────────────────────── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Price Levels</div>
         <div class={styles.grid2}>
@@ -261,6 +345,7 @@
         </div>
     </div>
 
+    <!-- ── Strategy ───────────────────────────────────────────────────────── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Strategy</div>
         <div class={styles.grid2}>
@@ -291,77 +376,7 @@
         </div>
     </div>
 
-    <!-- ── Structured Plan — always visible ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>
-            Structured Plan
-            <span class={styles.planHorizon}>{tradePlan.timeHorizon}</span>
-        </div>
-
-        <div class={styles.planGrid}>
-            <div class={styles.planEntry}>
-                <div class={styles.planLabel}>ENTRY</div>
-                {#if tradePlan.entryMid > 0}
-                    <div class={styles.planPrice}>{fmtPx(tradePlan.entryMid, markPrice)}</div>
-                    <div class={styles.planRange}>{fmtPx(tradePlan.entryZone.low, markPrice)} – {fmtPx(tradePlan.entryZone.high, markPrice)}</div>
-                    {#if tradePlan.entrySources.length > 0}
-                        <div class={styles.planSources}>
-                            {#each tradePlan.entrySources as src, i (i)}
-                                <span class="{styles.planSourceTag} {src.tag === 'FIB' ? styles.tagFib ?? '' :
-                                                              src.tag === 'VP'  ? styles.tagVp  ?? '' :
-                                                              src.tag === 'PP'  ? styles.tagPp  ?? '' :
-                                                              src.tag === 'SR'  ? styles.tagSr  ?? '' :
-                                                              src.tag === 'LIQ' ? styles.tagLiq ?? '' : ''}">
-                                    {src.tag}
-                                </span>
-                            {/each}
-                        </div>
-                    {/if}
-                {:else}
-                    <div class={styles.planEmpty}>—</div>
-                {/if}
-            </div>
-
-            <div class={styles.planTps}>
-                <div class={styles.planLabel}>TARGETS</div>
-                {#if tradePlan.targets.length > 0}
-                    {#each tradePlan.targets as t (t.label)}
-                        <div class={styles.planTpRow}>
-                            <span class={styles.planTpLabel}>{t.label}</span>
-                            <span class={styles.planTpPrice}>{fmtPx(t.price, markPrice)}</span>
-                            <span class={styles.planTpPct}>{t.sizePct}%</span>
-                            <span class={styles.planTpRr}>
-                                R:R <span class={rrCls(t.rrRatio)}>{t.rrRatio == null ? '—' : t.rrRatio.toFixed(2)}</span>
-                            </span>
-                            <span class={styles.planTpSource}>{t.source === 'FIB_EXT_1618' ? '1.618 ext' :
-                                                                t.source === 'FIB_EXT_2618' ? '2.618 ext' :
-                                                                t.source === 'L4_TARGET_ZONE' ? 'L4 zone' :
-                                                                t.source === 'CONFLUENT' ? 'confluent' : ''}</span>
-                        </div>
-                    {/each}
-                {:else}
-                    <div class={styles.planEmpty}>—</div>
-                {/if}
-            </div>
-
-            <div class={styles.planStop}>
-                <div class={styles.planLabel}>STOP</div>
-                {#if tradePlan.stop}
-                    <div class={styles.planPrice}>{fmtPx(tradePlan.stop.price, markPrice)}</div>
-                    <div class={styles.planStopDist}>−{tradePlan.stop.distancePct.toFixed(2)}% · {tradePlan.stop.method.replace(/_/g, ' ').toLowerCase()}</div>
-                    {#if tradePlan.stop.fallbackPrice}
-                        <div class={styles.planFallback}>
-                            <span class={styles.planFallbackLabel}>fallback:</span>
-                            <span class={styles.planFallbackPrice}>{fmtPx(tradePlan.stop.fallbackPrice, markPrice)}</span>
-                        </div>
-                    {/if}
-                {:else}
-                    <div class={styles.planEmpty}>—</div>
-                {/if}
-            </div>
-        </div>
-    </div>
-
+    <!-- ── Recommendation (final_recommendation) ──────────────────────────── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Recommendation</div>
         <div class={styles.recommendation}>{advisory?.final_recommendation || '—'}</div>

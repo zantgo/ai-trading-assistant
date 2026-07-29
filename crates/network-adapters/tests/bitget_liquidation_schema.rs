@@ -1,14 +1,18 @@
 //! Regression tests for the Bitget `fill`-channel liquidation parser
-//! (Phase 1) and the OI × mark-price unit conversion.
+//! (Phase 1) and the V2 ticker-based OI / funding / mark-price
+//! extraction.
 //!
 //! Two failure modes are pinned here:
 //!
-//! 1. **OI unit conversion** — Bitget's `open-interest` channel emits a
-//!    base-asset-quantity field (contracts on USDT-M perps = base asset).
-//!    The cluster estimator downstream expects USD notional. Without
-//!    conversion, `total_oi_usd ≈ 39_925 BTC` is misinterpreted as
-//!    `≈ $39,925`, poisoning cluster confidence to ~4% and pushing every
-//!    estimated bin below the `$50,000` noise threshold.
+//! 1. **OI unit conversion** — Bitget V2's `ticker` channel emits
+//!    `holdingAmount` as a base-asset quantity (contracts on USDT-M
+//!    perps = base asset). The cluster estimator downstream expects
+//!    USD notional. Without conversion, `total_oi_usd ≈ 39_925 BTC` is
+//!    misinterpreted as `≈ $39,925`, poisoning cluster confidence to
+//!    ~4% and pushing every estimated bin below the `$50,000` noise
+//!    threshold. The fix: `ticker_to_derivatives_events` multiplies by
+//!    the parsed mark price (with a cached override for frames that
+//!    lack `markPrice`).
 //!
 //! 2. **Liquidation fill parsing** — the `fill` channel's
 //!    `execType == "L"` rows must be emitted as
@@ -19,6 +23,9 @@
 use core_domain::normalized::{LiquidationSide, NormalizedEvent};
 use network_adapters::adapters::bitget::{
     emit_bitget_fill_liquidations_for_test, open_interest_event_for_test,
+};
+use network_adapters::adapters::bitget_derivatives::{
+    ticker_to_derivatives_events, BitgetTickerData,
 };
 
 #[test]
@@ -49,6 +56,56 @@ fn bitget_oi_event_skips_when_mark_missing() {
         ev.is_none(),
         "OI conversion must skip when mark price is missing"
     );
+}
+
+#[test]
+fn bitget_v2_ticker_payload_extracts_holding_amount_as_oi() {
+    // Realistic V2 ticker payload. The single push carries markPrice,
+    // holdingAmount (base-asset units), and fundingRate. After
+    // `ticker_to_derivatives_events` we should see all three events in
+    // order with USD-converted OI.
+    let payload = serde_json::json!({
+        "instId": "BTCUSDT",
+        "markPrice": "65000",
+        "indexPrice": "64995",
+        "holdingAmount": "1234.5",
+        "fundingRate": "0.00012",
+        "nextFundingTime": "1700000000000",
+        "open24h": "64500"
+    });
+    let parsed: BitgetTickerData =
+        serde_json::from_value(payload).expect("ticker payload should parse");
+    let evs = ticker_to_derivatives_events("BTC-USDT", &parsed, None);
+    assert_eq!(evs.len(), 3, "expected MarkPrice + OpenInterest + FundingRate");
+    // OI: 1234.5 contracts * $65_000 = $80_242_500 USD notional.
+    let NormalizedEvent::OpenInterest(oi) = &evs[1] else {
+        panic!("expected OpenInterest at index 1");
+    };
+    let usd: f64 = oi.oi.to_string().parse().unwrap();
+    assert!(
+        (usd - 80_242_500.0).abs() < 1.0,
+        "OI should be ~$80.24M USD notional, got ${}",
+        usd
+    );
+    assert_eq!(oi.symbol, "BTC-USDT");
+    assert!(oi.prev_oi.is_none());
+}
+
+#[test]
+fn bitget_v2_ticker_payload_extracts_funding_rate() {
+    let payload = serde_json::json!({
+        "markPrice": "65000",
+        "fundingRate": "0.0001"
+    });
+    let parsed: BitgetTickerData =
+        serde_json::from_value(payload).expect("ticker payload should parse");
+    let evs = ticker_to_derivatives_events("BTC-USDT", &parsed, None);
+    assert_eq!(evs.len(), 2);
+    let NormalizedEvent::FundingRate(fr) = &evs[1] else {
+        panic!("expected FundingRate at index 1");
+    };
+    assert_eq!(fr.symbol, "BTC-USDT");
+    assert_eq!(fr.rate.to_string(), "0.0001");
 }
 
 #[tokio::test]
@@ -171,37 +228,37 @@ async fn bitget_mixed_fill_payload_emits_only_liquidations() {
 /// `open-interest` frame arrives before the first `ticker` mark price
 /// (Bitget's WS serves OI and mark on separate channels; the order is
 /// not guaranteed on cold start), the adapter silently drops the OI
-/// event to avoid poisoning the USD series with a base-asset value. The
-/// parity fix: emit a one-shot `NormalizedEvent::Status` so the operator
-/// sees the gap in the Exchange Status panel.
+/// event to avoid poisoning the USD series with a base-asset value.
 ///
-/// The actual WS-loop behavior is hard to drive in a unit test (requires
-/// a mock WS server + cancellation token). This test pins the contract
-/// by reading the source file and asserting the Status event emit path
-/// is wired into the OI drop branch.
+/// As of v6.6 the OI channel was removed in V2 and the data now rides on
+/// `ticker`. The first-frame race is handled inside
+/// `ticker_to_derivatives_events` via the `mark_px_override` argument:
+/// the cached mark from a prior ticker frame rescues an OI sample that
+/// arrives without its own `markPrice`. This test pins the V2 wire
+/// format by reading the source file and asserting the helper is
+/// wired into the ticker handler.
 #[test]
-fn first_frame_oi_drop_emits_status_event() {
+fn bitget_v2_oi_extraction_uses_ticker_to_derivatives_events() {
     use std::fs;
     let src = fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/adapters/bitget.rs"),
     )
     .expect("bitget.rs must be readable");
-    // The fix is gated by a local `oi_drop_warned: bool` flag inside
-    // `run_for_symbol` — a one-shot to avoid flooding the panel.
+    // The ticker arm must call the V2 helper that extracts OI/funding
+    // from `holdingAmount` / `fundingRate` fields on the ticker push.
     assert!(
-        src.contains("oi_drop_warned"),
-        "bitget.rs must declare the one-shot flag `oi_drop_warned`"
+        src.contains("ticker_to_derivatives_events"),
+        "bitget.rs must invoke `ticker_to_derivatives_events` from the ticker arm"
     );
-    // The Status event itself is emitted inside the `continue` branch
-    // that handles the missing-mark-price case.
+    // The subscription must NOT include the dead `open-interest` channel.
     assert!(
-        src.contains("OI conversion deferred — waiting for first mark price"),
-        "bitget.rs must emit a Status event with the `OI conversion deferred` \
-         message when the first OI frame arrives without a mark price"
+        !src.contains("\"channel\": \"open-interest\""),
+        "bitget.rs must NOT subscribe to the dead V2 `open-interest` channel"
     );
+    // The subscription must NOT include the dead `funding-rate` channel.
     assert!(
-        src.contains("NormalizedEvent::Status"),
-        "bitget.rs must emit a NormalizedEvent::Status variant"
+        !src.contains("\"channel\": \"funding-rate\""),
+        "bitget.rs must NOT subscribe to the dead V2 `funding-rate` channel"
     );
 }

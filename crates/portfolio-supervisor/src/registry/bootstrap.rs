@@ -367,7 +367,26 @@ pub(crate) async fn populate_buffers(
     fast_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     slow_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     macro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    latest_oi: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    latest_index_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    oi_history: &Arc<RwLock<VecDeque<f64>>>,
+    funding_history: &Arc<RwLock<VecDeque<f64>>>,
 ) {
+    // All four timeframes share the same per-pair derivatives state
+    // (latest_* locks and rolling history), so any warmed TF carries
+    // the right restored values for them.
+    if let Some(ref w) = warmed_micro {
+        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+    } else if let Some(ref w) = warmed_fast {
+        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+    } else if let Some(ref w) = warmed_slow {
+        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+    } else if let Some(ref w) = warmed_macro {
+        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+    }
+
     populate_single(
         warmed_micro,
         micro_history,
@@ -396,6 +415,51 @@ pub(crate) async fn populate_buffers(
         macro_snapshot_history,
     )
     .await;
+}
+
+/// Restore derivatives locks from a warmed state. Mirrors
+/// `warm.rs::warm_derivatives_from_snapshots` on the write side — every
+/// field that the warm helper put into `derivatives_state` is reapplied
+/// to the live Arc locks here so the first WS event after boot sees
+/// non-None priors.
+async fn populate_derivatives(
+    w: &analyzer::WarmedPipelineState,
+    latest_oi: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    latest_index_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
+    oi_history: &Arc<RwLock<VecDeque<f64>>>,
+    funding_history: &Arc<RwLock<VecDeque<f64>>>,
+) {
+    use market_analyzer::analyzer::warm::DerivativesWarmedState;
+    let d = &w.derivatives_state;
+    if d.latest_oi.is_some() {
+        *latest_oi.write().await = d.latest_oi;
+    }
+    if d.latest_funding.is_some() {
+        *latest_funding.write().await = d.latest_funding;
+    }
+    if d.latest_mark_px.is_some() {
+        *latest_mark_px.write().await = d.latest_mark_px;
+    }
+    if d.latest_index_px.is_some() {
+        *latest_index_px.write().await = d.latest_index_px;
+    }
+    if !d.oi_history.is_empty() {
+        let mut hist = oi_history.write().await;
+        hist.clear();
+        for v in &d.oi_history {
+            hist.push_back(*v);
+        }
+    }
+    if !d.funding_history.is_empty() {
+        let mut hist = funding_history.write().await;
+        hist.clear();
+        for v in &d.funding_history {
+            hist.push_back(*v);
+        }
+    }
+    let _ = std::marker::PhantomData::<DerivativesWarmedState>;
 }
 
 pub(crate) async fn populate_single(

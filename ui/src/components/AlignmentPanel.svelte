@@ -197,7 +197,7 @@
                             <span class={styles.dimCardScore}>{dim.score.toFixed(0)}</span>
                         </div>
                         <div class={styles.dimCardConf}>
-                            confidence {(dim.confidence * 100).toFixed(0)}%
+                            confidence {dim.confidence.toFixed(0)}%
                         </div>
                     </div>
                 {/each}

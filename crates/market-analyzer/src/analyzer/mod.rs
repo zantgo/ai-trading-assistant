@@ -111,12 +111,23 @@ pub struct ActivePair {
     pub cancel: CancellationToken,
     /// Latest Open Interest (shared across all timeframes, updated by WS events).
     pub latest_oi: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Funding Rate (shared across all timeframes, updated by WS events).
+    /// Latest Funding Rate (shared across all timeframes, updated by WS funding events).
     pub latest_funding: Arc<RwLock<Option<Decimal>>>,
     /// Latest Mark Price (shared across all timeframes, updated by mark events).
     pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     /// Latest Index Price (shared across all timeframes).
     pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
+    /// Rolling OI history (shared across all timeframes) — bounded to 60
+    /// samples by `read_derivative_snapshot_state`. Promoted from a
+    /// per-`run_single` local (analyzer/mod.rs:868) so warmup can
+    /// restore historical samples and the first candle after boot has
+    /// `OI Delta` math anchored to real data.
+    pub oi_history: Arc<RwLock<VecDeque<f64>>>,
+    /// Rolling funding-rate history (shared across all timeframes) —
+    /// bounded to 8 samples. Restored from history at boot so
+    /// `OI_FUNDING_DIVERGENCE` and `FUNDING_FLIP` have non-zero
+    /// priors instead of firing on the first funding event post-boot.
+    pub funding_history: Arc<RwLock<VecDeque<f64>>>,
     /// Cross-cutting latency telemetry (ingest skew, observation loop,
     /// heartbeat) for the DIE observation path.
     pub latency_tracker: core_domain::SharedLatencyTracker,
@@ -429,6 +440,13 @@ pub fn build_indicator_lifecycle_map(
         // call, not as a side-effect of having non-zero confidence.
         let state_label = entry.map(|e| e.state_label.as_str()).unwrap_or("");
         let is_real_reading = present && state_label != "WARMING";
+        // Silent flag: a reading is "silent" when the calculator
+        // produced a raw value but emitted no discrete signal and no
+        // state-label on this snapshot. The frontend uses this bit to
+        // render the SILENT ⚡ pill instead of the misleading
+        // "AWAITING DATA" legacy fallback for entries that exist but
+        // are simply between events.
+        let silent = entry.map(|e| e.is_silent()).unwrap_or(false);
         // Close-only-on-shadow Live branch: when this is a shadow-tick
         // snapshot AND the indicator is configured as close-only AND the
         // entry is absent from the indicators map (the WARMING-fill
@@ -447,6 +465,33 @@ pub fn build_indicator_lifecycle_map(
         let status = if (is_real_reading || is_close_only_on_shadow_live)
             && bars_seen >= bars_required
         {
+            // Feed-state classification (v6.6+). When the lifecycle is
+            // Live but no value-map entry exists for a DataOnly /
+            // Conditional indicator, the upstream feed (e.g. the Bitget
+            // ticker channel's `holdingAmount` field) hasn't delivered.
+            // Frontend renders this as `WAITING FEED ⏳` so the
+            // operator can distinguish "feed not connected yet" from
+            // "feed says zero" (the latter still renders as
+            // `SILENT ⚡`).
+            use core_domain::indicator_dtos::FeedState;
+            let feed_state = if is_real_reading {
+                if silent {
+                    FeedState::Silent
+                } else {
+                    FeedState::Live
+                }
+            } else if matches!(
+                meta.signal_capability,
+                crate::indicators::registry::SignalCapability::DataOnly
+                    | crate::indicators::registry::SignalCapability::Conditional
+            ) {
+                FeedState::WaitingFeed
+            } else {
+                // Candle-based indicators whose lifecycle is Live but
+                // whose entry is absent are still legitimately Waiting
+                // — they need their first reading. Same UI treatment.
+                FeedState::WaitingFeed
+            };
             IndicatorLifecycleStatus {
                 state: IndicatorLifecycleState::Live,
                 bars_seen,
@@ -454,6 +499,8 @@ pub fn build_indicator_lifecycle_map(
                 last_updated_at: None,
                 last_error: None,
                 stale_threshold_secs,
+                silent: silent && is_real_reading,
+                feed_state,
             }
         } else {
             IndicatorLifecycleStatus {
@@ -463,6 +510,8 @@ pub fn build_indicator_lifecycle_map(
                 last_updated_at: None,
                 last_error: None,
                 stale_threshold_secs,
+                silent: false,
+                feed_state: core_domain::indicator_dtos::FeedState::Live,
             }
         };
         map.insert(meta.key.to_string(), status);
@@ -576,6 +625,13 @@ pub async fn run_single(
     latest_funding: Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     latest_index_px: Arc<RwLock<Option<Decimal>>>,
+    // Per-pair shared rolling OI history (bounded to 60). Owned by
+    // `ActivePair`; the bootstrap warmup path pre-seeds this with
+    // historical samples and live WS events mutate it via
+    // `read_derivative_snapshot_state`.
+    oi_history: Arc<RwLock<VecDeque<f64>>>,
+    // Per-pair shared rolling funding-rate history (bounded to 8).
+    funding_history: Arc<RwLock<VecDeque<f64>>>,
     // Per-timeframe cluster-matrix handle (Phase 2). Each TF pipeline
     // owns its own `Arc<RwLock<...>>`, populated by the per-TF cluster
     // refresh task spawned in `registry/pipelines.rs::spawn_tasks`.
@@ -865,7 +921,13 @@ pub async fn run_single(
     let mut prev_volume_dim: Option<f64> = None;
 
     // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
-    let mut oi_history: VecDeque<f64> = VecDeque::with_capacity(60);
+    // Now sourced from the per-pair shared `oi_history: Arc<RwLock<VecDeque<f64>>>`
+    // so the bootstrap warmup can pre-seed it with historical samples. The
+    // shared lock is read in `read_derivative_snapshot_state` (which also
+    // appends the live sample) and replaced by the warmup seeding path
+    // during `populate_buffers`.
+    let oi_history: Arc<RwLock<VecDeque<f64>>> = oi_history;
+    let funding_history: Arc<RwLock<VecDeque<f64>>> = funding_history;
 
     // Phase 1: real liquidation event accumulator. Per-candle aggregation
     // produces a `LiquidityFlow` on every completed bar.
@@ -1866,12 +1928,17 @@ pub async fn run_single(
                     stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
 
                     // Inject Derivatives Data indicators (OI & Funding Rate).
+                    // Reads from the per-pair shared `oi_history` and
+                    // `funding_history` Arc locks, which the bootstrap
+                    // path pre-seeds from historical snapshots and live
+                    // WS events keep mutating.
                     let deriv = read_derivative_snapshot_state(
                         &latest_oi,
                         &latest_funding,
                         &latest_mark_px,
                         &latest_index_px,
-                        &mut oi_history,
+                        &oi_history,
+                        &funding_history,
                     )
                     .await;
                     let DerivativeSnapshot {
@@ -2481,7 +2548,8 @@ async fn read_derivative_snapshot_state(
     latest_funding: &Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: &Arc<RwLock<Option<Decimal>>>,
     latest_index_px: &Arc<RwLock<Option<Decimal>>>,
-    oi_history: &mut VecDeque<f64>,
+    oi_history: &Arc<RwLock<VecDeque<f64>>>,
+    funding_history: &Arc<RwLock<VecDeque<f64>>>,
 ) -> DerivativeSnapshot {
     let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
     let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
@@ -2493,18 +2561,41 @@ async fn read_derivative_snapshot_state(
     };
     let oi_delta_f = match oi_f {
         Some(cur) => {
-            oi_history.push_back(cur);
-            if oi_history.len() > 60 {
-                oi_history.pop_front();
-            }
-            if oi_history.len() > 1 {
-                Some(cur - oi_history.front().unwrap())
-            } else {
-                None
+            // Append to the shared rolling history (bounded to 60) so
+            // warmup can pre-seed the deque and live updates keep
+            // mutating the same buffer. Live cap mirrors the historical
+            // warmup cap (warm.rs::OI_HISTORY_MAX = 60).
+            {
+                let mut hist = oi_history.write().await;
+                hist.push_back(cur);
+                if hist.len() > 60 {
+                    hist.pop_front();
+                }
+                if hist.len() > 1 {
+                    // Only return a delta once we have ≥ 2 samples so the
+                    // very first WS push after boot doesn't emit a bogus
+                    // "delta vs warmup prior" reading.
+                    Some(cur - hist.front().copied().unwrap_or(cur))
+                } else {
+                    None
+                }
             }
         }
         None => None,
     };
+
+    // Append current funding rate to the shared rolling funding_history
+    // (bounded to 8 samples; mirrors warm.rs::FUNDING_HISTORY_MAX). The
+    // deque is fed sequentially so future OHLC divergences can compute
+    // historical funding-rate deltas for the L2.5 divergence detector.
+    if let Some(cur) = fund_f {
+        let mut hist = funding_history.write().await;
+        hist.push_back(cur);
+        if hist.len() > 8 {
+            hist.pop_front();
+        }
+    }
+
     DerivativeSnapshot {
         oi: oi_f,
         funding: fund_f,

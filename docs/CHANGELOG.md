@@ -4,6 +4,75 @@
 
 ------
 
+## v6.6 (2026-07-29) — Bitget V2 derivatives extraction + UI feed-state
+
+Fixes the bug where the four derivatives indicators (Open Interest, OI Delta,
+Funding Rate, OI-Price Divergence) stayed in `SILENT ⚡` whenever the active
+exchange was Bitget. Root cause: Bitget V2 dropped the dedicated
+`open-interest` and `funding-rate` WebSocket channels and now pushes the data
+on the `ticker` channel under field names `holdingAmount` (OI, base-asset
+units), `fundingRate`, and `nextFundingTime`. The previous adapter subscribed
+to dead channels and parsed the wrong field name; the parse-failure arm was
+silent (`Err(_) => continue`) so no diagnostic ever surfaced. Hyperliquid was
+unaffected because it uses a separate REST poller.
+
+- **Backend — `crates/network-adapters/src/adapters/bitget_derivatives.rs`** —
+  extended `BitgetTickerData` with `holding_amount` / `funding_rate` /
+  `next_funding_time`; new `ticker_to_derivatives_events` helper produces
+  `MarkPrice` + USD-converted `OpenInterest` + `FundingRate` events from a
+  single ticker payload, mirroring Hyperliquid's `derivatives_ctx_to_events`
+  shape.
+- **Backend — `crates/network-adapters/src/adapters/bitget.rs`** — dropped
+  the dead `open-interest` and `funding-rate` WS subscriptions; ticker arm
+  now calls the new helper and feeds `mark_px_override` from the cached
+  mark. Per-channel silent diagnostic (Layer 5) now also logs channels that
+  never received any frame (previously masked behind `if v == 0`).
+- **Backend — `crates/portfolio-supervisor/src/registry/pipelines.rs`** —
+  `ClusterRefreshError::NoOpenInterest` now carries the active exchange; the
+  skip-reason message templates on Hyperliquid (REST poller) vs Bitget
+  (ticker channel).
+- **Backend — `crates/core-domain/src/indicator_dtos.rs`** — new `FeedState`
+  enum (`Live`, `WaitingFeed`, `Silent`, `Stale`) on
+  `IndicatorLifecycleStatus`. Defaults to `Live` so older snapshots
+  deserialize unchanged.
+- **Backend — `crates/market-analyzer/src/analyzer/mod.rs`** —
+  `build_indicator_lifecycle_map` stamps `FeedState::WaitingFeed` for
+  `DataOnly` / `Conditional` / candle-based indicators whose lifecycle is
+  `Live` but no value-map entry exists yet.
+- **Frontend — `ui/src/components/facets/IndicatorsView.svelte`** — new
+  `WAITING FEED ⏳` branch in `stateDisplay` renders amber with a faster
+  pulse, distinct from the existing `SILENT ⚡` grey pulse. The
+  `lifecycleStatus` helper now passes `feed_state` and `silent` through.
+- **Frontend — `ui/src/components/facets/IndicatorsView.module.css`** —
+  `.stateWaitingFeed` class with amber color (`#f59e0b`) and
+  `waitingFeedPulse` keyframes.
+- **Frontend — `ui/src/types.ts`** — `FeedState` enum + `feed_state` /
+  `silent` fields on `IndicatorLifecycleStatus`.
+- **New doc — `docs/engines/data-infrastructure-engine/03-01-08-die-bitget-v2-derivatives.md`** —
+  full V2 wire-format reference + anti-patterns list.
+- **Tests added (9 total):** 7 in `bitget_derivatives.rs`, 3 in
+  `bitget_liquidation_schema.rs` (1 replacement + 2 new), 1 in
+  `cluster_refresh_per_tf.rs`, 1 in `cluster_status_api.rs`, 1 in
+  `IndicatorsView.test.ts`.
+
+------
+
+## v6.5.1 (2026-07-28) — Watchlist Scanner
+
+A new **Watchlist Scanner** modal lets the user paste a tag-style list of base symbols (e.g. `BTC ETH SOL #AVAX`) and have the Market Monitor pipeline run on each pair sequentially. After the first `decision_context.trade_readiness` value lands for each pair, the modal keeps only pairs with `trade_readiness === 'READY'` AND a directional bias (`StrongLong | Long | Short | StrongShort`), and DELETE-removes the rest. The CTA is a dashed-divider button at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The flow has three phases — input, running, done — sharing a single dialog.
+
+- **New:** `ui/src/components/WatchlistScannerModal.svelte` + companion module-css — three-phase modal.
+- **New:** `ui/src/components/WatchlistRunnerButton.svelte` + companion module-css — compact CTA at the bottom of `GeneralDashboard`.
+- **New:** `ui/src/lib/watchlistScanner.ts` — pure helpers `parseSymbols`, `decide`, `reasonFor`, `summarize`, `reasonLabel`, `detectBackendErrorKind`.
+- **Extended:** `ui/src/lib/api.svelte.ts` — `waitForAdvisory(app, pairKey, timeoutMs)` polls `pair.decisionContext.trade_readiness`; `deleteInstanceById(instanceId)` is the DELETE-path wrapper.
+- **Extended:** `ui/src/lib/websocket.svelte.ts` — `applySnapshotToTimeframe` now mirrors `decision_context` from the WS frame to `pair.decisionContext` so the scanner can read the L6 gate without trawling every TF's `latestSnapshot`.
+- **Extended:** `ui/src/types.ts` + `ui/src/state.svelte.ts` — `InstanceState.decisionContext` field.
+- **Extended:** `ui/src/components/layout/AppPageRouter.svelte` — forwards `wssMap` to `GeneralDashboard`.
+
+No new backend endpoints; the scanner reuses the existing `POST /api/instances` and `DELETE /api/instances/:id` routes. Tests: `ui/src/lib/watchlistScanner.test.ts` (33 cases, all `decide`/`reasonFor` truth-table branches + parser cases), `ui/src/components/WatchlistScannerModal.test.ts` (13 cases covering input/running/done phases).
+
+---
+
 ## v6.5 (2026-07-24) — Standardized candle formation + unified indicator lifecycle
 
 Platform-wide refactor replacing the ad-hoc per-exchange bootstrap with a single exchange-independent contract, and replacing the implicit "is this indicator ready?" opacity with explicit per-indicator lifecycle states.

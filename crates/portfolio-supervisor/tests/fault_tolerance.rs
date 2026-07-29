@@ -91,6 +91,8 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+                Arc::new(RwLock::new(VecDeque::with_capacity(8))),
                 Arc::new(RwLock::new(None)),
                 None,
                 None,

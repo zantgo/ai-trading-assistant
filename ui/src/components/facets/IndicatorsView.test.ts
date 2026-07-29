@@ -65,10 +65,16 @@ function realReading(raw: number, normalized: number, stateLabel: string): Indic
     };
 }
 
-function lifecycle(entries: Record<string, { state: 'Live' | 'Loading' | 'Stale' | 'Failed'; barsSeen: number; barsRequired: number }>): IndicatorLifecycleMap {
+function lifecycle(entries: Record<string, { state: 'Live' | 'Loading' | 'Stale' | 'Failed'; barsSeen: number; barsRequired: number; feed_state?: 'Live' | 'WaitingFeed' | 'Silent' | 'Stale' }>): IndicatorLifecycleMap {
     const out: IndicatorLifecycleMap = {};
     for (const [k, v] of Object.entries(entries)) {
-        out[k] = { state: v.state, bars_seen: v.barsSeen, bars_required: v.barsRequired, stale_threshold_secs: 300 };
+        out[k] = {
+            state: v.state,
+            bars_seen: v.barsSeen,
+            bars_required: v.barsRequired,
+            stale_threshold_secs: 300,
+            ...(v.feed_state !== undefined ? { feed_state: v.feed_state } : {}),
+        };
     }
     return out;
 }
@@ -247,5 +253,43 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         const states = rowCells(container, 'colState');
         expect(states[0]).toContain('Warming');
         expect(states[0]).toContain('12/50');
+    });
+
+    it('renders WAITING FEED ⏳ in State column when lifecycle is Live but feed has not arrived (v6.6+)', () => {
+        // v6.6: distinguishes "feed hasn't arrived yet" (WaitingFeed)
+        // from "feed says zero" (SILENT ⚡). This is the exact symptom
+        // the user reported: Bitget ticker channel's `holdingAmount`
+        // was absent on cold start → OI / funding / OI-Δ / OI-Price
+        // Divergence all showed SILENT ⚡ when they should have shown
+        // WAITING FEED ⏳.
+        const tf = makeTf({
+            indicators: {
+                // No value-map entry: only a placeholder so the row renders.
+                // In production the entry is absent (per the analyzer's
+                // WaitingFeed contract) so we pass an empty indicators map.
+            },
+            indicatorLifecycle: lifecycle({
+                open_interest: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                funding_rate: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                oi_delta: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+                oi_price_divergence: { state: 'Live', barsSeen: 100, barsRequired: 1, feed_state: 'WaitingFeed' },
+            }),
+        });
+        const registry = [
+            meta('open_interest', { group: 'DerivativesData', value_format: 'usd_notional' }),
+            meta('funding_rate', { group: 'DerivativesData', value_format: 'percent1' }),
+            meta('oi_delta', { group: 'DerivativesData', value_format: 'decimals2' }),
+            meta('oi_price_divergence', { group: 'DerivativesData', value_format: 'decimals2' }),
+        ];
+
+        const { container } = render(IndicatorsView, {
+            props: { tf, registry, filters: defaultFilters() },
+        });
+
+        const states = rowCells(container, 'colState');
+        expect(states.length).toBe(4);
+        for (const s of states) {
+            expect(s).toContain('WAITING FEED');
+        }
     });
 });

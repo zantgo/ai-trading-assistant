@@ -112,6 +112,8 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
     });
 
@@ -331,6 +333,42 @@ async fn cluster_status_preserves_skip_reason_in_payload() {
     let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro);
     let expected_reason =
         "no open_interest yet (HL derivatives poller hasn't populated this symbol)";
+    {
+        let mut guard = micro_pipe.cluster_status.write().await;
+        guard.status = ClusterRefreshStatus::Skipped;
+        guard.last_skip_reason = Some(expected_reason.to_string());
+    }
+    let _ = micro_pipe;
+
+    let router = api_gateway::build_router(state);
+    let res = router
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/liquidity/cluster-status?symbol=BTC-USDC&slot=micro")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 8192).await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["status"], "SKIPPED");
+    assert_eq!(parsed["last_skip_reason"], expected_reason);
+}
+
+/// Regression: the cluster-refresh skip reason is templated on the active
+/// exchange (v6.6). HL and Bitget produce different messages, and the API
+/// payload must preserve whichever one was set on the snapshot.
+#[tokio::test]
+async fn cluster_status_preserves_bitget_skip_reason_in_payload() {
+    let (state, _pool) = setup_test_state().await;
+    register_btc_usdc(&state).await;
+
+    let pair = state.workspace.get("BTC-USDC").await.unwrap();
+    let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro);
+    let expected_reason =
+        "no open_interest yet (Bitget ticker channel hasn't delivered holdingAmount)";
     {
         let mut guard = micro_pipe.cluster_status.write().await;
         guard.status = ClusterRefreshStatus::Skipped;

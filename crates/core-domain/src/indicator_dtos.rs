@@ -123,6 +123,34 @@ pub struct NormalizedIndicatorValue {
 }
 
 impl NormalizedIndicatorValue {
+    /// Whether this reading is **silent** — i.e. has a raw value but no
+    /// discrete signal was emitted on this snapshot.
+    ///
+    /// Frontend dashboard contract (v6.6+):
+    /// - `raw_value == 0.0` AND `signals.is_empty()` → **silent data-only** row
+    ///   (e.g. orderbook-derived metrics on a freshly connected WS feed where
+    ///   `OrderBookAnalysis` hasn't yet published a fresh enough snapshot).
+    /// - `raw_value != 0.0` AND `signals.is_empty()` AND `state_label` empty →
+    ///   **conditional indicator with no recent event** (BOS, CHoCH, FVG,
+    ///   S/R flip, chart patterns, OI-Price Divergence, …).
+    /// - `signals.is_empty()` AND `state_label` non-empty → still "silent"
+    ///   on the signal axis (data is publishing, but no signal fired) but
+    ///   not "silent" on the state axis (an active level / regime label).
+    ///
+    /// The frontend picks the right pill (AWAITING_DATA · WARMING · SILENT
+    /// · LIVE) by combining this bit with the lifecycle map's
+    /// `IndicatorLifecycleState` and the registry's `signal_capability`.
+    pub fn is_silent(&self) -> bool {
+        self.signals.is_empty() && self.state_label.trim().is_empty() && self.raw_value.abs() < f64::EPSILON
+    }
+
+    /// True if the entry has at least one discrete signal fired.
+    pub fn has_signals(&self) -> bool {
+        !self.signals.is_empty()
+    }
+}
+
+impl NormalizedIndicatorValue {
     /// Build a single-line normalized value.
     pub fn scalar(raw_value: f64, normalized: f64, state_label: impl Into<String>) -> Self {
         let n = clamp_unit(normalized);
@@ -212,6 +240,37 @@ pub enum IndicatorLifecycleState {
     Failed,
 }
 
+/// Per-indicator feed status published on every `MarketSnapshot` alongside
+/// the lifecycle map. Distinguishes **why** a `Live` lifecycle indicator is
+/// not showing a real value:
+///
+/// - `Live` — a value-map entry exists with non-zero raw_value or a non-empty
+///   `state_label`. Normal display.
+/// - `WaitingFeed` — lifecycle is `Live` (enough candles have been seen) but
+///   no value-map entry exists. Common for **DataOnly** / **Conditional**
+///   indicators whose upstream feed hasn't delivered yet (e.g. OI from the
+///   Bitget ticker channel on cold start). Frontend renders `WAITING FEED ⏳`.
+/// - `Silent` — a value-map entry exists but `is_silent()` returns true (raw
+///   value ≈ 0, no signals, no state label). Frontend renders `SILENT ⚡`.
+/// - `Stale` — entry exists but is older than the staleness threshold.
+///
+/// `WaitingFeed` and `Silent` are deliberately distinct so the operator can
+/// tell at a glance whether the issue is a missing wire feed (WaitingFeed)
+/// or a true zero reading (Silent).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FeedState {
+    Live,
+    WaitingFeed,
+    Silent,
+    Stale,
+}
+
+impl Default for FeedState {
+    fn default() -> Self {
+        FeedState::Live
+    }
+}
+
 /// Per-indicator operational lifecycle metadata published on every
 /// `MarketSnapshot` alongside the `indicators` map. The two maps share keys;
 /// `indicator_lifecycle` describes the **status** of each calculator, while
@@ -226,6 +285,21 @@ pub struct IndicatorLifecycleStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     pub stale_threshold_secs: u32,
+    /// `true` if the latest reading is **silent**: the calculator produced a
+    /// raw value but no discrete signal was emitted. Drives the frontend's
+    /// SILENT pill — distinguishes "indicator is computing, no recent
+    /// event" from "indicator hasn't warmed up yet". `false` when the
+    /// entry is missing (WARMING/AWAITING_DATA) or when a signal/state was
+    /// emitted on the last snapshot.
+    #[serde(default)]
+    pub silent: bool,
+    /// Feed classification (v6.6+). Distinguishes "feed hasn't arrived
+    /// yet" (`WaitingFeed`) from "feed arrived but says zero" (`Silent`)
+    /// for the SILENT / WAITING FEED frontend pills. Defaults to `Live`
+    /// for backward compatibility — older clients / older snapshots that
+    /// omit this field deserialize as a normal reading.
+    #[serde(default)]
+    pub feed_state: FeedState,
 }
 
 impl IndicatorLifecycleStatus {
@@ -238,6 +312,8 @@ impl IndicatorLifecycleStatus {
             last_updated_at: None,
             last_error: None,
             stale_threshold_secs,
+            silent: false,
+            feed_state: FeedState::Live,
         }
     }
 
@@ -247,6 +323,7 @@ impl IndicatorLifecycleStatus {
         bars_required: u32,
         last_updated_at: u64,
         stale_threshold_secs: u32,
+        silent: bool,
     ) -> Self {
         Self {
             state: IndicatorLifecycleState::Live,
@@ -255,6 +332,29 @@ impl IndicatorLifecycleStatus {
             last_updated_at: Some(last_updated_at),
             last_error: None,
             stale_threshold_secs,
+            silent,
+            feed_state: FeedState::Live,
+        }
+    }
+
+    /// Promote to `Live` with an explicit feed-state stamp (v6.6+).
+    pub fn live_with_feed_state(
+        bars_seen: u32,
+        bars_required: u32,
+        last_updated_at: u64,
+        stale_threshold_secs: u32,
+        silent: bool,
+        feed_state: FeedState,
+    ) -> Self {
+        Self {
+            state: IndicatorLifecycleState::Live,
+            bars_seen,
+            bars_required,
+            last_updated_at: Some(last_updated_at),
+            last_error: None,
+            stale_threshold_secs,
+            silent,
+            feed_state,
         }
     }
 
@@ -267,6 +367,8 @@ impl IndicatorLifecycleStatus {
             last_updated_at: None,
             last_error: Some(last_error.into()),
             stale_threshold_secs: 0,
+            silent: false,
+            feed_state: FeedState::Live,
         }
     }
 }

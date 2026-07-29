@@ -448,6 +448,7 @@
             selectedInstance={app.selectedInstance}
             activePair={resilientActivePair}
             activeTab={app.activeTab}
+            {wssMap}
         />
 
         <!-- Bottom Console (Positions / Orders / History / Plan) -->

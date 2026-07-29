@@ -49,6 +49,29 @@
         return m;
     });
 
+    /** Layer 2/3: per-key lookup of `signal_capability` (AlwaysActive |
+     *  Conditional | DataOnly). Drives the SILENT-badging decision for
+     *  indicators whose raw value is published but where no signal
+     *  has fired in the current bar. */
+    const signalCapability = $derived.by(() => {
+        const m = new Map<string, string>();
+        for (const r of registry) {
+            // Field arrives serialised as one of:
+            //   "AlwaysActive" | "Conditional" | "DataOnly"
+            // — match both the bare string and the `SignalCapability::*`
+            // qualified form (defensive against backend renaming).
+            const cap = (r as Record<string, unknown>).signal_capability;
+            const capStr =
+                typeof cap === 'string'
+                    ? cap
+                    : cap != null
+                      ? String(cap).split('::').pop() ?? ''
+                      : '';
+            m.set(r.key, capStr);
+        }
+        return m;
+    });
+
     const groups = $derived.by(() => {
         const map = new Map<string, IndicatorMeta[]>();
         for (const g of GROUP_ORDER) map.set(g, []);
@@ -157,8 +180,19 @@
     }
 
     /** v6.5+: authoritative lifecycle status from the indicator lifecycle map.
-     *  Falls back to the legacy heuristic when the map is not yet populated. */
-    function lifecycleStatus(key: string): { label: string; barsSeen: number; barsRequired: number; state: string } | null {
+     *  Falls back to the legacy heuristic when the map is not yet populated.
+     *  v6.6+: also surfaces `feed_state` and `silent` so the State column
+     *  can distinguish WAITING FEED ⏳ from SILENT ⚡ from LIVE. */
+    function lifecycleStatus(
+        key: string,
+    ): {
+        label: string;
+        barsSeen: number;
+        barsRequired: number;
+        state: string;
+        feed_state?: string;
+        silent?: boolean;
+    } | null {
         const lc = tf.indicatorLifecycle?.[key];
         if (lc) {
             return {
@@ -166,6 +200,8 @@
                 barsSeen: lc.bars_seen,
                 barsRequired: lc.bars_required,
                 state: lc.state,
+                feed_state: (lc as { feed_state?: string }).feed_state,
+                silent: (lc as { silent?: boolean }).silent,
             };
         }
         return null;
@@ -190,33 +226,82 @@
     }
 
     /** Smart State column: uses authoritative lifecycle map when available,
-     *  falls back to legacy heuristic. */
+     *  falls back to legacy heuristic. Layer 2 of the silent-pill
+     *  pipeline — distinguishes AWAITING_DATA (data feed silent),
+     *  WARMING (bootstrap replay), SILENT (no recent event on a
+     *  conditional indicator) and LIVE (active signal). */
     function stateDisplay(key: string): { label: string; cssClass: string } {
         const lc = lifecycleStatus(key);
         if (lc) {
             if (lc.state === 'Live') {
-                const sl = entry(key)?.state_label;
+                const e = entry(key);
+                const sl = e?.state_label;
                 const pending = isPendingCandle(key);
-                if (sl && sl !== 'WARMING') {
+                if (e && sl && sl !== 'WARMING') {
                     return {
                         label: pending ? formatStateLabel(sl) + ' \u25C9' : formatStateLabel(sl),
                         cssClass: pending ? `${styles.stateLive} ${styles.statePendingClose}` : styles.stateLive,
                     };
                 }
-                // Defensive: the lifecycle builder should keep WARMING entries
-                // in `Loading`, but if a stale snapshot reports Live for a
-                // key whose entry is still the WARMING placeholder, render
-                // a truthful "awaiting data" message instead of `UNKNOWN`.
+                // WAITING FEED (v6.6+): lifecycle reached Live but the
+                // upstream feed hasn't delivered yet (e.g. Bitget
+                // ticker channel's `holdingAmount` field absent for
+                // the first few seconds after cold start). Distinct
+                // from SILENT ⚡ which means "feed arrived and said
+                // zero". The bit is set on the lifecycle by
+                // `build_indicator_lifecycle_map` in market-analyzer.
+                // The wire field is snake_case (`feed_state`); the
+                // type definition aliases both.
+                const feedState =
+                    (lc as { feed_state?: string }).feed_state ??
+                    (lc as { feedState?: string }).feedState;
+                if (feedState === 'WaitingFeed') {
+                    return {
+                        label: 'WAITING FEED \u23F3', // ⏳
+                        cssClass: styles.stateWaitingFeed,
+                    };
+                }
+                // Live by lifecycle but no useful value yet → SILENT only if
+                // the registry says this is a conditional or data-only
+                // indicator that can be silent between events. AlwaysActive
+                // indicators fall through to the historical AWAITING_DATA
+                // path (defensive — they should always have a reading
+                // during Live state, but the WARMING-suppression for
+                // non-CandleBased indicators can leave the entry missing
+                // for a few bars after cold start).
+                const capability = signalCapability.get(key) ?? '';
+                const lcSilent = (lc as { silent?: boolean }).silent === true;
+                if (lcSilent || capability === 'Conditional' || capability === 'DataOnly') {
+                    return {
+                        label: 'SILENT \u26A1', // ⚡
+                        cssClass: styles.stateSilent,
+                    };
+                }
+                // Defensive: lifecycle builder should keep WARMING entries
+                // in `Loading`. If a stale snapshot reports Live for a
+                // key whose entry is still the WARMING placeholder,
+                // render the truthful "AWAITING DATA" message instead of
+                // "UNKNOWN".
                 return { label: 'AWAITING DATA', cssClass: styles.stateIdle };
             }
-            if (lc.state === 'Loading') return { label: `Warming (${lc.barsSeen}/${lc.barsRequired})`, cssClass: styles.stateWarming };
+            if (lc.state === 'Loading')
+                return {
+                    label: `Warming (${lc.barsSeen}/${lc.barsRequired})`,
+                    cssClass: styles.stateWarming,
+                };
             return { label: lc.state, cssClass: styles.stateWarming };
         }
-        // Legacy fallback
+        // Legacy fallback (older builds without lifecycle map)
         const e = entry(key);
         if (!e?.state_label || e.state_label === '--') return { label: '—', cssClass: '' };
 
+        const capability = signalCapability.get(key) ?? '';
         if (e.state_label !== 'WARMING') {
+            // Conditional/DataOnly legacy fallback treats entry without a
+            // fresh signal as SILENT.
+            if ((e.signals?.length ?? 0) === 0 && (capability === 'Conditional' || capability === 'DataOnly')) {
+                return { label: 'SILENT \u26A1', cssClass: styles.stateSilent };
+            }
             return { label: formatStateLabel(e.state_label), cssClass: styles.stateLive };
         }
 
@@ -244,18 +329,37 @@
         return styles.confBarLow;
     }
 
-    /** Heuristic status dot: green (has data) / amber (warming) / gray (unknown). */
+    /** Heuristic status dot: green (live + signal) / grey ⚡ (silent) /
+     *  amber (warming) / grey (unknown / no data). The silent dot is
+     *  intentionally grey rather than green so an AlwaysActive
+     *  indicator with no fresh signal does NOT light up green; the
+     *  trader reads SILENT ⚡ as "alive but nothing of note right
+     *  now". */
     function statusDotClass(key: string): string {
         const lc = lifecycleStatus(key);
         if (lc) {
-            if (lc.state === 'Live') return styles.dotLive;
+            if (lc.state === 'Live') {
+                const lcSilent = (lc as { silent?: boolean }).silent === true;
+                if (lcSilent) return styles.dotSilent;
+                const e = entry(key);
+                if (e && (e.signals?.length ?? 0) > 0) return styles.dotLive;
+                const cap = signalCapability.get(key) ?? '';
+                if (cap === 'Conditional' || cap === 'DataOnly') return styles.dotSilent;
+                return styles.dotLive;
+            }
             if (lc.state === 'Loading') return lc.barsSeen === 0 ? styles.dotUnknown : styles.dotWarming;
             if (lc.state === 'Stale' || lc.state === 'Failed') return styles.dotUnknown;
         }
         const e = entry(key);
         if (!e) return styles.dotUnknown;
-        if (hasRealData(key)) return styles.dotLive;
         if (e.state_label === 'WARMING') return styles.dotWarming;
+        if (hasRealData(key)) {
+            const cap = signalCapability.get(key) ?? '';
+            if (cap === 'Conditional' || cap === 'DataOnly') {
+                return (e.signals?.length ?? 0) === 0 ? styles.dotSilent : styles.dotLive;
+            }
+            return styles.dotLive;
+        }
         return styles.dotUnknown;
     }
 

@@ -527,6 +527,89 @@ fn derive_confluent_zones(
     (entry_levels, target_levels, invalidation_levels)
 }
 
+/// Build entry/target/invalidation zones for one directional side.
+///
+/// `bias_long = true` produces a long-oriented bracket (entry below close,
+/// target above, invalidation below). `bias_long = false` mirrors that
+/// (entry above close, target below, invalidation above). Returns the three
+/// zone values together with the per-side confluent level vectors so the
+/// matrix-level fields can be sourced from the active side without an extra
+/// `derive_confluent_zones` call.
+fn derive_side_zones(
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    cluster: Option<&LiquidationClusterMatrix>,
+    close: f64,
+    atr: f64,
+    primary_score: f64,
+    bias_long: bool,
+) -> (
+    core_domain::opportunity::PriceRange,
+    core_domain::opportunity::PriceRange,
+    f64,
+    Vec<ConfluentLevel>,
+    Vec<ConfluentLevel>,
+    Vec<ConfluentLevel>,
+) {
+    let (confluent_entry, confluent_target, confluent_inval) =
+        derive_confluent_zones(indicators, cluster, close, bias_long);
+
+    let has_confluent_entry = confluent_entry.len() >= 2;
+    let has_confluent_target = confluent_target.len() >= 2;
+    let has_confluent_inval = !confluent_inval.is_empty();
+
+    let entry_zone = if has_confluent_entry {
+        let prices: Vec<f64> = confluent_entry.iter().map(|c| c.price).collect();
+        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let low = low.min(close).max(0.0);
+        let high = high.max(close);
+        core_domain::opportunity::PriceRange { low, high }
+    } else {
+        core_domain::opportunity::PriceRange {
+            low: (close - atr * 0.5).max(0.0),
+            high: close + atr * 0.5,
+        }
+    };
+
+    let target_zone = if has_confluent_target {
+        let prices: Vec<f64> = confluent_target.iter().map(|c| c.price).collect();
+        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        core_domain::opportunity::PriceRange { low, high }
+    } else if bias_long {
+        let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
+        core_domain::opportunity::PriceRange {
+            low: close + atr * k,
+            high: close + atr * (k + 1.0),
+        }
+    } else {
+        let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
+        core_domain::opportunity::PriceRange {
+            low: close - atr * (k + 1.0),
+            high: close - atr * k,
+        }
+    };
+
+    let invalidation_level = if has_confluent_inval {
+        confluent_inval[0].price.max(0.0)
+    } else if bias_long {
+        let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
+        (close - atr * k).max(0.0)
+    } else {
+        let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
+        close + atr * k
+    };
+
+    (
+        entry_zone,
+        target_zone,
+        invalidation_level,
+        confluent_entry,
+        confluent_target,
+        confluent_inval,
+    )
+}
+
 fn compute_opportunity(
     analysis: &AnalysisMatrix,
     alignment: &AlignmentMatrix,
@@ -727,49 +810,52 @@ fn compute_opportunity(
         .and_then(|vals| vals.get("atr_14").copied())
         .unwrap_or(close * 0.01);
 
-    let (confluent_entry, confluent_target, confluent_inval) =
-        derive_confluent_zones(indicators, cluster, close, bias_bullish);
+    let (
+        long_entry_zone,
+        long_target_zone,
+        long_invalidation_level,
+        long_conf_entry,
+        long_conf_target,
+        long_conf_inval,
+    ) = derive_side_zones(indicators, cluster, close, atr, primary_score, true);
+    let (
+        short_entry_zone,
+        short_target_zone,
+        short_invalidation_level,
+        short_conf_entry,
+        short_conf_target,
+        short_conf_inval,
+    ) = derive_side_zones(indicators, cluster, close, atr, primary_score, false);
 
-    let has_confluent_entry = confluent_entry.len() >= 2;
-    let has_confluent_target = confluent_target.len() >= 2;
-    let has_confluent_inval = !confluent_inval.is_empty();
-
-    let entry_zone = if has_confluent_entry {
-        let prices: Vec<f64> = confluent_entry.iter().map(|c| c.price).collect();
-        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
-        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let low = low.min(close).max(0.0);
-        let high = high.max(close);
-        core_domain::opportunity::PriceRange { low, high }
+    // Legacy scalar fields mirror the active side so PME/TAE consumers that
+    // read `entry_zone` / `target_zone` / `invalidation_level` see unchanged
+    // numbers. The Opportunities tab reads the per-direction siblings
+    // (`long_*_zone` / `short_*_zone`) instead.
+    let (
+        entry_zone,
+        target_zone,
+        invalidation_level,
+        confluent_entry,
+        confluent_target,
+        confluent_inval,
+    ) = if bias_bullish {
+        (
+            long_entry_zone.clone(),
+            long_target_zone.clone(),
+            long_invalidation_level,
+            long_conf_entry,
+            long_conf_target,
+            long_conf_inval,
+        )
     } else {
-        let entry_low = (close - atr * 0.5).max(0.0);
-        let entry_high = close + atr * 0.5;
-        core_domain::opportunity::PriceRange {
-            low: entry_low,
-            high: entry_high,
-        }
-    };
-
-    let target_zone = if has_confluent_target {
-        let prices: Vec<f64> = confluent_target.iter().map(|c| c.price).collect();
-        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
-        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        core_domain::opportunity::PriceRange { low, high }
-    } else {
-        let target_low = close + atr * (if primary_score >= 70.0 { 2.0 } else { 1.5 });
-        let target_high = close + atr * (if primary_score >= 70.0 { 3.0 } else { 2.0 });
-        core_domain::opportunity::PriceRange {
-            low: target_low,
-            high: target_high,
-        }
-    };
-
-    let invalidation_level = if has_confluent_inval {
-        confluent_inval[0].price.max(0.0)
-    } else if primary_score >= 70.0 {
-        (close - atr * 2.0).max(0.0)
-    } else {
-        (close - atr * 1.5).max(0.0)
+        (
+            short_entry_zone.clone(),
+            short_target_zone.clone(),
+            short_invalidation_level,
+            short_conf_entry,
+            short_conf_target,
+            short_conf_inval,
+        )
     };
 
     let expected_rr_internal = if atr > 0.0 {
@@ -814,6 +900,12 @@ fn compute_opportunity(
         entry_zone,
         target_zone,
         invalidation_level,
+        long_entry_zone,
+        long_target_zone,
+        long_invalidation_level,
+        short_entry_zone,
+        short_target_zone,
+        short_invalidation_level,
         expected_rr_internal,
         time_horizon,
         confluent_entry_levels: confluent_entry,
@@ -1175,5 +1267,173 @@ mod tests {
             None,
         );
         assert!(result.alignment.mtf_overall_score.abs() < 40.0);
+    }
+
+    #[test]
+    fn opportunity_emits_both_directional_zones() {
+        let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+        let snap60 = make_snapshot(60, 64000.0, ctx.clone());
+        let snap180 = make_snapshot(180, 64100.0, ctx.clone());
+        let snap300 = make_snapshot(300, 64200.0, ctx.clone());
+        let snap900 = make_snapshot(900, 64300.0, ctx.clone());
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[
+                (60, &snap60),
+                (180, &snap180),
+                (300, &snap300),
+                (900, &snap900),
+            ],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+        assert!(opp.long_entry_zone.high >= opp.long_entry_zone.low);
+        assert!(opp.long_target_zone.high >= opp.long_target_zone.low);
+        assert!(opp.short_entry_zone.high >= opp.short_entry_zone.low);
+        assert!(opp.short_target_zone.high >= opp.short_target_zone.low);
+        assert!(opp.long_invalidation_level > 0.0);
+        assert!(opp.short_invalidation_level > 0.0);
+    }
+
+    #[test]
+    fn directional_target_zones_are_geometrically_separated() {
+        let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+        let snap60 = make_snapshot(60, 64000.0, ctx.clone());
+        let snap180 = make_snapshot(180, 64100.0, ctx.clone());
+        let snap300 = make_snapshot(300, 64200.0, ctx.clone());
+        let snap900 = make_snapshot(900, 64300.0, ctx.clone());
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[
+                (60, &snap60),
+                (180, &snap180),
+                (300, &snap300),
+                (900, &snap900),
+            ],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+        let long_target_mid =
+            (opp.long_target_zone.low + opp.long_target_zone.high) / 2.0;
+        let short_target_mid =
+            (opp.short_target_zone.low + opp.short_target_zone.high) / 2.0;
+        let close = 64000.0;
+        assert!(
+            long_target_mid >= close,
+            "long target mid {long_target_mid} must be >= close {close}"
+        );
+        assert!(
+            short_target_mid <= close,
+            "short target mid {short_target_mid} must be <= close {close}"
+        );
+    }
+
+    #[test]
+    fn directional_invalidation_levels_are_geometrically_separated() {
+        let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+        let snap60 = make_snapshot(60, 64000.0, ctx.clone());
+        let snap180 = make_snapshot(180, 64100.0, ctx.clone());
+        let snap300 = make_snapshot(300, 64200.0, ctx.clone());
+        let snap900 = make_snapshot(900, 64300.0, ctx.clone());
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[
+                (60, &snap60),
+                (180, &snap180),
+                (300, &snap300),
+                (900, &snap900),
+            ],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+        let close = 64000.0;
+        assert!(
+            opp.long_invalidation_level < close,
+            "long invalidation {} must be < close {close}",
+            opp.long_invalidation_level
+        );
+        assert!(
+            opp.short_invalidation_level > close,
+            "short invalidation {} must be > close {close}",
+            opp.short_invalidation_level
+        );
+    }
+
+    #[test]
+    fn legacy_scalar_fields_mirror_long_side_when_bullish() {
+        let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+        let snap60 = make_snapshot(60, 64000.0, ctx.clone());
+        let snap180 = make_snapshot(180, 64100.0, ctx.clone());
+        let snap300 = make_snapshot(300, 64200.0, ctx.clone());
+        let snap900 = make_snapshot(900, 64300.0, ctx.clone());
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[
+                (60, &snap60),
+                (180, &snap180),
+                (300, &snap300),
+                (900, &snap900),
+            ],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+        assert!(matches!(
+            result.analysis.bias,
+            analysis::MarketBias::Bullish | analysis::MarketBias::StrongBullish
+        ));
+        assert_eq!(opp.entry_zone.low, opp.long_entry_zone.low);
+        assert_eq!(opp.entry_zone.high, opp.long_entry_zone.high);
+        assert_eq!(opp.target_zone.low, opp.long_target_zone.low);
+        assert_eq!(opp.target_zone.high, opp.long_target_zone.high);
+        assert_eq!(opp.invalidation_level, opp.long_invalidation_level);
+    }
+
+    #[test]
+    fn legacy_scalar_fields_mirror_short_side_when_bearish() {
+        let bear_ctx = make_context("TRENDING", -0.7, -0.6, 0.2, 0.1, -60);
+        let snap60 = make_snapshot(60, 64000.0, bear_ctx.clone());
+        let snap180 = make_snapshot(180, 63900.0, bear_ctx.clone());
+        let snap300 = make_snapshot(300, 63800.0, bear_ctx.clone());
+        let snap900 = make_snapshot(900, 63700.0, bear_ctx.clone());
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[
+                (60, &snap60),
+                (180, &snap180),
+                (300, &snap300),
+                (900, &snap900),
+            ],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+        assert!(matches!(
+            result.analysis.bias,
+            analysis::MarketBias::Bearish | analysis::MarketBias::StrongBearish
+        ));
+        assert_eq!(opp.entry_zone.low, opp.short_entry_zone.low);
+        assert_eq!(opp.entry_zone.high, opp.short_entry_zone.high);
+        assert_eq!(opp.target_zone.low, opp.short_target_zone.low);
+        assert_eq!(opp.target_zone.high, opp.short_target_zone.high);
+        assert_eq!(opp.invalidation_level, opp.short_invalidation_level);
     }
 }
