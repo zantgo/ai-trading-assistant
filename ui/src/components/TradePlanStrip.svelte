@@ -40,7 +40,7 @@
     let applyTimer: ReturnType<typeof setTimeout> | null = null;
 
     const opportunity = $derived<OpportunityMatrix | null>(
-        (pair?.microTerm?.latestSnapshot as any)?.opportunity ?? null,
+        pair?.opportunity ?? null,
     );
 
     const advisory = $derived<AdvisoryMatrix | null>(pair?.advisory ?? null);

@@ -256,7 +256,20 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         }
         tf.indicators = merged;
     }
-    tf.latestSnapshot = snapshot;
+    // Only overwrite the cached snapshot when the incoming frame actually
+    // carries matrix payload OR the slot has never received a snapshot
+    // yet. Shadow ticks (`broadcast_live_snapshot` in
+    // `crates/market-analyzer/src/analyzer/mod.rs`) intentionally zero
+    // out `alignment/analysis/risk/advisory/opportunity/decision_context`
+    // for throughput; without this guard a shadow frame would wipe the
+    // last completed-candle payload from any consumer still reading
+    // from `latestSnapshot` (e.g. `decision_context` in TradePlanStrip).
+    const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis ||
+        snapshot.risk || snapshot.advisory || snapshot.opportunity ||
+        snapshot.decision_context);
+    if (!tf.latestSnapshot || hasMatrixPayload) {
+        tf.latestSnapshot = snapshot;
+    }
     tf.isCompleted = snapshot.is_completed === true;
 
     // Capture the per-TF MarketContext synthesis block (L1 LOCAL
@@ -328,6 +341,17 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // behavior is correct.
         if (snapshot.decision_context && typeof snapshot.decision_context === 'object') {
             pair.decisionContext = snapshot.decision_context;
+        }
+        // Opportunity matrix (L4) — entry/target/invalidation zones for
+        // both sides, R:R, time horizon, confluent levels, evaluated
+        // profiles. Only completed-candle frames carry this payload;
+        // shadow ticks hard-code it to `None` for performance. Mirroring
+        // here means `OpportunitiesPanel`, `TradePlanStrip` and
+        // `AdvisoryPanel` can read from `pair.opportunity` directly
+        // instead of trawling `microTerm.latestSnapshot.opportunity`
+        // (which the unconditional assignment above used to wipe).
+        if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {
+            pair.opportunity = snapshot.opportunity;
         }
     }
     } catch (_) {}

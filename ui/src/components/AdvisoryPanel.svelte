@@ -5,7 +5,7 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AdvisoryPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
-    import { computeDecisionRank, computeSymmetricSetups } from '../lib/decisionRank';
+    import { computeDecisionRank } from '../lib/decisionRank';
 
     const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
@@ -16,7 +16,7 @@
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const snapshot = $derived(instance?.microTerm.latestSnapshot as unknown as MarketSnapshot | undefined);
     const decisionCtx = $derived<DecisionContext | null>(snapshot?.decision_context ?? null);
-    const opportunity = $derived<OpportunityMatrix | null>(snapshot?.opportunity ?? null);
+    const opportunity = $derived<OpportunityMatrix | null>(instance?.opportunity ?? null);
     const analysis = $derived(instance?.analysis ?? null);
     const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
@@ -34,13 +34,15 @@
         analysis,
     }));
 
-    // ── Symmetric Long / Short setups ─────────────────────────────────────
-    const setups = $derived(computeSymmetricSetups({
-        opportunity,
-        markPrice,
-        topAction: rank.top,
-        readiness: rank.headline.state,
-    }));
+    // ── Runner-ups (winner excluded, ranked descending) ───────────────────
+    const runners = $derived.by((): { action: 'LONG' | 'SHORT' | 'HOLD'; prob: number }[] => {
+        const all = [
+            { action: 'LONG' as const, prob: rank.long.probability },
+            { action: 'SHORT' as const, prob: rank.short.probability },
+            { action: 'HOLD' as const, prob: rank.hold.probability },
+        ];
+        return all.filter((r) => r.action !== rank.top).sort((a, b) => b.prob - a.prob);
+    });
 
     function buildExport() {
         return buildPanelExportJson({
@@ -83,12 +85,6 @@
     }));
 
     // ── Cosmetic helpers ──────────────────────────────────────────────────
-    function fillColor(v: number, t: 'rr' | 'danger' | 'conf'): string {
-        if (t === 'rr') return v >= 2 ? styles.green : v >= 1 ? styles.amber : styles.red;
-        if (t === 'danger') return v >= 70 ? styles.red : v >= 40 ? styles.amber : styles.green;
-        return v >= 60 ? styles.green : v >= 30 ? styles.amber : styles.red;
-    }
-
     function sanitizeLabel(s: string): string {
         if (!s) return '\u2014';
         let cleaned = s.replace(/([a-z])([A-Z])/g, '$1 $2');
@@ -122,36 +118,16 @@
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
     const stopLossPct = $derived((advisory as any)?.stop_loss_distance_pct ?? 0);
 
-    function fmtPx(n: number, mp: number): string {
-        if (n == null || !isFinite(n) || n <= 0) return '—';
-        if (mp >= 1000) return `$${n.toFixed(0)}`;
-        if (mp >= 1) return `$${n.toFixed(2)}`;
-        return `$${n.toFixed(4)}`;
-    }
-
-    function rrCls(rr: number | null): string {
-        if (rr == null) return styles.rrNone ?? '';
-        if (rr >= 2.0) return styles.green;
-        if (rr >= 1.0) return styles.amber;
-        return styles.red;
-    }
-
-    // ── Hero state-class mapping ──────────────────────────────────────────
-    function heroStateClass(s: 'READY' | 'FORMING' | 'WATCH' | 'STAND_ASIDE'): string {
-        switch (s) {
-            case 'READY': return styles.heroReady ?? '';
-            case 'FORMING': return styles.heroForming ?? '';
-            case 'WATCH': return styles.heroWatch ?? '';
-            default: return styles.heroAside ?? '';
-        }
+    // ── Hero direction-class mapping ──────────────────────────────────────
+    function verdictClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
+        if (action === 'LONG') return styles.verdictLong ?? '';
+        if (action === 'SHORT') return styles.verdictShort ?? '';
+        return styles.verdictHold ?? '';
     }
     function rankBarClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
         if (action === 'LONG') return styles.rankLong ?? '';
         if (action === 'SHORT') return styles.rankShort ?? '';
         return styles.rankHold ?? '';
-    }
-    function setupHeaderClass(side: 'LONG' | 'SHORT'): string {
-        return side === 'LONG' ? (styles.setupHeaderLong ?? '') : (styles.setupHeaderShort ?? '');
     }
 </script>
 
@@ -165,155 +141,67 @@
         <div class={styles.noData}>Awaiting decision guidance data — all values will populate once L6 synthesis runs</div>
     {/if}
 
-    <!-- ── Unified Final Decision hero ────────────────────────────────────── -->
-    <div class="{styles.decisionHero} {heroStateClass(rank.headline.state)}">
-        <div class={styles.heroLabel}>FINAL DECISION</div>
-        <div class={styles.heroHeadline}>{rank.headline.label}</div>
-        <div class={styles.heroSubtitle}>
-            Confidence {rank.headline.confidence_pct}%
+    <!-- ── Direction-coded verdict (LONG=green, SHORT=red, HOLD=amber) ─────── -->
+    <div class="{styles.verdict} {verdictClass(rank.top)}">
+        <div class={styles.verdictLabel}>RECOMMENDATION</div>
+        <div class={styles.verdictRow}>
+            <div class={styles.verdictAction}>{rank.top}</div>
+            <div class={styles.verdictPct}>{rank.top_prob}%</div>
         </div>
-        <div class={styles.rankRow}>
-            {#each [
-                { action: 'LONG' as const, prob: rank.long.probability },
-                { action: 'SHORT' as const, prob: rank.short.probability },
-                { action: 'HOLD' as const, prob: rank.hold.probability },
-            ] as r (r.action)}
-                <div class="{styles.rankCell} {rankBarClass(r.action)}">
-                    <div class={styles.rankAction}>{r.action}</div>
-                    <div class={styles.rankPct}>{r.prob}%</div>
-                    <div class={styles.rankBarBg}>
-                        <div class="{styles.rankBarFill} {rankBarClass(r.action)}"
-                             style="width: {r.prob}%"></div>
-                    </div>
-                </div>
-            {/each}
+        <div class={styles.verdictMeta}>
+            Confidence {rank.headline.confidence_pct}% · {rank.headline.state}
         </div>
     </div>
 
-    <!-- ── Rationale ──────────────────────────────────────────────────────── -->
+    <!-- ── Runner-ups (winner excluded, dispersion at a glance) ─────────────── -->
+    <div class={styles.runnerRow}>
+        {#each runners as r (r.action)}
+            <div class="{styles.runnerCell} {rankBarClass(r.action)}">
+                <span class={styles.runnerAction}>{r.action}</span>
+                <span class={styles.runnerPct}>{r.prob}%</span>
+            </div>
+        {/each}
+    </div>
+
+    <!-- ── Why (top-3 rationale) ────────────────────────────────────────────── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Rationale</div>
-        <ul class={styles.rationaleList}>
-            {#each rank.rationale as line, i (i)}
-                <li class={styles.rationaleItem}>{line}</li>
+        <div class={styles.sectionTitle}>Why</div>
+        <ul class={styles.why}>
+            {#each rank.rationale.slice(0, 3) as line, i (i)}
+                <li class={styles.whyItem}>{line}</li>
             {/each}
         </ul>
     </div>
 
-    <!-- ── Setups (Long + Short, derived symmetrically) ───────────────────── -->
+    <!-- ── KPI strip (compact 4-cell) ──────────────────────────────────────── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Setups</div>
-        <div class={styles.setupPair}>
-            <!-- Long Setup -->
-            <div class="{styles.setupCard} {setups.long.active ? styles.setupCardActive : styles.setupCardInactive}">
-                <div class="{styles.setupHeader} {setupHeaderClass('LONG')}">
-                    <span class={styles.setupHeaderTitle}>Long Setup</span>
-                    <span class={styles.setupStatus}>{setups.long.status}</span>
-                </div>
-                <div class={styles.setupBody}>
-                    <div class={styles.setupRow}>
-                        <span class={styles.setupRowLabel}>ENTRY</span>
-                        <span class={styles.setupRowValue}>
-                            {setups.long.entry ? fmtPx(setups.long.entry.price, markPrice) : '—'}
-                        </span>
-                    </div>
-                    {#each setups.long.targets as t (t.label)}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>{t.label}</span>
-                            <span class={styles.setupRowValue}>{fmtPx(t.price, markPrice)}</span>
-                            {#if t.label === 'TP1' && setups.long.rrRatio != null}
-                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.long.rrRatio)}>{setups.long.rrRatio.toFixed(2)}</span></span>
-                            {/if}
-                        </div>
-                    {/each}
-                    {#if setups.long.stop}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>SL</span>
-                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPx(setups.long.stop.price, markPrice)}</span>
-                        </div>
-                    {/if}
-                </div>
+        <div class={styles.sectionTitle}>The Numbers</div>
+        <div class={styles.kpiStrip}>
+            <div class={styles.kpi}>
+                <span class={styles.kpiLabel}>Confidence</span>
+                <span class={styles.kpiVal} style="color: {confidenceDisplay >= 60 ? '#22c55e' : confidenceDisplay >= 30 ? '#f59e0b' : '#ef4444'}">
+                    {confidenceDisplay.toFixed(0)}%
+                </span>
             </div>
-
-            <!-- Short Setup -->
-            <div class="{styles.setupCard} {setups.short.active ? styles.setupCardActive : styles.setupCardInactive}">
-                <div class="{styles.setupHeader} {setupHeaderClass('SHORT')}">
-                    <span class={styles.setupHeaderTitle}>Short Setup</span>
-                    <span class={styles.setupStatus}>{setups.short.status}</span>
-                </div>
-                <div class={styles.setupBody}>
-                    <div class={styles.setupRow}>
-                        <span class={styles.setupRowLabel}>ENTRY</span>
-                        <span class={styles.setupRowValue}>
-                            {setups.short.entry ? fmtPx(setups.short.entry.price, markPrice) : '—'}
-                        </span>
-                    </div>
-                    {#each setups.short.targets as t (t.label)}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>{t.label}</span>
-                            <span class={styles.setupRowValue}>{fmtPx(t.price, markPrice)}</span>
-                            {#if t.label === 'TP1' && setups.short.rrRatio != null}
-                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.short.rrRatio)}>{setups.short.rrRatio.toFixed(2)}</span></span>
-                            {/if}
-                        </div>
-                    {/each}
-                    {#if setups.short.stop}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>SL</span>
-                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPx(setups.short.stop.price, markPrice)}</span>
-                        </div>
-                    {/if}
-                </div>
+            <div class={styles.kpi}>
+                <span class={styles.kpiLabel}>R:R</span>
+                <span class={styles.kpiVal} style="color: {rrDisplay >= 2 ? '#22c55e' : rrDisplay >= 1 ? '#f59e0b' : '#ef4444'}">
+                    {rrDisplay.toFixed(2)}
+                </span>
+            </div>
+            <div class={styles.kpi}>
+                <span class={styles.kpiLabel}>Entry Danger</span>
+                <span class={styles.kpiVal} style="color: {dangerDisplay >= 70 ? '#ef4444' : dangerDisplay >= 40 ? '#f59e0b' : '#22c55e'}">
+                    {dangerDisplay.toFixed(0)}
+                </span>
+            </div>
+            <div class={styles.kpi}>
+                <span class={styles.kpiLabel}>Stop-Loss</span>
+                <span class={styles.kpiVal}>
+                    {stopLossPct > 0 ? `${(stopLossPct * 100).toFixed(2)}%` : '—'}
+                </span>
             </div>
         </div>
-    </div>
-
-    <!-- ── Key Metrics ─────────────────────────────────────────────────────── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Key Metrics</div>
-        <div class={styles.metricBar}>
-            <span class={styles.metricLabel}>R:R Ratio</span>
-            <div class={styles.metricBarBg}>
-                <div class="{styles.metricFill} {fillColor(rrDisplay, 'rr')}"
-                     style="width: {Math.min(rrDisplay / 3 * 100, 100).toFixed(1)}%"></div>
-            </div>
-            <span class={styles.metricVal}>{rrDisplay.toFixed(2)}</span>
-        </div>
-        <div class={styles.metricBar}>
-            <span class={styles.metricLabel}>Entry Danger</span>
-            <div class={styles.metricBarBg}>
-                <div class="{styles.metricFill} {fillColor(dangerDisplay, 'danger')}"
-                     style="width: {dangerDisplay.toFixed(1)}%"></div>
-            </div>
-            <span class={styles.metricVal}>{dangerDisplay.toFixed(0)}</span>
-        </div>
-        <div class={styles.metricBar}>
-            <span class={styles.metricLabel}>Confidence</span>
-            <div class={styles.metricBarBg}>
-                <div class="{styles.metricFill} {fillColor(confidenceDisplay, 'conf')}"
-                     style="width: {confidenceDisplay.toFixed(1)}%"></div>
-            </div>
-            <span class={styles.metricVal}>{confidenceDisplay.toFixed(0)}%</span>
-        </div>
-        {#if stopLossPct > 0}
-            <div class={styles.metricBar}>
-                <span class={styles.metricLabel}>Stop-Loss</span>
-                <div class={styles.metricBarBg}>
-                    <div class="{styles.metricFill} {styles.blue}"
-                         style="width: {Math.min(stopLossPct * 500, 100).toFixed(1)}%"></div>
-                </div>
-                <span class={styles.metricVal}>{(stopLossPct * 100).toFixed(2)}%</span>
-            </div>
-        {:else}
-            <div class={styles.metricBar}>
-                <span class={styles.metricLabel}>Stop-Loss</span>
-                <div class={styles.metricBarBg}>
-                    <div class="{styles.metricFill} {styles.blue}"
-                         style="width: 0%"></div>
-                </div>
-                <span class={styles.metricVal}>—</span>
-            </div>
-        {/if}
     </div>
 
     <!-- ── Price Levels ───────────────────────────────────────────────────── -->
@@ -376,9 +264,9 @@
         </div>
     </div>
 
-    <!-- ── Recommendation (final_recommendation) ──────────────────────────── -->
+    <!-- ── Final Verdict (final_recommendation) ────────────────────────────── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Recommendation</div>
-        <div class={styles.recommendation}>{advisory?.final_recommendation || '—'}</div>
+        <div class={styles.sectionTitle}>Final Verdict</div>
+        <blockquote class={styles.verdictQuote}>{advisory?.final_recommendation || '—'}</blockquote>
     </div>
 </div>

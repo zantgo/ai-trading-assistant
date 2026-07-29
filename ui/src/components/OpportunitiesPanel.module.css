@@ -68,3 +68,27 @@
 .sideCardShort .sideCardLabel { color: #ef4444; }
 .zoneRow { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-top: 1px solid rgba(255,255,255,0.04); font-size: 11px; }
 .zoneRow:first-of-type { border-top: none; }
+
+/* ── Trade Setups (symmetric Long + mirrored Short) ── */
+.setupPair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 720px) { .setupPair { grid-template-columns: 1fr; } }
+.setupCard { display: flex; flex-direction: column; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; }
+.setupCardActive { border-color: rgba(255,255,255,0.18); }
+.setupCardInactive { opacity: 0.62; }
+.setupHeader { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.setupHeaderLong   { background: rgba(34,197,94,0.10); }
+.setupHeaderShort  { background: rgba(239,68,68,0.10); }
+.setupHeaderTitle { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.92); }
+.setupHeaderLong  .setupHeaderTitle { color: #22c55e; }
+.setupHeaderShort .setupHeaderTitle { color: #ef4444; }
+.setupStatus { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+.setupBody { display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 4px; }
+.setupRow { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 8px; font-family: var(--mono, monospace); font-size: 11px; }
+.setupRowLabel { font-size: 9px; font-weight: 800; color: #22d3ee; letter-spacing: 0.08em; text-transform: uppercase; }
+.setupRowValue { font-weight: 700; color: rgba(255,255,255,0.95); text-align: right; }
+.setupRowStop { color: #ef4444; }
+.setupRowRr { font-size: 9px; color: rgba(255,255,255,0.55); }
+.green { background: #22c55e; }
+.amber { background: #f59e0b; }
+.red   { background: #ef4444; }
+.rrNone { color: #94a3b8; }

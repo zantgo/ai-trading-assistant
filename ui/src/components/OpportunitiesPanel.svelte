@@ -1,9 +1,10 @@
 <script lang="ts">
-    import type { AnalysisMatrix, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
+    import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import { buildPanelExportJson } from '../lib/metricsExport';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './OpportunitiesPanel.module.css';
+    import { computeDecisionRank, computeSymmetricSetups } from '../lib/decisionRank';
 
     const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
@@ -11,15 +12,31 @@
     const instance = $derived(app.instancesMap[pairKey]);
     const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
     const snap = $derived(instance?.microTerm?.latestSnapshot as unknown as MarketSnapshot | undefined);
-    const opportunity = $derived<OpportunityMatrix | null>(snap?.opportunity ?? null);
+    const opportunity = $derived<OpportunityMatrix | null>(instance?.opportunity ?? null);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
-    const decisionContext = $derived((snap as any)?.decision_context ?? null);
+    const decisionContext = $derived<DecisionContext | null>((snap as any)?.decision_context ?? null);
+    const advisory = $derived<AdvisoryMatrix | null>(instance?.advisory ?? null);
+    const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
         snap && typeof (snap as any).timestamp === 'number'
             ? (snap as any).timestamp
             : null
     );
     const registry = $derived(app.indicatorRegistry ?? []);
+
+    // ── Unified decision rank + symmetric setups ─────────────────────────
+    const rank = $derived(computeDecisionRank({
+        advisory,
+        decisionContext,
+        opportunity,
+        analysis,
+    }));
+    const setups = $derived(computeSymmetricSetups({
+        opportunity,
+        markPrice,
+        topAction: rank.top,
+        readiness: rank.headline.state,
+    }));
 
     function buildExport() {
         return buildPanelExportJson({
@@ -43,7 +60,7 @@
                 liquidity: (microTerm as any)?.liquidity ?? null,
                 cluster: (microTerm as any)?.cluster ?? null,
                 liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
-                decisionContext,
+                decisionContext: (decisionContext as unknown as Record<string, unknown>) ?? null,
             },
         });
     }
@@ -102,8 +119,6 @@
         return Math.round((biasScore * 0.6) + (baseScore * 0.4));
     });
 
-    const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
-
     const q = $derived(setupQuality(oppScore));
 
     function fmtPx(n: number | undefined | null): string {
@@ -123,6 +138,23 @@
             case 'LIQUIDITY_CLUSTER': return 'LIQ';
             default: return 'ATR';
         }
+    }
+
+    // ── Trade Setups helpers ─────────────────────────────────────────────
+    function setupHeaderClass(side: 'LONG' | 'SHORT'): string {
+        return side === 'LONG' ? (styles.setupHeaderLong ?? '') : (styles.setupHeaderShort ?? '');
+    }
+    function fmtPxDecimal(n: number, mp: number): string {
+        if (n == null || !isFinite(n) || n <= 0) return '—';
+        if (mp >= 1000) return `$${n.toFixed(0)}`;
+        if (mp >= 1) return `$${n.toFixed(2)}`;
+        return `$${n.toFixed(4)}`;
+    }
+    function rrCls(rr: number | null): string {
+        if (rr == null) return styles.rrNone ?? '';
+        if (rr >= 2.0) return styles.green;
+        if (rr >= 1.0) return styles.amber;
+        return styles.red;
     }
 </script>
 
@@ -150,51 +182,69 @@
         </div>
     </div>
 
-    <!-- ── Directional Setups ── -->
+    <!-- ── Trade Setups (symmetric Long + mirrored Short) ────────────────── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Directional Setups</div>
-        <div class={styles.directionalGrid}>
-            <div class="{styles.sideCard} {styles.sideCardLong}">
-                <div class={styles.sideCardHeader}>
-                    <span class={styles.sideCardLabel}>LONG SETUP</span>
+        <div class={styles.sectionTitle}>Trade Setups</div>
+        <div class={styles.setupPair}>
+            <!-- Long Setup -->
+            <div class="{styles.setupCard} {setups.long.active ? styles.setupCardActive : styles.setupCardInactive}">
+                <div class="{styles.setupHeader} {setupHeaderClass('LONG')}">
+                    <span class={styles.setupHeaderTitle}>Long Setup</span>
+                    <span class={styles.setupStatus}>{setups.long.status}</span>
                 </div>
-                <div class={styles.zoneRow}>
-                    <span class={styles.zoneLabel}>ENTRY ZONE</span>
-                    <span class={styles.zoneValue}>
-                        {opportunity ? `${fmtPx(opportunity.long_entry_zone.low)} \u2013 ${fmtPx(opportunity.long_entry_zone.high)}` : '\u2014'}
-                    </span>
-                </div>
-                <div class={styles.zoneRow}>
-                    <span class={styles.zoneLabel}>TARGET ZONE</span>
-                    <span class={styles.zoneValue}>
-                        {opportunity ? `${fmtPx(opportunity.long_target_zone.low)} \u2013 ${fmtPx(opportunity.long_target_zone.high)}` : '\u2014'}
-                    </span>
-                </div>
-                <div class={styles.zoneRow}>
-                    <span class={styles.zoneLabel}>INVALIDATION</span>
-                    <span class={styles.zoneValue}>{fmtPx(opportunity?.long_invalidation_level)}</span>
+                <div class={styles.setupBody}>
+                    <div class={styles.setupRow}>
+                        <span class={styles.setupRowLabel}>ENTRY</span>
+                        <span class={styles.setupRowValue}>
+                            {setups.long.entry ? fmtPxDecimal(setups.long.entry.price, markPrice) : '—'}
+                        </span>
+                    </div>
+                    {#each setups.long.targets as t (t.label)}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>{t.label}</span>
+                            <span class={styles.setupRowValue}>{fmtPxDecimal(t.price, markPrice)}</span>
+                            {#if t.label === 'TP1' && setups.long.rrRatio != null}
+                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.long.rrRatio)}>{setups.long.rrRatio.toFixed(2)}</span></span>
+                            {/if}
+                        </div>
+                    {/each}
+                    {#if setups.long.stop}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>SL</span>
+                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPxDecimal(setups.long.stop.price, markPrice)}</span>
+                        </div>
+                    {/if}
                 </div>
             </div>
 
-            <div class="{styles.sideCard} {styles.sideCardShort}">
-                <div class={styles.sideCardHeader}>
-                    <span class={styles.sideCardLabel}>SHORT SETUP</span>
+            <!-- Short Setup (mirror around markPrice) -->
+            <div class="{styles.setupCard} {setups.short.active ? styles.setupCardActive : styles.setupCardInactive}">
+                <div class="{styles.setupHeader} {setupHeaderClass('SHORT')}">
+                    <span class={styles.setupHeaderTitle}>Short Setup</span>
+                    <span class={styles.setupStatus}>{setups.short.status}</span>
                 </div>
-                <div class={styles.zoneRow}>
-                    <span class={styles.zoneLabel}>ENTRY ZONE</span>
-                    <span class={styles.zoneValue}>
-                        {opportunity ? `${fmtPx(opportunity.short_entry_zone.low)} \u2013 ${fmtPx(opportunity.short_entry_zone.high)}` : '\u2014'}
-                    </span>
-                </div>
-                <div class={styles.zoneRow}>
-                    <span class={styles.zoneLabel}>TARGET ZONE</span>
-                    <span class={styles.zoneValue}>
-                        {opportunity ? `${fmtPx(opportunity.short_target_zone.low)} \u2013 ${fmtPx(opportunity.short_target_zone.high)}` : '\u2014'}
-                    </span>
-                </div>
-                <div class={styles.zoneRow}>
-                    <span class={styles.zoneLabel}>INVALIDATION</span>
-                    <span class={styles.zoneValue}>{fmtPx(opportunity?.short_invalidation_level)}</span>
+                <div class={styles.setupBody}>
+                    <div class={styles.setupRow}>
+                        <span class={styles.setupRowLabel}>ENTRY</span>
+                        <span class={styles.setupRowValue}>
+                            {setups.short.entry ? fmtPxDecimal(setups.short.entry.price, markPrice) : '—'}
+                        </span>
+                    </div>
+                    {#each setups.short.targets as t (t.label)}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>{t.label}</span>
+                            <span class={styles.setupRowValue}>{fmtPxDecimal(t.price, markPrice)}</span>
+                            {#if t.label === 'TP1' && setups.short.rrRatio != null}
+                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.short.rrRatio)}>{setups.short.rrRatio.toFixed(2)}</span></span>
+                            {/if}
+                        </div>
+                    {/each}
+                    {#if setups.short.stop}
+                        <div class={styles.setupRow}>
+                            <span class={styles.setupRowLabel}>SL</span>
+                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPxDecimal(setups.short.stop.price, markPrice)}</span>
+                        </div>
+                    {/if}
                 </div>
             </div>
         </div>

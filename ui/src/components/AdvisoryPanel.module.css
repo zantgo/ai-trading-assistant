@@ -5,103 +5,101 @@
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
 .noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; margin-bottom: 12px; }
 
-/* ── Unified Decision Hero ───────────────────────────────────────────── */
-.decisionHero {
+/* ── Direction-coded verdict (LONG=green, SHORT=red, HOLD=amber) ─────── */
+.verdict {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    padding: 14px 16px 12px;
+    padding: 18px 16px 14px;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     transition: background 120ms ease, border-color 120ms ease;
 }
-.heroLabel {
+.verdictLabel {
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.14em;
     color: #64748b;
     text-transform: uppercase;
 }
-.heroHeadline {
-    font-size: 22px;
+.verdictRow {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-top: 2px;
+}
+.verdictAction {
+    font-size: 32px;
     font-weight: 800;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     font-family: var(--mono, monospace);
     text-transform: uppercase;
+    line-height: 1;
 }
-.heroSubtitle {
+.verdictPct {
+    font-size: 22px;
+    font-weight: 700;
+    font-family: var(--mono, monospace);
+    opacity: 0.85;
+}
+.verdictMeta {
     font-size: 10px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.55);
     letter-spacing: 0.06em;
-    margin-bottom: 4px;
+    margin-top: 2px;
 }
-.heroReady    { background: rgba(34, 197, 94, 0.10);  border-color: rgba(34, 197, 94, 0.35); }
-.heroForming  { background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.30); }
-.heroWatch    { background: rgba(34, 211, 238, 0.10); border-color: rgba(34, 211, 238, 0.30); }
-.heroAside    { background: rgba(239, 68, 68, 0.10);  border-color: rgba(239, 68, 68, 0.32);
-                box-shadow: 0 0 24px rgba(239, 83, 80, 0.10), inset 0 0 24px rgba(239, 83, 80, 0.04); }
-.heroReady   .heroHeadline { color: #22c55e; }
-.heroForming .heroHeadline { color: #f59e0b; }
-.heroWatch   .heroHeadline { color: #22d3ee; }
-.heroAside   .heroHeadline { color: #ef4444; }
+.verdictLong  { background: rgba(34, 197, 94, 0.10);  border-color: rgba(34, 197, 94, 0.35); }
+.verdictLong  .verdictAction,
+.verdictLong  .verdictPct    { color: #22c55e; }
+.verdictShort { background: rgba(239, 68, 68, 0.10);  border-color: rgba(239, 68, 68, 0.32); }
+.verdictShort .verdictAction,
+.verdictShort .verdictPct    { color: #ef4444; }
+.verdictHold  { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.40); }
+.verdictHold  .verdictAction,
+.verdictHold  .verdictPct    { color: #f59e0b; }
 
-/* ── Rank row (Long / Short / Hold) ──────────────────────────────────── */
-.rankRow {
+/* ── Runner-ups (winner excluded, dispersion at a glance) ─────────────── */
+.runnerRow {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
-    width: 100%;
-    margin-top: 4px;
+    margin-bottom: 14px;
 }
-.rankCell {
+.runnerCell {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 3px;
-    padding: 6px 8px;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 6px;
 }
-.rankAction {
+.runnerAction {
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.10em;
     text-transform: uppercase;
 }
-.rankPct {
-    font-size: 16px;
-    font-weight: 800;
+.runnerPct {
+    font-size: 13px;
+    font-weight: 700;
     font-family: var(--mono, monospace);
 }
-.rankBarBg {
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 2px;
-    overflow: hidden;
-}
-.rankBarFill {
-    height: 100%;
-    border-radius: 2px;
-}
-.rankLong  .rankAction { color: #22c55e; }
-.rankLong  .rankPct    { color: #22c55e; }
-.rankLong  .rankBarFill { background: #22c55e; }
-.rankShort .rankAction { color: #ef4444; }
-.rankShort .rankPct    { color: #ef4444; }
-.rankShort .rankBarFill { background: #ef4444; }
-.rankHold  .rankAction { color: #94a3b8; }
-.rankHold  .rankPct    { color: #94a3b8; }
-.rankHold  .rankBarFill { background: #94a3b8; }
+.rankLong  .runnerAction { color: #22c55e; }
+.rankLong  .runnerPct    { color: #22c55e; }
+.rankShort .runnerAction { color: #ef4444; }
+.rankShort .runnerPct    { color: #ef4444; }
+.rankHold  .runnerAction { color: #f59e0b; }
+.rankHold  .runnerPct    { color: #f59e0b; }
 
-/* ── Rationale list ──────────────────────────────────────────────────── */
-.rationaleList {
+/* ── Why (top-3 rationale list) ───────────────────────────────────────── */
+.why {
     margin: 0;
-    padding: 0 0 0 18px;
+    padding: 8px 10px 8px 26px;
     list-style: disc;
     color: rgba(255, 255, 255, 0.78);
     font-size: 11px;
@@ -109,112 +107,66 @@
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.04);
     border-radius: 6px;
-    padding-top: 8px;
-    padding-right: 10px;
-    padding-bottom: 8px;
 }
-.rationaleItem {
+.whyItem {
     margin-bottom: 2px;
 }
-.rationaleItem:last-child {
+.whyItem:last-child {
     margin-bottom: 0;
 }
 
-/* ── Setups (Long + Short cards) ─────────────────────────────────────── */
-.setupPair {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-}
-.setupCard {
+/* ── KPI strip (compact 4-cell) ───────────────────────────────────────── */
+.kpiStrip {
     display: flex;
-    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
     overflow: hidden;
 }
-.setupCardActive {
-    border-color: rgba(255, 255, 255, 0.18);
-}
-.setupCardInactive {
-    opacity: 0.62;
-}
-.setupHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.setupHeaderLong   { background: rgba(34, 197, 94, 0.10); }
-.setupHeaderShort  { background: rgba(239, 68, 68, 0.10); }
-.setupHeaderTitle {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.92);
-}
-.setupHeaderLong  .setupHeaderTitle { color: #22c55e; }
-.setupHeaderShort .setupHeaderTitle { color: #ef4444; }
-.setupStatus {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.55);
-}
-.setupBody {
+.kpi {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    padding: 8px 12px 10px;
-    gap: 4px;
-}
-.setupRow {
-    display: grid;
-    grid-template-columns: 56px 1fr auto;
     align-items: center;
-    gap: 8px;
-    font-family: var(--mono, monospace);
-    font-size: 11px;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 8px;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
 }
-.setupRowLabel {
+.kpi:last-child {
+    border-right: none;
+}
+.kpiLabel {
     font-size: 9px;
-    font-weight: 800;
-    color: #22d3ee;
+    font-weight: 700;
+    color: #64748b;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
-.setupRowValue {
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.95);
-    text-align: right;
+.kpiVal {
+    font-size: 16px;
+    font-weight: 800;
+    font-family: var(--mono, monospace);
+    color: #e2e8f0;
 }
-.setupRowStop {
-    color: #ef4444;
-}
-.setupRowRr {
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.55);
-}
-
-/* ── Key Metrics bars ────────────────────────────────────────────────── */
-.metricBar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-.metricLabel { font-size: 10px; color: #94a3b8; width: 90px; flex-shrink: 0; }
-.metricBarBg { flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px; overflow: hidden; }
-.metricFill { height: 100%; border-radius: 3px; }
-.metricVal { font-size: 10px; font-weight: 700; width: 40px; text-align: right; color: #e2e8f0; }
-.green   { background: #22c55e; }
-.amber   { background: #f59e0b; }
-.red     { background: #ef4444; }
-.blue    { background: rgba(255,255,255,0.55); }
-.rrNone  { color: #94a3b8; }
 
 /* ── Price Levels / Strategy cards ────────────────────────────────────── */
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .card { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
 .cardLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
 .cardValue { font-size: 12px; font-weight: 600; color: #e2e8f0; }
-.recommendation { font-size: 11px; color: #cbd5e1; line-height: 1.55; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
-.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
+
+/* ── Final Verdict (quote block) ──────────────────────────────────────── */
+.verdictQuote {
+    margin: 0;
+    font-size: 12px;
+    font-style: italic;
+    color: #cbd5e1;
+    line-height: 1.55;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 12px 14px;
+    border-radius: 6px;
+    border-left: 4px solid #f59e0b;
+}

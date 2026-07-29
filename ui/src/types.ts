@@ -737,6 +737,14 @@ export interface InstanceState {
      *  Scanner can poll for the first `trade_readiness` value without
      *  having to read every TF's `latestSnapshot`. */
     decisionContext: DecisionContext | null;
+    /** L4 opportunity matrix — entry/target/invalidation zones for both
+     *  sides plus R:R, time horizon, confluent levels and the 8 evaluated
+     *  setup profiles. Only the completed-candle WS frame carries this
+     *  payload (`broadcast_live_snapshot` zeroes it for performance), so
+     *  it is mirrored at the pair level by `applySnapshotToTimeframe`
+     *  rather than read from `microTerm.latestSnapshot` (which gets
+     *  overwritten by shadow ticks). */
+    opportunity: OpportunityMatrix | null;
     automationEnabled: boolean;
     automationIntervalMode: string;
     automationIntervalValue: number;

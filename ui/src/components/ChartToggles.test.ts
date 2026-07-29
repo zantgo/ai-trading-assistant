@@ -29,6 +29,7 @@ function makeInstance(): InstanceState {
         risk: null,
         advisory: null,
         decisionContext: null,
+        opportunity: null,
         automationEnabled: false,
         automationIntervalMode: 'interval',
         automationIntervalValue: 900,

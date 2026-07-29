@@ -209,9 +209,9 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c6d3be676bc325"
-symbol = "BTC-USDT"
-quote = "USDT"
+id = "inst_18c6d84411e19a11"
+symbol = "BTC-USDC"
+quote = "USDC"
 initial_capital_usd = 1000.0
 status = "running"
 operational_mode = "advisory"
