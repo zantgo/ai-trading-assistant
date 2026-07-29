@@ -18,7 +18,6 @@
     import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { vwapPickKey } from '../lib/vwapAnchor';
     import { createSmcMarkers, type SmcMarkerController } from '../lib/smcMarkers';
-    import { createPatternMarkers, type PatternMarkerController } from '../lib/patternMarkers';
     import styles from './PriceChart.module.css';
 
     const app = useAppStore();
@@ -67,7 +66,6 @@
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
     let smcMarkers: SmcMarkerController | null = null;
-    let patternMarkers: PatternMarkerController | null = null;
     // Newly-added price-overlay series (toggle-controlled).
     let keltnerUpperSeries: ISeriesApi<'Line'> | null = null;
     let keltnerMiddleSeries: ISeriesApi<'Line'> | null = null;
@@ -154,10 +152,6 @@
         // SMC markers (selective: confidence ≥ 0.7 only). Attach to the
         // candle series so the markers follow candle time/price alignment.
         smcMarkers = createSmcMarkers(candleSeries);
-
-        // Chart-pattern, candlestick-pattern, OI-price-divergence markers —
-        // same anchor (candle series) so positioning follows candles.
-        patternMarkers = createPatternMarkers(candleSeries);
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
@@ -624,44 +618,6 @@
         }
     });
 
-    /// Pattern marker consumers. Push markers from the live snapshot only;
-    /// chart history doesn't carry signal payloads. Three independent
-    /// toggles, each calling the corresponding consumer method.
-    $effect(() => {
-        const show = tf?.showChartPatterns ?? false;
-        if (!patternMarkers || !candleSeries) return;
-        // Reset the marker layer every time the toggle flips — keeps the
-        // chart clean when the user pauses the effect.
-        patternMarkers.clear();
-        if (!show) return;
-        const snap = tf?.latestSnapshot;
-        const m = (tf?.indicators ?? {}) as IndicatorMap;
-        const t = (snap?.timestamp as number) ?? 0;
-        patternMarkers.pushPatterns(t, m['patterns'] ?? null);
-    });
-
-    $effect(() => {
-        const show = tf?.showCandlestickPatterns ?? false;
-        if (!patternMarkers || !candleSeries) return;
-        patternMarkers.clear();
-        if (!show) return;
-        const snap = tf?.latestSnapshot;
-        const m = (tf?.indicators ?? {}) as IndicatorMap;
-        const t = (snap?.timestamp as number) ?? 0;
-        patternMarkers.pushCandlestick(t, m['candlestick'] ?? null);
-    });
-
-    $effect(() => {
-        const show = tf?.showOiPriceDivergence ?? false;
-        if (!patternMarkers || !candleSeries) return;
-        patternMarkers.clear();
-        if (!show) return;
-        const snap = tf?.latestSnapshot;
-        const m = (tf?.indicators ?? {}) as IndicatorMap;
-        const t = (snap?.timestamp as number) ?? 0;
-        patternMarkers.pushOiPriceDiv(t, m['oi_price_divergence'] ?? null);
-    });
-
     /// SMC structure / liquidity markers (BOS↑ / CHoCH↓ / SWEEP↑ / ...).
     /// Same toggle-gate pattern as the three pattern-marker $effects above:
     /// clear() runs whenever the toggle flips (or latestSnapshot advances)
@@ -783,16 +739,6 @@
                 structure: m['smc_structure'] ?? null,
                 liquidity: m['smc_liquidity'] ?? null,
             });
-        }
-        // Push chart-pattern / candlestick / OI-price-divergence markers.
-        // Each is gated by its own toggle so the snapshot handler is a
-        // no-op when the user has switched the marker off — without this
-        // gate, new ticks would re-push markers that the toggle $effect
-        // had just cleared, making the pills appear unresponsive.
-        if (patternMarkers) {
-            if (tfVal.showChartPatterns) patternMarkers.pushPatterns(timeSec, m['patterns'] ?? null);
-            if (tfVal.showCandlestickPatterns) patternMarkers.pushCandlestick(timeSec, m['candlestick'] ?? null);
-            if (tfVal.showOiPriceDivergence) patternMarkers.pushOiPriceDiv(timeSec, m['oi_price_divergence'] ?? null);
         }
     });
     $effect(() => {

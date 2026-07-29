@@ -139,24 +139,6 @@
         const v = !pair.microTerm.showPsar;
         syncAll(tf => { tf.showPsar = v; });
     }
-
-    function toggleChartPatterns() {
-        if (!pair) return;
-        const v = !pair.microTerm.showChartPatterns;
-        syncAll(tf => { tf.showChartPatterns = v; });
-    }
-
-    function toggleCandlestickPatterns() {
-        if (!pair) return;
-        const v = !pair.microTerm.showCandlestickPatterns;
-        syncAll(tf => { tf.showCandlestickPatterns = v; });
-    }
-
-    function toggleOiPriceDivergence() {
-        if (!pair) return;
-        const v = !pair.microTerm.showOiPriceDivergence;
-        syncAll(tf => { tf.showOiPriceDivergence = v; });
-    }
 </script>
 
 {#if pair}
@@ -227,16 +209,6 @@
             onclick={toggleStddevChan}>STDDEV CH.</button>
         <button class="{styles.togglePill} {styles.psarPill} {pair.microTerm.showPsar ? styles.active : ''}"
             onclick={togglePsar}>PSAR</button>
-    </div>
-    <div class={styles.togglesSeparator}></div>
-    <div class={styles.togglesGroup}>
-        <span class={styles.togglesLabel}>MARKERS</span>
-        <button class="{styles.togglePill} {styles.chartPatternsPill} {pair.microTerm.showChartPatterns ? styles.active : ''}"
-            onclick={toggleChartPatterns}>CHART PATTERNS</button>
-        <button class="{styles.togglePill} {styles.candlestickPill} {pair.microTerm.showCandlestickPatterns ? styles.active : ''}"
-            onclick={toggleCandlestickPatterns}>CANDLESTICK</button>
-        <button class="{styles.togglePill} {styles.oiDivPill} {pair.microTerm.showOiPriceDivergence ? styles.active : ''}"
-            onclick={toggleOiPriceDivergence}>OI-PRICE DIV</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>

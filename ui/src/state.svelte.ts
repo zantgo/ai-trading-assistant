@@ -45,8 +45,6 @@ function createTimeframeTelemetry(
         showFvgZones: false, showOrderBlocks: false,
         showAnchoredVwap: false,
         showSpread: false,
-        showChartPatterns: false, showCandlestickPatterns: false,
-        showOiPriceDivergence: false,
         showAwesome: false,
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,

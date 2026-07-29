@@ -11,12 +11,12 @@
     // expanded reveals the 5 dimension chips. Only renders when the
     // context block is present in the snapshot — no fabricated state.
 
-    import type { ContextDimension, MarketContext } from '../types';
+    import type { MarketContext } from '../types';
     import styles from './MarketContextStrip.module.css';
 
     interface Props {
         context: MarketContext | null | undefined;
-        /** Snapshot timestamp (ms) for the "Age: N bars" label. */
+        /** Snapshot timestamp (Unix seconds) for the "Age: N bars" label. */
         timestamp?: number | null;
         /** Bar duration in seconds — used to derive age in completed bars. */
         barDurationSec?: number;
@@ -26,24 +26,6 @@
 
     let { context, timestamp = null, barDurationSec = 60, signalCount }: Props = $props();
 
-    let expanded = $state(false);
-
-    const DIM_ORDER: Array<{ key: keyof Omit<MarketContext, 'regime' | 'overall_score' | 'overall_label'>; label: string }> = [
-        { key: 'trend',     label: 'Trend' },
-        { key: 'momentum',  label: 'Momentum' },
-        { key: 'volatility',label: 'Volatility' },
-        { key: 'volume',    label: 'Volume' },
-        { key: 'liquidity', label: 'Liquidity' },
-    ];
-
-    function dimClass(d: ContextDimension | undefined | null): string {
-        if (!d) return styles.dimNeutral ?? '';
-        const s = d.score ?? 0;
-        if (s > 0.5) return styles.dimBull ?? '';
-        if (s < -0.5) return styles.dimBear ?? '';
-        return styles.dimNeutral ?? '';
-    }
-
     function fmtScore(n: number | undefined | null): string {
         if (n == null || isNaN(n)) return '--';
         const sign = n > 0 ? '+' : '';
@@ -51,10 +33,13 @@
     }
 
     function ageBars(): number | null {
+        // `timestamp` arrives as Unix **seconds** on the wire
+        // (Rust: `candle.start_time_ms / 1000` at analyzer/mod.rs:549),
+        // so subtract in seconds before dividing by bar duration.
         if (!timestamp) return null;
-        const ageMs = Date.now() - timestamp;
-        if (ageMs < 0 || !barDurationSec) return null;
-        return Math.floor(ageMs / 1000 / barDurationSec);
+        const ageSec = (Date.now() / 1000) - timestamp;
+        if (ageSec < 0 || !barDurationSec) return null;
+        return Math.floor(ageSec / barDurationSec);
     }
 
     function regimeClass(regime: string | undefined): string {
@@ -83,12 +68,7 @@
             <span class={styles.placeholderText}>Awaiting completed snapshot…</span>
         </div>
     {:else}
-        <button
-            class={styles.header}
-            onclick={() => expanded = !expanded}
-            aria-expanded={expanded}
-        >
-            <span class={styles.caret}>{expanded ? '▼' : '▶'}</span>
+        <div class={styles.header}>
             <span class={styles.title}>MARKET CONTEXT</span>
             <span class="{styles.regimeBadge} {regimeClass(context.regime)}">
                 {context.regime}
@@ -109,19 +89,6 @@
                 <span class={styles.divider}>·</span>
                 <span class={styles.signalCount}>{signalCount} signals</span>
             {/if}
-        </button>
-
-        {#if expanded}
-            <div class={styles.body}>
-                {#each DIM_ORDER as dim (dim.key)}
-                    {@const d = context[dim.key]}
-                    <div class="{styles.dim} {dimClass(d)}">
-                        <div class={styles.dimLabel}>{dim.label}</div>
-                        <div class={styles.dimScore}>{fmtScore(d?.score)}</div>
-                        <div class={styles.dimSubLabel}>{d?.label ?? '—'}</div>
-                    </div>
-                {/each}
-            </div>
-        {/if}
+        </div>
     {/if}
 </div>

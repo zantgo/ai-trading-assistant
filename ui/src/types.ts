@@ -656,9 +656,6 @@ export interface TimeframeTelemetry {
     showOrderBlocks: boolean;
     showAnchoredVwap: boolean;
     showSpread: boolean;
-    showChartPatterns: boolean;
-    showCandlestickPatterns: boolean;
-    showOiPriceDivergence: boolean;
     showAwesome: boolean;
     emaFastVal: number;
     emaMediumVal: number;

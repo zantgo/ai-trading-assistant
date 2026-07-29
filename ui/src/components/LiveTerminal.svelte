@@ -45,11 +45,6 @@
     import LinRegSlopeChart from './LinRegSlopeChart.svelte';
     import ZScoreChart from './ZScoreChart.svelte';
     import KeltnerChart from './KeltnerChart.svelte';
-    import FundingChart from './FundingChart.svelte';
-    import OpenInterestChart from './OpenInterestChart.svelte';
-    import OiDeltaChart from './OiDeltaChart.svelte';
-    import OrderFlowDepthChart from './OrderFlowDepthChart.svelte';
-    import SpreadChart from './SpreadChart.svelte';
     import DerivativeRibbon from './DerivativeRibbon.svelte';
     import PaneGroupHeader from './PaneGroupHeader.svelte';
     import FullscreenToolbar from './FullscreenToolbar.svelte';
@@ -194,17 +189,6 @@
         ],
     };
 
-    const DERIVATIVES_GROUP: PaneGroup = {
-        title: 'DERIVATIVES & DEPTH',
-        panes: [
-            { chartType: 'open_interest',   box: 'paneOi',         component: OpenInterestChart },
-            { chartType: 'oi_delta',        box: 'paneOiDelta',   component: OiDeltaChart },
-            { chartType: 'funding',         box: 'paneFunding',   component: FundingChart },
-            { chartType: 'order_flow_depth', box: 'paneOfiDepth', component: OrderFlowDepthChart },
-            { chartType: 'spread',          box: 'paneSpread',    component: SpreadChart },
-        ],
-    };
-
     interface PaneGroup {
         title: string;
         panes: PaneDescriptor[];
@@ -217,7 +201,6 @@
         VOLUME_GROUP,
         VOLATILITY_GROUP,
         CONTEXT_GROUP,
-        DERIVATIVES_GROUP,
     ];
 
     /// Static descriptor for each sidebar entry. The label feeds the header

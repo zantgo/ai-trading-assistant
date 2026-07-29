@@ -71,6 +71,3 @@
 .toggle-pill.keltner-pill.active { border-color: #78909c; color: #78909c; background: rgba(120, 144, 156, 0.1); }
 .toggle-pill.stddev-chan-pill.active { border-color: #a1887f; color: #a1887f; background: rgba(161, 136, 127, 0.1); }
 .toggle-pill.psar-pill.active { border-color: #ffab40; color: #ffab40; background: rgba(255, 171, 64, 0.1); }
-.toggle-pill.chart-patterns-pill.active { border-color: #ce93d8; color: #ce93d8; background: rgba(206, 147, 216, 0.1); }
-.toggle-pill.candlestick-pill.active { border-color: #4db6ac; color: #4db6ac; background: rgba(77, 182, 172, 0.1); }
-.toggle-pill.oi-div-pill.active { border-color: #ff5252; color: #ff5252; background: rgba(255, 82, 82, 0.1); }

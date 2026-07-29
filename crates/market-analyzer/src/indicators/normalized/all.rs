@@ -436,7 +436,19 @@ impl NormalizationEngine {
             );
         }
 
-        if inputs.pattern_bullish || inputs.pattern_bearish {
+        // Insert the patterns entry whenever the calculator ran on this bar
+        // (i.e. `pattern_confidence.is_some()`). Previously the entry was
+        // gated on `pattern_bullish || pattern_bearish`, which only fired
+        // on actual pattern detection — every other bar the entry was
+        // missing, and the lifecycle builder fell into the
+        // `Conditional → WaitingFeed` branch, surfacing the misleading
+        // "WAITING FEED ⏳" label in the dashboard even though the
+        // calculator had run and reported `ChartPattern::None`. Inserting
+        // unconditionally on calculator-run lets the UI distinguish
+        // "no pattern in current market structure" (state_label =
+        // "NO_PATTERN", feed connected) from "feed not connected yet"
+        // (entry absent, WaitingFeed).
+        if inputs.pattern_confidence.is_some() {
             out.insert(
                 "patterns".into(),
                 Self::normalize_patterns(
