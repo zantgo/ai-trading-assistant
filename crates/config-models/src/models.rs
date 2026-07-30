@@ -1135,16 +1135,14 @@ pub struct LiquidityConfig {
     /// does not regress for existing operators.
     #[serde(default = "default_min_cluster_notional_usd")]
     pub min_cluster_notional_usd: f64,
-    /// Hyperliquid user address (0x-prefixed 40-hex-char string). When
-    /// **non-empty**, the engine subscribes to the user's `userFills`
-    /// channel and emits a `LiquidationEvent` for every forced close on
-    /// that account. When **empty** (default), no HL liquidations are
-    /// ingested — operators who want HL liquidations must configure
-    /// their own address (Hyperliquid does not expose a public
-    /// liquidation stream; the only channel that carries liquidations is
-    /// user-scoped). Bitget, by contrast, exposes public liquidation
-    /// fills on the `fill` channel and is always active when
-    /// `liquidation_feed = true`.
+    /// Hyperliquid user address (0x-prefixed 40-hex-char string).
+    /// Retained for backward compatibility with existing `config.toml`
+    /// entries, but no longer required: as of the trades-channel
+    /// liquidation extraction, every forced-close fill on Hyperliquid
+    /// is marked on the public `trades` stream and ingested without
+    /// per-account setup. Bitget has always worked this way (its public
+    /// `liquidation` channel). The field is kept so older configs keep
+    /// parsing; its value is otherwise ignored.
     #[serde(default)]
     pub hyperliquid_user_address: String,
 }

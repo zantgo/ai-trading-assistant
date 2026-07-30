@@ -20,12 +20,17 @@
     // inside a Metrics workspace that's already scoped to one timeframe —
     // it's been removed.
     import type { LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, TimeframeTelemetry } from '../types';
+    import { formatTimeframeLabel } from '../lib/telemetry';
     import styles from './LiquidityPanel.module.css';
 
     interface Props {
         tf: TimeframeTelemetry | undefined;
+        /** Short label for the active TF (e.g. "MICRO 1m"). Rendered next
+         *  to the view tabs so the user always knows which TF's data they
+         *  are looking at — the cluster matrix is per-TF. */
+        tfLabel: string;
     }
-    let { tf }: Props = $props();
+    let { tf, tfLabel }: Props = $props();
 
     let activeView = $state<'flow' | 'cluster' | 'context'>('flow');
 
@@ -59,6 +64,7 @@
                 onclick={() => activeView = 'cluster'}>Cluster</button>
         <button class="{styles.tab} {activeView === 'context' ? styles.tabActive : ''}"
                 onclick={() => activeView = 'context'}>Context</button>
+        <span class={styles.tfBadge} title="Active timeframe — flow / cluster / context all read from this TF">{tfLabel}</span>
     </div>
 
     {#if activeView === 'flow'}
@@ -68,6 +74,17 @@
             </div>
             {#if !flow}
                 <div class={styles.placeholder}>Awaiting first completed bar with liquidation data…</div>
+            {:else if flow.long_liquidations_usd === 0
+                    && flow.short_liquidations_usd === 0
+                    && flow.event_count === 0}
+                <div class={styles.placeholder}>
+                    No liquidations in the last bar — long / short flow is zero.
+                    {#if flow.cascade_state === 'NONE'}
+                        No cascade activity.
+                    {:else}
+                        Cascade state: {flow.cascade_state}.
+                    {/if}
+                </div>
             {:else}
                 <div class={styles.statGrid}>
                     <div class={styles.statCard}>

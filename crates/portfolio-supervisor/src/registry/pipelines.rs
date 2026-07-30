@@ -689,7 +689,6 @@ async fn spawn_tasks(
     } else {
         state.ws_url.clone()
     };
-    let hl_user_address = liquidity_config.hyperliquid_user_address.clone();
     let exchange_for_spawn = exchange_choice.clone();
     let exchange_label = exchange_for_spawn.as_str().to_string();
     let es_tracker = state.exchange_status.clone();
@@ -803,7 +802,6 @@ async fn spawn_tasks(
                     ws_tx.clone(),
                     ws_cancel.clone(),
                     &ws_url,
-                    &hl_user_address,
                 )
                 .await;
             }

@@ -7,11 +7,12 @@
     // of clusters on each side of current price). Each tile is collapsed
     // to a 4-stat summary by default; click ▾ to expand into details.
     //
-    // Data sources (all per-TF, refreshed per candle cadence):
+    // Data sources (refreshed per candle cadence):
     //   - microTf.volumeProfile    : VolumeProfileSnapshot
-    //   - activeTfObj.indicators.fibonacci.values : GP zone + ext targets
-    //   - microTf.cluster          : LiquidationClusterMatrix (top 3 per side)
-    //   - microTf.liquidity        : LiquidityFlow (latest bar long/short liqs)
+    //      (anchored to the micro candle cadence — see docs)
+    //   - activeTf.indicators.fibonacci.values : GP zone + ext targets
+    //   - activeTf.cluster         : LiquidationClusterMatrix (top 3 per side)
+    //   - activeTf.liquidity       : LiquidityFlow (latest bar long/short liqs)
 
     import type {
         LiquidationCluster,
@@ -22,13 +23,14 @@
         TimeframeTelemetry,
     } from '../types';
     import { formatTimeframeLabel } from '../lib/telemetry';
+    import LiquidityPanel from './LiquidityPanel.svelte';
     import styles from './StructuralAnchorsStrip.module.css';
 
     interface Props {
-        /** Active timeframe telemetry. */
+        /** Active timeframe telemetry — drives Fibonacci ladder + Liquidity tile. */
         tf: TimeframeTelemetry | undefined;
-        /** Micro timeframe telemetry — used for cluster/liquidity (per docs,
-         *  the cluster refresh is anchored to the micro candle cadence). */
+        /** Micro timeframe telemetry — used only for Volume Profile, whose
+         *  refresh cadence is locked to the micro timeframe. */
         microTf: TimeframeTelemetry | undefined;
         /** Current price (number); comes from `priceText` of `tf`. */
         markPrice: number;
@@ -40,6 +42,13 @@
     let vpOpen = $state(false);
     let fibOpen = $state(false);
     let liqOpen = $state(false);
+
+    /** Active TF label for the embedded LiquidityPanel (e.g. "MICRO 1m"). */
+    const liqTfLabel = $derived(
+        tf
+            ? `${tf.slot.toUpperCase()} ${formatTimeframeLabel(tf.barDurationSec)}`
+            : 'NO DATA'
+    );
 
     // ── Volume Profile ──
     const vp = $derived<VolumeProfileSnapshot | null>(microTf?.volumeProfile ?? null);
@@ -142,8 +151,12 @@
     });
 
     // ── Liquidity ──
-    const cluster = $derived<LiquidationClusterMatrix | null>(microTf?.cluster ?? null);
-    const flow = $derived<LiquidityFlow | null>(microTf?.liquidity ?? null);
+    // Reads the active TF (the same one the rest of the Metrics tab reads)
+    // so this strip stays in sync with the LIQUIDITY facet in the Indicators
+    // table — both show the same data source instead of the strip silently
+    // pinning to the micro TF.
+    const cluster = $derived<LiquidationClusterMatrix | null>(tf?.cluster ?? null);
+    const flow = $derived<LiquidityFlow | null>(tf?.liquidity ?? null);
 
     const shortClusters = $derived<LiquidationCluster[]>(cluster?.short_clusters ?? []);
     const longClusters = $derived<LiquidationCluster[]>(cluster?.long_clusters ?? []);
@@ -456,38 +469,13 @@
                     <div class={styles.placeholder}>No clusters above noise threshold</div>
                 {/if}
 
-                {#if liqOpen && flow}
+                {#if liqOpen}
+                    <!-- Embedded LiquidityPanel = the canonical detail view
+                         (Flow / Cluster / Context tabs). Previously a separate
+                         "indicators-table" LIQUIDITY facet showed these tabs;
+                         merged into this tile so the data appears only once. -->
                     <div class={styles.expand}>
-                        <div class={styles.expandSection}>
-                            <div class={styles.expandLabel}>Latest bar (microTF)</div>
-                            <div class={styles.liqStatRow}>
-                                <span class={styles.liqStatLabel}>Long liqs</span>
-                                <span class={styles.liqStatVal + ' ' + styles.bearish}>{fmtUsd(flow.long_liquidations_usd)}</span>
-                            </div>
-                            <div class={styles.liqStatRow}>
-                                <span class={styles.liqStatLabel}>Short liqs</span>
-                                <span class={styles.liqStatVal + ' ' + styles.bullish}>{fmtUsd(flow.short_liquidations_usd)}</span>
-                            </div>
-                            <div class={styles.liqStatRow}>
-                                <span class={styles.liqStatLabel}>Net</span>
-                                <span class={styles.liqStatVal}>{fmtUsd(flow.net_liquidation_usd)}</span>
-                            </div>
-                            <div class={styles.liqStatRow}>
-                                <span class={styles.liqStatLabel}>Events</span>
-                                <span class={styles.liqStatVal}>{flow.event_count}</span>
-                            </div>
-                            {#if flow.largest_event_usd > 0}
-                                <div class={styles.liqStatRow}>
-                                    <span class={styles.liqStatLabel}>Largest</span>
-                                    <span class={styles.liqStatVal}>
-                                        {fmtUsd(flow.largest_event_usd)} @ {fmtPx(flow.largest_event_price)}
-                                        <span class={flow.largest_event_side === 'LONG' ? styles.bearish ?? '' : styles.bullish ?? ''}>
-                                            ({flow.largest_event_side ?? '—'})
-                                        </span>
-                                    </span>
-                                </div>
-                            {/if}
-                        </div>
+                        <LiquidityPanel {tf} tfLabel={liqTfLabel} />
                     </div>
                 {/if}
             {/if}
@@ -496,7 +484,7 @@
 
     <footer class={styles.footer}>
         <span class={styles.footerHint}>
-            Source: {tf ? formatTimeframeLabel(tf.barDurationSec) : '—'} (volume profile / fibonacci) · microTF (clusters / flow)
+            Source: {tf ? formatTimeframeLabel(tf.barDurationSec) : '—'} (volume profile / fibonacci) · active TF (clusters / flow)
         </span>
     </footer>
 </section>

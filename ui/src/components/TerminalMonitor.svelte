@@ -29,7 +29,6 @@
     import SignalsView from './facets/SignalsView.svelte';
     import DivergencesView from './facets/DivergencesView.svelte';
     import LevelsView from './facets/LevelsView.svelte';
-    import LiquidityView from './facets/LiquidityView.svelte';
     import MtfView from './facets/MtfView.svelte';
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
@@ -122,9 +121,9 @@
             { id: 'divergences', label: 'Divergences',count: countActiveDivergences() },
             { id: 'levels',      label: 'Levels',     count: countActiveLevels() },
         ];
-        if (pair?.microTerm?.liquidity || pair?.microTerm?.cluster) {
-            out.push({ id: 'liquidity', label: 'Liquidity' });
-        }
+        // LIQUIDITY is consolidated into the Structural Anchors LIQUIDITY tile
+        // (see `StructuralAnchorsStrip.svelte`) — the indicators-table facet
+        // tab was removed to avoid the same data rendered in two containers.
         return out;
     });
 
@@ -395,8 +394,6 @@
                         <DivergencesView tf={activeTfObj} registry={registry} filters={filters} />
                     {:else if activeFacet === 'levels'}
                         <LevelsView tf={activeTfObj} registry={registry} filters={filters} />
-                    {:else if activeFacet === 'liquidity'}
-                        <LiquidityView tf={activeTfObj} />
                     {/if}
                 </div>
             {/if}

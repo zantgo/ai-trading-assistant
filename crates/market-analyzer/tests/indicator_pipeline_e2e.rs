@@ -35,6 +35,7 @@ use market_analyzer::indicators::normalized::{
     DivergenceState, IndicatorInputs, IndicatorSignal, NormalizationContext, NormalizationEngine,
     NormalizedIndicatorValue,
 };
+use market_analyzer::indicators::{CandlestickPattern, CandlestickResult, CandlestickStatus};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1826,6 +1827,129 @@ fn bollinger_edge_zones_no_duplicate_signal_pairs() {
         assert_no_duplicate_signal_keys(&format!("bollinger:{zone}"), &snap);
         assert_no_duplicate_value_keys(&format!("bollinger:{zone}"), &snap);
     }
+}
+
+// ── Candlestick & Pivot Points "no event" regression: each_key_duplicate source ──
+//
+// Regression background: the `candlestick` and `pivot_points` indicators
+// had the same "only insert on event" bug class as `patterns` did
+// before its fix. The Candlestick calculator always returns
+// `Some(CandlestickResult)` (the "no pattern" case carries
+// `pattern: None, status: None`), but `normalize_all` skipped insertion
+// when `status_code != 0` and let the WARMING-fill overwrite with
+// `state_label="WARMING"`. The Pivot Points calculator returns `None`
+// until the first UTC-day rollover (no prior session); the gate
+// `if let Some(p) = inputs.pivot` skipped insertion, the WARMING-fill
+// took over. Both surfaced the misleading "WARMING" / "WaitingFeed"
+// state on the dashboard.
+//
+// After the fix, every completed candle carries an entry:
+// - `candlestick` with `state_label="NONE_UNCONFIRMED"` when no pattern
+//   fires (the canonical "calculator ran, nothing of note" signal)
+// - `pivot_points` with `state_label="PIVOT_UNAVAILABLE"` on the first
+//   day before the first session rolls over
+
+#[test]
+fn candlestick_no_pattern_no_duplicate_signal_pairs() {
+    // Most bars: Candlestick calculator runs, returns Some(...) with
+    // pattern=None, status=None. The dashboard should show
+    // "NONE UNCONFIRMED", not "WARMING".
+    let inputs = IndicatorInputs {
+        bb_upper:        Some(102.0),
+        bb_middle:       Some(100.0),
+        bb_lower:        Some( 98.0),
+        bbwp:            Some(50.0),
+        atr_14:          Some(1.0),
+        ema_fast:        Some(99.5),
+        ema_medium:      Some(100.5),
+        rvol:            Some(1.0),
+        choppiness:      Some(50.0),
+        candlestick:     Some(CandlestickResult {
+            pattern:   CandlestickPattern::None,
+            direction: 0,
+            quality:   0.0,
+            status:    CandlestickStatus::None,
+        }),
+        candlestick_min_confidence: 0.3,
+        ..Default::default()
+    };
+    let ctx = NormalizationContext { price: 100.0, ..Default::default() };
+    let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+    let entry = map
+        .get("candlestick")
+        .expect("candlestick entry exists when calculator ran");
+    let snap = IndicatorSnapshot {
+        bar_count: 1,
+        state_label: entry.state_label.clone(),
+        normalized: entry.normalized,
+        confidence: entry.confidence,
+        values: entry.values.clone().map(|m| m.into_iter().collect()),
+        signals: entry.signals.clone(),
+        lifecycle_state: "Live".to_string(),
+        bars_required: 50,
+    };
+    println!(
+        "\n[candlestick:no_pattern] state_label={} signals={}\n",
+        snap.state_label,
+        snap.signals.len()
+    );
+    // The exact label is "{NONE}_UNCONFIRMED" (from
+    // normalize_candlestick's special-case branch in context.rs).
+    assert_eq!(
+        snap.state_label, "NONE_UNCONFIRMED",
+        "candlestick on no-pattern bar must surface NONE_UNCONFIRMED, not WARMING"
+    );
+    assert!(
+        snap.signals.is_empty(),
+        "candlestick on no-pattern bar must emit zero signals"
+    );
+    assert_no_duplicate_signal_keys("candlestick:no_pattern", &snap);
+}
+
+#[test]
+fn pivot_points_no_prior_session_no_duplicate_signal_pairs() {
+    // First UTC day: calculator runs, pivot_levels=None → inputs.pivot=None.
+    // The dashboard should show "PIVOT UNAVAILABLE", not "WARMING".
+    let inputs = IndicatorInputs {
+        // pivot + r1..r3 + s1..s3 all default to None → the unwrap_or(0.0)
+        // in normalize_pivot_points triggers the "pivot <= 0.0" early-return
+        // with state_label="PIVOT_UNAVAILABLE".
+        bb_upper:        Some(102.0),
+        bb_middle:       Some(100.0),
+        bb_lower:        Some( 98.0),
+        atr_14:          Some(1.0),
+        pivot_proximity_pct: 0.0015,
+        ..Default::default()
+    };
+    let ctx = NormalizationContext { price: 100.0, ..Default::default() };
+    let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
+    let entry = map
+        .get("pivot_points")
+        .expect("pivot_points entry exists when calculator ran");
+    let snap = IndicatorSnapshot {
+        bar_count: 1,
+        state_label: entry.state_label.clone(),
+        normalized: entry.normalized,
+        confidence: entry.confidence,
+        values: entry.values.clone().map(|m| m.into_iter().collect()),
+        signals: entry.signals.clone(),
+        lifecycle_state: "Live".to_string(),
+        bars_required: 50,
+    };
+    println!(
+        "\n[pivot_points:no_prior_session] state_label={} signals={}\n",
+        snap.state_label,
+        snap.signals.len()
+    );
+    assert_eq!(
+        snap.state_label, "PIVOT_UNAVAILABLE",
+        "pivot_points on first day must surface PIVOT_UNAVAILABLE, not WARMING"
+    );
+    assert!(
+        snap.signals.is_empty(),
+        "pivot_points on first day must emit zero signals"
+    );
+    assert_no_duplicate_signal_keys("pivot_points:no_prior_session", &snap);
 }
 
 // ── Sanity check: signal-pattern sweep catches collisions across patterns ──

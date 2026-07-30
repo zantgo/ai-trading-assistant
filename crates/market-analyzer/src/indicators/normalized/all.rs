@@ -477,12 +477,23 @@ impl NormalizationEngine {
         }
 
         // Session Pivot Points (levels published from the prior UTC session).
-        if let Some(p) = inputs.pivot {
+        //
+        // Insert unconditionally on completed candles. On the very first
+        // UTC day of operation `inputs.pivot = None` (no prior session has
+        // finalized yet), so the unwrap defaults to `0.0` and
+        // `normalize_pivot_points` returns `state_label="PIVOT_UNAVAILABLE"`
+        // instead of letting the WARMING-fill overwrite with `state_label=
+        // "WARMING"` — which previously made the dashboard show an
+        // ambiguous Loading/WaitingFeed for the first ~24 h of every
+        // daemon start. Shadow ticks are excluded so the frontend's
+        // per-key merge keeps the last completed-candle values intact
+        // between candle closes.
+        if !shadow {
             out.insert(
                 "pivot_points".into(),
                 Self::normalize_pivot_points(
                     ctx.price,
-                    p,
+                    inputs.pivot.unwrap_or(0.0),
                     inputs.pivot_r1.unwrap_or(0.0),
                     inputs.pivot_r2.unwrap_or(0.0),
                     inputs.pivot_r3.unwrap_or(0.0),
@@ -499,6 +510,18 @@ impl NormalizationEngine {
         // `Candlestick` calculator. Here we cross-check the live indicator map
         // (trend / S-R / volume / volatility / regime) to adjust confidence and
         // reject low-context readings before scoring.
+        //
+        // Insert unconditionally on completed candles. The Candlestick
+        // calculator returns `Some(CandlestickResult { pattern: None,
+        // status: None, ... })` on every bar where no recognizable pattern
+        // forms (the vast majority). Previously the inner `if status_code
+        // != 0` check skipped insertion in that case, letting the WARMING
+        // fill overwrite with `state_label="WARMING"` and producing a
+        // misleading Loading state on the dashboard. Inserting the entry
+        // unconditionally lets `normalize_candlestick` produce a clear
+        // `state_label="NONE_UNCONFIRMED"` (or the real pattern name when
+        // one fires) so the trader reads "no pattern forming right now"
+        // vs. "pattern just fired" — accurate.
         if let Some(cs) = inputs.candlestick {
             let status_code = match cs.status {
                 CandlestickStatus::Formed => 1u8,
@@ -506,74 +529,72 @@ impl NormalizationEngine {
                 CandlestickStatus::Invalidated => 3u8,
                 CandlestickStatus::None => 0u8,
             };
-            if status_code != 0 {
-                let dir = cs.direction as f64;
-                let read_norm = |k: &str| out.get(k).map(|v| v.normalized).unwrap_or(0.0);
-                let read_raw = |k: &str| out.get(k).map(|v| v.raw_value).unwrap_or(0.0);
+            let dir = cs.direction as f64;
+            let read_norm = |k: &str| out.get(k).map(|v| v.normalized).unwrap_or(0.0);
+            let read_raw = |k: &str| out.get(k).map(|v| v.raw_value).unwrap_or(0.0);
 
-                // Trend alignment: reversal patterns gain when the prevailing
-                // ema-stack trend opposes them (exhaustion); continuation
-                // patterns gain when aligned.
-                let trend = read_norm("ema_stack");
-                let is_continuation = cs.pattern.category() == "continuation";
-                let trend_factor = if is_continuation {
-                    if trend * dir > 0.0 {
-                        1.25
-                    } else {
-                        0.8
-                    }
-                } else if trend * dir < 0.0 {
-                    1.25 // reversal against trend = higher value
+            // Trend alignment: reversal patterns gain when the prevailing
+            // ema-stack trend opposes them (exhaustion); continuation
+            // patterns gain when aligned.
+            let trend = read_norm("ema_stack");
+            let is_continuation = cs.pattern.category() == "continuation";
+            let trend_factor = if is_continuation {
+                if trend * dir > 0.0 {
+                    1.25
                 } else {
-                    0.9
-                };
+                    0.8
+                }
+            } else if trend * dir < 0.0 {
+                1.25 // reversal against trend = higher value
+            } else {
+                0.9
+            };
 
-                // S/R proximity: a pattern at a structural level is stronger.
-                let sr_mag = read_norm("support_resistance").abs();
-                let pivot_mag = read_norm("pivot_points").abs();
-                let struct_factor = 1.0 + 0.3 * sr_mag.max(pivot_mag);
+            // S/R proximity: a pattern at a structural level is stronger.
+            let sr_mag = read_norm("support_resistance").abs();
+            let pivot_mag = read_norm("pivot_points").abs();
+            let struct_factor = 1.0 + 0.3 * sr_mag.max(pivot_mag);
 
-                // Volume: institutional participation reinforces the pattern.
-                let rvol = read_raw("rvol");
-                let vol_factor = if rvol >= 1.5 {
-                    1.2
-                } else if rvol > 0.0 && rvol < 0.8 {
-                    0.85
-                } else {
-                    1.0
-                };
+            // Volume: institutional participation reinforces the pattern.
+            let rvol = read_raw("rvol");
+            let vol_factor = if rvol >= 1.5 {
+                1.2
+            } else if rvol > 0.0 && rvol < 0.8 {
+                0.85
+            } else {
+                1.0
+            };
 
-                // Regime: choppy/range conditions reduce reliability.
-                let chop = read_raw("choppiness");
-                let regime_factor = if chop >= 61.8 {
-                    0.75
-                } else if chop > 0.0 && chop <= 38.2 {
-                    1.1
-                } else {
-                    1.0
-                };
+            // Regime: choppy/range conditions reduce reliability.
+            let chop = read_raw("choppiness");
+            let regime_factor = if chop >= 61.8 {
+                0.75
+            } else if chop > 0.0 && chop <= 38.2 {
+                1.1
+            } else {
+                1.0
+            };
 
-                // Volatility: extreme BBWP expansion can produce noise wicks.
-                let bbwp = read_raw("bbwp");
-                let vola_factor = if bbwp >= 95.0 { 0.85 } else { 1.0 };
+            // Volatility: extreme BBWP expansion can produce noise wicks.
+            let bbwp = read_raw("bbwp");
+            let vola_factor = if bbwp >= 95.0 { 0.85 } else { 1.0 };
 
-                let context_mult =
-                    (trend_factor * struct_factor * vol_factor * regime_factor * vola_factor)
-                        .clamp(0.0, 2.0);
+            let context_mult =
+                (trend_factor * struct_factor * vol_factor * regime_factor * vola_factor)
+                    .clamp(0.0, 2.0);
 
-                out.insert(
-                    "candlestick".into(),
-                    Self::normalize_candlestick(
-                        cs.pattern.name(),
-                        cs.pattern.category(),
-                        cs.direction,
-                        cs.quality,
-                        status_code,
-                        context_mult,
-                        inputs.candlestick_min_confidence,
-                    ),
-                );
-            }
+            out.insert(
+                "candlestick".into(),
+                Self::normalize_candlestick(
+                    cs.pattern.name(),
+                    cs.pattern.category(),
+                    cs.direction,
+                    cs.quality,
+                    status_code,
+                    context_mult,
+                    inputs.candlestick_min_confidence,
+                ),
+            );
         }
 
         // ── Ichimoku Cloud: complete trend system ──

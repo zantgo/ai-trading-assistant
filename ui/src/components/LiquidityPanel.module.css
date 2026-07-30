@@ -43,6 +43,25 @@
     border-color: rgba(255, 255, 255, 0.16);
 }
 
+/* Active TF source indicator — sits at the end of the tab bar so the
+   trader always sees which timeframe's data the cluster matrix and
+   flow represent (cluster is per-TF). */
+.tfBadge {
+    margin-left: auto;
+    align-self: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: rgba(100, 255, 218, 0.08);
+    color: #64ffda;
+    border: 1px solid rgba(100, 255, 218, 0.16);
+    font-family: var(--mono, monospace);
+    white-space: nowrap;
+}
+
 .section {
     display: flex;
     flex-direction: column;
@@ -105,6 +124,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    /* Cluster rows use a fixed-column 6-column grid (~430 px + 1fr). On
+       narrow panels the 1fr column can't shrink past the fixed columns
+       and rows would escape the panel. `overflow-x: auto` keeps them
+       inside the section via horizontal scroll. */
+    overflow-x: auto;
 }
 
 .subLabel {

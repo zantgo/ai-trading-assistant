@@ -18,6 +18,7 @@
     // `pairKey`. This removes the panel's redundant internal flow-TF selector.
 
     import type { TimeframeTelemetry } from '../../types';
+    import { formatTimeframeLabel } from '../../lib/telemetry';
     import LiquidityPanel from '../LiquidityPanel.svelte';
     import styles from './LiquidityView.module.css';
 
@@ -26,8 +27,14 @@
     }
 
     let { tf }: Props = $props();
+
+    const tfLabel = $derived(
+        tf
+            ? `${tf.slot.toUpperCase()} ${formatTimeframeLabel(tf.barDurationSec)}`
+            : 'NO DATA'
+    );
 </script>
 
 <div class={styles.view}>
-    <LiquidityPanel {tf} />
+    <LiquidityPanel {tf} tfLabel={tfLabel} />
 </div>

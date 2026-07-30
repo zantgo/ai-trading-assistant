@@ -62,6 +62,13 @@ struct TradePayload {
     hash: String,
     tid: u64,
     time: u64,
+    /// Hyperliquid marks liquidation fills with this field equal to the
+    /// string "liquidated" or containing the literal liquidation mark.
+    /// The same field is published on the **public** `trades` channel,
+    /// so we extract liquidation events from there — no per-account
+    /// `userFills` subscription is needed.
+    #[serde(default)]
+    liquidation: Option<String>,
 }
 
 fn to_internal_symbol(raw: &str) -> String {
@@ -73,38 +80,6 @@ fn to_internal_symbol(raw: &str) -> String {
 struct ActiveAssetCtxEnvelope {
     channel: String,
     data: Option<ActiveAssetCtxData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct UserFillsEnvelope {
-    channel: String,
-    data: Option<Vec<UserFill>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct UserFill {
-    coin: String,
-    px: String,
-    sz: String,
-    side: String, // "A" (sell) or "B" (buy)
-    time: u64,
-    #[serde(rename = "hash", default)]
-    hash: String,
-    /// Hyperliquid marks liquidation fills with this field equal to the
-    /// string "liquidated" or containing the literal liquidation mark.
-    #[serde(default)]
-    liquidation: Option<String>,
-    /// Position size at the time of fill.
-    #[serde(default)]
-    start_position: Option<String>,
-    /// Closed PnL (negative for liquidations).
-    #[serde(rename = "closedPnl", default)]
-    closed_pnl: Option<String>,
-    /// Fee paid on this fill.
-    #[serde(default)]
-    fee: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -297,7 +272,6 @@ pub async fn run_for_symbol(
     event_tx: Sender<NormalizedEvent>,
     cancel: CancellationToken,
     ws_url: &str,
-    user_address: &str,
 ) {
     let url = match url::Url::parse(ws_url) {
         Ok(u) => u,
@@ -329,29 +303,12 @@ pub async fn run_for_symbol(
         serde_json::json!({"type": "trades", "coin": &symbol}),
         serde_json::json!({"type": "l2Book", "coin": &symbol}),
         serde_json::json!({"type": "activeAssetCtx", "coin": &symbol}),
-        // Phase 1: userFills channel exposes real liquidation events.
-        // Hyperliquid does NOT publish liquidations on a public channel;
-        // `userFills` is the only source and is account-scoped. The
-        // `user_address` parameter is passed in by the registry: an empty
-        // string disables the subscription (no HL liquidations will be
-        // ingested), a valid 0x-prefixed 40-hex-char address enables it
-        // for that account only. Bitget, by contrast, exposes public
-        // liquidations on the `fill` channel and is always active when
-        // `liquidation_feed = true` in `[workspace.liquidity]`.
-        user_fills_subscription(&symbol, user_address),
+        // Note: liquidation events come from the public `trades` channel
+        // (every liquidation fill carries a non-empty `liquidation`
+        // field). No per-account subscription is needed. This matches
+        // Bitget's public `liquidation` channel behavior.
     ];
     for sub in &subscriptions {
-        // Skip disabled subscriptions (e.g. userFills when no HL user
-        // address is configured) — they would otherwise be sent to HL and
-        // either fail or return no fills. `_disabled: true` is set by
-        // `user_fills_subscription`.
-        if sub.get("_disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
-            println!(
-                "📡 Hyperliquid [{}]: Skipping disabled subscription (no user address configured)",
-                symbol
-            );
-            continue;
-        }
         let sub_request = serde_json::json!({
             "method": "subscribe",
             "subscription": sub
@@ -478,6 +435,54 @@ pub async fn run_for_symbol(
                                     TradeSide::Buy
                                 };
 
+                                // Liquidation extraction (market-wide).
+                                // Hyperliquid does NOT publish public liquidations on
+                                // a dedicated channel (the `userFills` channel is
+                                // account-scoped and requires `[workspace.liquidity]
+                                // user_address`). Instead, every liquidation fill is
+                                // marked on the public `trades` channel itself via the
+                                // `liquidation` field — a non-empty string (typically
+                                // `"A"` or `"B"`) on a forced-close fill. We translate
+                                // each marked trade into a `NormalizedEvent::Liquidation`
+                                // so the per-candle `LiquidityEventAccumulator` sees
+                                // market-wide liquidations without per-account setup —
+                                // matching Bitget's public `liquidation` channel.
+                                //
+                                // Side semantics (same as the userFills handler):
+                                //   t.side == "A" (aggressor was seller) → a long was
+                                //     force-closed → LiquidationSide::Long
+                                //   t.side == "B" (aggressor was buyer)  → a short was
+                                //     force-closed → LiquidationSide::Short
+                                let is_liquidation = t
+                                    .liquidation
+                                    .as_deref()
+                                    .map(|s| !s.is_empty() && s != "false")
+                                    .unwrap_or(false);
+                                if is_liquidation {
+                                    let liq_side = if t.side == "A" {
+                                        core_domain::normalized::LiquidationSide::Long
+                                    } else {
+                                        core_domain::normalized::LiquidationSide::Short
+                                    };
+                                    let _ = event_tx
+                                        .send(NormalizedEvent::Liquidation(
+                                            core_domain::normalized::LiquidationEvent {
+                                                exchange: Exchange::Hyperliquid,
+                                                symbol: internal_symbol.clone(),
+                                                side: liq_side,
+                                                price,
+                                                size,
+                                                timestamp_ms: t.time,
+                                                venue_order_id: if t.hash.is_empty() {
+                                                    None
+                                                } else {
+                                                    Some(t.hash.clone())
+                                                },
+                                            },
+                                        ))
+                                        .await;
+                                }
+
                                 let event = NormalizedEvent::Trade(NormalizedTrade {
                                     exchange: Exchange::Hyperliquid,
                                     symbol: internal_symbol.clone(),
@@ -511,8 +516,6 @@ pub async fn run_for_symbol(
                             }
                         }
                     }
-                } else if raw_text.contains("\"channel\":\"userFills\"") {
-                    emit_user_fills_liquidations(&internal_symbol, &raw_text, &event_tx);
                 }
             }
             Message::Ping(ping) => {
@@ -537,181 +540,4 @@ pub async fn run_for_symbol(
             message: format!("Dedicated WS disconnected for {}", symbol),
         })
         .await;
-}
-
-// =============================================================================
-// userFills liquidation extraction
-// =============================================================================
-//
-// Hyperliquid's `userFills` channel includes a `liquidation` field on each
-// fill entry. When set, the fill is a forced close by the liquidation
-// engine. We translate it to a `NormalizedEvent::Liquidation` with the
-// correct side: a "B" (buy) side on a liquidation closes a SHORT, a "A"
-// (sell) side on a liquidation closes a LONG.
-//
-// We process the message once in `start()` and once in `run_for_symbol()`.
-
-/// Build the `userFills` subscription request, or `None` if the operator
-/// has not configured a user address (default). HL liquidations are
-/// account-scoped — there is no public liquidation feed.
-fn user_fills_subscription(symbol: &str, user_address: &str) -> serde_json::Value {
-    let addr = user_address.trim();
-    let valid = !addr.is_empty()
-        && addr.starts_with("0x")
-        && addr.len() == 42
-        && addr[2..].chars().all(|c| c.is_ascii_hexdigit());
-    if valid {
-        serde_json::json!({"type": "userFills", "coin": symbol, "user": addr})
-    } else {
-        // Sentinel: serialised as an object with a special `disabled` flag
-        // so the dispatcher can skip it without consulting the address
-        // twice. The `loop` body in `run_for_symbol` checks this and
-        // never sends the frame over WS.
-        serde_json::json!({
-            "type": "userFills",
-            "coin": symbol,
-            "user": "0x0000000000000000000000000000000000000000",
-            "_disabled": true
-        })
-    }
-}
-
-/// Public read-only flag for the dispatcher: true when the operator has
-/// configured a valid HL user address and the `userFills` subscription
-/// should be activated.
-pub fn user_fills_enabled(user_address: &str) -> bool {
-    let addr = user_address.trim();
-    !addr.is_empty()
-        && addr.starts_with("0x")
-        && addr.len() == 42
-        && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn emit_user_fills_liquidations(
-    internal_symbol: &str,
-    raw_text: &str,
-    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
-) {
-    let envelope: UserFillsEnvelope = match serde_json::from_str(raw_text) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    let Some(fills) = envelope.data else { return };
-    for fill in fills {
-        // A fill is a liquidation when the `liquidation` field is present
-        // AND non-empty. Hyperliquid uses string values like "B" or "A"
-        // here (the side that triggered the liquidation).
-        let is_liquidation = fill
-            .liquidation
-            .as_deref()
-            .map(|s| !s.is_empty() && s != "false")
-            .unwrap_or(false);
-        if !is_liquidation {
-            continue;
-        }
-        let price = match Decimal::from_str(&fill.px) {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-        let size = match Decimal::from_str(&fill.sz) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        // Side semantics for liquidations:
-        //   side == "A" (aggressor was seller)  -> a long was closed
-        //   side == "B" (aggressor was buyer)   -> a short was closed
-        let liq_side = if fill.side == "A" {
-            core_domain::normalized::LiquidationSide::Long
-        } else {
-            core_domain::normalized::LiquidationSide::Short
-        };
-        let _ = event_tx.try_send(NormalizedEvent::Liquidation(
-            core_domain::normalized::LiquidationEvent {
-                exchange: Exchange::Hyperliquid,
-                symbol: internal_symbol.to_string(),
-                side: liq_side,
-                price,
-                size,
-                timestamp_ms: fill.time,
-                venue_order_id: if fill.hash.is_empty() {
-                    None
-                } else {
-                    Some(fill.hash.clone())
-                },
-            },
-        ));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn user_fills_enabled_accepts_valid_address() {
-        // 0x + 40 hex chars.
-        let addr = "0x1234567890abcdef1234567890abcdef12345678";
-        assert!(user_fills_enabled(addr));
-    }
-
-    #[test]
-    fn user_fills_enabled_accepts_mixed_case() {
-        let addr = "0xAbCdEf1234567890aBcDeF1234567890aBcDeF12";
-        assert!(user_fills_enabled(addr));
-    }
-
-    #[test]
-    fn user_fills_enabled_rejects_empty() {
-        assert!(!user_fills_enabled(""));
-        assert!(!user_fills_enabled("   "));
-    }
-
-    #[test]
-    fn user_fills_enabled_rejects_missing_prefix() {
-        let addr = "1234567890abcdef1234567890abcdef12345678";
-        assert!(!user_fills_enabled(addr));
-    }
-
-    #[test]
-    fn user_fills_enabled_rejects_wrong_length() {
-        assert!(!user_fills_enabled("0x1234"));
-        assert!(!user_fills_enabled(
-            "0x1234567890abcdef1234567890abcdef12345678901234"
-        ));
-    }
-
-    #[test]
-    fn user_fills_enabled_rejects_non_hex() {
-        let addr = "0xZZZZ567890abcdef1234567890abcdef12345678";
-        assert!(!user_fills_enabled(addr));
-    }
-
-    #[test]
-    fn user_fills_subscription_marks_disabled_for_empty_address() {
-        let sub = user_fills_subscription("BTC", "");
-        assert_eq!(
-            sub.get("_disabled").and_then(|v| v.as_bool()),
-            Some(true),
-            "empty address must produce a disabled subscription"
-        );
-    }
-
-    #[test]
-    fn user_fills_subscription_marks_disabled_for_invalid_address() {
-        let sub = user_fills_subscription("BTC", "not-a-real-address");
-        assert_eq!(
-            sub.get("_disabled").and_then(|v| v.as_bool()),
-            Some(true),
-            "invalid address must produce a disabled subscription"
-        );
-    }
-
-    #[test]
-    fn user_fills_subscription_emits_real_address_when_valid() {
-        let addr = "0x1234567890abcdef1234567890abcdef12345678";
-        let sub = user_fills_subscription("BTC", addr);
-        assert!(sub.get("_disabled").is_none());
-        assert_eq!(sub.get("user").and_then(|v| v.as_str()), Some(addr));
-        assert_eq!(sub.get("coin").and_then(|v| v.as_str()), Some("BTC"));
-    }
 }
