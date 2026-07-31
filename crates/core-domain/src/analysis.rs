@@ -9,6 +9,80 @@
 use crate::alignment::AlignmentMatrix;
 use serde::{Deserialize, Serialize};
 
+/// Generic `[low, high]` price range used for per-profile zones, the
+/// aggregated per-direction zones, and the legacy `entry_zone`/`target_zone`
+/// fields. Lives here (rather than in `opportunity.rs`) so per-profile
+/// zone fields on `OpportunityProfile` can reference it without a
+/// cross-crate import cycle.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PriceRange {
+    pub low: f64,
+    pub high: f64,
+}
+
+/// Direction family an `OpportunityType` belongs to. Used by
+/// `derive_profile_zones` to resolve a profile's actual trade direction
+/// from `Analysis.bias`. `TrendRiding` follows the macro bias;
+/// `CounterTrend` flips it; `Neutral` carries no actionable setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DirectionFamily {
+    /// Profile rides the prevailing trend (TrendContinuation, Breakout,
+    /// Pullback, Scalp, LiquiditySqueeze). Resolves to LONG when
+    /// `Analysis.bias` is Bullish/StrongBullish, SHORT when Bearish/
+    /// StrongBearish, NEUTRAL otherwise.
+    TrendRiding,
+    /// Profile counters the prevailing trend (MeanReversion, Reversal).
+    /// Resolves to the OPPOSITE of the macro bias.
+    CounterTrend,
+    /// Profile is direction-neutral (NoClearOpportunity). Carries no zones.
+    Neutral,
+}
+
+/// Trade viability of an `OpportunityProfile`. Tells the operator whether
+/// the profile carries an actionable bracket (zones pass per-side
+/// invariants on a resolvable direction) or whether the profile is
+/// informational only. Set by the L4 producer and surfaced in the UI as
+/// a coloured badge next to each qualifying profile's preconditions bar.
+///
+/// Wire format is SCREAMING_SNAKE_CASE. Optional on the wire so older
+/// snapshots deserialize cleanly (`trade_viability = None` ⇒
+/// `TradeViability::NoClear`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TradeViability {
+    /// Profile qualifies AND its per-side zones pass the LONG/SHORT
+    /// geometry invariants. Operator can act on this profile.
+    Actionable,
+    /// Profile qualifies (preconditions met) but `selectProfileSide`
+    /// resolves to NEUTRAL — typically Neutral family + Neutral bias.
+    /// The aggregated Neutral sentinel (close-pinned) is the only
+    /// available bracket; R:R is 0.
+    DirectionalNeutral,
+    /// Profile qualifies and direction resolves, but per-side invariants
+    /// failed (entry/target/SL geometrically inconsistent). Stale zones.
+    GeometryInverted,
+    /// `NoClearOpportunity` fallback. Never actionable regardless of
+    /// preconditions count.
+    #[default]
+    NoClear,
+}
+
+/// Direction family assigned to each `OpportunityType`. Total over all
+/// eight variants — see `compute_candidate_score` test
+/// `direction_family_table_is_total`.
+pub fn direction_family_for(ot: OpportunityType) -> DirectionFamily {
+    match ot {
+        OpportunityType::TrendContinuation
+        | OpportunityType::Breakout
+        | OpportunityType::Pullback
+        | OpportunityType::Scalp
+        | OpportunityType::LiquiditySqueeze => DirectionFamily::TrendRiding,
+        OpportunityType::MeanReversion | OpportunityType::Reversal => DirectionFamily::CounterTrend,
+        OpportunityType::NoClearOpportunity => DirectionFamily::Neutral,
+    }
+}
+
 /// Directional market bias.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarketBias {
@@ -135,6 +209,18 @@ pub enum SetupQuality {
 }
 
 /// Per-setup-type scored profile.
+///
+/// `OpportunityMatrix.profiles` carries one entry per `OpportunityType`
+/// (eight max). When the profile's preconditions are satisfied AND
+/// `OpportunityType != NoClearOpportunity`, the matching per-side zones
+/// are populated:
+///   - `direction_family` = `TrendRiding`: zones are emitted on the same
+///     side as `Analysis.bias` (LONG-profile has `long_*` set, SHORT-profile
+///     has `short_*` set).
+///   - `direction_family` = `CounterTrend`: zones are emitted on the
+///     opposite side of `Analysis.bias` (MeanReversion against a bullish
+///     bias populates `short_*`).
+///   - `direction_family` = `Neutral`: every zone field is `None`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpportunityProfile {
     pub opportunity_type: OpportunityType,
@@ -142,6 +228,57 @@ pub struct OpportunityProfile {
     pub preconditions_met: u32,
     pub preconditions_total: u32,
     pub notes: String,
+    /// Direction family this profile implies. Populated by the L4 producer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction_family: Option<DirectionFamily>,
+    /// LONG-side entry zone (entry below close). Populated only when
+    /// the profile resolves to LONG (TrendRiding + bullish bias, or
+    /// CounterTrend + bearish bias).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_entry_zone: Option<PriceRange>,
+    /// LONG-side target zone (target above close).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_target_zone: Option<PriceRange>,
+    /// LONG-side invalidation level (price below which the long thesis
+    /// is invalidated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_invalidation_level: Option<f64>,
+    /// SHORT-side entry zone (entry above close).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_entry_zone: Option<PriceRange>,
+    /// SHORT-side target zone (target below close).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_target_zone: Option<PriceRange>,
+    /// SHORT-side invalidation level (price above which the short thesis
+    /// is invalidated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_invalidation_level: Option<f64>,
+    /// Per-side expected reward/risk ratio derived from the per-profile
+    /// zones (faithful sign-aware R:R; never the legacy `2.5` mask).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_expected_rr_internal: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_expected_rr_internal: Option<f64>,
+    /// Trade viability classification for this profile. The L4 producer
+    /// sets this so the UI can color-code the card. `None` on legacy
+    /// payloads — UI should treat `None` as `NoClear`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trade_viability: Option<TradeViability>,
+    /// Internal-only scoring factors (raw blend, precondition ratio).
+    /// NEVER serialised on the wire — operators don't see these. Kept in
+    /// the Rust struct for telemetry consumers that read profiles
+    /// directly from `OpportunityMatrix`. UI panels read `notes` for the
+    /// user-facing rationale.
+    #[serde(skip)]
+    pub scoring_factors: Option<ScoringFactors>,
+}
+
+/// Internal scoring factors for an `OpportunityProfile`. Kept on the
+/// struct but skipped by serde so the wire stays clean.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScoringFactors {
+    pub raw_score: f64,
+    pub precondition_ratio: f64,
 }
 
 /// Wyckoff-style market-cycle phase.
@@ -679,5 +816,63 @@ mod tests {
         let c = simple_alignment(4, 5.0, 55.0, 2);
         let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None, None);
         assert_eq!(d.market_regime, MarketRegime::Range);
+    }
+
+    #[test]
+    fn direction_family_table_is_total() {
+        // Every OpportunityType variant must map to exactly one
+        // DirectionFamily variant. This guards against accidentally
+        // adding a new setup type without registering its family.
+        let all = [
+            OpportunityType::LiquiditySqueeze,
+            OpportunityType::Scalp,
+            OpportunityType::TrendContinuation,
+            OpportunityType::Breakout,
+            OpportunityType::Reversal,
+            OpportunityType::Pullback,
+            OpportunityType::MeanReversion,
+            OpportunityType::NoClearOpportunity,
+        ];
+        let mut families: Vec<DirectionFamily> = all
+            .iter()
+            .map(|ot| direction_family_for(*ot))
+            .collect();
+        families.sort_by_key(|f| *f as u8);
+        families.dedup();
+        assert_eq!(
+            families.len(),
+            3,
+            "expected exactly TrendRiding, CounterTrend, Neutral families (got {:?})",
+            families
+        );
+        // TrendRiding is the majority family.
+        assert!(all
+            .iter()
+            .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::TrendRiding))
+            .count()
+            >= 4);
+        // CounterTrend covers MeanReversion + Reversal.
+        assert!(all
+            .iter()
+            .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::CounterTrend))
+            .count()
+            == 2);
+        // Neutral covers NoClearOpportunity.
+        assert!(all
+            .iter()
+            .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::Neutral))
+            .count()
+            == 1);
+    }
+
+    #[test]
+    fn direction_family_serializes_as_screaming_snake_case() {
+        // Wire format must be SCREAMING_SNAKE_CASE per the matrix spec.
+        let json = serde_json::to_string(&DirectionFamily::TrendRiding).unwrap();
+        assert_eq!(json, "\"TREND_RIDING\"");
+        let json = serde_json::to_string(&DirectionFamily::CounterTrend).unwrap();
+        assert_eq!(json, "\"COUNTER_TREND\"");
+        let json = serde_json::to_string(&DirectionFamily::Neutral).unwrap();
+        assert_eq!(json, "\"NEUTRAL\"");
     }
 }

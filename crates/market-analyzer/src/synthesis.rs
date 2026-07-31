@@ -57,7 +57,7 @@ fn compute_candidate_score(
     signals: &HashMap<String, NormalizedIndicatorValue>,
     preconditions_met: u32,
     preconditions_total: u32,
-) -> (f64, String) {
+) -> (f64, String, f64, f64) {
     let q_ctx = match analysis.market_quality {
         analysis::QualityLevel::Excellent => 95.0,
         analysis::QualityLevel::Good => 80.0,
@@ -94,14 +94,31 @@ fn compute_candidate_score(
         100.0 * (1.0 - (min_age as f64 / 20.0).min(1.0))
     };
 
-    let score = (0.35 * q_ctx + 0.30 * s_sig + 0.20 * a_mtf + 0.15 * f_fresh).clamp(0.0, 100.0);
+    let raw = (0.35 * q_ctx + 0.30 * s_sig + 0.20 * a_mtf + 0.15 * f_fresh).clamp(0.0, 100.0);
+    // Discount the raw score by the precondition completion ratio so profiles
+    // that didn't meet their gate get a faithful (low) score rather than the
+    // same headline number as fully-satisfied candidates.
+    let ratio = if preconditions_total > 0 {
+        preconditions_met as f64 / preconditions_total as f64
+    } else {
+        0.0
+    };
+    // NoClearOpportunity is the unconditional-zero sentinel: it can never
+    // surface as an actionable trade, even if its single precondition was met.
+    let score = if matches!(opportunity_type, OpportunityType::NoClearOpportunity) {
+        0.0
+    } else {
+        (raw * ratio).clamp(0.0, 100.0)
+    };
 
+    // User-facing rationale. Cleansed of raw/ratio debug strings — those
+    // are kept in the `scoring_factors` field, which is `#[serde(skip)]`.
     let notes = format!(
-        "{:?}: preconditions {}/{}, Q_ctx={:.0} S_sig={:.0} A_mtf={:.0} F_fresh={:.0}",
-        opportunity_type, preconditions_met, preconditions_total, q_ctx, s_sig, a_mtf, f_fresh
+        "{:?}: preconditions {}/{}",
+        opportunity_type, preconditions_met, preconditions_total
     );
 
-    (score, notes)
+    (score, notes, raw, ratio)
 }
 
 struct LevelCandidate {
@@ -782,7 +799,7 @@ fn compute_opportunity(
             OpportunityType::NoClearOpportunity => (if tradability_dim < 30.0 { 1 } else { 0 }, 1),
         };
 
-        let (score, notes) = compute_candidate_score(
+        let (score, notes, raw_score, precondition_ratio) = compute_candidate_score(
             *ot,
             analysis,
             alignment,
@@ -799,6 +816,20 @@ fn compute_opportunity(
             preconditions_met: met as u32,
             preconditions_total: total as u32,
             notes,
+            direction_family: None,
+            long_entry_zone: None,
+            long_target_zone: None,
+            long_invalidation_level: None,
+            long_expected_rr_internal: None,
+            short_entry_zone: None,
+            short_target_zone: None,
+            short_invalidation_level: None,
+            short_expected_rr_internal: None,
+            trade_viability: None,
+            scoring_factors: Some(core_domain::analysis::ScoringFactors {
+                raw_score,
+                precondition_ratio,
+            }),
         });
     }
 
@@ -906,6 +937,8 @@ fn compute_opportunity(
         short_entry_zone,
         short_target_zone,
         short_invalidation_level,
+        long_expected_rr_internal: 0.0,
+        short_expected_rr_internal: 0.0,
         expected_rr_internal,
         time_horizon,
         confluent_entry_levels: confluent_entry,

@@ -2143,6 +2143,8 @@ pub async fn run_single(
                     prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
 
                     let confluence_score = {
+                        // Unsigned 3-factor quality blend, normalised to [0, 1].
+                        // All three inputs are categorical quality scores in [0, 100].
                         let tradability_dim = synthesis
                             .alignment
                             .dimensions
@@ -2155,8 +2157,15 @@ pub async fn run_single(
                             .as_ref()
                             .map(|o| o.opportunity_score)
                             .unwrap_or(0.0);
-                        (0.50 * tradability_dim + 0.30 * market_quality_score + 0.20 * opp_score)
+                        let magnitude = (0.50 * tradability_dim
+                            + 0.30 * market_quality_score
+                            + 0.20 * opp_score)
                             .clamp(0.0, 100.0)
+                            / 100.0;
+                        // Signed direction from the L3 bias score ([-1, 1]).
+                        // Neutral bias → 0; strong bias × high quality → ±100.
+                        let sign = synthesis.analysis.market_bias_score.clamp(-1.0, 1.0);
+                        (sign * magnitude * 100.0).clamp(-100.0, 100.0)
                     };
 
                     let l4_opportunity = synthesis.opportunity.clone();

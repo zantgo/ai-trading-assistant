@@ -347,7 +347,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // profiles. Only completed-candle frames carry this payload;
         // shadow ticks hard-code it to `None` for performance. Mirroring
         // here means `OpportunitiesPanel`, `TradePlanStrip` and
-        // `AdvisoryPanel` can read from `pair.opportunity` directly
+        // `RecommendationPanel` can read from `pair.opportunity` directly
         // instead of trawling `microTerm.latestSnapshot.opportunity`
         // (which the unconditional assignment above used to wipe).
         if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {

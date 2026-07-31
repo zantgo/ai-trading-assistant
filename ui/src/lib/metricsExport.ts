@@ -7,26 +7,37 @@
 // liquidity flow/cluster/signals) plus instance-level matrices (opportunity,
 // advisory, analysis, risk, alignment) for completeness. The Trade Plan
 // (L4/L6 synthesis) is excluded — it belongs to the Decision tab.
+//
+// Phase 3 expansion: each panel export now mirrors everything the operator
+// can see on screen — including the per-dimension state / evidence chips
+// rendered on the Risk page, the market_phase / market_interpretation /
+// rationale text on the Analysis page, the mirrored long/short zones on
+// the Opportunity page, and the decision_rank hero block on the
+// Recommendation page. The MTF export additionally surfaces per-TF
+// indicator detail (raw, signals, sub_values, lifecycle) for each of the
+// 4 timeframes, so the operator does not have to switch tabs to harvest
+// the per-TF metrics.
 
 import type {
+    AdvisoryMatrix,
+    AnalysisMatrix,
     ConfluentLevel,
+    DecisionContext,
+    IndicatorDto,
+    IndicatorLifecycleStatus,
+    IndicatorMeta,
+    IndicatorSignal,
     LiquidationCluster,
     LiquidationClusterMatrix,
     LiquidityFlow,
     LiquiditySignal,
     OpportunityMatrix,
-    VolumeProfileSnapshot,
-} from '../types';
-import type {
-    AdvisoryMatrix,
-    AnalysisMatrix,
-    IndicatorDto,
-    IndicatorLifecycleStatus,
-    IndicatorMeta,
-    IndicatorSignal,
+    RiskDimension,
     RiskMatrix,
     TimeframeTelemetry,
+    VolumeProfileSnapshot,
 } from '../types';
+import { computeDecisionRank } from './decisionRank';
 
 interface ExportPayload {
     exported_at: string;
@@ -72,6 +83,20 @@ interface ExportPayload {
     pipeline_state: string | null;
     /** Whether the current snapshot is a completed candle (true) or a shadow/live tick (false). */
     is_completed: boolean;
+    /**
+     * Recommendation-tab hero block — Top Call (LONG/SHORT/HOLD with
+     * probability), Runner-ups, headline state, confidence, and the Why
+     * bullets. Mirrors `RecommendationPanel.svelte::computeDecisionRank`.
+     * Always emitted so any panel export carries the operator's verdict
+     * view, not just the Recommendation tab.
+     */
+    decision_rank: DecisionRankExport | null;
+    /**
+     * Trade Recommendation cards (qualifying opportunity profiles ranked
+     * by score, direction decoded from the L4 type string). Mirrors
+     * `RecommendationPanel.svelte::profileCards`.
+     */
+    recommendation_profiles: RecommendationProfileExport[];
 }
 
 // ── Subtypes ────────────────────────────────────────────────
@@ -122,11 +147,77 @@ interface OpportunityExport {
     confluent_entry_levels: ConfluentLevel[];
     confluent_target_levels: ConfluentLevel[];
     confluent_invalidation_levels: ConfluentLevel[];
+    /**
+     * Direction-specific zones surfaced on the wire (L4 OpportunityMatrix
+     * carries explicit `long_*` / `short_*` mirrors). The Opportunities
+     * panel renders the symmetric Long/Short trade-setup cards derived
+     * from these via `computeSymmetricSetups`; emitting them lets the AI
+     * consumer reproduce the panel geometry without re-running the
+     * mirroring.
+     */
+    long_entry_zone: { low: number; high: number } | null;
+    long_target_zone: { low: number; high: number } | null;
+    long_invalidation_level: number | null;
+    short_entry_zone: { low: number; high: number } | null;
+    short_target_zone: { low: number; high: number } | null;
+    short_invalidation_level: number | null;
 }
 
+/**
+ * Reduced-form copy of a `RiskDimension` that round-trips through the
+ * clipboard JSON. Captures every field the RiskPanel renders per dim
+ * card (score, level, state, confidence, evidence chips).
+ */
+export interface RiskDimensionExport {
+    score: number;
+    level: string;
+    state: string;
+    confidence: number;
+    evidence: string[];
+}
+
+/** Per-dim record on the Risk page — also carries the dimension weight
+ *  used by the bar mark on the panel. */
+interface RiskDimensionRecord {
+    name: string;
+    weight: number;
+    score: number;
+    level: string;
+    state: string;
+    confidence: number;
+    evidence: string[];
+}
+
+/** Cascade telemetry surfaced under the cascade_risk dim card on the
+ *  Risk page (state, intensity, asymmetry). The same numbers also live
+ *  in `liquidity_flow` / `cluster_matrix`; this block groups them for
+ *  the consumer who only inspects the risk section. */
+interface CascadeTelemetryExport {
+    cascade_state: string;
+    cascade_intensity: number;
+    cascade_asymmetry: number | null;
+}
+
+interface RiskExport {
+    symbol: string;
+    overall: RiskDimensionExport;
+    by_dimension: RiskDimensionRecord[];
+    cascade_risk_score: number;
+    overall_risk_score: number;
+    cascade_telemetry: CascadeTelemetryExport | null;
+}
+
+/** Reduced copy of an AdvisoryMatrix that survives JSON.stringify. The
+ *  Recommendation panel also derives a `decision_rank` block via
+ *  `computeDecisionRank` (LONG/SHORT/HOLD probabilities + headline + Why
+ *  rationale) which lives alongside this struct in the exported payload. */
 interface AdvisoryExport {
     directional_guidance: string;
     market_stance: string;
+    /** Mirrors `AdvisoryMatrix.opportunity_classification` (on the wire
+     *  per `types.ts:457`) — surfaced by the Recommendation panel's
+     *  "Opportunity classification" badge. */
+    opportunity_classification: string;
     strategy_environment: string;
     entry_guidance: string;
     exit_guidance: string;
@@ -140,6 +231,39 @@ interface AdvisoryExport {
     expected_rr_internal: number | null;
     final_recommendation: string;
     contributing_indicators: string[];
+    /** Per-symbol cascade risk score lifted from the L5 Risk Matrix. */
+    cascade_risk_score: number;
+    /** RiskDimension-shaped favorability copied through as-is. */
+    environment_favorability: RiskDimensionExport | null;
+}
+
+/** Output of `computeDecisionRank` — the hero block on the
+ *  Recommendation panel (Top Call + Runner-ups + Why bullets). */
+export interface DecisionRankExport {
+    top: 'LONG' | 'SHORT' | 'HOLD';
+    top_prob: number;
+    headline: {
+        action: 'LONG' | 'SHORT' | 'HOLD' | 'STAND_ASIDE';
+        label: string;
+        state: 'READY' | 'FORMING' | 'WATCH' | 'STAND_ASIDE';
+        confidence_pct: number;
+    };
+    long_probability: number;
+    short_probability: number;
+    hold_probability: number;
+    rationale: string[];
+}
+
+/** Single Trade Recommendation card row (qualifying profile) — mirrors
+ *  the per-card layout on the Recommendation panel. */
+export interface RecommendationProfileExport {
+    opportunity_type: string;
+    direction: 'long' | 'short' | 'neutral';
+    direction_label: 'LONG' | 'SHORT' | 'NEUTRAL';
+    score: number;
+    preconditions_met: number;
+    preconditions_total: number;
+    notes: string;
 }
 
 interface AnalysisExport {
@@ -156,17 +280,17 @@ interface AnalysisExport {
     opportunity_analysis: string;
     market_quality: string;
     market_quality_score: number;
+    /** Wyckoff-style market-cycle phase ("MARKUP" / "MARKDOWN" / …) —
+     *  shown on the "Cycle Phase" qualitative card on the Analysis page. */
+    market_phase: string;
+    /** Human-readable interpretation paragraph (with keyword highlighting
+     *  in the UI). Surfaced as raw text here. */
+    market_interpretation: string;
+    /** Bottom-of-page rationale text. */
+    rationale: string;
     timeframes_considered: number;
     supporting_signals: string[];
     contradicting_signals: string[];
-}
-
-interface RiskExport {
-    symbol: string;
-    overall: { score: number; level: string; state: string; confidence: number };
-    by_dimension: Array<{ name: string; score: number; level: string; confidence: number }>;
-    cascade_risk_score: number;
-    overall_risk_score: number;
 }
 
 interface VolumeProfileExport {
@@ -211,36 +335,6 @@ interface ClusterMatrixExport {
     leverage_assumptions: { source: string; buckets: number[]; weights: number[]; funding_modulation_active: boolean };
     top_above: Array<{ peak_price: number; distance_from_mid_pct: number; notional_usd: number; magnet_strength: number; cluster_kind: string }>;
     top_below: Array<{ peak_price: number; distance_from_mid_pct: number; notional_usd: number; magnet_strength: number; cluster_kind: string }>;
-}
-
-interface ExportIndicator {
-    key: string;
-    display_name: string;
-    group: string;
-    class: string;
-    raw: number | null;
-    normalized: number;
-    state: string;
-    pending_candle: boolean;
-    confidence_pct: number;
-    signals: ExportSignal[];
-    sub_values: Record<string, number> | null;
-    indicator_lifecycle: ExportLifecycleStatus | null;
-}
-
-interface ExportLifecycleStatus {
-    state: string;
-    bars_seen: number;
-    bars_required: number;
-}
-
-interface ExportSignal {
-    kind: string;
-    direction: string;
-    status: string;
-    label: string;
-    strength: number;
-    age_bars: number | undefined;
 }
 
 const ABBR: Record<string, string> = {
@@ -336,90 +430,28 @@ function confidence(indicators: Record<string, IndicatorDto>, key: string): numb
     return Math.round(Math.abs(dto.confidence) * 100);
 }
 
-export interface ExportArgs {
-    /** UI tab that triggered the export (e.g. 'metrics', 'alignment', ...). */
-    sourceTab?: string;
-    symbol: string;
-    tfLabel: string;
-    tfSecs: number;
-    timestamp: number | null;
-    markPrice: number;
-    registry: IndicatorMeta[];
-    tf: TimeframeTelemetry;
-    filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
-    analysis: AnalysisMatrix | null;
-    risk: RiskMatrix | null;
-    alignment: Record<string, unknown> | null;
-    opportunity: OpportunityMatrix | null;
-    advisory: AdvisoryMatrix | null;
-    volumeProfile: VolumeProfileSnapshot | null;
-    liquidity: LiquidityFlow | null;
-    cluster: LiquidationClusterMatrix | null;
-    liquiditySignals: LiquiditySignal[];
-    decisionContext: Record<string, unknown> | null;
-}
-
-export function buildMetricsExportJson(args: ExportArgs): string {
-    const {
-        sourceTab = '', symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
-        analysis, risk, alignment, opportunity, advisory, volumeProfile,
-        liquidity, cluster, liquiditySignals, decisionContext,
-    } = args;
-    const inds = (tf?.indicators ?? {}) as Record<string, IndicatorDto>;
-    const fibVals = (inds['fibonacci']?.values ?? {}) as Record<string, number | undefined>;
-    const fibExtracted = (Object.keys(fibVals).length > 0)
-        ? {
-            gp_top: fibVals['gp_top'] ?? null,
-            gp_bottom: fibVals['gp_bottom'] ?? null,
-            ext_1618: fibVals['ext_1618'] ?? null,
-            ext_2618: fibVals['ext_2618'] ?? null,
-            retracement_coefficients: {
-                fib_0236: fibVals['fib_0236'] ?? null,
-                fib_0382: fibVals['fib_0382'] ?? null,
-                fib_0500: fibVals['fib_0500'] ?? null,
-                fib_0618: fibVals['fib_0618'] ?? null,
-                fib_0660: fibVals['fib_0660'] ?? null,
-                fib_0786: fibVals['fib_0786'] ?? null,
-            },
-            fibonacci_present: true,
-        }
-        : { fibonacci_present: false };
-
-    const out: ExportPayload = {
-        exported_at: new Date().toISOString(),
-        source_tab: sourceTab,
-        symbol,
-        timeframe: { label: tfLabel, duration_seconds: tfSecs },
-        timestamp,
-        mark_price: isFinite(markPrice) && markPrice > 0 ? markPrice : null,
-        filter_state: {
-            active_only: filters.activeOnly,
-            confirmed_plus_only: filters.confirmedPlusOnly,
-            hide_gates: filters.hideGates,
-            hide_overlays: filters.hideOverlays,
-        },
-        indicators: [],
-        signals_total: 0,
-        pipeline_state: (tf?.pipelineState ?? null) as string | null,
-        is_completed: tf?.isCompleted ?? false,
-        context: (tf?.context ?? null) as unknown as Record<string, unknown> | null,
-        opportunity: exportOpportunity(opportunity, inds),
-        advisory: exportAdvisory(advisory, decisionContext),
-        analysis: exportAnalysis(analysis),
-        risk: exportRisk(risk),
-        alignment: alignment ?? null,
-        volume_profile: exportVolumeProfile(volumeProfile, markPrice),
-        liquidity_flow: exportLiquidityFlow(liquidity),
-        cluster_matrix: exportClusterMatrix(cluster),
-        liquidity_signals: (liquiditySignals ?? []).map((s) => ({
-            kind: s.kind,
-            direction: s.direction,
-            strength: s.strength,
-            confidence: s.confidence,
-            evidence: s.evidence,
-        })),
-    };
-
+/**
+ * Walk the indicator registry and produce a serialisable list of every
+ * indicator with raw / normalized / state / signals / sub_values / lifecycle
+ * for one timeframe. Reused by:
+ *
+ *   • `buildMetricsExportJson` — single-TF Metrics tab export (one
+ *     `indicators[]` list under the top-level `indicators` field).
+ *   • `buildMtfExportJson` — per-TF indicator detail block, so the MTF
+ *     export carries the full raw/signals/sub_values surface for each of
+ *     the 4 timeframes without forcing the consumer to switch tabs.
+ *
+ * The Fibonacci sub-values are *not* appended here — callers that want
+ * them should call `extractFibSummary` and decide whether to merge the
+ * result into the last indicator row, the opportunity block, or both.
+ */
+function extractIndicatorsForExport(
+    registry: IndicatorMeta[],
+    inds: Record<string, IndicatorDto>,
+    tf: TimeframeTelemetry,
+    markPrice: number,
+): { indicators: ExportIndicator[]; signalsTotal: number } {
+    const indicators: ExportIndicator[] = [];
     const uniqueLabels = new Set<string>();
 
     for (const m of registry) {
@@ -454,7 +486,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         const pending = !tf.isCompleted
             && lc?.state === 'Live'
             && !(m.updates_on_shadow ?? false);
-        out.indicators.push({
+        indicators.push({
             key: m.key,
             display_name: m.display_name,
             group: m.group,
@@ -470,7 +502,200 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         });
     }
 
-    out.signals_total = uniqueLabels.size;
+    return { indicators, signalsTotal: uniqueLabels.size };
+}
+
+/**
+ * Produce the `Fibonacci Levels (computed values)` summary row used by
+ * the Metrics tab and the MTF tab per-TF detail. Returns the "absent"
+ * stub when the registry carries no Fibonacci indicator for the TF.
+ */
+function extractFibSummary(inds: Record<string, IndicatorDto>): {
+    fibonacci_present: boolean;
+    gp_top?: number | null;
+    gp_bottom?: number | null;
+    ext_1618?: number | null;
+    ext_2618?: number | null;
+    retracement_coefficients?: Record<string, number | null> | null;
+} {
+    const fibVals = (inds['fibonacci']?.values ?? {}) as Record<string, number | undefined>;
+    if (Object.keys(fibVals).length === 0) {
+        return { fibonacci_present: false };
+    }
+    return {
+        gp_top: fibVals['gp_top'] ?? null,
+        gp_bottom: fibVals['gp_bottom'] ?? null,
+        ext_1618: fibVals['ext_1618'] ?? null,
+        ext_2618: fibVals['ext_2618'] ?? null,
+        retracement_coefficients: {
+            fib_0236: fibVals['fib_0236'] ?? null,
+            fib_0382: fibVals['fib_0382'] ?? null,
+            fib_0500: fibVals['fib_0500'] ?? null,
+            fib_0618: fibVals['fib_0618'] ?? null,
+            fib_0660: fibVals['fib_0660'] ?? null,
+            fib_0786: fibVals['fib_0786'] ?? null,
+        },
+        fibonacci_present: true,
+    };
+}
+
+/**
+ * Hard-coded dimension weights used by the Risk page bar-mark and
+ * ranking. Mirrored here so the export carries the same numbers the
+ * operator sees on screen instead of forcing the consumer to know the
+ * internal weighting scheme.
+ */
+const RISK_DIMENSION_WEIGHTS: ReadonlyArray<{ name: string; key: keyof RiskMatrix; weight: number }> = [
+    { name: 'Market Risk',              key: 'market_risk',              weight: 0.14 },
+    { name: 'Volatility Risk',          key: 'volatility_risk',          weight: 0.14 },
+    { name: 'Execution Liquidity Risk', key: 'execution_liquidity_risk', weight: 0.14 },
+    { name: 'Structure Risk',           key: 'structure_risk',           weight: 0.10 },
+    { name: 'Momentum Risk',            key: 'momentum_risk',            weight: 0.14 },
+    { name: 'Signal Risk',              key: 'signal_risk',              weight: 0.10 },
+    { name: 'Execution Risk',           key: 'execution_risk',           weight: 0.10 },
+    { name: 'Cascade Risk',             key: 'cascade_risk',             weight: 0.14 },
+];
+
+/** Copy a `RiskDimension` into a clipboard-friendly struct. Defensive
+ *  against partially-shaped wire objects (legacy sends missing state). */
+function copyRiskDimension(d: RiskDimension | undefined | null): RiskDimensionExport {
+    return {
+        score: d?.score ?? 0,
+        level: d?.level ?? 'UNKNOWN',
+        state: d?.state ?? 'UNKNOWN',
+        confidence: d?.confidence ?? 0,
+        evidence: d?.evidence ?? [],
+    };
+}
+
+/**
+ * Direction derivation matching `RecommendationPanel.svelte::deriveDirection`.
+ * Kept in lockstep so the export mirrors the panel's coloured card stack.
+ */
+function deriveRecommendationDirection(typeName: string): 'long' | 'short' | 'neutral' {
+    const t = (typeName || '').toLowerCase();
+    if (t.includes('short')) return 'short';
+    if (t.includes('long') || t.includes('continuation') || t.includes('pullback')
+        || t.includes('breakout') || t.includes('scalp')) return 'long';
+    if (t.includes('meanreversion') || t.includes('reversal')) return 'short';
+    return 'neutral';
+}
+
+/**
+ * Mirror of `RecommendationPanel.svelte::profileCards` — the qualifying
+ * subset (preconditions_met > 0, not NoClearOpportunity), top-5 by score,
+ * with the geometrically-derived direction label.
+ */
+function deriveRecommendationProfiles(
+    opportunity: OpportunityMatrix | null,
+): RecommendationProfileExport[] {
+    if (!opportunity?.profiles) return [];
+    const qualifying = opportunity.profiles
+        .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+    return qualifying.map((p) => {
+        const dir = deriveRecommendationDirection(p.opportunity_type);
+        return {
+            opportunity_type: p.opportunity_type,
+            direction: dir,
+            direction_label: dir === 'long' ? 'LONG' : dir === 'short' ? 'SHORT' : 'NEUTRAL',
+            score: p.score,
+            preconditions_met: p.preconditions_met,
+            preconditions_total: p.preconditions_total,
+            notes: p.notes,
+        };
+    });
+}
+
+/** Cast a free-form decision_context payload into the typed `DecisionContext`
+ *  shape used by `computeDecisionRank`. Defensive against partial payloads. */
+function asDecisionContext(value: Record<string, unknown> | null | undefined): DecisionContext | null {
+    if (!value) return null;
+    return value as unknown as DecisionContext;
+}
+
+export interface ExportArgs {
+    /** UI tab that triggered the export (e.g. 'metrics', 'alignment', ...). */
+    sourceTab?: string;
+    symbol: string;
+    tfLabel: string;
+    tfSecs: number;
+    timestamp: number | null;
+    markPrice: number;
+    registry: IndicatorMeta[];
+    tf: TimeframeTelemetry;
+    filters: { activeOnly: boolean; confirmedPlusOnly: boolean; hideGates: boolean; hideOverlays: boolean };
+    analysis: AnalysisMatrix | null;
+    risk: RiskMatrix | null;
+    alignment: Record<string, unknown> | null;
+    opportunity: OpportunityMatrix | null;
+    advisory: AdvisoryMatrix | null;
+    volumeProfile: VolumeProfileSnapshot | null;
+    liquidity: LiquidityFlow | null;
+    cluster: LiquidationClusterMatrix | null;
+    liquiditySignals: LiquiditySignal[];
+    decisionContext: Record<string, unknown> | null;
+}
+
+export function buildMetricsExportJson(args: ExportArgs): string {
+    const {
+        sourceTab = '', symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
+        analysis, risk, alignment, opportunity, advisory, volumeProfile,
+        liquidity, cluster, liquiditySignals, decisionContext,
+    } = args;
+    const inds = (tf?.indicators ?? {}) as Record<string, IndicatorDto>;
+    const fibExtracted = extractFibSummary(inds);
+
+    // Single source of truth for the per-TF indicator list — reused by the
+    // MTF builder for its per-TF detail blocks.
+    const { indicators, signalsTotal } = extractIndicatorsForExport(
+        registry, inds, tf, markPrice,
+    );
+
+    const out: ExportPayload = {
+        exported_at: new Date().toISOString(),
+        source_tab: sourceTab,
+        symbol,
+        timeframe: { label: tfLabel, duration_seconds: tfSecs },
+        timestamp,
+        mark_price: isFinite(markPrice) && markPrice > 0 ? markPrice : null,
+        filter_state: {
+            active_only: filters.activeOnly,
+            confirmed_plus_only: filters.confirmedPlusOnly,
+            hide_gates: filters.hideGates,
+            hide_overlays: filters.hideOverlays,
+        },
+        indicators: [],
+        signals_total: 0,
+        pipeline_state: (tf?.pipelineState ?? null) as string | null,
+        is_completed: tf?.isCompleted ?? false,
+        context: (tf?.context ?? null) as unknown as Record<string, unknown> | null,
+        opportunity: exportOpportunity(opportunity, inds),
+        advisory: exportAdvisory(advisory, decisionContext, opportunity, analysis),
+        analysis: exportAnalysis(analysis),
+        risk: exportRisk(risk, liquidity, cluster),
+        alignment: alignment ?? null,
+        volume_profile: exportVolumeProfile(volumeProfile, markPrice),
+        liquidity_flow: exportLiquidityFlow(liquidity),
+        cluster_matrix: exportClusterMatrix(cluster),
+        liquidity_signals: (liquiditySignals ?? []).map((s) => ({
+            kind: s.kind,
+            direction: s.direction,
+            strength: s.strength,
+            confidence: s.confidence,
+            evidence: s.evidence,
+        })),
+        // Recommendation-page hero / cards — present on every panel export
+        // so the AI consumer does not have to click into the Recommendation
+        // tab to harvest the operator's verdict view.
+        decision_rank: buildDecisionRankExport(advisory, decisionContext, opportunity, analysis),
+        recommendation_profiles: deriveRecommendationProfiles(opportunity),
+    };
+
+    out.indicators = indicators;
+    out.signals_total = signalsTotal;
 
     out.indicators.push({
         key: '__fibonacci_summary__',
@@ -511,6 +736,17 @@ function exportOpportunity(opp: OpportunityMatrix | null, indicators: Record<str
         confluent_entry_levels: opp.confluent_entry_levels ?? [],
         confluent_target_levels: opp.confluent_target_levels ?? [],
         confluent_invalidation_levels: opp.confluent_invalidation_levels ?? [],
+        // Long-side geometry — surfaced on the Opportunities panel via
+        // `computeSymmetricSetups`. Captures the canonical long trade
+        // (entry → target → invalidation) before the mirror around markPrice.
+        long_entry_zone: opp.long_entry_zone ? { low: opp.long_entry_zone.low, high: opp.long_entry_zone.high } : null,
+        long_target_zone: opp.long_target_zone ? { low: opp.long_target_zone.low, high: opp.long_target_zone.high } : null,
+        long_invalidation_level: opp.long_invalidation_level ?? null,
+        // Short-side geometry — mirrored by the panel around markPrice
+        // (see `decisionRank.ts::computeSymmetricSetups`).
+        short_entry_zone: opp.short_entry_zone ? { low: opp.short_entry_zone.low, high: opp.short_entry_zone.high } : null,
+        short_target_zone: opp.short_target_zone ? { low: opp.short_target_zone.low, high: opp.short_target_zone.high } : null,
+        short_invalidation_level: opp.short_invalidation_level ?? null,
         ...fibVals, // also include fib values inline here for redundancy
         __fib_inline__: true,
     } as OpportunityExport;
@@ -519,30 +755,79 @@ function exportOpportunity(opp: OpportunityMatrix | null, indicators: Record<str
 function exportAdvisory(
     adv: AdvisoryMatrix | null,
     decisionContext: Record<string, unknown> | null,
+    opportunity: OpportunityMatrix | null,
+    analysis: AnalysisMatrix | null,
 ): AdvisoryExport | null {
     if (!adv) return null;
-    const ed = (decisionContext as any)?.entry_danger;
+    const ed = (decisionContext as { entry_danger?: { score?: number; level?: string; state?: string; confidence?: number } })?.entry_danger;
     return {
         directional_guidance: adv.directional_guidance,
         market_stance: adv.market_stance,
+        opportunity_classification: (adv as unknown as { opportunity_classification?: string }).opportunity_classification ?? '',
         strategy_environment: adv.strategy_environment,
         entry_guidance: adv.entry_guidance,
         exit_guidance: adv.exit_guidance,
         protection_strategy: adv.protection_strategy,
         target_strategy: adv.target_strategy,
-        stop_loss_distance_pct: (adv as any).stop_loss_distance_pct ?? null,
-        trade_readiness: String((decisionContext as any)?.trade_readiness ?? 'UNKNOWN'),
+        stop_loss_distance_pct: (adv as unknown as { stop_loss_distance_pct?: number }).stop_loss_distance_pct ?? null,
+        trade_readiness: String((decisionContext as { trade_readiness?: string })?.trade_readiness ?? 'UNKNOWN'),
         confidence_assessment: adv.confidence_assessment,
-        expected_reward_risk_ratio: (decisionContext as any)?.expected_reward_risk_ratio ?? 0,
+        expected_reward_risk_ratio: (decisionContext as { expected_reward_risk_ratio?: number })?.expected_reward_risk_ratio ?? 0,
         expected_rr_internal: null,
         final_recommendation: adv.final_recommendation,
-        contributing_indicators: (decisionContext as any)?.contributing_indicators ?? [],
+        contributing_indicators: (decisionContext as { contributing_indicators?: string[] })?.contributing_indicators ?? [],
         entry_danger: ed ? {
             score: ed.score ?? 0,
             level: ed.level ?? 'UNKNOWN',
             state: ed.state ?? 'UNKNOWN',
             confidence: ed.confidence ?? 0,
         } : null,
+        cascade_risk_score: (adv as unknown as { cascade_risk_score?: number }).cascade_risk_score ?? 0,
+        environment_favorability: copyRiskDimension(
+            (adv as unknown as { environment_favorability?: RiskDimension }).environment_favorability,
+        ),
+    };
+}
+
+/**
+ * Build the decision_rank payload surfaced on the Recommendation page
+ * (Top Call, Runner-ups, Why bullets). Returns `null` when no advisory
+ * matrix is loaded — the button can still copy the rest of the payload
+ * and the consumer will read the absence as "rank not yet computed".
+ *
+ * Mirrors `RecommendationPanel.svelte::computeDecisionRank(...)` exactly
+ * (same input fields, same output shape). The output is reshaped into a
+ * flat struct that survives JSON.stringify — DecisionRank internally
+ * holds `RankSide.reasons` arrays that the panel never renders, so we
+ * drop them to keep the export tight.
+ */
+function buildDecisionRankExport(
+    advisory: AdvisoryMatrix | null,
+    decisionContext: Record<string, unknown> | null,
+    opportunity: OpportunityMatrix | null,
+    analysis: AnalysisMatrix | null,
+): DecisionRankExport | null {
+    if (!advisory) return null;
+    const ctx = asDecisionContext(decisionContext);
+    const rank = computeDecisionRank({
+        advisory,
+        decisionContext: ctx,
+        opportunity,
+        analysis,
+    });
+    return {
+        top: rank.top,
+        top_prob: rank.top_prob,
+        headline: {
+            action: rank.headline.action,
+            label: rank.headline.label,
+            state: rank.headline.state,
+            confidence_pct: rank.headline.confidence_pct,
+        },
+        long_probability: rank.long.probability,
+        short_probability: rank.short.probability,
+        hold_probability: rank.hold.probability,
+        rationale: rank.rationale,
     };
 }
 
@@ -562,35 +847,71 @@ function exportAnalysis(a: AnalysisMatrix | null): AnalysisExport | null {
         opportunity_analysis: a.opportunity_analysis,
         market_quality: a.market_quality,
         market_quality_score: a.market_quality_score,
+        // Wyckoff-style market-cycle phase — rendered on the Analysis page
+        // as the "Cycle Phase" qualitative card alongside the trend /
+        // momentum / structure / volatility / volume assessments.
+        market_phase: (a as unknown as { market_phase?: string }).market_phase ?? '',
+        // Interpretation paragraph + bottom-of-page rationale — surfaced
+        // verbatim so the AI consumer can quote the prose without having
+        // to reconstruct it from the structured fields.
+        market_interpretation: (a as unknown as { market_interpretation?: string }).market_interpretation ?? '',
+        rationale: (a as unknown as { rationale?: string }).rationale ?? '',
         timeframes_considered: a.timeframes_considered,
         supporting_signals: a.supporting_signals ?? [],
         contradicting_signals: a.contradicting_signals ?? [],
     };
 }
 
-function exportRisk(r: RiskMatrix | null): RiskExport | null {
+function exportRisk(
+    r: RiskMatrix | null,
+    liquidity: LiquidityFlow | null,
+    cluster: LiquidationClusterMatrix | null,
+): RiskExport | null {
     if (!r) return null;
-    const execLiq = r.execution_liquidity_risk ?? r.market_risk;
+
+    // Hard-coded dimension table mirrors `RiskPanel.svelte::namedDims` and
+    // the panel's bar-mark weights. Surfacing the weights in the export
+    // means the AI consumer sees the same number the operator sees on
+    // the bar-mark — not a guessed-from-level reconstruction.
+    const by_dimension: RiskDimensionRecord[] = RISK_DIMENSION_WEIGHTS.map((d) => {
+        // `execution_liquidity_risk` is optional on the wire (legacy
+        // snapshots may carry `liquidity_risk` instead, or nothing) —
+        // fall back to a stub so the consumer still gets the full 8-dim
+        // list with correct weighting.
+        const dim = (r as unknown as Record<string, RiskDimension | undefined>)[d.key];
+        const copied = copyRiskDimension(dim);
+        return {
+            name: d.name,
+            weight: d.weight,
+            score: copied.score,
+            level: copied.level,
+            state: copied.state,
+            confidence: copied.confidence,
+            evidence: copied.evidence,
+        };
+    });
+
+    // Cascade telemetry is rendered under the cascade_risk dim card on
+    // the Risk page (state / intensity / asymmetry chip row). The same
+    // numbers also live under `liquidity_flow` / `cluster_matrix`; this
+    // block groups them for the AI consumer so it can read the Risk
+    // section without traversing the entire payload.
+    let cascade_telemetry: CascadeTelemetryExport | null = null;
+    if (liquidity || cluster) {
+        cascade_telemetry = {
+            cascade_state: liquidity?.cascade_state ?? 'None',
+            cascade_intensity: liquidity?.cascade_intensity ?? 0,
+            cascade_asymmetry: cluster?.cascade_asymmetry ?? null,
+        };
+    }
+
     return {
         symbol: r.symbol,
-        overall: {
-            score: r.overall_risk.score,
-            level: r.overall_risk.level,
-            state: r.overall_risk.state,
-            confidence: r.overall_risk.confidence,
-        },
-        by_dimension: [
-            { name: 'Market Risk',                  score: r.market_risk.score,        level: r.market_risk.level,        confidence: r.market_risk.confidence },
-            { name: 'Volatility Risk',              score: r.volatility_risk.score,    level: r.volatility_risk.level,    confidence: r.volatility_risk.confidence },
-            { name: 'Execution Liquidity Risk',     score: execLiq.score, level: execLiq.level, confidence: execLiq.confidence },
-            { name: 'Structure Risk',               score: r.structure_risk.score,     level: r.structure_risk.level,     confidence: r.structure_risk.confidence },
-            { name: 'Momentum Risk',                score: r.momentum_risk.score,      level: r.momentum_risk.level,      confidence: r.momentum_risk.confidence },
-            { name: 'Signal Risk',                  score: r.signal_risk.score,        level: r.signal_risk.level,        confidence: r.signal_risk.confidence },
-            { name: 'Execution Risk',               score: r.execution_risk.score,     level: r.execution_risk.level,     confidence: r.execution_risk.confidence },
-            { name: 'Cascade Risk',                 score: r.cascade_risk?.score ?? 0, level: r.cascade_risk?.level ?? 'UNKNOWN', confidence: r.cascade_risk?.confidence ?? 0 },
-        ],
+        overall: copyRiskDimension(r.overall_risk),
+        by_dimension,
         cascade_risk_score: r.cascade_risk?.score ?? 0,
         overall_risk_score: r.overall_risk.score,
+        cascade_telemetry,
     };
 }
 
@@ -796,6 +1117,23 @@ interface MtfTimeframeEntry {
     timestamp: number | null;
     pipeline_state: string | null;
     is_completed: boolean;
+    /**
+     * Full per-TF indicator detail (raw / normalized / state / signals /
+     * sub_values / lifecycle) — mirrors the single-TF Metrics tab export.
+     * This lets the MTF EXPORT DATA button capture every metric visible
+     * in *every* timeframe tab without forcing the operator to switch
+     * tabs to harvest each TF individually.
+     */
+    indicators: ExportIndicator[];
+    /** Per-TF Fibonacci summary sub-values (computed values — gp_top /
+     *  gp_bottom / ext_1618 / ext_2618 / retracement coefficients).
+     *  Mirrors the `__fibonacci_summary__` row on the single-TF export. */
+    fibonacci_summary: ReturnType<typeof extractFibSummary>;
+    /** Per-TF context map (the same `MarketContext` shown on the Metrics
+     *  header). Useful for AI consumers who want the per-TF dimension
+     *  scores (trend / momentum / structure / volatility / volume) without
+     *  having to fetch the L0 telemetry separately. */
+    context: Record<string, unknown> | null;
 }
 
 interface MtfIndicatorValue {
@@ -868,14 +1206,43 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
         { label: 'Macro', tf: pair.macroTerm },
     ];
 
-    const timeframes: MtfTimeframeEntry[] = slotDefs.map(({ label, tf }) => ({
-        label,
-        duration_seconds: tf.barDurationSec ?? 0,
-        mark_price: parseMarkPrice(tf.priceText),
-        timestamp: parseSnapshotTimestamp(tf.latestSnapshot),
-        pipeline_state: (tf.pipelineState ?? null) as string | null,
-        is_completed: tf.isCompleted ?? false,
-    }));
+    const timeframes: MtfTimeframeEntry[] = slotDefs.map(({ label, tf }) => {
+        const inds = (tf.indicators ?? {}) as Record<string, IndicatorDto>;
+        const markPrice = parseMarkPrice(tf.priceText) ?? 0;
+        const { indicators: tfIndicators } = extractIndicatorsForExport(
+            registry, inds, tf, markPrice,
+        );
+        const fibSummary = extractFibSummary(inds);
+        // Append the canonical Fibonacci summary row so per-TF detail
+        // matches the single-TF Metrics export 1:1.
+        if (fibSummary.fibonacci_present) {
+            tfIndicators.push({
+                key: '__fibonacci_summary__',
+                display_name: 'Fibonacci Levels (computed values)',
+                group: 'Fibonacci',
+                class: 'Leading',
+                raw: null,
+                normalized: inds['fibonacci']?.normalized ?? 0,
+                state: inds['fibonacci']?.state_label ?? '--',
+                confidence_pct: confidence(inds, 'fibonacci'),
+                pending_candle: false,
+                signals: [],
+                sub_values: fibSummary as unknown as Record<string, number>,
+                indicator_lifecycle: null,
+            });
+        }
+        return {
+            label,
+            duration_seconds: tf.barDurationSec ?? 0,
+            mark_price: parseMarkPrice(tf.priceText),
+            timestamp: parseSnapshotTimestamp(tf.latestSnapshot),
+            pipeline_state: (tf.pipelineState ?? null) as string | null,
+            is_completed: tf.isCompleted ?? false,
+            indicators: tfIndicators,
+            fibonacci_summary: fibSummary,
+            context: (tf.context ?? null) as unknown as Record<string, unknown> | null,
+        };
+    });
 
     const indicators: MtfIndicatorEntry[] = registry.map((meta) => {
         const values: MtfIndicatorValue[] = slotDefs.map(({ label, tf }) => {

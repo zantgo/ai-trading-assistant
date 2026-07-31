@@ -80,9 +80,11 @@ pub struct RiskDimension {
 
 impl RiskDimension {
     /// Build a `RiskDimension` from a raw 0-100 score using the
-    /// maximally-uncertain default confidence (50%). Used only by
-    /// `RiskMatrix::empty` where no upstream analysis exists.
-    fn from_score(score: f64) -> Self {
+    /// maximally-uncertain default confidence (50%). Public API used by
+    /// downstream crates (e.g. `DecisionContext::compute`) that need to
+    /// produce a `RiskDimension` shape from a single scalar without access
+    /// to the upstream L3 state_confidence.
+    pub fn from_score(score: f64) -> Self {
         Self::from_score_with_confidence(score, 0.5)
     }
 
@@ -91,7 +93,9 @@ impl RiskDimension {
     /// `state_confidence * 100` (matches L3→L6 propagation per docs/matrices
     /// `02-00b-confidence-hierarchy.md`). Pass `state_confidence = 0.0`
     /// to override to "0" (e.g. `cascade_risk` when liquidity feed is OFF).
-    fn from_score_with_confidence(score: f64, state_confidence: f64) -> Self {
+    /// Public so callers (e.g. `DecisionContext::compute`) can wire the L3
+    /// `state_confidence` through to the RiskDimension's `confidence` field.
+    pub fn from_score_with_confidence(score: f64, state_confidence: f64) -> Self {
         let level = if score >= 80.0 {
             RiskLevel::Extreme
         } else if score >= 60.0 {

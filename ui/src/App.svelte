@@ -62,7 +62,7 @@
         { view: 'opportunity', label: 'Opportunities' },
         { view: 'risk',        label: 'Risks' },
         { view: 'analysis',    label: 'Analysis' },
-        { view: 'advisory',    label: 'Decision' },
+        { view: 'recommendation', label: 'Recommendation' },
     ];
 
     const activePair = $derived.by(() => {

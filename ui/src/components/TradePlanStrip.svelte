@@ -47,8 +47,13 @@
 
     const analysis = $derived(pair?.analysis ?? null);
 
+    // ── Bind contract: `pair.decisionContext` is the mirror field populated
+    // once per completed candle. Reading it first avoids the shadow-tick wipe
+    // that used to null-out `microTerm.latestSnapshot.decision_context`
+    // between candle closes. The snapshot field is kept as a fallback for
+    // the brief warmup window.
     const decisionContext = $derived<any>(
-        (pair?.microTerm?.latestSnapshot as any)?.decision_context ?? null,
+        (pair?.decisionContext ?? (pair?.microTerm?.latestSnapshot as any)?.decision_context ?? null),
     );
 
     const plan = $derived(deriveTradePlan({

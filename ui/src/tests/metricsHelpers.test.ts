@@ -23,6 +23,7 @@ import {
     classifyLevelKey,
     parseLevelLabel,
     levelKindMeta,
+    resolveLevelPriceText,
 } from '../lib/levelKind';
 import {
     defaultFilters,
@@ -162,27 +163,54 @@ describe('levelKind', () => {
 
     it('parseLevelLabel extracts pivot levels correctly', () => {
         expect(parseLevelLabel('pivot_points', 'PIVOT_R2_RESISTANCE_TEST'))
-            .toEqual({ kind: 'Pivot', name: 'R2', role: 'resistance' });
+            .toEqual({ kind: 'Pivot', name: 'R2', role: 'resistance', valueKey: 'r2' });
         expect(parseLevelLabel('pivot_points', 'PIVOT_S3_SUPPORT_TEST'))
-            .toEqual({ kind: 'Pivot', name: 'S3', role: 'support' });
+            .toEqual({ kind: 'Pivot', name: 'S3', role: 'support', valueKey: 's3' });
         expect(parseLevelLabel('pivot_points', 'PIVOT_CENTRAL_TEST'))
-            .toEqual({ kind: 'Pivot', name: 'Pivot', role: 'neutral' });
+            .toEqual({ kind: 'Pivot', name: 'Pivot', role: 'neutral', valueKey: 'pivot' });
     });
 
     it('parseLevelLabel classifies SMC OB roles', () => {
         expect(parseLevelLabel('smc_order_blocks', 'SMC_OB_BULLISH_TEST'))
-            .toEqual({ kind: 'SmcZone', name: 'Bullish OB', role: 'support' });
+            .toEqual({ kind: 'SmcZone', name: 'Bullish OB', role: 'support', valueKey: null, isRange: true });
         expect(parseLevelLabel('smc_order_blocks', 'SMC_OB_BEARISH_TEST'))
-            .toEqual({ kind: 'SmcZone', name: 'Bearish OB', role: 'resistance' });
+            .toEqual({ kind: 'SmcZone', name: 'Bearish OB', role: 'resistance', valueKey: null, isRange: true });
         expect(parseLevelLabel('smc_fvg', 'SMC_FVG_LEVEL_TEST'))
-            .toEqual({ kind: 'SmcZone', name: 'FVG', role: 'neutral' });
+            .toEqual({ kind: 'SmcZone', name: 'FVG', role: 'neutral', valueKey: null, isRange: true });
     });
 
     it('parseLevelLabel extracts Ichimoku cloud edges', () => {
         expect(parseLevelLabel('ichimoku', 'ICHIMOKU_TENKAN_TEST').name).toBe('Tenkan');
+        expect(parseLevelLabel('ichimoku', 'ICHIMOKU_TENKAN_TEST').valueKey).toBe('tenkan');
         expect(parseLevelLabel('ichimoku', 'ICHIMOKU_KIJUN_TEST').name).toBe('Kijun');
+        expect(parseLevelLabel('ichimoku', 'ICHIMOKU_KIJUN_TEST').valueKey).toBe('kijun');
         expect(parseLevelLabel('ichimoku', 'ICHIMOKU_SENKOU_A_TEST').name).toBe('Senkou A');
+        expect(parseLevelLabel('ichimoku', 'ICHIMOKU_SENKOU_A_TEST').valueKey).toBe('senkou_a');
         expect(parseLevelLabel('ichimoku', 'ICHIMOKU_SENKOU_B_TEST').name).toBe('Senkou B');
+        expect(parseLevelLabel('ichimoku', 'ICHIMOKU_SENKOU_B_TEST').valueKey).toBe('senkou_b');
+    });
+
+    it('parseLevelLabel tags Supertrend with valueKey=line', () => {
+        expect(parseLevelLabel('supertrend', 'SUPERTREND_RESISTANCE_TEST'))
+            .toMatchObject({ kind: 'Other', role: 'resistance', valueKey: 'line' });
+    });
+
+    it('parseLevelLabel tags ChannelMid with valueKey=middle (or center for stddev)', () => {
+        expect(parseLevelLabel('bollinger', 'BOLLINGER_MIDDLE_TEST').valueKey).toBe('middle');
+        expect(parseLevelLabel('donchian', 'DONCHIAN_MIDDLE_TEST').valueKey).toBe('middle');
+        expect(parseLevelLabel('keltner',  'KELTNER_MIDDLE_TEST').valueKey).toBe('middle');
+        expect(parseLevelLabel('stddev_channel', 'STDDEV_CHANNEL_MIDDLE_TEST').valueKey).toBe('center');
+    });
+
+    it('parseLevelLabel tags VWAP / Anchored VWAP with the right sub-key', () => {
+        expect(parseLevelLabel('vwap', 'VWAP_TEST').valueKey).toBe('vwap');
+        expect(parseLevelLabel('anchored_vwap', 'ANCHORED_VWAP_WEEKLY_TEST').valueKey).toBe('weekly');
+        expect(parseLevelLabel('anchored_vwap', 'ANCHORED_VWAP_MONTHLY_TEST').valueKey).toBe('monthly');
+        expect(parseLevelLabel('anchored_vwap', 'ANCHORED_VWAP_SWING_TEST').valueKey).toBe('swing');
+    });
+
+    it('parseLevelLabel leaves SR valueKey=null (price lives on raw_value)', () => {
+        expect(parseLevelLabel('support_resistance', 'SUPPORT_DEMAND_ZONE_TEST').valueKey).toBeNull();
     });
 
     it('parseLevelLabel classifies SR demand/supply roles', () => {
@@ -204,6 +232,90 @@ describe('levelKind', () => {
     it('levelKindMeta falls back to Other for unknown kinds', () => {
         expect(levelKindMeta(undefined).key).toBe('Other');
         expect(levelKindMeta('Bogus' as any).key).toBe('Other');
+    });
+
+    it('resolveLevelPriceText formats single-value rows', () => {
+        const fmt = (n: number) => `$${n.toFixed(2)}`;
+        // Supertrend → values.line
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'supertrend', valueKey: 'line', role: 'support' },
+            { values: { line: 62793.42 } },
+            fmt,
+        )).toBe('$62793.42');
+        // Donchian mid → values.middle
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'donchian', valueKey: 'middle', role: 'neutral' },
+            { values: { middle: 62800 } },
+            fmt,
+        )).toBe('$62800.00');
+        // Ichimoku kijun → values.kijun
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'ichimoku', valueKey: 'kijun', role: 'neutral' },
+            { values: { kijun: 62750 } },
+            fmt,
+        )).toBe('$62750.00');
+    });
+
+    it('resolveLevelPriceText reads SR from raw_value (not values)', () => {
+        const fmt = (n: number) => `$${n.toFixed(2)}`;
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'support_resistance', valueKey: null, role: 'support' },
+            { raw_value: 62812.5 },
+            fmt,
+        )).toBe('$62812.50');
+        // raw_value=0 (warming) → '—'
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'support_resistance', valueKey: null, role: 'support' },
+            { raw_value: 0 },
+            fmt,
+        )).toBe('—');
+    });
+
+    it('resolveLevelPriceText formats SMC FVG/OB ranges', () => {
+        const fmt = (n: number) => `$${n.toFixed(2)}`;
+        // FVG: lo < hi → "$lo — $hi"
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'smc_fvg', valueKey: null, isRange: true, role: 'neutral' },
+            { values: { smc_fvg_top: 62780, smc_fvg_bottom: 62720 } },
+            fmt,
+        )).toBe('$62720.00 — $62780.00');
+        // Bullish OB: support → reads bullish_low/high
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'smc_order_blocks', valueKey: null, isRange: true, role: 'support' },
+            { values: { smc_ob_bullish_low: 62700, smc_ob_bullish_high: 62740 } },
+            fmt,
+        )).toBe('$62700.00 — $62740.00');
+        // Bearish OB: resistance → reads bearish_low/high
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'smc_order_blocks', valueKey: null, isRange: true, role: 'resistance' },
+            { values: { smc_ob_bearish_low: 62900, smc_ob_bearish_high: 62940 } },
+            fmt,
+        )).toBe('$62900.00 — $62940.00');
+        // Missing values → '—'
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'smc_fvg', valueKey: null, isRange: true, role: 'neutral' },
+            { values: {} },
+            fmt,
+        )).toBe('—');
+    });
+
+    it('resolveLevelPriceText returns "—" when the dto is missing or value is zero', () => {
+        const fmt = (n: number) => `$${n.toFixed(2)}`;
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'donchian', valueKey: 'middle', role: 'neutral' },
+            undefined,
+            fmt,
+        )).toBe('—');
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'donchian', valueKey: 'middle', role: 'neutral' },
+            { values: { middle: 0 } },
+            fmt,
+        )).toBe('—');
+        expect(resolveLevelPriceText(
+            { indicatorKey: 'donchian', valueKey: 'middle', role: 'neutral' },
+            { values: {} },
+            fmt,
+        )).toBe('—');
     });
 });
 

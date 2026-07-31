@@ -73,6 +73,42 @@ The cadence is implemented as a debounced scheduler on the L6 Decision Layer (se
 | `preconditions_met` | `u32` | Count of satisfied preconditions. |
 | `preconditions_total` | `u32` | Total preconditions evaluated. |
 | `notes` | `string` | Human-readable profiling rationale. |
+| `direction_family` | `DirectionFamily \| null` | Direction family this profile implies. Populated for every profile so the UI can resolve its trade side from the wire. |
+| `long_entry_zone` | `PriceRange \| null` | LONG-side entry zone (entry below close). Populated only when the profile resolves to LONG. |
+| `long_target_zone` | `PriceRange \| null` | LONG-side target zone (target above close). |
+| `long_invalidation_level` | `f64 \| null` | LONG-side invalidation (price below which the long thesis is invalidated). |
+| `short_entry_zone` | `PriceRange \| null` | SHORT-side entry zone (entry above close). Populated only when the profile resolves to SHORT. |
+| `short_target_zone` | `PriceRange \| null` | SHORT-side target zone (target below close). |
+| `short_invalidation_level` | `f64 \| null` | SHORT-side invalidation (price above which the short thesis is invalidated). |
+| `long_expected_rr_internal` | `f64 \| null` | Per-side R:R derived from the per-profile zones (faithful sign-aware R:R; never the legacy `2.5` mask). |
+| `short_expected_rr_internal` | `f64 \| null` | Same, for the SHORT side. |
+
+#### 2.2.1 DirectionFamily
+
+| Variant | Setup families | Side resolution |
+|---------|----------------|------------------|
+| `TREND_RIDING` | `TrendContinuation`, `Breakout`, `Pullback`, `Scalp`, `LiquiditySqueeze` | Resolves to LONG when `Analysis.bias ∈ {Bullish, StrongBullish}`, SHORT when `Bearish / StrongBearish`, NEUTRAL otherwise. |
+| `COUNTER_TREND` | `MeanReversion`, `Reversal` | Resolves to the OPPOSITE of the macro bias (LONG when bearish, SHORT when bullish, NEUTRAL otherwise). |
+| `NEUTRAL` | `NoClearOpportunity` | Carries no zones (the family is direction-neutral by definition). |
+
+The mapping is total over all eight `OpportunityType` values. The frontend's `selectProfileSide(profile, macroBias)` resolves the family × bias combination to a concrete `LONG / SHORT / NEUTRAL` direction.
+
+#### 2.2.2 Per-profile geometry invariants
+
+For every populated per-side zone the L4 producer enforces the same per-side invariants the aggregated `OpportunityMatrix.long_* / short_*` fields use:
+
+- `LONG`: `invalidation_level < entry_zone.low` AND `target_zone.low > entry_zone.high`.
+- `SHORT`: `invalidation_level > entry_zone.high` AND `target_zone.high < entry_zone.low`.
+
+If the confluent pick violates the invariant, the L4 producer falls back to the directional ATR-only bracket; if even the ATR fallback can't satisfy the invariant (e.g. fresh symbol with no historical candles), the profile emits `null` for every zone and the consumer falls back to the aggregated `long_* / short_*` fields.
+
+### 2.3 Cross-panel consistency contract
+
+Both `OpportunitiesPanel` (Market Monitoring → Opportunities) and `RecommendationPanel` (Market Monitoring → Recommendation) read from the same wire payload (`OpportunityMatrix.profiles`) and call the same helper functions (`selectProfileSide`, `profileZones`) so their numbers always agree:
+
+- The Opportunities panel renders **one actionable card per qualifying profile** (the leaderboard).
+- The Recommendation panel renders **only the highest-scored qualifying profile** as the operator's actionable decision.
+- The Trade Setups cards' entry/target/SL/R:R on the Opportunities panel match the Top Setup card's per-profile zones on the Recommendation panel for the same profile.
 
 ---
 

@@ -56,6 +56,18 @@
 .consensusText { font-size: 11px; color: #94a3b8; flex: 1; }
 .conflictBadge { font-size: 11px; font-weight: 700; color: #f59e0b; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); padding: 6px 10px; border-radius: 5px; margin-top: 10px; }
 
+/* ── Polarization (axis sign chips below the consensus meter) */
+.polarization { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.polarLabel { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; min-width: 70px; }
+.polarChip {
+    display: inline-flex; align-items: baseline; gap: 4px;
+    padding: 2px 8px; border-radius: 4px;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    font-family: var(--mono, monospace);
+}
+.polarKey { font-size: 9px; font-weight: 700; color: #94a3b8; }
+.polarVal { font-size: 11px; font-weight: 700; }
+
 /* ── Per-TF cards ── */
 .tfCards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .tfCard { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; }

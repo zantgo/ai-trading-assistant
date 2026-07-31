@@ -181,6 +181,245 @@
     background: rgba(0, 0, 0, 0.1);
 }
 
+/* ── Volume Profile ── */
+.vpSection {
+    background: rgba(251, 146, 60, 0.04);
+    border: 1px solid rgba(251, 146, 60, 0.2);
+    border-left: 3px solid #fb923c;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.vpHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(251, 146, 60, 0.2);
+    flex-wrap: wrap;
+}
+
+.vpTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #fb923c;
+    text-transform: uppercase;
+    font-family: var(--mono, monospace);
+}
+
+.vpMeta {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: var(--mono, monospace);
+}
+
+.vpPosition {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fb923c;
+    font-family: var(--mono, monospace);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.vpLadder {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 14px;
+    background: rgba(251, 146, 60, 0.02);
+}
+
+.vpRow {
+    display: grid;
+    grid-template-columns: 70px 130px 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.02);
+    font-family: var(--mono, monospace);
+}
+
+.vpRowPoc {
+    background: rgba(251, 146, 60, 0.14);
+    border: 1px solid rgba(251, 146, 60, 0.35);
+}
+
+.vpLabel {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.85);
+    letter-spacing: 0.05em;
+}
+
+.vpLabelResistance {
+    color: #f87171;
+}
+
+.vpLabelSupport {
+    color: #4ade80;
+}
+
+.vpLabelPoc {
+    color: #fb923c;
+}
+
+.vpPrice {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.vpRowPoc .vpPrice {
+    color: #fb923c;
+}
+
+.vpHint {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+}
+
+/* ── Liquidation Magnets ── */
+.liqSection {
+    background: rgba(245, 158, 11, 0.04);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-left: 3px solid #f59e0b;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.liqHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+    flex-wrap: wrap;
+}
+
+.liqTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #f59e0b;
+    text-transform: uppercase;
+    font-family: var(--mono, monospace);
+}
+
+.liqMeta {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: var(--mono, monospace);
+}
+
+.liqLadder {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 14px;
+    background: rgba(245, 158, 11, 0.02);
+}
+
+.liqRow {
+    display: grid;
+    grid-template-columns: 60px 220px 130px 50px 90px 110px 60px;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.02);
+    font-family: var(--mono, monospace);
+}
+
+.liqRowShort {
+    border-left: 2px solid rgba(248, 113, 113, 0.45);
+}
+
+.liqRowLong {
+    border-left: 2px solid rgba(74, 222, 128, 0.45);
+}
+
+.liqSide {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-align: center;
+    border: 1px solid;
+}
+
+.liqSideShort {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(248, 113, 113, 0.4);
+}
+
+.liqSideLong {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.08);
+    border-color: rgba(74, 222, 128, 0.4);
+}
+
+.liqRange {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.liqPeak {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.liqLeverage {
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.7);
+    text-align: center;
+}
+
+.liqNotional {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.7);
+    text-align: right;
+}
+
+.liqMagnet {
+    position: relative;
+    display: block;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.liqMagnetBar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, #f59e0b 0%, #fb923c 100%);
+    border-radius: 3px;
+}
+
+.liqDist {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    text-align: right;
+}
+
+@media (max-width: 1500px) {
+    .liqRow {
+        grid-template-columns: 60px 1fr 1fr 50px 80px 90px 60px;
+    }
+}
+
 .section {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -232,7 +471,7 @@
 
 .row {
     display: grid;
-    grid-template-columns: 160px 100px 130px 90px 80px 70px 70px 60px;
+    grid-template-columns: 150px 90px 120px 130px 80px 70px 60px 60px 60px;
     gap: 8px;
     align-items: center;
     padding: 8px 14px;
@@ -279,6 +518,18 @@
     letter-spacing: 0.03em;
 }
 
+.priceCol {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .direction {
     font-size: 10px;
     font-weight: 700;
@@ -304,7 +555,7 @@
     text-align: right;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1300px) {
     .row {
         grid-template-columns: 1fr;
         gap: 4px;

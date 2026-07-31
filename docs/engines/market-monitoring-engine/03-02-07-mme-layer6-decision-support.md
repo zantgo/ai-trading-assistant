@@ -85,6 +85,25 @@ $$S = \frac{E \times R}{D_{sl} / 100}$$
 
 The Decision Matrix records the structural invalidation level and conditional bull/bear pathways in `final_recommendation`, giving the TAE Policy Layer and human operators an explainable map of what would change the thesis.
 
+> **Read binding contract (frontend, v6.5+).** The Recommendation tab consumes `AdvisoryMatrix`, `DecisionContext`, `OpportunityMatrix`, and `AnalysisMatrix`. The bind mirror fields (populated once per completed candle by `applySnapshotToTimeframe` in `crates/market-analyzer/src/synthesis.rs`) are the canonical read source — the per-TF `latestSnapshot` is a *fallback* for warmup only:
+>
+> - `pair.advisory` ← wire `snapshot.advisory`
+> - `pair.decisionContext` ← wire `snapshot.decision_context`
+> - `pair.opportunity` ← wire `snapshot.opportunity`
+>
+> Shadow-tick frames (`broadcast_live_snapshot`) intentionally zero out the per-TF matrix payload for throughput; reading from the mirror prevents the `TradeAutomation`-bound `Recommendation` payload from briefly going dark between candle closes. See `crates/market-analyzer/src/synthesis.rs::apply_snapshot_to_timeframe` and the regression-locked `ui/src/components/RecommendationPanel.test.ts — bind contract` test for the canonical assertion.
+
+### 5.1 Frontend Recommendation tab — discretionary-trade view
+
+The Market Monitor is designed for a **discretionary trader**: the platform does not place orders on its behalf, and the L6 output surfaces an *operator-readable trade list* rather than a single % score. The Recommendation tab implements this contract by:
+
+1. Rendering an environment header (the macro verdict: stance / guidance / strategy / opportunity) color-coded by `directional_guidance` family.
+2. Surfacing a top-call hero (`rank.top` argmax) for the operator who wants a quick read, with runner-up cells for dispersion.
+3. Listing **one recommendation card per qualifying `OpportunityMatrix.profiles` entry** (`preconditions_met > 0`). Each card is internally coherent — entry zone, target zone, invalidation, R:R, and supporting signals — so the operator can pick whichever setup fits their style.
+4. Verbatim rendering of `final_recommendation` at the bottom as a quote block (the natural-language summary from `compute_advisory`).
+
+When `OpportunityMatrix.profiles` is empty / no profile qualifies, a single "No Clear Setup" card explains the absence. The Market Monitor never *forces* a directional trade — see §6 below.
+
 ---
 
 ## 6. Guarantees

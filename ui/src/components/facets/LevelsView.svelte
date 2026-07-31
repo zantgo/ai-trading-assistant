@@ -10,13 +10,25 @@
     // A Fibonacci Ladder is rendered at the top of the view, surfacing the
     // current retracement grid (0.236 … 0.786) + Golden Pocket zone +
     // extension targets — independent of whether a LevelTest signal fired.
+    //
+    // Below the ladder we render two **always-present** dedicated sections:
+    //   - VOLUME PROFILE  (POC / VAH / VAL)
+    //   - LIQUIDATION MAGNETS (top 4 short + 4 long clusters by magnet strength)
+    // These pull directly from `tf.volumeProfile` and `tf.cluster` so the
+    // trader always sees concrete concrete prices, regardless of whether a
+    // LevelTest signal fired (or whether the chart overlay toggle is on).
+    //
+    // Every LevelTest row also surfaces its concrete price (single value
+    // or `$lo — $hi` range) via `resolveLevelPriceText`, so the user never
+    // sees a qualitative-only label.
 
     import type {
         IndicatorMeta, IndicatorSignal, TimeframeTelemetry,
+        VolumeProfileSnapshot, LiquidationClusterMatrix, LiquidationCluster,
     } from '../../types';
     import {
         LEVEL_KIND_ORDER, LEVEL_KIND_META,
-        classifyLevelKey, parseLevelLabel,
+        classifyLevelKey, parseLevelLabel, resolveLevelPriceText,
         type LevelKind,
     } from '../../lib/levelKind';
     import type { FilterState } from '../../lib/filtering';
@@ -39,6 +51,17 @@
         levelName: string;
         kind: LevelKind;
         role: 'support' | 'resistance' | 'neutral';
+        valueKey: string | null;
+        isRange: boolean;
+        priceText: string;
+    }
+
+    function fmtPx(n: number | null | undefined): string {
+        if (n == null || !isFinite(n) || n <= 0) return '—';
+        const px = tf.priceText ? parseFloat(tf.priceText) : 0;
+        if (px >= 1000) return `$${n.toFixed(0)}`;
+        if (px >= 1) return `$${n.toFixed(2)}`;
+        return `$${n.toFixed(4)}`;
     }
 
     const rows = $derived.by<LevelRow[]>(() => {
@@ -50,6 +73,18 @@
                 if (filters.confirmedPlusOnly && sig.status === 'Potential') continue;
                 if (filters.query && !sig.label?.toLowerCase().includes(filters.query.toLowerCase())) continue;
                 const parsed = parseLevelLabel(meta.key, sig.label);
+                const dto = tf.indicators?.[meta.key] as
+                    { raw_value?: number | null; values?: Record<string, number> | null } | undefined;
+                const priceText = resolveLevelPriceText(
+                    {
+                        indicatorKey: meta.key,
+                        valueKey: parsed.valueKey,
+                        isRange: parsed.isRange,
+                        role: parsed.role,
+                    },
+                    dto,
+                    fmtPx,
+                );
                 out.push({
                     indicatorKey: meta.key,
                     displayName: meta.display_name,
@@ -57,6 +92,9 @@
                     levelName: parsed.name,
                     kind: classifyLevelKey(meta.key),
                     role: parsed.role,
+                    valueKey: parsed.valueKey,
+                    isRange: !!parsed.isRange,
+                    priceText,
                 });
             }
         }
@@ -134,6 +172,45 @@
         fibGpTop != null && fibGpBottom != null,
     );
 
+    // ── Volume Profile (always-present dedicated section) ──
+    const vp = $derived<VolumeProfileSnapshot | null>(tf.volumeProfile ?? null);
+    const vpHasData = $derived<boolean>(
+        vp != null
+        && Number.isFinite(vp.poc_price) && vp.poc_price > 0
+        && Number.isFinite(vp.value_area_high) && vp.value_area_high > 0
+        && Number.isFinite(vp.value_area_low) && vp.value_area_low > 0,
+    );
+    const vpBinCount = $derived<number>(vp?.num_bins ?? 0);
+
+    // ── Liquidation Magnets (always-present dedicated section) ──
+    const cluster = $derived<LiquidationClusterMatrix | null>(tf.cluster ?? null);
+    const topClusters = $derived.by<{ short: LiquidationCluster[]; long: LiquidationCluster[] }>(() => {
+        if (!cluster) return { short: [], long: [] };
+        const sortBy = (a: LiquidationCluster, b: LiquidationCluster) =>
+            (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0);
+        return {
+            short: [...(cluster.short_clusters ?? [])].sort(sortBy).slice(0, 4),
+            long: [...(cluster.long_clusters ?? [])].sort(sortBy).slice(0, 4),
+        };
+    });
+    const clusterHasData = $derived<boolean>(
+        topClusters.short.length > 0 || topClusters.long.length > 0,
+    );
+
+    function fmtUsd(n: number): string {
+        if (!Number.isFinite(n)) return '—';
+        const abs = Math.abs(n);
+        if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+        if (abs >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
+        return `$${n.toFixed(0)}`;
+    }
+
+    function fmtPct(n: number): string {
+        if (!Number.isFinite(n)) return '—';
+        return `${(n * 100).toFixed(2)}%`;
+    }
+
     function confidenceOf(key: string): number {
         return confPct(tf.indicators?.[key]?.confidence ?? 0);
     }
@@ -142,14 +219,6 @@
         if (role === 'support') return styles.roleSupport ?? '';
         if (role === 'resistance') return styles.roleResistance ?? '';
         return styles.roleNeutral ?? '';
-    }
-
-    function fmtPx(n: number | null | undefined): string {
-        if (n == null || !isFinite(n) || n <= 0) return '—';
-        const px = tf.priceText ? parseFloat(tf.priceText) : 0;
-        if (px >= 1000) return `$${n.toFixed(0)}`;
-        if (px >= 1) return `$${n.toFixed(2)}`;
-        return `$${n.toFixed(4)}`;
     }
 
     function swingClass(s: 'BULL' | 'BEAR' | 'NEUTRAL'): string {
@@ -203,15 +272,118 @@
         </section>
     {/if}
 
+    <!-- ── Volume Profile (POC / VAH / VAL) — always shown when VP data is present ── -->
+    {#if vpHasData && vp}
+        <section class={styles.vpSection}>
+            <header class={styles.vpHeader}>
+                <span class={styles.vpTitle}>VOLUME PROFILE</span>
+                <span class={styles.vpMeta}>{vpBinCount} bins</span>
+                <span class={styles.vpMeta}>·</span>
+                <span class={styles.vpMeta}>
+                    range {fmtPx(vp.range_low)} – {fmtPx(vp.range_high)}
+                </span>
+                <span class={styles.vpMeta}>·</span>
+                <span class={styles.vpMeta}>
+                    total {fmtUsd(vp.total_volume)}
+                </span>
+                <span class={styles.vpPosition}>
+                    {(() => {
+                        const p = tf.priceText ? parseFloat(tf.priceText) : NaN;
+                        if (!Number.isFinite(p) || p <= 0) return '';
+                        if (p > vp.value_area_high) return `+${((p - vp.value_area_high) / vp.value_area_high * 100).toFixed(2)}% ABOVE VAH`;
+                        if (p < vp.value_area_low) return `${((vp.value_area_low - p) / p * 100).toFixed(2)}% BELOW VAL`;
+                        return 'INSIDE VALUE AREA';
+                    })()}
+                </span>
+            </header>
+            <div class={styles.vpLadder}>
+                <div class={styles.vpRow}>
+                    <span class="{styles.vpLabel} {styles.vpLabelResistance ?? ''}">VAH</span>
+                    <span class={styles.vpPrice}>{fmtPx(vp.value_area_high)}</span>
+                    <span class={styles.vpHint}>value area high · resistance</span>
+                </div>
+                <div class="{styles.vpRow} {styles.vpRowPoc ?? ''}">
+                    <span class="{styles.vpLabel} {styles.vpLabelPoc ?? ''}">POC</span>
+                    <span class={styles.vpPrice}>{fmtPx(vp.poc_price)}</span>
+                    <span class={styles.vpHint}>point of control · highest volume</span>
+                </div>
+                <div class={styles.vpRow}>
+                    <span class="{styles.vpLabel} {styles.vpLabelSupport ?? ''}">VAL</span>
+                    <span class={styles.vpPrice}>{fmtPx(vp.value_area_low)}</span>
+                    <span class={styles.vpHint}>value area low · support</span>
+                </div>
+            </div>
+            <footer class={styles.fibFooter}>
+                Timeframe: {formatTimeframeLabel(tf.barDurationSec)} · Per-TF volume distribution
+            </footer>
+        </section>
+    {/if}
+
+    <!-- ── Liquidation Magnets — top clusters by magnet strength ── -->
+    {#if clusterHasData}
+        <section class={styles.liqSection}>
+            <header class={styles.liqHeader}>
+                <span class={styles.liqTitle}>LIQUIDATION MAGNETS</span>
+                <span class={styles.liqMeta}>
+                    top {topClusters.short.length + topClusters.long.length}
+                    of {(cluster?.short_clusters?.length ?? 0) + (cluster?.long_clusters?.length ?? 0)} clusters
+                </span>
+                <span class={styles.liqMeta}>·</span>
+                <span class={styles.liqMeta}>
+                    asym {(cluster?.cascade_asymmetry ?? 0).toFixed(2)}
+                </span>
+                <span class={styles.liqMeta}>·</span>
+                <span class={styles.liqMeta}>
+                    conf {(((cluster?.estimation_confidence ?? 0) * 100)).toFixed(0)}%
+                </span>
+            </header>
+            <div class={styles.liqLadder}>
+                {#each topClusters.short as c (`s-${c.peak_price}-${c.dominant_leverage}`)}
+                    <div class="{styles.liqRow} {styles.liqRowShort ?? ''}">
+                        <span class="{styles.liqSide} {styles.liqSideShort ?? ''}">SHORT</span>
+                        <span class={styles.liqRange}>
+                            {fmtPx(c.price_low)} – {fmtPx(c.price_high)}
+                        </span>
+                        <span class={styles.liqPeak}>peak {fmtPx(c.peak_price)}</span>
+                        <span class={styles.liqLeverage}>{c.dominant_leverage}×</span>
+                        <span class={styles.liqNotional}>{fmtUsd(c.notional_usd)}</span>
+                        <span class={styles.liqMagnet} title="magnet strength">
+                            <span class={styles.liqMagnetBar} style="width: {Math.max(0, Math.min(100, c.magnet_strength ?? 0)).toFixed(0)}px"></span>
+                        </span>
+                        <span class={styles.liqDist}>{fmtPct(c.distance_from_mid_pct)}</span>
+                    </div>
+                {/each}
+                {#each topClusters.long as c (`l-${c.peak_price}-${c.dominant_leverage}`)}
+                    <div class="{styles.liqRow} {styles.liqRowLong ?? ''}">
+                        <span class="{styles.liqSide} {styles.liqSideLong ?? ''}">LONG</span>
+                        <span class={styles.liqRange}>
+                            {fmtPx(c.price_low)} – {fmtPx(c.price_high)}
+                        </span>
+                        <span class={styles.liqPeak}>peak {fmtPx(c.peak_price)}</span>
+                        <span class={styles.liqLeverage}>{c.dominant_leverage}×</span>
+                        <span class={styles.liqNotional}>{fmtUsd(c.notional_usd)}</span>
+                        <span class={styles.liqMagnet} title="magnet strength">
+                            <span class={styles.liqMagnetBar} style="width: {Math.max(0, Math.min(100, c.magnet_strength ?? 0)).toFixed(0)}px"></span>
+                        </span>
+                        <span class={styles.liqDist}>{fmtPct(c.distance_from_mid_pct)}</span>
+                    </div>
+                {/each}
+            </div>
+            <footer class={styles.fibFooter}>
+                Timeframe: {formatTimeframeLabel(tf.barDurationSec)} · Estimated liquidation clusters (refreshed per-TF)
+            </footer>
+        </section>
+    {/if}
+
     <!-- ── Standard LevelTest accordion ── -->
-    {#if rows.length === 0 && !fibHasData}
+    {#if rows.length === 0 && !fibHasData && !vpHasData && !clusterHasData}
         <div class={styles.placeholder}>
             No active level tests. LevelTest signals fire when price trades
             into a structural level's proximity band (default 0.5% / 0.15% for pivots).
         </div>
     {:else if rows.length === 0}
         <div class={styles.placeholder}>
-            No active level-test signals. Fibonacci ladder is shown above.
+            No active level-test signals. Structural levels are shown above.
         </div>
     {:else}
         {#each grouped as g (g.kind)}
@@ -228,6 +400,9 @@
                             <span class={styles.producer}>{row.displayName}</span>
                             <span class="{styles.role} {roleClass(row.role)}">{row.role}</span>
                             <span class={styles.levelName}>{row.levelName}</span>
+                            <span class={styles.priceCol} title={row.valueKey ? `values.${row.valueKey}` : (row.indicatorKey === 'support_resistance' ? 'raw_value' : 'derived')}>
+                                {row.priceText}
+                            </span>
                             <span class={styles.direction}
                                   style="color: {dirColor(row.signal.direction)}">
                                 {row.signal.direction}

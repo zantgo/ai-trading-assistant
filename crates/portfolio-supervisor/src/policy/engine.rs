@@ -286,7 +286,7 @@ mod tests {
                 bias: "STRONG_BULLISH".into(),
                 confidence: 0.97,
                 score_confidence: 0.97,
-                entry_danger: 12.5,
+                entry_danger: core_domain::risk::RiskDimension::from_score(12.5),
                 expected_reward_risk_ratio: 1.79,
                 trade_readiness: "READY".into(),
                 contributing_indicators: vec!["ema_stack".into()],

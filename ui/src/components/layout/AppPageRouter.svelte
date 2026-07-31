@@ -10,7 +10,7 @@
     import OpportunitiesPanel from '../OpportunitiesPanel.svelte';
     import RiskPanel from '../RiskPanel.svelte';
     import AnalysisPanel from '../AnalysisPanel.svelte';
-    import AdvisoryPanel from '../AdvisoryPanel.svelte';
+    import RecommendationPanel from '../RecommendationPanel.svelte';
     import GeneralDashboard from '../GeneralDashboard.svelte';
     import GeneralSettings from '../GeneralSettings.svelte';
     import DataInfraDashboard from '../DataInfraDashboard.svelte';
@@ -59,8 +59,8 @@
                     <RiskPanel pairKey={activeTab} />
                 {:else if activePair.currentView === 'analysis'}
                     <AnalysisPanel />
-                {:else if activePair.currentView === 'advisory'}
-                    <AdvisoryPanel pairKey={activeTab} />
+                {:else if activePair.currentView === 'recommendation'}
+                    <RecommendationPanel pairKey={activeTab} />
                 {/if}
             {:else}
                 <GeneralDashboard {wssMap} />

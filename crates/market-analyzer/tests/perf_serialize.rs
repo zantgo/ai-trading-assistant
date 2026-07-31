@@ -109,7 +109,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         bias: "BULLISH".into(),
         confidence: 0.72,
         score_confidence: 0.68,
-        entry_danger: 35.0,
+        entry_danger: core_domain::risk::RiskDimension::from_score(35.0),
         expected_reward_risk_ratio: 2.1,
         trade_readiness: "WATCH".into(),
         contributing_indicators: vec!["rsi".into(), "macd".into(), "adx".into()],

@@ -4,7 +4,7 @@
     import { buildPanelExportJson } from '../lib/metricsExport';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups } from '../lib/decisionRank';
+    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary } from '../lib/decisionRank';
 
     const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
@@ -14,7 +14,14 @@
     const snap = $derived(instance?.microTerm?.latestSnapshot as unknown as MarketSnapshot | undefined);
     const opportunity = $derived<OpportunityMatrix | null>(instance?.opportunity ?? null);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
-    const decisionContext = $derived<DecisionContext | null>((snap as any)?.decision_context ?? null);
+    // ── Bind contract: `instance.decisionContext` is the mirror field
+    // populated once per completed candle by `applySnapshotToTimeframe`.
+    // Reading it first avoids the shadow-tick wipe that used to null-out
+    // `microTerm.latestSnapshot.decision_context` between candle closes.
+    // The snapshot field is kept as a fallback for the brief warmup window.
+    const decisionContext = $derived<DecisionContext | null>(
+        (instance?.decisionContext ?? (snap as any)?.decision_context ?? null) as DecisionContext | null,
+    );
     const advisory = $derived<AdvisoryMatrix | null>(instance?.advisory ?? null);
     const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
@@ -37,6 +44,113 @@
         topAction: rank.top,
         readiness: rank.headline.state,
     }));
+
+    // ── Per-profile Trade Setup cards ──────────────────────────────────────
+    // The Opportunities panel renders the full leaderboard: every
+    // qualifying profile (preconditions_met > 0) gets its own
+    // actionable bracket. ENTRY / TARGET / SL / R:R are ALWAYS present:
+    // `profileSummary` falls back from per-profile zones to the
+    // aggregated primary bracket so even Neutral-family profiles
+    // (e.g. MeanReversion + Neutral bias) surface the close-pinned
+    // Neutral sentinel.
+    //
+    // NoClearOpportunity is filtered out of the Trade Setup list —
+    // it's the unconditional "no actionable setup" fallback, rendered
+    // separately as a muted placeholder in the Evaluated Setups section.
+    type Viability = 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+    interface ActiveSetup {
+        opportunity_type: string;
+        side: 'LONG' | 'SHORT';
+        entryMid: number;
+        entryLow: number;
+        entryHigh: number;
+        tp1: number;
+        tp2: number;
+        invalidation: number;
+        rr: number | null;
+        geometry_consistent: boolean;
+        score: number;
+        preconditions_met: number;
+        preconditions_total: number;
+        notes: string;
+        viability: Viability;
+        rankIdx: number;
+    }
+    // Viability ordering: Actionable first, then DirectionalNeutral,
+    // then GeometryInverted. Within each tier, sort by score desc.
+    const viabilityRank: Record<Viability, number> = {
+        Actionable: 0,
+        DirectionalNeutral: 1,
+        GeometryInverted: 2,
+        NoClear: 3,
+    };
+    const activeSetups = $derived.by((): ActiveSetup[] => {
+        const profiles = opportunity?.profiles ?? [];
+        const qualifying = profiles
+            .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
+            .slice()
+            .sort((a, b) => b.score - a.score);
+        const macroBias = analysis?.bias ?? null;
+        const out: ActiveSetup[] = [];
+        qualifying.forEach((p, idx) => {
+            const s = profileSummary(p, opportunity, analysis);
+            // Even when zones are null we still emit a card — the
+            // operator sees the viability tag and the missing-zone
+            // indicator (we render `—` for empty zones).
+            const z = s.zones;
+            const entryMid = z ? (z.entry.low + z.entry.high) / 2 : 0;
+            const tpCandidates = z ? [z.target.low, z.target.high].filter((v) => v > 0) : [];
+            const sortedTp = z
+                ? [...tpCandidates].sort(
+                    (a, b) => Math.abs(a - z.entry.low - ((z.entry.high - z.entry.low) / 2)) -
+                              Math.abs(b - z.entry.low - ((z.entry.high - z.entry.low) / 2)),
+                )
+                : [];
+            out.push({
+                opportunity_type: p.opportunity_type,
+                side: s.side,
+                entryMid,
+                entryLow: z?.entry.low ?? 0,
+                entryHigh: z?.entry.high ?? 0,
+                tp1: sortedTp[0] ?? 0,
+                tp2: sortedTp.length > 1 ? sortedTp[1] : sortedTp[0] ?? 0,
+                invalidation: z?.invalidation ?? 0,
+                rr: s.rr,
+                geometry_consistent: z?.geometry_consistent ?? false,
+                score: p.score,
+                preconditions_met: p.preconditions_met,
+                preconditions_total: p.preconditions_total,
+                notes: p.notes,
+                viability: s.viability,
+                rankIdx: idx,
+            });
+        });
+        // Sort by viability tier (Actionable first), then by score desc.
+        return out.sort((a, b) => {
+            const va = viabilityRank[a.viability];
+            const vb = viabilityRank[b.viability];
+            if (va !== vb) return va - vb;
+            return b.score - a.score;
+        });
+    });
+    const topSetup = $derived(activeSetups[0] ?? null);
+
+    // NoClearOpportunity profile → muted placeholder strip (NOT a
+    // Trade Setup card). Shown only when it exists in the profiles.
+    const noClearProfile = $derived(
+        (opportunity?.profiles ?? []).find((p) => p.opportunity_type === 'NoClearOpportunity') ?? null,
+    );
+
+    // R:R (Internal) display: when verdict is HOLD AND the expected_rr
+    // is 0, surface "N/A — no directional bias" instead of a misleading
+    // "0.00" that operators read as "this trade has 0 R:R".
+    const rrInternalDisplay = $derived.by((): { value: string; isNA: boolean } => {
+        const v = opportunity?.expected_rr_internal ?? 0;
+        if (rank.top === 'HOLD' && v === 0) {
+            return { value: 'N/A', isNA: true };
+        }
+        return { value: v.toFixed(2), isNA: false };
+    });
 
     function buildExport() {
         return buildPanelExportJson({
@@ -106,20 +220,18 @@
         }
     }
 
-    const oppScore = $derived.by(() => {
-        if (!analysis) return 0;
-        const stateConf = analysis.confidence ?? 0;
-        const baseScore = stateConf * 100;
-        const qualMap: Record<string, number> = {
-            STRONG_BULLISH: 90, STRONG_BEARISH: 90,
-            BULLISH: 70, BEARISH: 70, NEUTRAL: 45,
-        };
-        const biasKey = typeof analysis.bias === 'string' ? analysis.bias : '';
-        const biasScore = qualMap[biasKey] ?? 40;
-        return Math.round((biasScore * 0.6) + (baseScore * 0.4));
-    });
+    const oppScore = $derived<number>(opportunity?.opportunity_score ?? 0);
 
     const q = $derived(setupQuality(oppScore));
+
+    // ── Lean (bullish / bearish / neutral) derived from the rank.
+    // Reading from `rank.top` keeps the lean chip aligned with the verdict
+    // hero and the geometry of the Trade Setups cards below.
+    const lean = $derived.by((): { label: string; tone: 'bull' | 'bear' | 'neutral' } => {
+        if (rank.top === 'LONG') return { label: 'Bullish setups dominate', tone: 'bull' };
+        if (rank.top === 'SHORT') return { label: 'Bearish setups dominate', tone: 'bear' };
+        return { label: 'Lean: neutral', tone: 'neutral' };
+    });
 
     function fmtPx(n: number | undefined | null): string {
         if (n == null || !isFinite(n) || n <= 0) return '—';
@@ -165,9 +277,14 @@
     </div>
 
     <div class={styles.section}>
-        <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">
-            {analysis ? oppLabel(analysis.opportunity_analysis) : '—'}
-        </span>
+        <div class={styles.headerRow}>
+            <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">
+                {analysis ? oppLabel(analysis.opportunity_analysis) : '—'}
+            </span>
+            <span class="{styles.leanChip} {lean.tone === 'bull' ? styles.leanBull : lean.tone === 'bear' ? styles.leanBear : styles.leanNeutral}">
+                {lean.label}
+            </span>
+        </div>
 
         <div class={styles.scoreRow}>
             <span class={styles.scoreLabel}>Setup Score</span>
@@ -182,72 +299,85 @@
         </div>
     </div>
 
-    <!-- ── Trade Setups (symmetric Long + mirrored Short) ────────────────── -->
+    <!-- ── Trade Setups (one card per qualifying profile) ─────────────────── -->
+    <!-- The Opportunities panel renders the full leaderboard. Every profile
+         whose preconditions are met gets its own ENTRY/TARGET/SL/R:R
+         bracket. Cards are sorted by viability (Actionable first), then
+         by score. Cards without an actionable direction (Neutral family
+         + Neutral bias, or geometry-inverted) still surface the
+         aggregated Neutral sentinel so the operator always sees a
+         number next to a trade. -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Trade Setups</div>
-        <div class={styles.setupPair}>
-            <!-- Long Setup -->
-            <div class="{styles.setupCard} {setups.long.active ? styles.setupCardActive : styles.setupCardInactive}">
-                <div class="{styles.setupHeader} {setupHeaderClass('LONG')}">
-                    <span class={styles.setupHeaderTitle}>Long Setup</span>
-                    <span class={styles.setupStatus}>{setups.long.status}</span>
-                </div>
-                <div class={styles.setupBody}>
-                    <div class={styles.setupRow}>
-                        <span class={styles.setupRowLabel}>ENTRY</span>
-                        <span class={styles.setupRowValue}>
-                            {setups.long.entry ? fmtPxDecimal(setups.long.entry.price, markPrice) : '—'}
-                        </span>
-                    </div>
-                    {#each setups.long.targets as t (t.label)}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>{t.label}</span>
-                            <span class={styles.setupRowValue}>{fmtPxDecimal(t.price, markPrice)}</span>
-                            {#if t.label === 'TP1' && setups.long.rrRatio != null}
-                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.long.rrRatio)}>{setups.long.rrRatio.toFixed(2)}</span></span>
-                            {/if}
-                        </div>
-                    {/each}
-                    {#if setups.long.stop}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>SL</span>
-                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPxDecimal(setups.long.stop.price, markPrice)}</span>
-                        </div>
-                    {/if}
-                </div>
-            </div>
-
-            <!-- Short Setup (mirror around markPrice) -->
-            <div class="{styles.setupCard} {setups.short.active ? styles.setupCardActive : styles.setupCardInactive}">
-                <div class="{styles.setupHeader} {setupHeaderClass('SHORT')}">
-                    <span class={styles.setupHeaderTitle}>Short Setup</span>
-                    <span class={styles.setupStatus}>{setups.short.status}</span>
-                </div>
-                <div class={styles.setupBody}>
-                    <div class={styles.setupRow}>
-                        <span class={styles.setupRowLabel}>ENTRY</span>
-                        <span class={styles.setupRowValue}>
-                            {setups.short.entry ? fmtPxDecimal(setups.short.entry.price, markPrice) : '—'}
-                        </span>
-                    </div>
-                    {#each setups.short.targets as t (t.label)}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>{t.label}</span>
-                            <span class={styles.setupRowValue}>{fmtPxDecimal(t.price, markPrice)}</span>
-                            {#if t.label === 'TP1' && setups.short.rrRatio != null}
-                                <span class={styles.setupRowRr}>R:R <span class={rrCls(setups.short.rrRatio)}>{setups.short.rrRatio.toFixed(2)}</span></span>
-                            {/if}
-                        </div>
-                    {/each}
-                    {#if setups.short.stop}
-                        <div class={styles.setupRow}>
-                            <span class={styles.setupRowLabel}>SL</span>
-                            <span class="{styles.setupRowValue} {styles.setupRowStop}">{fmtPxDecimal(setups.short.stop.price, markPrice)}</span>
-                        </div>
-                    {/if}
-                </div>
-            </div>
+        <div class={styles.sectionTitle}>
+            Trade Setups
+            <span class={styles.sectionMeta}>
+                {activeSetups.length === 0
+                    ? 'no qualifying setup yet'
+                    : `${activeSetups.length} candidate${activeSetups.length === 1 ? '' : 's'}`}
+            </span>
         </div>
+        {#if rank.top === 'HOLD'}
+            <div class={styles.scenarioNote}>
+                <span class={styles.scenarioBadge}>HOLD / NO CLEAR</span>
+                <span>No directional call. The cards below show the L4 Neutral sentinel for each qualifying profile (entry = target = invalidation = close) — none are active.</span>
+            </div>
+        {/if}
+        {#if activeSetups.length === 0}
+            <div class={styles.noProfiles}>Awaiting qualifying profile (preconditions_met &gt; 0).</div>
+        {:else}
+            <div class={styles.setupList}>
+                {#each activeSetups as setup (setup.opportunity_type)}
+                    <div class="{styles.setupCard} {setup.viability === 'Actionable' && rank.top !== 'HOLD' ? styles.setupCardActive : styles.setupCardHypo} {!setup.geometry_consistent ? styles.setupCardInverted : ''} {setup.viability === 'DirectionalNeutral' ? styles.setupCardMuted : ''}">
+                        <div class="{styles.setupHeader} {setupHeaderClass(setup.side)}">
+                            <span class={styles.setupHeaderTitle}>{`${oppLabel(setup.opportunity_type)} · ${setup.side}`}</span>
+                            <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{setup.score.toFixed(0)}</span>
+                        </div>
+                        {#if setup.viability === 'Actionable' && setup.rankIdx === 0 && rank.top !== 'HOLD'}
+                            <div class={styles.setupBadgeTop}>TOP · ACTIONABLE</div>
+                        {:else if setup.viability === 'DirectionalNeutral'}
+                            <div class={styles.setupBadgeNeutral}>NEUTRAL · HOLD</div>
+                        {:else if setup.viability === 'GeometryInverted'}
+                            <div class={styles.setupBadgeInverted}>GEOMETRY INVERTED</div>
+                        {/if}
+                        <div class={styles.setupBody}>
+                            <div class={styles.setupRow}>
+                                <span class={styles.setupRowLabel}>ENTRY</span>
+                                <span class={styles.setupRowValue}>
+                                    {setup.entryMid > 0 ? fmtPxDecimal(setup.entryMid, markPrice) : '—'}
+                                </span>
+                            </div>
+                            <div class={styles.setupRow}>
+                                <span class={styles.setupRowLabel}>TP1</span>
+                                <span class={styles.setupRowValue}>{setup.tp1 > 0 ? fmtPxDecimal(setup.tp1, markPrice) : '—'}</span>
+                            </div>
+                            <div class={styles.setupRow}>
+                                <span class={styles.setupRowLabel}>SL</span>
+                                <span class="{styles.setupRowValue} {styles.setupRowStop}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
+                            </div>
+                            <div class={styles.setupRow}>
+                                <span class={styles.setupRowLabel}>R:R</span>
+                                <span class={styles.setupRowValue}>
+                                    {#if setup.rr != null}
+                                        <span class={rrCls(setup.rr)}>{setup.rr.toFixed(2)}</span>
+                                    {:else}
+                                        —
+                                    {/if}
+                                </span>
+                            </div>
+                            <div class={styles.setupRowMeta}>
+                                {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {setup.score.toFixed(0)}
+                            </div>
+                        </div>
+                    </div>
+                {/each}
+            </div>
+        {/if}
+        {#if noClearProfile}
+            <div class={styles.noClearStrip}>
+                <span class={styles.noClearBadge}>NO CLEAR OPPORTUNITY</span>
+                <span class={styles.noClearMeta}>{noClearProfile.preconditions_met}/{noClearProfile.preconditions_total} preconditions met · informational only</span>
+            </div>
+        {/if}
     </div>
 
     <div class={styles.section}>
@@ -255,7 +385,9 @@
         <div class={styles.zoneGrid}>
             <div class={styles.zoneCard}>
                 <span class={styles.zoneLabel}>Expected R:R</span>
-                <span class={styles.rrValue}>{fmtRr(opportunity?.expected_rr_internal)}</span>
+                <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}>
+                    {rrInternalDisplay.value}
+                </span>
             </div>
             <div class={styles.zoneCard}>
                 <span class={styles.zoneLabel}>Horizon</span>
@@ -276,8 +408,11 @@
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Evaluated Setups</div>
         {#if opportunity?.profiles && opportunity.profiles.length > 0}
+            <!-- NoClearOpportunity is rendered separately above the
+                 Trade Setups list (muted placeholder strip). Filter it
+                 out of this list to avoid duplication and visual noise. -->
             <div class={styles.profileList}>
-                {#each opportunity.profiles as profile (profile.opportunity_type)}
+                {#each (opportunity.profiles ?? []).filter((p) => p.opportunity_type !== 'NoClearOpportunity') as profile (profile.opportunity_type)}
                     <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
                         <div class={styles.profileHeader}>
                             <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
@@ -291,6 +426,9 @@
                                      style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
                             </div>
                         </div>
+                        {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
+                            <div class={styles.profileViability}>{profile.trade_viability}</div>
+                        {/if}
                         {#if profile.notes}
                             <div class={styles.profileNotes}>{profile.notes}</div>
                         {/if}
@@ -302,45 +440,42 @@
         {/if}
     </div>
 
-    <!-- ── Confluent Entry Levels — always visible ── -->
+    <!-- ── Confluent Levels — single section spanning entries + targets ── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Confluent Entry Levels</div>
-        {#if opportunity?.confluent_entry_levels && opportunity.confluent_entry_levels.length > 0}
-            {#each opportunity.confluent_entry_levels.slice(0, 4) as level}
-                <div class={styles.confluenceRow}>
-                    <span class={styles.confluencePrice}>{level.price.toFixed(0)}</span>
-                    <div class={styles.confluenceSources}>
-                        {#each level.sources as src}
-                            <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
-                                {fmtSource(src)}
-                            </span>
-                        {/each}
+        <div class={styles.sectionTitle}>Confluent Levels</div>
+        {#if (opportunity?.confluent_entry_levels?.length ?? 0) > 0 || (opportunity?.confluent_target_levels?.length ?? 0) > 0}
+            {#if (opportunity?.confluent_entry_levels?.length ?? 0) > 0}
+                <div class={styles.confluenceSubheader}>Entry</div>
+                {#each (opportunity?.confluent_entry_levels ?? []).slice(0, 4) as level}
+                    <div class={styles.confluenceRow}>
+                        <span class={styles.confluencePrice}>{level.price.toFixed(0)}</span>
+                        <div class={styles.confluenceSources}>
+                            {#each level.sources as src}
+                                <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
+                                    {fmtSource(src)}
+                                </span>
+                            {/each}
+                        </div>
+                        <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{level.strength.toFixed(0)}%</span>
                     </div>
-                    <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{level.strength.toFixed(0)}%</span>
-                </div>
-            {/each}
-        {:else}
-            <div class={styles.noConfluence}>No confluent levels</div>
-        {/if}
-    </div>
-
-    <!-- ── Confluent Targets — always visible ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Confluent Targets</div>
-        {#if opportunity?.confluent_target_levels && opportunity.confluent_target_levels.length > 0}
-            {#each opportunity.confluent_target_levels.slice(0, 4) as level}
-                <div class={styles.confluenceRow}>
-                    <span class={styles.confluencePrice}>{level.price.toFixed(0)}</span>
-                    <div class={styles.confluenceSources}>
-                        {#each level.sources as src}
-                            <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
-                                {fmtSource(src)}
-                            </span>
-                        {/each}
+                {/each}
+            {/if}
+            {#if (opportunity?.confluent_target_levels?.length ?? 0) > 0}
+                <div class={styles.confluenceSubheader}>Target</div>
+                {#each (opportunity?.confluent_target_levels ?? []).slice(0, 4) as level}
+                    <div class={styles.confluenceRow}>
+                        <span class={styles.confluencePrice}>{level.price.toFixed(0)}</span>
+                        <div class={styles.confluenceSources}>
+                            {#each level.sources as src}
+                                <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
+                                    {fmtSource(src)}
+                                </span>
+                            {/each}
+                        </div>
+                        <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{level.strength.toFixed(0)}%</span>
                     </div>
-                    <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{level.strength.toFixed(0)}%</span>
-                </div>
-            {/each}
+                {/each}
+            {/if}
         {:else}
             <div class={styles.noConfluence}>No confluent levels</div>
         {/if}

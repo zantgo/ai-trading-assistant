@@ -226,6 +226,22 @@
                     : '\u2014'}
             </span>
         </div>
+        <!-- ── Polarization — sign-coded axis values used in the blend -->
+        <div class={styles.polarization}>
+            <span class={styles.polarLabel}>Polarization</span>
+            {#each [
+                { key: 'T', label: 'Trend', v: alignment?.mtf_trend_alignment ?? 0 },
+                { key: 'M', label: 'Momentum', v: alignment?.mtf_momentum_alignment ?? 0 },
+                { key: 'Vt', label: 'Volume', v: alignment?.mtf_volume_alignment ?? 0 },
+                { key: 'Vm', label: 'Volatility', v: alignment?.mtf_volatility_alignment ?? 0 },
+            ] as axis (axis.key)}
+                <span class={styles.polarChip}
+                      style="border-color: {axis.v > 0.05 ? 'rgba(34, 197, 94, 0.4)' : axis.v < -0.05 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.4)'}; color: {axis.v > 0.05 ? '#22c55e' : axis.v < -0.05 ? '#ef4444' : '#94a3b8'}">
+                    <span class={styles.polarKey}>{axis.key}</span>
+                    <span class={styles.polarVal}>{(axis.v >= 0 ? '+' : '') + axis.v.toFixed(2)}</span>
+                </span>
+            {/each}
+        </div>
         {#if conflictWarning}
             <div class={styles.conflictBadge}>TIMEFRAME CONFLICT — time horizons are working against each other</div>
         {/if}

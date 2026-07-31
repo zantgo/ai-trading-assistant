@@ -174,6 +174,26 @@
         return combined.sort((a, b) => timeframeRank(a.text) - timeframeRank(b.text));
     });
 
+    // ── Signal lean — the operator wants to see at-a-glance whether the
+    // supporting vs contradicting signals net bullish or bearish. Reading
+    // the categorical `analysis.bias` is insufficient (it can be NEUTRAL
+    // even when the signals disagree); instead we count the bucketed
+    // signals on each side.
+    const signalLean = $derived.by((): {
+        label: string;
+        bullish: number;
+        bearish: number;
+        tone: 'bull' | 'bear' | 'split';
+    } => {
+        const bull = (analysis?.supporting_signals ?? []).length;
+        const bear = (analysis?.contradicting_signals ?? []).length;
+        const total = bull + bear;
+        if (total === 0) return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split' };
+        if (bull > bear * 1.5) return { label: `Net bullish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bull' };
+        if (bear > bull * 1.5) return { label: `Net bearish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bear' };
+        return { label: `Split signals · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'split' };
+    });
+
     // Helper to decompose raw signal strings into structural elements
     interface DecomposedSignal {
         raw: string;
@@ -266,7 +286,12 @@
 
     <!-- ── Signals Grid Squares Section ── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Signals</div>
+        <div class={styles.signalsHeader}>
+            <span class={styles.sectionTitle}>Signals</span>
+            <span class="{styles.signalLeanChip} {signalLean.tone === 'bull' ? styles.signalLeanBull : signalLean.tone === 'bear' ? styles.signalLeanBear : styles.signalLeanSplit}">
+                {signalLean.label}
+            </span>
+        </div>
         {#if sortedSignals.length > 0}
             <div class={styles.signalList}>
                 {#each sortedSignals as sig (sig.text)}

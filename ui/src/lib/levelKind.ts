@@ -110,6 +110,21 @@ export interface ParsedLevel {
     kind: LevelKind;
     name: string;
     role: 'support' | 'resistance' | 'neutral';
+    /**
+     * Sub-key inside `IndicatorDto.values` where this level's numeric price
+     * lives. `null` means "no sub-key" (the price either lives on
+     * `IndicatorDto.raw_value` for SR, or the level is a range with paired
+     * keys — see `rangeKey`).
+     */
+    valueKey: string | null;
+    /**
+     * Sentinel `true` for zone-shaped levels (SMC FVG / OB) whose price is a
+     * `{ low, high }` range rather than a single number. The actual sub-key
+     * names are derived from the indicator kind (`smc_fvg` →
+     * `smc_fvg_top`/`smc_fvg_bottom`; `smc_order_blocks` →
+     * `smc_ob_bullish_*` / `smc_ob_bearish_*` based on role).
+     */
+    isRange?: boolean;
 }
 
 export function parseLevelLabel(
@@ -121,47 +136,130 @@ export function parseLevelLabel(
 
     let name = label ?? '--';
     let role: 'support' | 'resistance' | 'neutral' = 'neutral';
+    let valueKey: string | null = null;
+    let isRange = false;
 
     if (kind === 'Pivot') {
-        if (l.includes('CENTRAL')) name = 'Pivot';
-        else if (l.includes('R1')) name = 'R1';
-        else if (l.includes('R2')) name = 'R2';
-        else if (l.includes('R3')) name = 'R3';
-        else if (l.includes('S1')) name = 'S1';
-        else if (l.includes('S2')) name = 'S2';
-        else if (l.includes('S3')) name = 'S3';
-        else name = 'Pivot';
+        if (l.includes('CENTRAL')) { name = 'Pivot'; valueKey = 'pivot'; }
+        else if (l.includes('R1')) { name = 'R1'; valueKey = 'r1'; }
+        else if (l.includes('R2')) { name = 'R2'; valueKey = 'r2'; }
+        else if (l.includes('R3')) { name = 'R3'; valueKey = 'r3'; }
+        else if (l.includes('S1')) { name = 'S1'; valueKey = 's1'; }
+        else if (l.includes('S2')) { name = 'S2'; valueKey = 's2'; }
+        else if (l.includes('S3')) { name = 'S3'; valueKey = 's3'; }
+        else { name = 'Pivot'; valueKey = 'pivot'; }
         if (l.includes('RESISTANCE')) role = 'resistance';
         else if (l.includes('SUPPORT')) role = 'support';
     } else if (kind === 'SmcZone') {
-        if (l.includes('BULLISH_OB') || l.includes('OB_BULLISH')) name = 'Bullish OB';
-        else if (l.includes('BEARISH_OB') || l.includes('OB_BEARISH')) name = 'Bearish OB';
-        else if (l.includes('FVG')) name = 'FVG';
-        else name = 'SMC Zone';
-        role = l.includes('BULLISH') ? 'support' : l.includes('BEARISH') ? 'resistance' : 'neutral';
+        if (l.includes('BULLISH_OB') || l.includes('OB_BULLISH')) {
+            name = 'Bullish OB';
+            role = 'support';
+            isRange = true;
+        } else if (l.includes('BEARISH_OB') || l.includes('OB_BEARISH')) {
+            name = 'Bearish OB';
+            role = 'resistance';
+            isRange = true;
+        } else if (l.includes('FVG')) {
+            name = 'FVG';
+            isRange = true;
+        } else {
+            name = 'SMC Zone';
+        }
+        role = l.includes('BULLISH') ? 'support' : l.includes('BEARISH') ? 'resistance' : role;
     } else if (kind === 'Ichimoku') {
-        if (l.includes('TENKAN')) name = 'Tenkan';
-        else if (l.includes('KIJUN')) name = 'Kijun';
-        else if (l.includes('SENKOU_A')) name = 'Senkou A';
-        else if (l.includes('SENKOU_B')) name = 'Senkou B';
-        else name = 'Ichimoku Edge';
+        if (l.includes('TENKAN')) { name = 'Tenkan'; valueKey = 'tenkan'; }
+        else if (l.includes('KIJUN')) { name = 'Kijun'; valueKey = 'kijun'; }
+        else if (l.includes('SENKOU_A')) { name = 'Senkou A'; valueKey = 'senkou_a'; }
+        else if (l.includes('SENKOU_B')) { name = 'Senkou B'; valueKey = 'senkou_b'; }
+        else { name = 'Ichimoku Edge'; }
     } else if (kind === 'ChannelMid') {
-        if (l.includes('MIDDLE')) name = indicatorKey === 'bollinger' ? 'BB Middle' : `${indicatorKey} Mid`;
-        else name = indicatorKey;
+        if (l.includes('MIDDLE')) {
+            name = indicatorKey === 'bollinger' ? 'BB Middle' : `${indicatorKey} Mid`;
+            valueKey = indicatorKey === 'stddev_channel' ? 'center' : 'middle';
+        } else {
+            name = indicatorKey;
+        }
     } else if (kind === 'SR') {
         name = l.includes('DEMAND') ? 'Demand Zone' : l.includes('SUPPLY') ? 'Supply Zone' : 'S/R Zone';
         role = l.includes('DEMAND') ? 'support' : l.includes('SUPPLY') ? 'resistance' : 'neutral';
+        // SR price lives on IndicatorDto.raw_value, not in values{}.
     } else if (kind === 'Vwap') {
-        name = indicatorKey === 'anchored_vwap' ? 'Anchored VWAP' : 'VWAP';
+        if (indicatorKey === 'anchored_vwap') {
+            name = 'Anchored VWAP';
+            if (l.includes('WEEKLY')) valueKey = 'weekly';
+            else if (l.includes('MONTHLY')) valueKey = 'monthly';
+            else if (l.includes('SWING')) valueKey = 'swing';
+            else valueKey = 'vwap';
+        } else {
+            name = 'VWAP';
+            valueKey = 'vwap';
+        }
     } else if (kind === 'VolumeNode') {
-        name = l.includes('HVN') ? 'HVN' : l.includes('LVN') ? 'LVN' : 'Volume Node';
+        if (l.includes('HVN')) { name = 'HVN'; valueKey = 'poc'; }
+        else if (l.includes('LVN')) { name = 'LVN'; valueKey = 'val'; }
+        else { name = 'Volume Node'; }
     } else if (kind === 'Fibonacci') {
         const m = l.match(/FIB[_ ]?(\d+\.?\d*)|(\d+\.?\d*)[_ ]?FIB/i);
         name = m ? `Fib ${m[1] ?? m[2]}` : 'Fib Level';
     } else {
         if (l.includes('RESISTANCE')) { name = indicatorKey; role = 'resistance'; }
         else if (l.includes('SUPPORT')) { name = indicatorKey; role = 'support'; }
+        if (kind === 'Other' && (indicatorKey === 'supertrend' || l.includes('SUPERTREND'))) {
+            valueKey = 'line';
+        }
     }
 
-    return { kind, name, role };
+    return { kind, name, role, valueKey, ...(isRange ? { isRange: true } : {}) };
+}
+
+/**
+ * Resolve the concrete price (or price range) for a `LevelRow`. Looks at
+ * the parent `IndicatorDto`:
+ *   - `support_resistance`  → reads `raw_value`
+ *   - range-shaped (SMC FVG/OB) → reads `{low, high}` pair from the indicator's
+ *     `values{}` map, returning a "$lo — $hi" string
+ *   - everything else        → reads `values[valueKey]`
+ *
+ * Returns `'—'` when the price is missing / zero / non-finite (e.g. before
+ * the indicator's warmup window fills, or when the row's signal fired
+ * against a now-defunct level).
+ */
+export function resolveLevelPriceText(
+    row: { indicatorKey: string; signalLabel?: string; valueKey: string | null; isRange?: boolean; role: 'support' | 'resistance' | 'neutral' },
+    dto: { raw_value?: number | null; values?: Record<string, number> | null } | undefined,
+    fmtPx: (n: number) => string,
+): string {
+    if (!dto) return '—';
+    if (row.indicatorKey === 'support_resistance') {
+        const v = dto.raw_value;
+        return typeof v === 'number' && Number.isFinite(v) && v > 0 ? fmtPx(v) : '—';
+    }
+    if (row.isRange) {
+        const values = dto.values ?? {};
+        let lo: number | undefined;
+        let hi: number | undefined;
+        if (row.indicatorKey === 'smc_fvg') {
+            lo = values['smc_fvg_bottom'];
+            hi = values['smc_fvg_top'];
+        } else if (row.indicatorKey === 'smc_order_blocks') {
+            // Bullish OB = support (price below current); bearish OB = resistance (price above).
+            const lowKey  = row.role === 'support' ? 'smc_ob_bullish_low'  : 'smc_ob_bearish_low';
+            const highKey = row.role === 'support' ? 'smc_ob_bullish_high' : 'smc_ob_bearish_high';
+            lo = values[lowKey];
+            hi = values[highKey];
+        }
+        const loOk = typeof lo === 'number' && Number.isFinite(lo) && lo > 0;
+        const hiOk = typeof hi === 'number' && Number.isFinite(hi) && hi > 0;
+        if (loOk && hiOk) {
+            const a = Math.min(lo!, hi!);
+            const b = Math.max(lo!, hi!);
+            return a === b ? fmtPx(a) : `${fmtPx(a)} — ${fmtPx(b)}`;
+        }
+        if (loOk) return fmtPx(lo!);
+        if (hiOk) return fmtPx(hi!);
+        return '—';
+    }
+    if (!row.valueKey) return '—';
+    const v = dto.values?.[row.valueKey];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? fmtPx(v) : '—';
 }

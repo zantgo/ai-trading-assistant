@@ -27,13 +27,11 @@
 //! per-direction fields and are retained so PME/TAE consumers do not break.
 
 use crate::analysis::{OpportunityProfile, OpportunityType, SetupQuality};
+// Re-export `PriceRange` at the `opportunity` module path so existing
+// consumers that read `core_domain::opportunity::PriceRange` keep
+// compiling. The canonical home is `crate::analysis::PriceRange`.
+pub use crate::analysis::PriceRange;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct PriceRange {
-    pub low: f64,
-    pub high: f64,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -101,6 +99,16 @@ pub struct OpportunityMatrix {
     /// Per-direction invalidation trigger for a short setup (price above which
     /// the short thesis is invalidated).
     pub short_invalidation_level: f64,
+    /// Per-direction expected reward/risk ratio for a long setup, computed
+    /// from `long_target_zone` vs `long_entry_zone` and `long_invalidation_level`.
+    /// Independent of `expected_rr_internal` so consumers can surface a
+    /// directional R:R even when the legacy scalars mirror the inactive side.
+    #[serde(default)]
+    pub long_expected_rr_internal: f64,
+    /// Per-direction expected reward/risk ratio for a short setup, computed
+    /// from `short_target_zone` vs `short_entry_zone` and `short_invalidation_level`.
+    #[serde(default)]
+    pub short_expected_rr_internal: f64,
     pub expected_rr_internal: f64,
     pub time_horizon: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

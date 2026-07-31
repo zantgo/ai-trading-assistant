@@ -5,6 +5,11 @@ import type { AnalysisMatrix, OpportunityMatrix, AdvisoryMatrix } from '../types
 
 describe('deriveTradePlan', () => {
     function makeArgs() {
+        // mirror around 68000 for the SHORT side so per-side fields
+        // produce a consistent SHORT bracket. The default plan under
+        // test is LONG, so the SHORT fields are loaded only to validate
+        // the direction-aware gates elsewhere.
+        const mirror = (price: number): number => 2 * 68000 - price;
         return {
             symbol: 'BTC-USDT',
             markPrice: 68000,
@@ -20,6 +25,14 @@ describe('deriveTradePlan', () => {
                 entry_zone: { low: 67800, high: 68200 },
                 target_zone: { low: 69000, high: 69500 },
                 invalidation_level: 67400,
+                long_entry_zone: { low: 67800, high: 68200 },
+                long_target_zone: { low: 69000, high: 69500 },
+                long_invalidation_level: 67400,
+                long_expected_rr_internal: 2.5,
+                short_entry_zone: { low: mirror(68200), high: mirror(67800) },
+                short_target_zone: { low: mirror(69500), high: mirror(69000) },
+                short_invalidation_level: mirror(67400),
+                short_expected_rr_internal: 2.5,
                 expected_rr_internal: 2.5,
                 time_horizon: 'SWING',
                 confluent_entry_levels: [
@@ -137,7 +150,12 @@ describe('deriveTradePlan', () => {
     it('marks plan as not actionable when stop is missing', () => {
         const args = makeArgs();
         if (args.opportunity) {
+            // Zero out both the legacy AND per-side invalidation so the
+            // direction-aware stop gate (LONG: inval < entry_mid) fires
+            // on missing data.
             args.opportunity.invalidation_level = 0;
+            args.opportunity.long_invalidation_level = 0;
+            args.opportunity.short_invalidation_level = 0;
             args.opportunity.confluent_invalidation_levels = [];
         }
         const plan = deriveTradePlan(args as any);

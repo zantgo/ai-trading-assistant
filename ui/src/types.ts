@@ -462,6 +462,27 @@ export interface AdvisoryMatrix {
     protection_strategy: ProtectionStrategy;
     target_strategy: TargetStrategy;
     confidence_assessment: number;
+    /**
+     * Stop-loss distance as a raw fraction (e.g. `0.015` = 1.5% from entry).
+     * Surfaced from the Rust `AdvisoryMatrix::stop_loss_distance_pct`
+     * (canonical type-boundary handoff f64 at L6 → Decimal at TAE).
+     */
+    stop_loss_distance_pct: number;
+    /**
+     * Per-symbol cascade risk score (0..100) carried through from the
+     * L5 Risk Matrix `cascade_risk.score`. Used by the L7 Overview
+     * aggregation; surfaced here so the Recommendation tab can show
+     * it next to the danger band.
+     */
+    cascade_risk_score: number;
+    /**
+     * Synoptic favorability of entering a position — high score =
+     * dangerous. Wire key is `environment_favorability` (Rust
+     * `crates/core-domain/src/advisory.rs::AdvisoryMatrix::environment_favorability`).
+     * The Recommendation tab projects this as the green/amber/red
+     * band on the safety-flags row.
+     */
+    environment_favorability: RiskDimension;
     final_recommendation: string;
 }
 
@@ -475,8 +496,14 @@ export interface DecisionContext {
     confidence: number;
     /** Score-band confidence in [0.0, 1.0]. */
     score_confidence: number;
-    /** Entry danger in [0, 100] — higher = more dangerous. */
-    entry_danger: number;
+    /**
+     * Synoptic entry danger — high score = dangerous to enter.
+     * Wire shape (from Rust `crates/core-domain/src/decision_context.rs::DecisionContext.entry_danger`):
+     * a `RiskDimension`-shaped object with `{ score, level, state, confidence }`.
+     * Historically some legacy sends may arrive as bare `{ score: 0 }`; the
+     * consumer (`decisionRank.ts`) reads `.score` defensively.
+     */
+    entry_danger: RiskDimension;
     /** Synthesised expected reward:risk ratio. */
     expected_reward_risk_ratio: number;
     /** Trade-readiness token: "READY" | "FORMING" | "WATCH" | "STAND_ASIDE". */
@@ -708,7 +735,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'analysis' | 'advisory' | 'settings' | 'costs' | 'ledger';
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'analysis' | 'recommendation' | 'settings' | 'costs' | 'ledger';
 
 export interface InstanceState {
     symbol: string;
@@ -1080,12 +1107,66 @@ export interface PriceRange {
     high: number;
 }
 
+/**
+ * Direction family the L4 producer tags each `OpportunityProfile` with.
+ *   - `TrendRiding` resolves to LONG when `Analysis.bias` is bullish,
+ *     SHORT when bearish, NEUTRAL otherwise. Applies to TrendContinuation,
+ *     Breakout, Pullback, Scalp, LiquiditySqueeze.
+ *   - `CounterTrend` reverses the macro bias. Applies to MeanReversion,
+ *     Reversal.
+ *   - `Neutral` carries no actionable setup. Applies to NoClearOpportunity.
+ */
+export type DirectionFamily = 'TrendRiding' | 'CounterTrend' | 'Neutral';
+
+/**
+ * Trade viability classification for an `OpportunityProfile`. Tells the
+ * operator whether the profile carries an actionable bracket (zones
+ * pass per-side invariants on a resolvable direction) or whether the
+ * profile is informational only. Set by the L4 producer and surfaced
+ * in the UI as a coloured badge next to each qualifying profile's
+ * preconditions bar.
+ *
+ * Wire format is SCREAMING_SNAKE_CASE. Legacy payloads without this
+ * field default to `NoClear` (most conservative).
+ */
+export type TradeViability = 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+
+/**
+ * One per-setup-type entry in `OpportunityMatrix.profiles`. Each
+ * qualifying profile (with `preconditions_met > 0`) carries its own
+ * actionable entry/target/invalidation/R:R on the resolved direction.
+ * The frontend's `selectProfileSide` + `profileZones` helpers consume
+ * these fields to render one bracket per profile.
+ */
+export interface OpportunityProfile {
+    opportunity_type: string;
+    score: number;
+    preconditions_met: number;
+    preconditions_total: number;
+    notes: string;
+    /** Direction family this profile implies. `null` on legacy payloads. */
+    direction_family: DirectionFamily | null;
+    /** LONG-side zones. Populated only when the profile resolves to LONG. */
+    long_entry_zone: PriceRange | null;
+    long_target_zone: PriceRange | null;
+    long_invalidation_level: number | null;
+    /** SHORT-side zones. Populated only when the profile resolves to SHORT. */
+    short_entry_zone: PriceRange | null;
+    short_target_zone: PriceRange | null;
+    short_invalidation_level: number | null;
+    /** Per-side expected R:R derived from the per-profile zones. */
+    long_expected_rr_internal: number | null;
+    short_expected_rr_internal: number | null;
+    /** Trade viability classification. `null` on legacy payloads. */
+    trade_viability: TradeViability | null;
+}
+
 export interface OpportunityMatrix {
     symbol: string;
     primary_opportunity: string;
     opportunity_score: number;
     setup_quality: string;
-    profiles: { opportunity_type: string; score: number; preconditions_met: number; preconditions_total: number; notes: string }[];
+    profiles: OpportunityProfile[];
     forecast_confidence: number;
     contributing_signals: string[];
     invalidation_note: string;
