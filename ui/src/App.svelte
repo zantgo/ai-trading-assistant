@@ -27,7 +27,15 @@
     } from './lib/resilientActivePair';
 
     const app = useAppStore();
-    let wssMap = $state<Record<string, WsState>>({});
+    
+    // ─── FIX: CONVERTED WSSMAP TO PLAIN OBJECT ───────────────────────
+    // Declaring wssMap as a Svelte 5 `$state` proxy caused the connection backstop 
+    // `$effect` to loop infinitely, continuously clearing and rescheduling trailing 
+    // connection timeouts. Because wssMap is purely a background connection state 
+    // registry that is never rendered or bound in templates, declaring it as a 
+    // plain mutable object prevents these cycles and lets the WebSockets connect.
+    const wssMap: Record<string, WsState> = {};
+    // ─────────────────────────────────────────────────────────────────
 
     let configReady = false;
     let isSidebarOpen = $state(false);

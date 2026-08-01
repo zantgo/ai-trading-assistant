@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
-    import { buildPanelExportJson } from '../lib/metricsExport';
+    import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AlignmentPanel.module.css';
 
@@ -23,28 +23,17 @@
     const registry = $derived(app.indicatorRegistry ?? []);
 
     function buildExport() {
-        return buildPanelExportJson({
-            sourceTab: 'alignment',
-            pairKey,
-            resolvers: {
-                symbol: pairKey,
-                tfLabel: 'Micro',
-                tfSecs: microTerm?.barDurationSec ?? 0,
-                timestamp,
-                markPrice,
-                registry: registry as any,
-                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
-                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-                analysis: instance?.analysis ?? null,
-                risk: instance?.risk ?? null,
-                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
-                opportunity,
-                advisory: instance?.advisory ?? null,
-                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
-                liquidity: (microTerm as any)?.liquidity ?? null,
-                cluster: (microTerm as any)?.cluster ?? null,
-                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
-                decisionContext,
+        return buildAlignmentTabExport({
+            alignment,
+            symbol: pairKey,
+            tfSecs: microTerm?.barDurationSec ?? null,
+            timestamp,
+            markPrice,
+            filterState: {
+                activeOnly: false,
+                confirmedPlusOnly: false,
+                hideGates: false,
+                hideOverlays: false,
             },
         });
     }

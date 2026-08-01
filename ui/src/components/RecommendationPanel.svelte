@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { AdvisoryMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
-    import { buildPanelExportJson } from '../lib/metricsExport';
+    import { buildRecommendationTabExport } from '../lib/exportBuilders/recommendationTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
@@ -52,28 +52,20 @@
     });
 
     function buildExport() {
-        return buildPanelExportJson({
-            sourceTab: 'recommendation',
-            pairKey,
-            resolvers: {
-                symbol: pairKey,
-                tfLabel: 'Micro',
-                tfSecs: microTerm?.barDurationSec ?? 0,
-                timestamp,
-                markPrice,
-                registry: registry as any,
-                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
-                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-                analysis: instance?.analysis ?? null,
-                risk: instance?.risk ?? null,
-                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
-                opportunity,
-                advisory,
-                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
-                liquidity: (microTerm as any)?.liquidity ?? null,
-                cluster: (microTerm as any)?.cluster ?? null,
-                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
-                decisionContext: (decisionCtx as unknown as Record<string, unknown>) ?? null,
+        return buildRecommendationTabExport({
+            advisory,
+            decisionContext: decisionCtx,
+            opportunity,
+            analysis,
+            symbol: pairKey,
+            tfSecs: microTerm?.barDurationSec ?? null,
+            timestamp,
+            markPrice,
+            filterState: {
+                activeOnly: false,
+                confirmedPlusOnly: false,
+                hideGates: false,
+                hideOverlays: false,
             },
         });
     }
@@ -226,14 +218,10 @@
         </div>
     </div>
 
-    <!-- ── Runner-ups (winner excluded, dispersion at a glance).
-         Labelled "Bias: LONG %" / "Bias: SHORT %" to disambiguate from the
-         Top Setup card's direction label (which is the resolved side for
-         the top-scored profile, not a probability bucket). -->
     <div class={styles.runnerRow}>
         {#each runners as r (r.action)}
             <div class="{styles.runnerCell} {rankBarClass(r.action)}">
-                <span class={styles.runnerAction}>{`Bias: ${r.action}`}</span>
+                <span class={styles.runnerAction}>{r.action}</span>
                 <span class={styles.runnerPct}>{r.prob}%</span>
             </div>
         {/each}

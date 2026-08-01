@@ -4,6 +4,27 @@
 
 ------
 
+## v6.7 (2026-07-31) — Per-Tab 1:1 Export Payload Architecture
+
+The Market Monitor's `Export Data` button now produces a JSON payload that mirrors
+exactly the data the active panel renders. The previous "kitchen-sink" design —
+where every panel exported the entire `MarketSnapshot` (every matrix in one
+JSON) — is replaced with per-tab scoped payloads produced by dedicated builders.
+
+- **Frontend — `ui/src/lib/exportBuilders/`** — 8 new builder files
+  (`shared.ts`, `chartsTab.ts`, `riskTab.ts`, `opportunityTab.ts`,
+  `alignmentTab.ts`, `analysisTab.ts`, `recommendationTab.ts`, `metricsTab.ts`,
+  `mtfTab.ts`). Each emits a typed payload whose field set is exactly the union
+  of the rendered DOM fields on the corresponding panel.
+- **Frontend — `ui/src/components/{RiskPanel,OpportunitiesPanel,AlignmentPanel,AnalysisPanel,RecommendationPanel,TerminalMonitor}.svelte`** — `buildExport()` now calls the matching per-tab builder. No call to the legacy
+  `buildPanelExportJson` / `buildMetricsExportJson` remains.
+- **Frontend — `ui/src/components/BottomConsole.svelte` + `BottomTable.svelte`** — both `handleCopyJson` handlers now route through the same four chart-sub-tab builders. The previous `slots` inconsistency between the two files (BottomTable included slots, BottomConsole did not) is fixed. The Plan tab now exports its own payload (previously it silently copied the history table).
+- **Frontend — `ui/src/lib/metricsExport.ts`** — legacy `buildMetricsExportJson` and `buildPanelExportJson` preserved unchanged for backward compatibility with the existing test suite and any external consumers. Added a header comment documenting the new builder architecture.
+- **Documentation — `docs/ui-ux/07-05-export-data-payload-schema.md`** — new document; lists every per-tab payload schema with worked examples and the migration notes for downstream consumers.
+- **Tests** — 111 new unit tests (one per builder) plus 5 new component tests for `BottomConsole.test.ts`. The full test suite (518 tests) passes.
+
+------
+
 ## v6.6 (2026-07-29) — Bitget V2 derivatives extraction + UI feed-state
 
 Fixes the bug where the four derivatives indicators (Open Interest, OI Delta,

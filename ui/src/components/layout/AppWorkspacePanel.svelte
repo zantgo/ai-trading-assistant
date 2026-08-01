@@ -151,18 +151,20 @@
         }
     });
 
-    // Auto-focus the symbol input as soon as the panel opens. We watch
-    // the `isOpen` edge (false → true), wait for the 250 ms `slideInRight`
-    // animation to settle, then call `.focus()` and place the caret at
-    // the end so the user can immediately start typing a pair like BTC.
-    //
-    // Both the read of `prevIsOpen` and the write back to it must happen
-    // inside `untrack(...)`: this effect's only real dependency is
-    // `isOpen`, and mutating an unrelated $state from inside the
-    // effect's tracking scope triggers `state_unsafe_mutation`.
+    // ─── FIX: AUTOFOCUS DEPENDENCY CORRECTION ────────────────────────
+    // We read `isOpen` outside of the `untrack` context. This signals to 
+    // Svelte 5 that `isOpen` is an active dependency. This guarantees the 
+    // autofocus code fires properly every single time the panel transitions 
+    // from closed to open.
     $effect(() => {
-        const opened = untrack(() => isOpen && !prevIsOpen);
-        untrack(() => { prevIsOpen = isOpen; });
+        const current = isOpen; // Active dependency read
+        const prev = untrack(() => prevIsOpen);
+        const opened = current && !prev;
+        
+        untrack(() => {
+            prevIsOpen = current;
+        });
+
         if (!opened) return;
         setTimeout(() => {
             const el = createInputEl;
@@ -172,6 +174,7 @@
             try { el.setSelectionRange(len, len); } catch (_) { /* not supported */ }
         }, 260);
     });
+    // ─────────────────────────────────────────────────────────────────
 </script>
 
 {#if isOpen}
@@ -196,7 +199,11 @@
         {#if createError}<div class={styles.wsPanelError}>{createError}</div>{/if}
         {#if errorMessage}<div class={styles.wsPanelError}>{errorMessage}</div>{/if}
         <div class={styles.wsPanelList}>
-            {#if wsLoading}
+            <!-- ─── FIX: CONVERTED TO EVALUATE BOTH LOADING STATUSES ────── -->
+            <!-- Adding `createLoading` to the conditional check ensures that the
+                 list's placeholder text turns into the three waving dots loader 
+                 the moment the user initiates a search or workspace creation. -->
+            {#if wsLoading || createLoading}
                 <div class={styles.wsPanelEmpty}>
                     <span class="{styles.wavingDots} {styles.wsPanelLoader}" aria-label="Loading"><span class={styles.wavingDot}></span><span class={styles.wavingDot}></span><span class={styles.wavingDot}></span></span>
                 </div>
@@ -219,6 +226,7 @@
                     </a>
                 {/each}
             {/if}
+            <!-- ─────────────────────────────────────────────────────────── -->
         </div>
     </div>
 {/if}

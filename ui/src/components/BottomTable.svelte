@@ -1,6 +1,12 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { calcLiqPrice, getDecimalCount } from '../lib/telemetry';
+    import {
+        buildPositionsTabExport,
+        buildOrdersTabExport,
+        buildHistoryTabExport,
+        buildPlanTabExport,
+    } from '../lib/exportBuilders/chartsTab';
     import styles from './BottomTable.module.css';
 
     const app = useAppStore();
@@ -70,29 +76,32 @@
     }
 
     async function handleCopyJson() {
-        let data: unknown;
-        if (activeConsoleTab === 'positions') {
-            data = {
-                symbol: app.activeTab,
-                position: app.activePaperPosition,
-                slots: app.activeSlots,
-                brackets: positionBrackets,
-                unrealized_pnl: app.paperUnrealizedPnl,
-                unrealized_roi: app.paperUnrealizedRoi,
-            };
-        } else if (activeConsoleTab === 'orders') {
-            data = { symbol: app.activeTab, open_orders: app.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only) };
-        } else {
-            data = { symbol: app.activeTab, history: app.paperHistory };
-        }
+        const tab = activeConsoleTab;
+        let result: string;
         try {
-            await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-            copiedLabel = 'Copied!';
-            setTimeout(() => copiedLabel = '', 2000);
+            if (tab === 'positions') {
+                result = buildPositionsTabExport(app);
+            } else if (tab === 'orders') {
+                result = buildOrdersTabExport(app);
+            } else if (tab === 'history') {
+                result = buildHistoryTabExport(app);
+            } else if (tab === 'plan') {
+                result = buildPlanTabExport(app);
+            } else {
+                result = buildPositionsTabExport(app);
+            }
         } catch (_) {
             copiedLabel = 'Failed';
             setTimeout(() => copiedLabel = '', 2000);
+            return;
         }
+        try {
+            await navigator.clipboard.writeText(result);
+            copiedLabel = 'Copied!';
+        } catch (_) {
+            copiedLabel = 'Failed';
+        }
+        setTimeout(() => copiedLabel = '', 2000);
     }
 
     const pctPresets = [25, 50, 100];
@@ -115,8 +124,8 @@
                 History<span class={styles.consoleTabCount}>{app.paperHistory.length}</span>
             </button>
         </div>
-        <button class={styles.exportBtn} onclick={handleCopyJson} title="Copy JSON">
-            {copiedLabel || 'Export JSON'}
+        <button class={styles.exportBtn} onclick={handleCopyJson} title="Copy {activeConsoleTab} data as JSON">
+            {copiedLabel || `Export ${activeConsoleTab === 'plan' ? 'Plan' : activeConsoleTab.charAt(0).toUpperCase() + activeConsoleTab.slice(1)} JSON`}
         </button>
     </div>
 

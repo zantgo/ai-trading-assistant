@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
-    import { buildPanelExportJson } from '../lib/metricsExport';
+    import { buildOpportunityTabExport } from '../lib/exportBuilders/opportunityTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary } from '../lib/decisionRank';
@@ -153,28 +153,19 @@
     });
 
     function buildExport() {
-        return buildPanelExportJson({
-            sourceTab: 'opportunity',
-            pairKey,
-            resolvers: {
-                symbol: pairKey,
-                tfLabel: 'Micro',
-                tfSecs: microTerm?.barDurationSec ?? 0,
-                timestamp,
-                markPrice,
-                registry: registry as any,
-                tf: (microTerm ?? { indicators: {} }) as TimeframeTelemetry,
-                filters: { activeOnly: false, confirmedPlusOnly: false, hideGates: false, hideOverlays: false },
-                analysis,
-                risk: instance?.risk ?? null,
-                alignment: (instance?.alignment as unknown as Record<string, unknown>) ?? null,
-                opportunity,
-                advisory: instance?.advisory ?? null,
-                volumeProfile: (microTerm as any)?.volumeProfile ?? null,
-                liquidity: (microTerm as any)?.liquidity ?? null,
-                cluster: (microTerm as any)?.cluster ?? null,
-                liquiditySignals: ((microTerm as any)?.liquiditySignals ?? []) as any[],
-                decisionContext: (decisionContext as unknown as Record<string, unknown>) ?? null,
+        return buildOpportunityTabExport({
+            opportunity,
+            analysis,
+            decisionContext,
+            symbol: pairKey,
+            tfSecs: microTerm?.barDurationSec ?? null,
+            timestamp,
+            markPrice,
+            filterState: {
+                activeOnly: false,
+                confirmedPlusOnly: false,
+                hideGates: false,
+                hideOverlays: false,
             },
         });
     }

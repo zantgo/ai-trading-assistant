@@ -33,7 +33,8 @@
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
-    import { buildMetricsExportJson, buildMtfExportJson } from '../lib/metricsExport';
+    import { buildMetricsTabExport } from '../lib/exportBuilders/metricsTab';
+    import { buildMtfExportJson } from '../lib/exportBuilders/mtfTab';
     import ExportDataButton from './ExportDataButton.svelte';
 
     const app = useAppStore();
@@ -150,34 +151,24 @@
     function buildMetricsExport() {
         if (!pair || !activeTfObj) return null;
         const markPrice = parseFloat(activeTfObj.priceText ?? '') || 0;
-        const microSnap = (pair as any)?.microTerm?.latestSnapshot ?? {};
-        const opportunity = (microSnap as any)?.opportunity ?? null;
-        const decisionContext = (microSnap as any)?.decision_context ?? null;
-        return buildMetricsExportJson({
-            sourceTab: 'metrics',
+        return buildMetricsTabExport({
+            tf: activeTfObj,
+            registry,
+            volumeProfile: (activeTfObj as any)?.volumeProfile ?? null,
+            liquidity: (activeTfObj as any)?.liquidity ?? null,
+            cluster: (activeTfObj as any)?.cluster ?? null,
+            liquiditySignals: ((activeTfObj as any)?.liquiditySignals ?? []) as any[],
             symbol: pair.symbol,
             tfLabel: activeTfEntry.label,
-            tfSecs: activeTfEntry.secs ?? 0,
+            tfSecs: activeTfEntry.secs ?? null,
             timestamp: snapshotTs,
             markPrice,
-            registry,
-            tf: activeTfObj,
-            filters: {
+            filterState: {
                 activeOnly: filters.activeOnly,
                 confirmedPlusOnly: filters.confirmedPlusOnly,
                 hideGates: filters.hideGates,
                 hideOverlays: filters.hideOverlays,
             },
-            analysis: pair.analysis ?? null,
-            risk: pair.risk ?? null,
-            alignment: (pair.alignment as unknown as Record<string, unknown>) ?? null,
-            opportunity,
-            advisory: pair.advisory ?? null,
-            volumeProfile: (pair as any)?.microTerm?.volumeProfile ?? null,
-            liquidity: (pair as any)?.microTerm?.liquidity ?? null,
-            cluster: (pair as any)?.microTerm?.cluster ?? null,
-            liquiditySignals: ((pair as any)?.microTerm?.liquiditySignals ?? []) as any[],
-            decisionContext,
         });
     }
 
@@ -194,7 +185,7 @@
                 macroTerm: pair.macroTerm,
             },
             registry,
-            filters: {
+            filterState: {
                 activeOnly: filters.activeOnly,
                 confirmedPlusOnly: filters.confirmedPlusOnly,
                 hideGates: filters.hideGates,

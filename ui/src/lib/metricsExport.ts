@@ -17,6 +17,27 @@
 // indicator detail (raw, signals, sub_values, lifecycle) for each of the
 // 4 timeframes, so the operator does not have to switch tabs to harvest
 // the per-TF metrics.
+//
+// ════════════════════════════════════════════════════════════════════════
+// Per-Tab 1:1 Export Architecture (v6.7+)
+// ════════════════════════════════════════════════════════════════════════
+// The legacy `buildMetricsExportJson` / `buildPanelExportJson` functions in
+// this file produce the "kitchen-sink" payload that includes every matrix.
+// New panels now use the per-tab scoped builders in `exportBuilders/`:
+//
+//   - exportBuilders/chartsTab.ts         (positions / orders / history / plan)
+//   - exportBuilders/riskTab.ts
+//   - exportBuilders/opportunityTab.ts
+//   - exportBuilders/alignmentTab.ts
+//   - exportBuilders/analysisTab.ts
+//   - exportBuilders/recommendationTab.ts
+//   - exportBuilders/metricsTab.ts        (single-TF)
+//   - exportBuilders/mtfTab.ts             (multi-TF)
+//
+// Each builder produces a JSON payload that mirrors the data the
+// corresponding panel actually renders (1:1 correspondence). The legacy
+// functions below are preserved unchanged for backward compatibility
+// with the existing test suite and any external consumers.
 
 import type {
     AdvisoryMatrix,

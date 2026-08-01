@@ -100,11 +100,12 @@ docs/
 │   ├── 06-00-consumer-onboarding.md                  ← single-page integrator orientation
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
 │   └── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
-├── ui-ux/                                            (07 — 4 files)
+├── ui-ux/                                            (07 — 5 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
 │   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
-│   └── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
+│   ├── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
+│   └── 07-05-export-data-payload-schema.md           ← per-tab Export Data JSON schemas (v6.7)
 └── operations-and-compliance/                        (08 — 8 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
     ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
