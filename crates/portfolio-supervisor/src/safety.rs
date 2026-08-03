@@ -550,7 +550,7 @@ mod tests {
         mgr.set_initial_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(1200)).await;
 
-        mgr.update_peak_equity(dec!(1200));
+        mgr.update_peak_equity(dec!(1200)).await;
         mgr.set_current_equity(dec!(750)).await;
 
         let result = mgr.check_capital_drawdown().await;
@@ -565,7 +565,7 @@ mod tests {
         mgr.set_initial_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(800)).await;
 
-        mgr.update_peak_equity(dec!(1000));
+        mgr.update_peak_equity(dec!(1000)).await;
 
         let result = mgr.check_capital_drawdown().await;
         assert!(result.is_ok());
@@ -642,7 +642,7 @@ mod tests {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
         mgr.set_initial_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(1200)).await;
-        mgr.update_peak_equity(dec!(1200));
+        mgr.update_peak_equity(dec!(1200)).await;
         mgr.set_current_equity(dec!(500)).await;
 
         let triggers = mgr.evaluate_all("BTC-USDT", dec!(0.5), 10.0, false).await;

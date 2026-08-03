@@ -91,7 +91,7 @@
         return () => { cancelled = true; };
     });
 
-    const fundingCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const fundingCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'funding_rate');
         if (val != null) {

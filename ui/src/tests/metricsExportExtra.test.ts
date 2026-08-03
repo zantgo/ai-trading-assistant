@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildMetricsExportJson, buildPanelExportJson, buildMtfExportJson } from '../lib/metricsExport';
+import type { IndicatorMeta } from '../types';
 
 // ── Module-scope MTF fixtures (reused by Phase 2 + Phase 3 describe blocks) ──
 function mtfTf(slot: 'micro' | 'fast' | 'slow' | 'macro', secs: number, opts: {

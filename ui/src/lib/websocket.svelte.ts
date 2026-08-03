@@ -65,8 +65,13 @@ if (crossTabChannel) {
     crossTabChannel.addEventListener('message', (ev) => {
         const msg = ev.data as CrossTabMsg;
         if (!msg || msg.ownerId === TAB_ID) return;
-        if (msg.kind === 'claim' || msg.kind === 'heartbeat') {
+        if (msg.kind === 'heartbeat') {
             otherTabOwnership.set(msg.pair, { pair: msg.pair, ownerId: msg.ownerId, lastHeartbeat: msg.ts });
+        } else if (msg.kind === 'claim') {
+            // A claim message carries no timestamp; stamp the receipt
+            // time so the takeover TTL still applies even if the owner
+            // never sends a heartbeat.
+            otherTabOwnership.set(msg.pair, { pair: msg.pair, ownerId: msg.ownerId, lastHeartbeat: Date.now() });
         } else if (msg.kind === 'release') {
             otherTabOwnership.delete(msg.pair);
         }

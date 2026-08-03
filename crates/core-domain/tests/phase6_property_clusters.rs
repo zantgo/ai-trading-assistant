@@ -8,16 +8,14 @@
 //! 4. Determinism: same input → same output.
 //! 5. Sum of leverage weights: 1.0 before AND after modulation.
 
-use core_domain::liquidity::{
-    estimate_clusters, ClusterEstimateInput, LeverageAssumptions, LiquidationClusterMatrix,
-};
+use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
 use proptest::prelude::*;
 
 fn price_strategy() -> impl Strategy<Value = Vec<f64>> {
     // Generate 50-200 prices that wander realistically: anchored to a
     // base in 10..200, with each step adding a random walk delta.
     prop::collection::vec(
-        (0.5..2.0f64), // step delta magnitude
+        0.5..2.0f64, // step delta magnitude
         50..200,
     )
     .prop_map(|deltas| {

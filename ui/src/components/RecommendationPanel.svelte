@@ -2,6 +2,7 @@
     import type { AdvisoryMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import { buildRecommendationTabExport } from '../lib/exportBuilders/recommendationTab';
+    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
@@ -61,12 +62,12 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: false,
                 confirmedPlusOnly: false,
                 hideGates: false,
                 hideOverlays: false,
-            },
+            }),
         });
     }
 
@@ -186,7 +187,7 @@
     {/if}
 
     <!-- ── Environment header — single card, color-coded per directional family -->
-    <div class="{styles.envHeader} {envHeaderClass(topSetup?.direction ?? 'neutral')}">
+    <div class="{styles.envHeader} {envHeaderClass((topSetup?.direction ?? 'neutral').toLowerCase() as 'long' | 'short' | 'neutral')}">
         <div class={styles.envHeaderTop}>
             <span class={styles.envBadge}>{sanitizeLabel(advisory?.directional_guidance ?? '')}</span>
             <span class={styles.envBadge}>{sanitizeLabel(advisory?.market_stance ?? '')}</span>

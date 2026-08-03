@@ -100,7 +100,7 @@
         return () => { cancelled = true; };
     });
 
-    const ichiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const ichiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const t = iSub(m, 'ichimoku', 'tenkan');

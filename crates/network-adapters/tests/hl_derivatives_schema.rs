@@ -209,7 +209,7 @@ fn unused_mutex_helper() -> Arc<Mutex<()>> {
 
 #[test]
 fn derivatives_ctx_to_events_converts_oi_to_usd() {
-    use core_domain::normalized::{NormalizedEvent, OpenInterestEvent};
+    use core_domain::normalized::NormalizedEvent;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 

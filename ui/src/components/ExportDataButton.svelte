@@ -35,7 +35,12 @@
         label = 'EXPORT DATA',
     }: Props = $props();
 
-    let caption: string = $state(label);
+    // Intentional: `label` is the *initial* caption. The `$effect` below
+    // tracks `label` reactively to reset the caption when it changes
+    // (skipping transient feedback states), so the local `caption` only
+    // needs the initial value here. Capturing the initial value is correct.
+    // svelte-ignore state_referenced_locally
+    let caption = $state<string>(label);
     let resetTimer: ReturnType<typeof setTimeout> | null = null;
 
     $effect(() => {

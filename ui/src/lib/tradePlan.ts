@@ -173,13 +173,17 @@ export function deriveTradePlan(args: DeriveArgs): TradePlan {
 
     const confidencePct = Math.round(advisory?.confidence_assessment ?? 0);
 
-    // Per-side R:R (the legacy scalar `expected_rr_internal` is suppressed to
-    // 0 on Neutral; the per-side `long_/short_expected_rr_internal` is the
-    // faithful number).
+    // Per-side R:R from the selected profile (the legacy scalar
+    // `expected_rr_internal` is suppressed to 0 on Neutral; the per-side
+    // `long_/short_expected_rr_internal` lives on the chosen profile, not
+    // on the OpportunityMatrix).
+    const topProfile = (opportunity?.profiles ?? []).find(
+        (p) => p.opportunity_type === opportunity?.primary_opportunity,
+    );
     const perSideRr = direction === 'LONG'
-        ? (opportunity?.long_expected_rr_internal ?? 0)
+        ? (topProfile?.long_expected_rr_internal ?? 0)
         : direction === 'SHORT'
-            ? (opportunity?.short_expected_rr_internal ?? 0)
+            ? (topProfile?.short_expected_rr_internal ?? 0)
             : 0;
     const decisionRr = decisionContext?.expected_reward_risk_ratio
         ?? (perSideRr > 0 ? perSideRr : 0);

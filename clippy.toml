@@ -1,0 +1,11 @@
+# Top-level clippy configuration. Most lints are left at warn level; only
+# the correctness lints promoted by `[workspace.lints]` (in the root
+# `Cargo.toml`) are denials. Tune here when a rule's defaults fight the
+# codebase's idioms.
+
+# Allow build script / proc-macro crates without MSRV clamping.
+msrv = "1.75"
+
+# Don't break the public API when suggesting fixes (we still allow
+# refactor lints that don't change signatures).
+avoid-breaking-exported-api = true

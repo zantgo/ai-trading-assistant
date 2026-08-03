@@ -16,6 +16,10 @@
         children?: Snippet;
     } = $props();
 
+    // Intentional: `defaultOpen` is the *initial* expansion state for this
+    // header. Subsequent toggling is purely user-driven and not overwritten
+    // by the parent, so capturing the initial value is correct here.
+    // svelte-ignore state_referenced_locally
     let open = $state(defaultOpen);
 </script>
 

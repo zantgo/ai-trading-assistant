@@ -50,7 +50,6 @@ fn synthetic_derivative_snapshot() -> (
 /// initialises an empty state; we push 5 levels through `update()`
 /// (matching Bitget's `books5` channel depth) and return it.
 fn synthetic_orderbook() -> OrderBookAnalysis {
-    use rust_decimal::Decimal;
     let mut ob = OrderBookAnalysis::new(5, 0.35);
     let bids: Vec<(f64, f64)> = vec![
         (64_995.0, 1.5),

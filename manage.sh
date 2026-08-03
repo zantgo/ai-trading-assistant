@@ -30,14 +30,16 @@ show_help() {
     echo "  run-headless       Run in headless mode (no Welcome Gate, auto-spawns instances from config.toml, API server active for monitoring)"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
-    echo "  test               Run all test suites (core → engine → ui)"
-    echo "  test-core          Pure indicator math + serialization (shared crate)"
-    echo "  test-engine        DB, server, failover (engine crate)"
+    echo "  test               Run all test suites (core → indicators → engine → ui)"
+    echo "  test-core          Pure indicator math + serialization (core-domain, market-analyzer, config-models)"
+    echo "  test-engine        DB, server, failover (engine crates)"
     echo "  test-engine-full   Engine suite including load/stress test"
     echo "  test-ui            Svelte 5 visual state & component tests"
     echo "  test-indicators    Per-indicator pipeline e2e with console reporting"
     echo "  test-property      Generative property tests across indicators"
     echo "  test-doc           Documentation corpus consistency checks (Phases 8/9/10 gate)"
+    echo "  lint               Run cargo fmt --check + clippy (correctness lints) + svelte-check"
+    echo "  lint-fix           Run cargo fmt + cargo clippy --fix (mechanical fixes only)"
     echo "  clean              Delete build targets, dependencies, and temporary locks"
     echo "  destroy            Stop the engine, run clean, and permanently delete telemetry.db"
     echo "  help               Show this helper documentation"
@@ -47,7 +49,7 @@ show_help() {
 build() {
     echo "📦 Building Svelte 5 Frontend..."
     cd "$FRONTEND_DIR"
-    bun install
+    bun install --frozen-lockfile
     bun run build
     cd - > /dev/null
 
@@ -56,7 +58,7 @@ build() {
     echo "✅ Build completed successfully."
 }
 
-    run_foreground() {
+run_foreground() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
         echo "⚠️  Frontend build missing. Triggering compilation first..."
         build
@@ -159,22 +161,27 @@ check_status() {
 run_tests() {
     local failures=0
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 1/3: TEST-CORE — Pure math, indicators, serialization"
+    echo "  STAGE 1/4: TEST-CORE — Pure math, indicators, serialization"
     echo "═══════════════════════════════════════════════════════════"
     test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 2/3: TEST-ENGINE — DB + server + e2e"
+    echo "  STAGE 2/4: TEST-INDICATORS — Per-indicator e2e"
+    echo "═══════════════════════════════════════════════════════════"
+    test_indicators || { ((failures++)); echo "❌ TEST-INDICATORS failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 3/4: TEST-ENGINE — DB + server + e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_engine || { ((failures++)); echo "❌ TEST-ENGINE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 3/3: TEST-UI — Svelte 5 components, state, snapshots"
+    echo "  STAGE 4/4: TEST-UI — Svelte 5 components, state, snapshots"
     echo "═══════════════════════════════════════════════════════════"
     test_ui || { ((failures++)); echo "❌ TEST-UI failed"; }
     echo ""
     if [ $failures -eq 0 ]; then
-        echo "✅ All 3 test suites passed"
+        echo "✅ All 4 test suites passed"
     else
         echo "❌ $failures test suite(s) failed"
         return 1
@@ -221,10 +228,12 @@ clean_workspace() {
     cargo clean
     echo "🧹 Removing frontend dependencies and builds..."
     rm -rf "$FRONTEND_DIR/node_modules"
-    rm -rf "$FRONTEND_DIR/bun.lock"
     rm -rf "$FRONTEND_DIR/dist"
     rm -f "$PID_FILE"
     rm -f "$LOG_FILE"
+    # Note: bun.lock is intentionally preserved so CI's
+    # `bun install --frozen-lockfile` continues to work without a
+    # network round-trip. Use `./manage.sh destroy` for a full reset.
     echo "✅ Workspace clean."
 }
 
@@ -259,6 +268,51 @@ destroy_all() {
 test_doc() {
     echo "📋 TEST-DOC: Running documentation corpus consistency checks..."
     python3 scripts/check_docs.py
+}
+
+lint() {
+    local failures=0
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  LINT 1/3: cargo fmt --check"
+    echo "═══════════════════════════════════════════════════════════"
+    cargo fmt --all -- --check || { ((failures++)); echo "❌ cargo fmt check failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  LINT 2/3: cargo clippy (correctness lints)"
+    echo "═══════════════════════════════════════════════════════════"
+    cargo clippy --workspace --all-targets --no-deps -- \
+        -D clippy::await_holding_lock \
+        -D static_mut_refs \
+        -D clippy::items_after_test_module \
+        || { ((failures++)); echo "❌ cargo clippy failed"; }
+    echo ""
+    if [ -d "$FRONTEND_DIR" ]; then
+        echo "═══════════════════════════════════════════════════════════"
+        echo "  LINT 3/3: svelte-check (svelte + tsc)"
+        echo "═══════════════════════════════════════════════════════════"
+        (cd "$FRONTEND_DIR" && bun run check) \
+            || { ((failures++)); echo "❌ svelte-check failed"; }
+    fi
+    echo ""
+    if [ $failures -eq 0 ]; then
+        echo "✅ All lint checks passed"
+    else
+        echo "❌ $failures lint check(s) failed"
+        return 1
+    fi
+}
+
+lint_fix() {
+    echo "🛠  LINT-FIX: running cargo fmt + cargo clippy --fix"
+    cargo fmt --all
+    cargo clippy --workspace --all-targets --no-deps --fix --allow-dirty -- \
+        -D clippy::await_holding_lock \
+        -D static_mut_refs \
+        -D clippy::items_after_test_module \
+        || { echo "❌ cargo clippy --fix failed"; return 1; }
+    if [ -d "$FRONTEND_DIR" ]; then
+        echo "🛠  LINT-FIX: bun run check --watch is interactive; run 'bun run check' manually in ui/."
+    fi
 }
 
 # Main routing logic
@@ -309,6 +363,12 @@ case "$1" in
         ;;
     test-doc)
         test_doc
+        ;;
+    lint)
+        lint
+        ;;
+    lint-fix)
+        lint_fix
         ;;
     clean)
         clean_workspace

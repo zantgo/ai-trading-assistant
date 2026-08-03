@@ -11,3 +11,30 @@ members = [
     "crates/execution-daemon",
 ]
 resolver = "2"
+
+# Single source of truth for clippy / rust correctness lints. Only
+# the "correctness" lints (those that catch real bugs or future-hard-
+# errors) are promoted to deny. Style / micro-perf lints stay at warn
+# so they show up in `cargo check` output but don't block CI.
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# Correctness lints
+await_holding_lock = "deny"
+items_after_test_module = "deny"
+needless_collect = "warn"
+redundant_clone = "warn"
+
+# `static_mut_refs` is a future hard-error in Rust 2024; deny it now
+# so we don't accumulate violations.
+static_mut_refs = "deny"
+
+# Apply the lint policy across every member crate by default.
+[workspace.lints]
+# (Individual lints are in the [workspace.lints.clippy] / [workspace.lints.rust]
+#  tables above; this `[workspace.lints]` block ensures cargo propagates
+#  them. Crate-specific overrides are not expected — if a crate needs
+#  to opt out of a lint, use `#[allow(...)]` with a documented reason
+#  at the call site rather than mutating the workspace policy.)

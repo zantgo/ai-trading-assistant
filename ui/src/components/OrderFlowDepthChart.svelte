@@ -98,7 +98,7 @@
         return () => { cancelled = true; };
     });
 
-    const ofiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const ofiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const ofi = iRaw(m, 'order_flow_imbalance');

@@ -121,7 +121,7 @@ describe('AppWorkspacePanel — simplified UI', () => {
         // enterInstance set selectedInstance; the panel ALSO sets
         // middleTab = 'workspace' so the page actually navigates.
         expect(app.selectedInstance).toBe('BTC-USDT');
-        expect(app.middleTab).toBe('workspace', 'row click must flip middleTab to workspace');
+        expect(app.middleTab, 'row click must flip middleTab to workspace').toBe('workspace');
         expect(onclose).toHaveBeenCalled();
     });
 
@@ -216,8 +216,8 @@ describe('AppWorkspacePanel — state_unsafe_mutation regression', () => {
     });
 
     function hasUnsafeMutationError(): boolean {
-        return consoleErrorSpy.mock.calls.some((args) => {
-            const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
+        return consoleErrorSpy.mock.calls.some((args: unknown[]) => {
+            const msg = (args as unknown[]).map((a: unknown) => (typeof a === 'string' ? a : String(a))).join(' ');
             return msg.includes('state_unsafe_mutation');
         });
     }
@@ -391,8 +391,8 @@ describe('AppWorkspacePanel — close / re-open cycle does not throw', () => {
         await waitFor(() => expect(screen.getByText('BTC/USDT')).toBeTruthy());
 
         const errs = consoleErrorSpy.mock.calls
-            .map((args) => args.map((a) => (typeof a === 'string' ? a : String(a))).join(' '))
-            .filter((m) => m.includes('state_unsafe_mutation'));
+            .map((args: unknown[]) => (args as unknown[]).map((a: unknown) => (typeof a === 'string' ? a : String(a))).join(' '))
+            .filter((m: string) => m.includes('state_unsafe_mutation'));
         expect(errs, 'open → close → re-open cycle must not throw').toEqual([]);
     });
 
@@ -428,8 +428,8 @@ describe('AppWorkspacePanel — close / re-open cycle does not throw', () => {
         }
 
         const errs = consoleErrorSpy.mock.calls
-            .map((args) => args.map((a) => (typeof a === 'string' ? a : String(a))).join(' '))
-            .filter((m) => m.includes('state_unsafe_mutation'));
+            .map((args: unknown[]) => (args as unknown[]).map((a: unknown) => (typeof a === 'string' ? a : String(a))).join(' '))
+            .filter((m: string) => m.includes('state_unsafe_mutation'));
         expect(errs, 'selectedInstance toggles must not throw').toEqual([]);
     });
 });

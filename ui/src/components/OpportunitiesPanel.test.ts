@@ -39,7 +39,7 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
         bias: 'Bullish' as AnalysisMatrix['bias'],
         confidence: 0.6,
         state_confidence: 0.6,
-        market_regime: 'TrendingBull' as AnalysisMatrix['market_regime'],
+        market_regime: 'TRENDING_BULL' as AnalysisMatrix['market_regime'],
         trend_assessment: 'Healthy' as AnalysisMatrix['trend_assessment'],
         momentum_assessment: 'Stable' as AnalysisMatrix['momentum_assessment'],
         structure_assessment: 'Healthy' as AnalysisMatrix['structure_assessment'],
@@ -166,11 +166,9 @@ function makeOpportunity(): OpportunityMatrix {
         long_entry_zone: { low: 63000, high: 63200 },
         long_target_zone: { low: 66000, high: 66500 },
         long_invalidation_level: 62400,
-        long_expected_rr_internal: 2.5,
         short_entry_zone: { low: 65000, high: 65200 },
         short_target_zone: { low: 62000, high: 62400 },
         short_invalidation_level: 66000,
-        short_expected_rr_internal: 2.5,
         expected_rr_internal: 2.5,
         time_horizon: 'SWING',
         confluent_entry_levels: [],
@@ -267,9 +265,9 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         entry.analysis = {
             ...entry.analysis!,
             bias: 'Bullish',
-            market_regime: 'TrendingBull',
+            market_regime: 'TRENDING_BULL',
             opportunity_analysis: 'TrendContinuation',
-        } as AnalysisMatrix;
+        } as unknown as AnalysisMatrix;
         entry.decisionContext = {
             score: 75,
             bias: 'BULLISH',
@@ -347,6 +345,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
+                trade_viability: 'Actionable',
             },
             {
                 opportunity_type: 'TrendContinuation',
@@ -363,6 +362,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
                 short_target_zone: null,
                 short_invalidation_level: null,
                 short_expected_rr_internal: null,
+                trade_viability: 'Actionable',
             },
         ];
         opp.confluent_entry_levels = [
@@ -424,7 +424,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
 
         const app = useAppStore();
         const entry = app.instancesMap['BTC-USDT'];
-        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'Range' };
+        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'RANGE' };
         entry.advisory = { ...entry.advisory!, directional_guidance: 'Neutral' };
         entry.decisionContext = {
             ...entry.decisionContext!,
@@ -480,7 +480,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
 
         const app = useAppStore();
         const entry = app.instancesMap['BTC-USDT'];
-        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'Range' };
+        entry.analysis = { ...entry.analysis!, bias: 'Neutral', market_regime: 'RANGE' };
         entry.advisory = { ...entry.advisory!, directional_guidance: 'Neutral' };
         entry.decisionContext = {
             ...entry.decisionContext!,

@@ -99,7 +99,7 @@
     });
 
     let _lastUpdateTs = 0;
-    const rsiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const rsiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'rsi');
         if (val != null) {

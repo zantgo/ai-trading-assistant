@@ -117,7 +117,7 @@
         return () => { cancelled = true; };
     });
 
-    const psarCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const psarCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         // Prefer the sub-keyed SAR value, fall back to raw_value.

@@ -2,6 +2,7 @@
     import type { AnalysisMatrix, AlignmentMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import { buildAnalysisTabExport } from '../lib/exportBuilders/analysisTab';
+    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AnalysisPanel.module.css';
 
@@ -30,12 +31,12 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: false,
                 confirmedPlusOnly: false,
                 hideGates: false,
                 hideOverlays: false,
-            },
+            }),
         });
     }
 

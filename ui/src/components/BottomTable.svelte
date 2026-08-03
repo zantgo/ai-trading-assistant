@@ -11,7 +11,7 @@
 
     const app = useAppStore();
 
-    let activeConsoleTab = $state<'positions' | 'orders' | 'history'>('positions');
+    let activeConsoleTab = $state<'positions' | 'orders' | 'history' | 'plan'>('positions');
     let showDetailModal = $state(false);
 
     const markPrice = $derived(parseFloat(app.priceText) || 0);

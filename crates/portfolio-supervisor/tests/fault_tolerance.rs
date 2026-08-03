@@ -1,10 +1,10 @@
 use network_adapters::adapters;
 use market_analyzer::analyzer;
-use config_models::{AppConfig, FibonacciConfig, TimeframeConfig};
+use config_models::{FibonacciConfig, TimeframeConfig};
 use market_analyzer::indicators::DivergenceDetector;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;

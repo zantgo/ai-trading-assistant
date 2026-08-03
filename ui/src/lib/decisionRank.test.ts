@@ -836,15 +836,17 @@ describe('topSetupSummary', () => {
     });
 
     it('returns R:R from the wire per-side expected_rr_internal', () => {
-        const opp = makeOpportunity();
-        opp.long_expected_rr_internal = 3.7;
+        // The per-side R:R now lives on the chosen `OpportunityProfile`
+        // (not the aggregate `OpportunityMatrix`), so set it on the
+        // top profile instead of the matrix-level mirror.
+        const opp = makeOpportunity({ long_expected_rr_internal: 3.7 });
         const t = topSetupSummary(opp, makeAnalysis('Bullish'));
         expect(t).not.toBeNull();
         expect(t!.rr).toBeCloseTo(3.7, 1);
     });
 
     it('falls back to zones.rr when wire R:R is zero', () => {
-        const opp = makeOpportunity({}, { long_expected_rr_internal: 0 });
+        const opp = makeOpportunity({ long_expected_rr_internal: 0 });
         const t = topSetupSummary(opp, makeAnalysis('Bullish'));
         expect(t).not.toBeNull();
         // Geometric R:R from zones (63100 mid, 66000-63100=2900 reward,

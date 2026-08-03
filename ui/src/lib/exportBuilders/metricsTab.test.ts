@@ -129,8 +129,8 @@ function makeVolumeProfile(): VolumeProfileSnapshot {
     num_bins: 30,
     timestamp_ms: 1753950000,
     bins: [
-      { price_low: 64900, price_high: 65000, volume: 50000, buy_volume: 30000, sell_volume: 20000 },
-      { price_low: 65000, price_high: 65100, volume: 40000, buy_volume: 25000, sell_volume: 15000 },
+      { price_low: 64900, price_high: 65000, volume: 50000, buy_volume: 30000, sell_volume: 20000, is_poc: false, is_value_area: true },
+      { price_low: 65000, price_high: 65100, volume: 40000, buy_volume: 25000, sell_volume: 15000, is_poc: true, is_value_area: true },
     ],
   };
 }
@@ -151,29 +151,33 @@ function makeLiquidityFlow(): LiquidityFlow {
 
 function makeCluster(): LiquidationClusterMatrix {
   return {
+    symbol: 'BTC-USDT',
+    generated_at_ms: 1_700_000_000_000,
+    valid_until_ms: 1_700_000_300_000,
     mid_price: 50000,
     cascade_asymmetry: 0.3,
     total_long_oi_usd: 1e8,
     total_short_oi_usd: 9e7,
     estimation_confidence: 0.8,
     leverage_assumptions: {
-      source: 'default',
+      source: 'DEFAULT_POWER_LAW',
       buckets: [1, 3, 5, 10, 20, 50, 100],
       weights: [0.05, 0.1, 0.2, 0.3, 0.2, 0.1, 0.05],
       funding_modulation_active: true,
+      funding_extreme_pct: 0.5,
     },
     short_clusters: [
-      { peak_price: 55000, distance_from_mid_pct: 0.1, notional_usd: 1e6, magnet_strength: 80, cluster_kind: 'short' },
+      { price_low: 54000, price_high: 55500, peak_price: 55000, distance_from_mid_pct: 0.1, notional_usd: 1e6, dominant_leverage: 25, magnet_strength: 80, cluster_kind: 'ABOVE_CURRENT_PRICE' },
     ],
     long_clusters: [
-      { peak_price: 45000, distance_from_mid_pct: 0.1, notional_usd: 1e6, magnet_strength: 70, cluster_kind: 'long' },
+      { price_low: 44000, price_high: 45500, peak_price: 45000, distance_from_mid_pct: 0.1, notional_usd: 1e6, dominant_leverage: 25, magnet_strength: 70, cluster_kind: 'BELOW_CURRENT_PRICE' },
     ],
   };
 }
 
 function makeLiquiditySignals(): LiquiditySignal[] {
   return [
-    { kind: 'CASCADE', direction: 'Bullish', strength: 0.8, confidence: 0.7, evidence: ['Liq surge'] },
+    { kind: 'CASCADE_DETECTED', direction: 'BULLISH', strength: 0.8, confidence: 0.7, evidence: ['Liq surge'] },
   ];
 }
 
@@ -299,7 +303,7 @@ describe('buildMetricsTabExport', () => {
       volumeProfile: null,
       liquidity: {
         ...makeLiquidityFlow(),
-        cascade_state: 'None',
+        cascade_state: 'NONE',
       },
       cluster: null,
       liquiditySignals: [],

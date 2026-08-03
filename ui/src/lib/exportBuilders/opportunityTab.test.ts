@@ -39,6 +39,7 @@ function makeOpportunityMatrix(overrides: Partial<OpportunityMatrix> = {}): Oppo
         short_invalidation_level: null,
         long_expected_rr_internal: 2.5,
         short_expected_rr_internal: null,
+        trade_viability: 'Actionable',
       },
       {
         opportunity_type: 'Breakout',
@@ -55,6 +56,7 @@ function makeOpportunityMatrix(overrides: Partial<OpportunityMatrix> = {}): Oppo
         short_invalidation_level: null,
         long_expected_rr_internal: 1.8,
         short_expected_rr_internal: null,
+        trade_viability: 'Actionable',
       },
       {
         opportunity_type: 'NoClearOpportunity',
@@ -71,6 +73,7 @@ function makeOpportunityMatrix(overrides: Partial<OpportunityMatrix> = {}): Oppo
         short_invalidation_level: null,
         long_expected_rr_internal: null,
         short_expected_rr_internal: null,
+        trade_viability: 'NoClear',
       },
     ],
     confluent_entry_levels: [
@@ -117,7 +120,7 @@ function makeDecisionContext(overrides: Partial<DecisionContext> = {}): Decision
     bias: 'BULLISH',
     confidence: 0.7,
     score_confidence: 0.7,
-    entry_danger: { score: 30, level: 'LOW', state: 'Stable', confidence: 0.7 },
+    entry_danger: { score: 30, level: 'Low', state: 'Stable', confidence: 0.7, evidence: [] },
     expected_reward_risk_ratio: 2.5,
     trade_readiness: 'READY',
     contributing_indicators: ['RSI', 'MACD'],

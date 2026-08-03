@@ -1,7 +1,7 @@
 # ==============================================================================
 # 🦀 Rust / Cargo Build Artifacts
 # ==============================================================================
-# Matches root target/ and any crates/*/target/ (covers shared, engine, backend).
+# Matches root target/ and any crates/*/target/.
 target/
 
 # Per-crate Cargo.lock files for workspace members — root Cargo.lock is canonical.

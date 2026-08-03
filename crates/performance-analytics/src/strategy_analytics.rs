@@ -317,32 +317,31 @@ impl XorShift64 {
 mod tests {
     use super::*;
     use core_domain::performance::TradeAnalyticsRecord;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
-    static mut TRADE_ID_COUNTER: u32 = 0;
+    static TRADE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
     fn make_trade(net_pnl: f64, roi_pct: f64, trigger: &str) -> TradeAnalyticsRecord {
-        unsafe {
-            TRADE_ID_COUNTER += 1;
-            TradeAnalyticsRecord {
-                trade_id: format!("T-{}", TRADE_ID_COUNTER),
-                symbol: "BTC-USDT".into(),
-                direction: "LONG".into(),
-                entry_timestamp: 1000,
-                exit_timestamp: 2000,
-                hold_time_seconds: 1,
-                entry_price: 100.0,
-                exit_price: 100.0 + net_pnl,
-                size: 1.0,
-                gross_pnl: net_pnl,
-                net_pnl: net_pnl,
-                roi_pct,
-                execution_slippage: 0.0,
-                mfe: net_pnl.max(0.0),
-                mae: net_pnl.min(0.0),
-                trigger_source: trigger.to_string(),
-                exit_reason: "MANUAL".into(),
-                flat_trade: net_pnl.abs() < 1e-10,
-            }
+        let id = TRADE_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        TradeAnalyticsRecord {
+            trade_id: format!("T-{id}"),
+            symbol: "BTC-USDT".into(),
+            direction: "LONG".into(),
+            entry_timestamp: 1000,
+            exit_timestamp: 2000,
+            hold_time_seconds: 1,
+            entry_price: 100.0,
+            exit_price: 100.0 + net_pnl,
+            size: 1.0,
+            gross_pnl: net_pnl,
+            net_pnl: net_pnl,
+            roi_pct,
+            execution_slippage: 0.0,
+            mfe: net_pnl.max(0.0),
+            mae: net_pnl.min(0.0),
+            trigger_source: trigger.to_string(),
+            exit_reason: "MANUAL".into(),
+            flat_trade: net_pnl.abs() < 1e-10,
         }
     }
 

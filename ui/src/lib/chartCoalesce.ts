@@ -23,23 +23,36 @@ export interface ChartCoalescer {
 /// `tick` receives the **latest** snapshot visible at the moment the rAF
 /// fires (not the snapshot that originally triggered the effect), so
 /// rapid bursts collapse to a single redraw using the freshest data.
+///
+/// `pairKey` and `slot` are accepted as **getter functions** rather
+/// than raw values so callers can pass `() => pairKey` / `() => slot`
+/// when those are `$props` / `$state` in a Svelte 5 component — this
+/// avoids the `state_referenced_locally` warning (the captured value
+/// is the getter closure, not the reactive value itself; the getter
+/// is invoked at every `readTf()`).
 export function makeChartCoalescer(
     app: AppStore,
-    pairKey: string,
-    slot: ChartSlot,
+    pairKey: string | (() => string),
+    slot: ChartSlot | (() => ChartSlot),
     tick: (snap: { timestamp: number; open?: unknown; high?: unknown; low?: unknown; close?: unknown; volume?: unknown; indicators?: IndicatorMap | null }, tfVal: TimeframeTelemetry) => void,
 ): ChartCoalescer {
     let pending = false;
     let destroyed = false;
 
+    const getPairKey = (): string =>
+        typeof pairKey === 'function' ? (pairKey as () => string)() : pairKey;
+    const getSlot = (): ChartSlot =>
+        typeof slot === 'function' ? (slot as () => ChartSlot)() : slot;
+
     function readTf(): { snap: any; tfVal: TimeframeTelemetry } | null {
-        const pairVal = app.instancesMap[pairKey];
+        const curSlot = getSlot();
+        const pairVal = app.instancesMap[getPairKey()];
         if (!pairVal) return null;
         const tfVal =
-            slot === 'micro' ? pairVal.microTerm :
-            slot === 'fast'  ? pairVal.fastTerm  :
-            slot === 'slow'  ? pairVal.slowTerm  :
-                               pairVal.macroTerm;
+            curSlot === 'micro' ? pairVal.microTerm :
+            curSlot === 'fast'  ? pairVal.fastTerm  :
+            curSlot === 'slow'  ? pairVal.slowTerm  :
+                                  pairVal.macroTerm;
         const snap = tfVal?.latestSnapshot;
         if (!snap) return null;
         return { snap, tfVal };

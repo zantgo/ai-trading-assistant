@@ -122,7 +122,7 @@
         }
     }
 
-    const squeezeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const squeezeCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const momVal = iRaw(m, 'squeeze');

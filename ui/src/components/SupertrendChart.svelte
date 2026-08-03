@@ -88,7 +88,7 @@
         return () => { cancelled = true; };
     });
 
-    const supertrendCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const supertrendCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const line = iSub(m, 'supertrend', 'line');

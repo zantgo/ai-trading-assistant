@@ -1,5 +1,5 @@
 use api_gateway::{self, AppState};
-use config_models::{FibonacciConfig, PlatformConfig, WorkspaceConfig};
+use config_models::FibonacciConfig;
 use core_domain::models::MarketSnapshot;
 use core_domain::models::TimeframeSlot;
 use core_domain::normalized::SymbolMapper;
@@ -7,13 +7,12 @@ use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
-use network_adapters::clock_monitor::ClockMonitor;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::TimeframeBuffers;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use sqlx::SqlitePool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -145,7 +144,7 @@ async fn test_websocket_stream_with_active_pair() {
         .register(core_domain::normalized::Exchange::Hyperliquid, "BTC", "BTC")
         .await;
     let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
-    let ws_url = "ws://127.0.0.1:1".to_string();
+    let _ws_url = "ws://127.0.0.1:1".to_string();
 
     let workspace = WorkspaceState::empty();
 

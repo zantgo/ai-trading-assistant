@@ -60,7 +60,7 @@
             //   "AlwaysActive" | "Conditional" | "DataOnly"
             // — match both the bare string and the `SignalCapability::*`
             // qualified form (defensive against backend renaming).
-            const cap = (r as Record<string, unknown>).signal_capability;
+            const cap = (r as unknown as Record<string, unknown>).signal_capability;
             const capStr =
                 typeof cap === 'string'
                     ? cap
@@ -187,8 +187,8 @@
         key: string,
     ): {
         label: string;
-        barsSeen: number;
-        barsRequired: number;
+        bars_seen: number;
+        bars_required: number;
         state: string;
         feed_state?: string;
         silent?: boolean;
@@ -196,9 +196,9 @@
         const lc = tf.indicatorLifecycle?.[key];
         if (lc) {
             return {
-                label: lc.state === 'Live' ? 'Live' : `Loading (${lc.barsSeen}/${lc.barsRequired})`,
-                barsSeen: lc.bars_seen,
-                barsRequired: lc.bars_required,
+                label: lc.state === 'Live' ? 'Live' : `Loading (${lc.bars_seen}/${lc.bars_required})`,
+                bars_seen: lc.bars_seen,
+                bars_required: lc.bars_required,
                 state: lc.state,
                 feed_state: (lc as { feed_state?: string }).feed_state,
                 silent: (lc as { silent?: boolean }).silent,
@@ -286,7 +286,7 @@
             }
             if (lc.state === 'Loading')
                 return {
-                    label: `Warming (${lc.barsSeen}/${lc.barsRequired})`,
+                    label: `Warming (${lc.bars_seen}/${lc.bars_required})`,
                     cssClass: styles.stateWarming,
                 };
             return { label: lc.state, cssClass: styles.stateWarming };
@@ -347,7 +347,7 @@
                 if (cap === 'Conditional' || cap === 'DataOnly') return styles.dotSilent;
                 return styles.dotLive;
             }
-            if (lc.state === 'Loading') return lc.barsSeen === 0 ? styles.dotUnknown : styles.dotWarming;
+            if (lc.state === 'Loading') return lc.bars_seen === 0 ? styles.dotUnknown : styles.dotWarming;
             if (lc.state === 'Stale' || lc.state === 'Failed') return styles.dotUnknown;
         }
         const e = entry(key);

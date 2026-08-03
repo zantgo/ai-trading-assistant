@@ -88,7 +88,7 @@
         return () => { cancelled = true; };
     });
 
-    const hullCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const hullCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'hull_ma');
         if (val != null) {

@@ -105,7 +105,7 @@
     });
 
     let prevVal = 0;
-    const aoCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const aoCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'awesome_oscillator');
         if (val != null) {

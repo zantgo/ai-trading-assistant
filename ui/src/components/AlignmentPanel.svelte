@@ -2,6 +2,7 @@
     import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
+    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './AlignmentPanel.module.css';
 
@@ -29,12 +30,12 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: false,
                 confirmedPlusOnly: false,
                 hideGates: false,
                 hideOverlays: false,
-            },
+            }),
         });
     }
 

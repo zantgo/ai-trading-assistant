@@ -2,6 +2,7 @@
     import type { RiskMatrix, RiskDimension, RiskLevel, RiskState, LiquidationClusterMatrix, LiquidityFlow, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import { buildRiskTabExport } from '../lib/exportBuilders/riskTab';
+    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './RiskPanel.module.css';
 
@@ -31,12 +32,12 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: false,
                 confirmedPlusOnly: false,
                 hideGates: false,
                 hideOverlays: false,
-            },
+            }),
         });
     }
 
@@ -307,7 +308,7 @@
                                         <span class={styles.evidenceChip}>{ev}</span>
                                     {/each}
                                 </div>
-                            {:else if dim.data.level === 'High' || dim.data.level === 'Extreme' || dim.data.level === 'HIGH' || dim.data.level === 'EXTREME'}
+                            {:else if dim.data.level === 'High' || dim.data.level === 'Extreme'}
                                 <div class={styles.dimEvidence}>
                                     <span class={styles.evidenceChip}>No evidence recorded</span>
                                 </div>
@@ -405,7 +406,7 @@
     <details class={styles.disclosure}>
         <summary class={styles.disclosureSummary}>
             <span>How is overall risk computed?</span>
-            <span class={styles.disclosureChevron}>{(v) => '\u203A'}</span>
+            <span class={styles.disclosureChevron}>{'›'}</span>
         </summary>
         <div class={styles.disclosureBody}>
             <div class={styles.weightGrid}>

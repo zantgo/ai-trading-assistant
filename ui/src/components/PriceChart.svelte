@@ -638,7 +638,7 @@
     });
 
     let _lastUpdateTs = 0;
-    const candleCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const candleCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
 

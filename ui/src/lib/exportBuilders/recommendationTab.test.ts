@@ -65,6 +65,7 @@ function makeOpportunity(): OpportunityMatrix {
     short_invalidation_level: null,
     long_expected_rr_internal: 2.5,
     short_expected_rr_internal: null,
+    trade_viability: 'Actionable',
   };
   return {
     symbol: 'BTC-USDT',

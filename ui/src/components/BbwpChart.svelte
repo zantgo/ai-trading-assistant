@@ -112,7 +112,7 @@
         return () => { cancelled = true; };
     });
 
-    const bbwpCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const bbwpCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'bbwp');
         if (val != null) {

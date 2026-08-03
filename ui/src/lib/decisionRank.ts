@@ -600,9 +600,9 @@ export function topSetupSummary(
     // geometric R:R derived from the zones.
     const wireRr =
         side === 'LONG'
-            ? opportunity.long_expected_rr_internal
+            ? top.long_expected_rr_internal
             : side === 'SHORT'
-              ? opportunity.short_expected_rr_internal
+              ? top.short_expected_rr_internal
               : 0;
     const rr = (wireRr && wireRr > 0)
         ? Math.round(wireRr * 100) / 100

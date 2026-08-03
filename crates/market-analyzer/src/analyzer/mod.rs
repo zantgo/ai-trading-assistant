@@ -1033,7 +1033,9 @@ pub async fn run_single(
     // can preserve the last completed-candle value across live ticks —
     // see `NormalizationEngine::normalize_all(..., shadow = true)` and the
     // WARMING fill block in `indicators/normalized/all.rs`.
-    let mut pipeline_is_live = bar_count as usize >= buffer_size;
+    // (Reserved hook: a future `shadow → completed` broadcast gate will
+    //  re-introduce a `pipeline_is_live: bool` here and gate the
+    //  per-tick vs per-candle broadcast on it.)
 
     enum LoopAction {
         Process(NormalizedEvent),
@@ -1693,7 +1695,6 @@ pub async fn run_single(
                     // `build_indicator_map` which uses `bar_count` for the
                     // bars_required gate.
                     bar_count = bar_count.saturating_add(1);
-                    pipeline_is_live = bar_count as usize >= buffer_size;
                     let indicators = normalize::build_indicator_map(
                         normalize::NormalizeParams {
                             close: completed.close,

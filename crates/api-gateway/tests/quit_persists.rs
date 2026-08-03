@@ -273,6 +273,15 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// The test holds `CONFIG_ENV_LOCK` (a `std::sync::Mutex`) across
+// `.await` calls because `MARKET_MONITOR_CONFIG` is a process-global
+// env var that `save_workspace` and `load_workspace` read without
+// going through any per-instance state. The lock prevents concurrent
+// tests in this binary from repointing the env var mid-test. The lint
+// is suppressed for these four tests because the alternative (an
+// async-aware mutex + retry loop) would add complexity for no real
+// benefit — `flavor = "multi_thread"` ensures the lock never deadlocks.
+#[allow(clippy::await_holding_lock)]
 async fn quit_session_persists_empty_workspace_to_disk() {
     let _env_guard = CONFIG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -389,12 +398,14 @@ async fn quit_session_persists_empty_workspace_to_disk() {
         "config.toml must not retain any [[workspace.instances]] entries after quit; got:\n{on_disk}"
     );
 
-    // Cleanup.
-    std::env::remove_var("MARKET_MONITOR_CONFIG");
+    // Cleanup: drop the temp file but leave the env var in place —
+    // subsequent tests in this binary re-set the lock-guarded
+    // `MARKET_MONITOR_CONFIG` to point at their own `cfg_path`.
     let _ = std::fs::remove_file(&cfg_path);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)]
 async fn quit_session_clears_live_workspace_map() {
     let _env_guard = CONFIG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -453,11 +464,12 @@ async fn quit_session_clears_live_workspace_map() {
     let cfg = state.workspace.config().await;
     assert!(cfg.instances.is_empty());
 
-    std::env::remove_var("MARKET_MONITOR_CONFIG");
+    // Cleanup: see test above for rationale on leaving the env var.
     let _ = std::fs::remove_file(&cfg_path);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)]
 async fn quit_session_then_init_session_does_not_respawn() {
     let _env_guard = CONFIG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -481,6 +493,7 @@ async fn quit_session_then_init_session_does_not_respawn() {
     let reloaded = config_models::load_workspace().expect("reload");
     assert!(reloaded.instances.is_empty());
 
+    // Cleanup.
     std::env::remove_var("MARKET_MONITOR_CONFIG");
     let _ = std::fs::remove_file(&cfg_path);
 }

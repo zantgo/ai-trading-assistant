@@ -24,7 +24,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use config_models::{
-    CandleBufferConfig, HyperliquidConfig, InstanceEntry, PlatformConfig,
+    CandleBufferConfig, HyperliquidConfig, InstanceEntry,
     ReconnectConfig, WorkspaceConfig,
 };
 use portfolio_supervisor::session::ExchangeChoice;
@@ -125,7 +125,7 @@ fn build_stub_instance(
     quote: &str,
 ) -> Arc<Instance> {
     use core_domain::liquidity::ClusterStatusSnapshot;
-    use core_domain::normalized::{self, NormalizedEvent};
+    use core_domain::normalized::NormalizedEvent;
 
     let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(8);
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
@@ -253,6 +253,10 @@ fn with_config_env<F, R>(path: &std::path::Path, f: F) -> R
 where
     F: FnOnce() -> R,
 {
+    // The caller already holds `CONFIG_ENV_LOCK` for the entire test
+    // (see test-level `#[allow(clippy::await_holding_lock)]`). We must
+    // not re-acquire the lock here (that would deadlock) — instead
+    // just swap the env var under the caller's lock and run `f`.
     let prev = std::env::var("MARKET_MONITOR_CONFIG").ok();
     std::env::set_var("MARKET_MONITOR_CONFIG", path);
     let out = f();
@@ -264,6 +268,15 @@ where
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// Holds `CONFIG_ENV_LOCK` across `.await` to serialise the
+// process-global `MARKET_MONITOR_CONFIG` env var that `delete_instance`
+// (and `save_workspace` under the hood) reads on every call. See
+// `quit_persists.rs` for the full rationale; `flavor = "multi_thread"`
+// keeps the lock from deadlocking. `build_context` does NOT re-acquire
+// the lock — `std::sync::Mutex` is non-reentrant, so it must not be
+// held by the caller either. The outer test acquires it once and
+// holds it for the whole test.
+#[allow(clippy::await_holding_lock)]
 async fn delete_running_instance_succeeds_without_stop() {
     let _env_guard = CONFIG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -317,6 +330,7 @@ async fn delete_running_instance_succeeds_without_stop() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)]
 async fn delete_unknown_instance_id_returns_not_found() {
     let _env_guard = CONFIG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -341,6 +355,7 @@ async fn delete_unknown_instance_id_returns_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)]
 async fn delete_already_stopped_instance_also_succeeds() {
     let _env_guard = CONFIG_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 

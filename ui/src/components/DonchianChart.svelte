@@ -99,7 +99,7 @@
         return () => { cancelled = true; };
     });
 
-    const donchianCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const donchianCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'donchian', 'upper');

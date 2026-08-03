@@ -28,7 +28,7 @@ use sqlx::SqlitePool;
 use tokio::sync::{mpsc, RwLock};
 
 const HL_PAIR: &str = "BTC-USDC";
-const BG_PAIR: &str = "ETH-USDC";
+const _BG_PAIR: &str = "ETH-USDC";
 
 async fn build_context() -> (Arc<RegistryContext>, Arc<ExchangeStatusTracker>) {
     let pool: SqlitePool = SqlitePool::connect("sqlite::memory:")
@@ -83,7 +83,7 @@ fn build_stub_instance(
     quote: &str,
 ) -> Arc<portfolio_supervisor::instance::Instance> {
     use std::collections::VecDeque;
-    use core_domain::normalized::{self, NormalizedEvent};
+    use core_domain::normalized::NormalizedEvent;
     use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
     use market_analyzer::indicators::DivergenceDetector;
     use market_analyzer::sr_engine::SrRoleTracker;

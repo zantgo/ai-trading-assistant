@@ -38,7 +38,7 @@ function makeTf(overrides: Partial<TimeframeTelemetry> = {}): TimeframeTelemetry
         latestSnapshot: null,
         historyPrices: [],
         ...overrides,
-    };
+    } as TimeframeTelemetry;
 }
 
 function warmingPlaceholder(): IndicatorDto {

@@ -352,14 +352,14 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             },
         }), 'BTC-USDT');
         expect(tf.indicators['rsi'].raw_value).toBe(55.0);
-        expect(tf.indicators['hull_ma'].raw_value).toBe(
-            64950.0,
+        expect(
+            tf.indicators['hull_ma'].raw_value,
             'Hull MA value from prior completed candle must persist across shadow tick',
-        );
-        expect(tf.indicators['ichimoku'].values?.tenkan).toBe(
-            64900.0,
+        ).toBe(64950.0);
+        expect(
+            tf.indicators['ichimoku'].values?.tenkan,
             'Ichimoku values from prior completed candle must persist across shadow tick',
-        );
+        ).toBe(64900.0);
     });
 
     it('shadow_tick_preserves_divergence_signals_on_completed_indicators', () => {
@@ -557,10 +557,10 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             },
         }), 'BTC-USDT');
         expect(tf.indicatorLifecycle?.['rsi']?.state).toBe('Live');
-        expect(tf.indicatorLifecycle?.['ichimoku']?.state).toBe(
-            'Loading',
+        expect(
+            tf.indicatorLifecycle?.['ichimoku']?.state,
             'Lifecycle entry for ichimoku must persist when omitted from the incoming shadow',
-        );
+        ).toBe('Loading');
         expect(tf.indicatorLifecycle?.['ichimoku']?.bars_seen).toBe(10);
     });
 

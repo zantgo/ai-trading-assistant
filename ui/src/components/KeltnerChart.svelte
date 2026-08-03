@@ -96,7 +96,7 @@
         return () => { cancelled = true; };
     });
 
-    const keltnerCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const keltnerCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'keltner', 'upper');

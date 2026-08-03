@@ -118,7 +118,7 @@
         return () => { cancelled = true; };
     });
 
-    const volumeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const volumeCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         if (snap.open != null && snap.close != null) {
             const close = parseFloat(String(snap.close));

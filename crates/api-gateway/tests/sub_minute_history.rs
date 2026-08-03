@@ -243,7 +243,7 @@ async fn serve_for(state: Arc<AppState>) -> std::net::SocketAddr {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn history_endpoint_returns_candles_for_sub_minute_timeframe() {
     tokio::time::timeout(Duration::from_secs(10), async {
-        let (router, state) = build_router_with_snapshots(
+        let (_router, state) = build_router_with_snapshots(
             1,
             vec![
                 make_snapshot(1, 1_718_000_001, 65000.0),
@@ -290,7 +290,7 @@ async fn history_endpoint_trims_leading_none_close_for_sub_minute() {
         // Seed three snapshots: the first has no close → must be trimmed
         // by the handler's leading-None filter (history.rs:42-43). The
         // response should contain only the two real ones.
-        let (router, state) = build_router_with_snapshots(
+        let (_router, state) = build_router_with_snapshots(
             1,
             vec![
                 {
@@ -333,7 +333,7 @@ async fn history_endpoint_trims_leading_none_close_for_sub_minute() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn history_endpoint_returns_empty_on_unknown_pair() {
     tokio::time::timeout(Duration::from_secs(5), async {
-        let (router, state) = build_router_with_snapshots(1, vec![]).await;
+        let (_router, state) = build_router_with_snapshots(1, vec![]).await;
         let addr = serve_for(state.clone()).await;
         let client = reqwest::Client::new();
 

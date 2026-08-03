@@ -47,16 +47,20 @@ function makeFlow(): LiquidityFlow {
 
 function makeCluster(): LiquidationClusterMatrix {
   return {
+    symbol: 'BTC-USDT',
+    generated_at_ms: 1_700_000_000_000,
+    valid_until_ms: 1_700_000_300_000,
     mid_price: 50000,
     cascade_asymmetry: 0.3,
     total_long_oi_usd: 1e8,
     total_short_oi_usd: 9e7,
     estimation_confidence: 0.8,
     leverage_assumptions: {
-      source: 'default',
+      source: 'DEFAULT_POWER_LAW',
       buckets: [1, 3, 5, 10, 20, 50, 100],
       weights: [0.05, 0.1, 0.2, 0.3, 0.2, 0.1, 0.05],
       funding_modulation_active: true,
+      funding_extreme_pct: 0.5,
     },
     short_clusters: [],
     long_clusters: [],

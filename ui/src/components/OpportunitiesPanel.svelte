@@ -2,6 +2,7 @@
     import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import { buildOpportunityTabExport } from '../lib/exportBuilders/opportunityTab';
+    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary } from '../lib/decisionRank';
@@ -60,7 +61,7 @@
     type Viability = 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
     interface ActiveSetup {
         opportunity_type: string;
-        side: 'LONG' | 'SHORT';
+        side: 'LONG' | 'SHORT' | 'NEUTRAL';
         entryMid: number;
         entryLow: number;
         entryHigh: number;
@@ -161,12 +162,12 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: false,
                 confirmedPlusOnly: false,
                 hideGates: false,
                 hideOverlays: false,
-            },
+            }),
         });
     }
 
@@ -244,8 +245,10 @@
     }
 
     // ── Trade Setups helpers ─────────────────────────────────────────────
-    function setupHeaderClass(side: 'LONG' | 'SHORT'): string {
-        return side === 'LONG' ? (styles.setupHeaderLong ?? '') : (styles.setupHeaderShort ?? '');
+    function setupHeaderClass(side: 'LONG' | 'SHORT' | 'NEUTRAL'): string {
+        if (side === 'LONG') return styles.setupHeaderLong ?? '';
+        if (side === 'SHORT') return styles.setupHeaderShort ?? '';
+        return '';
     }
     function fmtPxDecimal(n: number, mp: number): string {
         if (n == null || !isFinite(n) || n <= 0) return '—';

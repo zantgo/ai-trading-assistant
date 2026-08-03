@@ -15,6 +15,7 @@
 // helper's behaviour across every branch.
 
 import { describe, it, expect } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { applyResilientCache, type PairCacheEntry } from './resilientActivePair';
 import type { InstanceState } from '../types';
 
@@ -53,7 +54,7 @@ describe('applyResilientCache — helper for the top-bar price block', () => {
         const cache: PairCacheEntry = { pair, pairKey: 'BTC-USDT', capturedAt: 1000 };
         const { result, nextCache } = applyResilientCache(undefined, 'BTC-USDT', cache, GRACE_MS, 1500);
         expect(result).toBe(pair);
-        expect(nextCache).toBe(cache, 'fresh cache should be returned by reference, not re-allocated');
+        expect(nextCache, 'fresh cache should be returned by reference, not re-allocated').toBe(cache);
     });
 
     it('returns undefined once the cache is older than the grace window', () => {
@@ -72,8 +73,9 @@ describe('applyResilientCache — helper for the top-bar price block', () => {
         const newPair = makePair('BTC', '51000.00');
         const { result, nextCache } = applyResilientCache(newPair, 'BTC-USDT', staleCache, GRACE_MS, 5000);
         expect(result).toBe(newPair);
-        expect(nextCache.pair).toBe(newPair);
-        expect(nextCache.capturedAt).toBe(5000);
+        expect(nextCache).not.toBeNull();
+        expect(nextCache!.pair).toBe(newPair);
+        expect(nextCache!.capturedAt).toBe(5000);
     });
 
     it('does NOT mutate the input cache reference (immutability)', () => {
@@ -105,7 +107,7 @@ describe('applyResilientCache — helper for the top-bar price block', () => {
 
         // Step 3: activePair becomes undefined (delete).
         r = applyResilientCache(undefined, 'BTC-USDT', cache, GRACE_MS, 1500);
-        expect(r.result).toBe(pair, 'should return cached pair within grace window');
+        expect(r.result, 'should return cached pair within grace window').toBe(pair);
         cache = r.nextCache;
 
         // Step 4: still undefined, but past grace — fallback.
@@ -117,7 +119,8 @@ describe('applyResilientCache — helper for the top-bar price block', () => {
         const ethPair = makePair('ETH', '3200.00');
         r = applyResilientCache(ethPair, 'ETH-USDT', cache, GRACE_MS, 5000);
         expect(r.result).toBe(ethPair);
-        expect(r.nextCache.pair).toBe(ethPair);
+        expect(r.nextCache).not.toBeNull();
+        expect(r.nextCache!.pair).toBe(ethPair);
     });
 
     it('boundary: cache exactly at graceMs is considered stale', () => {
@@ -144,10 +147,12 @@ describe('App.svelte — lastGoodPair is NOT a $state (regression guard)', () =>
     // shape of the declaration so the bug cannot silently come back.
 
     it('App.svelte declares lastGoodPair without a $state wrapper', async () => {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const appPath = path.resolve(__dirname, '..', 'App.svelte');
-        const src = await fs.readFile(appPath, 'utf8');
+        // Vitest sets `import.meta.url` to a relative path under jsdom.
+        // Build an absolute path from `process.cwd()` (the ui/ dir) to
+        // keep this test stable across `vitest run` and `vitest --watch`.
+        const { resolve } = await import('node:path');
+        const appPath = resolve(process.cwd(), 'src/App.svelte');
+        const src = await readFile(appPath, 'utf8');
 
         // The fix: `let lastGoodPair: PairCacheEntry | null = null;`
         // The bug: `let lastGoodPair: PairCacheEntry | null = $state(null);`

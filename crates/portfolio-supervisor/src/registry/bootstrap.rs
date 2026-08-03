@@ -33,10 +33,12 @@ pub struct BootstrapInput {
     /// per-tier `analysis_limit` field.
     pub buffer_size: usize,
     /// Per-TF stale-threshold (CB-04 / DCP-05 / ILS-07).
+    #[allow(dead_code)]
     pub stale_threshold_secs: u64,
     /// Per-TF fetch timeout (HFP-10).
     pub fetch_timeout_ms: u64,
     /// Sub-minute bypass flag (CB-05 / HFP-03).
+    #[allow(dead_code)]
     pub sub_minute_skip_historical: bool,
     /// When present, bootstrap candle provenance (DB-warm vs REST-gap) is
     /// recorded into the pipeline reliability source mix (03-01-04 §5).

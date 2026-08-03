@@ -93,7 +93,7 @@
         return () => { cancelled = true; };
     });
 
-    const oiDeltaCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const oiDeltaCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'oi_delta');
         if (val != null && val !== 0) {

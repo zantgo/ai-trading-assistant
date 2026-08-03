@@ -21,7 +21,7 @@ import {
   profileZones,
 } from '../../lib/decisionRank';
 import { buildMeta } from './shared';
-import type { MetaEnvelope } from './shared';
+import type { MetaEnvelope, FilterStateBlock } from './shared';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -216,12 +216,7 @@ export interface OpportunityTabInputs {
   tfSecs?: number | null;
   timestamp?: number | null;
   markPrice?: number | null;
-  filterState?: {
-    activeOnly: boolean;
-    confirmedPlusOnly: boolean;
-    hideGates: boolean;
-    hideOverlays: boolean;
-  };
+  filterState?: FilterStateBlock;
 }
 
 /**

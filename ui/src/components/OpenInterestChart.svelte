@@ -101,7 +101,7 @@
         return () => { cancelled = true; };
     });
 
-    const oiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const oiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'open_interest');
         if (val != null) {

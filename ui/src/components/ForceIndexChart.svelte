@@ -106,7 +106,7 @@
         return () => { cancelled = true; };
     });
 
-    const forceCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const forceCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'force_index');
         if (val != null) {

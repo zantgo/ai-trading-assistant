@@ -497,6 +497,11 @@ pub fn compute_risk(
     }
 }
 
+#[allow(dead_code)]
+fn clamp01(x: f64) -> f64 {
+    x.max(0.0).min(100.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,7 +586,4 @@ mod tests {
         );
     }
 }
-#[allow(dead_code)]
-fn clamp01(x: f64) -> f64 {
-    x.max(0.0).min(100.0)
-}
+

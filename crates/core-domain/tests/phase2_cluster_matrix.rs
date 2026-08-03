@@ -41,7 +41,7 @@ fn empty_matrix_serialization_roundtrip() {
 #[test]
 fn cluster_kind_serializes_as_screaming_snake_case() {
     let m = LiquidationClusterMatrix::empty("BTC", 100.0);
-    let json = serde_json::to_string(&m).unwrap();
+    let _json = serde_json::to_string(&m).unwrap();
     // No clusters in empty matrix; just verify the enum itself.
     let c = LiquidationCluster {
         price_low: 90.0,

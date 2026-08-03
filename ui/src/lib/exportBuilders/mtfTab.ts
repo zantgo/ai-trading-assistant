@@ -22,7 +22,7 @@ import type {
   MarketContext,
 } from '../../types';
 import { buildMeta } from './shared';
-import type { MetaEnvelope } from './shared';
+import type { MetaEnvelope, FilterStateBlock } from './shared';
 
 export type MtfSlotLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
 
@@ -292,12 +292,7 @@ export interface MtfTabInputs {
   };
   registry: IndicatorMeta[];
   symbol: string;
-  filterState?: {
-    activeOnly: boolean;
-    confirmedPlusOnly: boolean;
-    hideGates: boolean;
-    hideOverlays: boolean;
-  };
+  filterState?: FilterStateBlock;
 }
 
 /**

@@ -35,6 +35,7 @@
     import { formatTimeframeLabel } from '../lib/telemetry';
     import { buildMetricsTabExport } from '../lib/exportBuilders/metricsTab';
     import { buildMtfExportJson } from '../lib/exportBuilders/mtfTab';
+    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
 
     const app = useAppStore();
@@ -43,7 +44,7 @@
     const registry = $derived<IndicatorMeta[]>((app.indicatorRegistry ?? []) as IndicatorMeta[]);
 
     type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro' | 'Mtf';
-    let activeTf: TfLabel = $state('Micro');
+    let activeTf = $state<TfLabel>('Micro');
 
     // Phase 9: single source of truth — the backend's pipeline registry
     // (via WebSocket telemetry `barDurationSec`) is the canonical duration
@@ -163,12 +164,12 @@
             tfSecs: activeTfEntry.secs ?? null,
             timestamp: snapshotTs,
             markPrice,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: filters.activeOnly,
                 confirmedPlusOnly: filters.confirmedPlusOnly,
                 hideGates: filters.hideGates,
                 hideOverlays: filters.hideOverlays,
-            },
+            }),
         });
     }
 
@@ -185,12 +186,12 @@
                 macroTerm: pair.macroTerm,
             },
             registry,
-            filterState: {
+            filterState: buildFilterStateBlock({
                 activeOnly: filters.activeOnly,
                 confirmedPlusOnly: filters.confirmedPlusOnly,
                 hideGates: filters.hideGates,
                 hideOverlays: filters.hideOverlays,
-            },
+            }),
         });
     }
 

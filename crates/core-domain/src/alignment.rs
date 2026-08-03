@@ -413,6 +413,11 @@ pub fn compute_alignment(
     }
 }
 
+#[allow(dead_code)]
+fn clamp01f(x: f64) -> f64 {
+    x.max(0.0).min(1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,7 +566,5 @@ mod tests {
         assert!(c.trend_agreement_pct <= 75.0);
     }
 }
-#[allow(dead_code)]
-fn clamp01f(x: f64) -> f64 {
-    x.max(0.0).min(1.0)
-}
+
+

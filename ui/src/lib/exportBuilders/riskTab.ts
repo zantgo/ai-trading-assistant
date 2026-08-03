@@ -17,7 +17,7 @@ import type {
   LiquidationClusterMatrix,
 } from '../../types';
 import { buildMeta } from './shared';
-import type { MetaEnvelope } from './shared';
+import type { MetaEnvelope, FilterStateBlock } from './shared';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -219,12 +219,7 @@ export interface RiskTabInputs {
   tfSecs?: number | null;
   timestamp?: number | null;
   markPrice?: number | null;
-  filterState?: {
-    activeOnly: boolean;
-    confirmedPlusOnly: boolean;
-    hideGates: boolean;
-    hideOverlays: boolean;
-  };
+  filterState?: FilterStateBlock;
 }
 
 /**

@@ -98,7 +98,7 @@
         return () => { cancelled = true; };
     });
 
-    const cciCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const cciCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'cci');
         warmedBars += 1;

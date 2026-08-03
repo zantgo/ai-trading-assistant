@@ -95,7 +95,7 @@
         return () => { cancelled = true; };
     });
 
-    const williamsCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
+    const williamsCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'williams_r');
         warmedBars += 1;

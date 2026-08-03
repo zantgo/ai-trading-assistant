@@ -942,7 +942,6 @@ mod tests {
     use super::*;
     use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
     use rust_decimal_macros::dec;
-    use std::collections::VecDeque;
 
     fn make_snap_with_derivs(
         ts_ms: u64,
