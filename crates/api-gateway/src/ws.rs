@@ -59,8 +59,7 @@ async fn send_snapshot_to_socket(
     let slot_str = snapshot
         .timeframe_slot
         .map(|s| s.as_str())
-        .unwrap_or(requested_slot.as_str())
-        .to_string();
+        .unwrap_or_else(|| requested_slot.as_str());
     let payload = match serde_json::to_value(snapshot) {
         Ok(v) => v,
         Err(e) => {
@@ -105,7 +104,7 @@ async fn handle_ws_socket(
     // (`serve_update_instance_config`) for the matching emit site.
     let mut recharge_rx = state.recharge_tx.subscribe();
     let mut current_pair: Option<Arc<ActivePair>>;
-    let mut rx_stream: broadcast::Receiver<MarketSnapshot>;
+    let rx_stream: Option<broadcast::Receiver<MarketSnapshot>>;
     loop {
         match state.get_active_pair(&pair_key).await {
             Some(p) => {
@@ -125,6 +124,8 @@ async fn handle_ws_socket(
             }
         }
     }
+    let mut rx_stream: broadcast::Receiver<MarketSnapshot> =
+        rx_stream.expect("rx_stream initialized above");
 
     // Immediately send the most recent completed snapshot for this slot so
     // the frontend's Metrics Indicators table is populated with real
@@ -182,8 +183,11 @@ async fn handle_ws_socket(
                                 .unwrap_or(false);
                             if !same_pair {
                                 current_pair = Some(new_pair.clone());
-                                rx_stream =
-                                    new_pair.subscribe_broadcast_by_slot(requested_slot);
+                                if let Some(new_rx) =
+                                    new_pair.subscribe_broadcast_by_slot(requested_slot)
+                                {
+                                    rx_stream = new_rx;
+                                }
                                 // Replay the latest cached snapshot from the
                                 // freshly installed pair so the frontend
                                 // does not see an empty slot while the

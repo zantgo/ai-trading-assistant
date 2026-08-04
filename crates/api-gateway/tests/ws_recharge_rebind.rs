@@ -162,6 +162,7 @@ fn build_active_pair_with_channels(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+    custom_pipelines: std::collections::HashMap::new(),
         micro: new_pipe(60, "Micro", TimeframeSlot::Micro, micro_bcast.clone()),
         fast: new_pipe(180, "Fast", TimeframeSlot::Fast, fast_bcast.clone()),
         slow: new_pipe(300, "Slow", TimeframeSlot::Slow, slow_bcast.clone()),
@@ -299,7 +300,12 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     micro_old
         .send(make_snapshot(60, 100.0))
         .expect("send to OLD channel");
-    let snap = old_rx.recv().await.expect("recv on OLD channel");
+    let snap = old_rx
+        .as_mut()
+        .expect("micro slot must be present")
+        .recv()
+        .await
+        .expect("recv on OLD channel");
     assert_eq!(snap.mid_price, rust_decimal::Decimal::from(100));
 
     // 3. Simulate `recharge_instance`: build a NEW ActivePair with a NEW
@@ -351,7 +357,12 @@ async fn orphaned_active_pair_receiver_never_sees_new_publisher() {
     // 6. The OLD receiver stays silent. We poll briefly to confirm.
     let old_seen_new = tokio::time::timeout(Duration::from_millis(150), async {
         loop {
-            match old_rx.recv().await {
+            match old_rx
+                .as_mut()
+                .expect("micro slot must be present")
+                .recv()
+                .await
+            {
                 Ok(snap)
                     if snap.mid_price == rust_decimal::Decimal::from(200)
                         || snap.mid_price == rust_decimal::Decimal::from(201) =>

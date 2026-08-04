@@ -52,6 +52,7 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
 
     let active_pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
+        custom_pipelines: std::collections::HashMap::new(),
         // Edge cases: slow duration is LOWER than fast, fast is LOWER
         // than micro. This is the exact pattern that broke the legacy
         // duration-based dispatcher.

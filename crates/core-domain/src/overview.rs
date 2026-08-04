@@ -189,10 +189,20 @@ pub fn compute_overview(
             _ => neutral_count += 1,
         }
     }
+    // Bug-fix #13: the legacy `breadth_pct` divided by `total = long +
+    // short + neutral`, which systematically diluted the breadth signal
+    // by the neutral ratio. In a 50/50/50 mix (50 longs, 50 shorts, 50
+    // neutrals) the formula yielded breadth_pct = 0% — the canonical
+    // "everyone is bearish" case. We now use the advance-decline
+    // formula `(L - S) / (L + S)` which excludes neutrals from the
+    // denominator. A 50/0/0 mix yields +100% (everyone bullish); a
+    // 0/0/50 mix yields 0/0% via the `max(1)` guard (no directional
+    // breadth to measure).
+    let directional_total = (long_count + short_count).max(1) as f64;
     let total = (long_count + short_count + neutral_count).max(1) as f64;
 
     // Market breadth
-    let breadth_pct = (long_count as f64 - short_count as f64) / total * 100.0;
+    let breadth_pct = (long_count as f64 - short_count as f64) / directional_total * 100.0;
     let breadth = if breadth_pct > 60.0 {
         MarketBreadth::StrongPositive
     } else if breadth_pct > 20.0 {
@@ -225,12 +235,21 @@ pub fn compute_overview(
     // Global bias: priority-ordered per spec §3.1
     let long_pct = long_count as f64 / total;
     let short_pct = short_count as f64 / total;
-    let neutral_pct = neutral_count as f64 / total;
     let is_synced = matches!(
         sync,
         SyncLevel::HighlySynchronized | SyncLevel::Synchronized
     );
 
+    // Bug-fix #14: removed the `neutral_pct >= 0.6 → GlobalBias::Neutral`
+    // branch. It was semantically dead: a 60%+ neutral market is, by
+    // construction, also a 0% directional market, and the resulting
+    // `Neutral` bias was indistinguishable from a 100% neutral market
+    // (which falls through to `Mixed` after the `long_count >
+    // short_count` / `short_count > long_count` checks both fail).
+    // Removing the branch makes the priority chain consistent: any
+    // market where no direction has a clear majority defaults to
+    // `Mixed`, and the empty-input case is handled by the early
+    // `OverviewMatrix::empty()` return at the top of the function.
     let global_bias = if long_pct >= 0.8 && is_synced {
         GlobalBias::StrongBullish
     } else if short_pct >= 0.8 && is_synced {
@@ -239,8 +258,6 @@ pub fn compute_overview(
         GlobalBias::Bullish
     } else if short_pct >= 0.6 {
         GlobalBias::Bearish
-    } else if neutral_pct >= 0.6 {
-        GlobalBias::Neutral
     } else if long_count > short_count {
         GlobalBias::Bullish
     } else if short_count > long_count {
@@ -302,17 +319,27 @@ pub fn compute_overview(
         *opportunity_distribution.entry(opp_key).or_insert(0) += 1;
     }
 
-    // Risk distribution
+    // Risk distribution. Bug-fix #9: the legacy implementation filtered
+    // on `advisory.confidence_assessment` (an L6 confidence value), not
+    // L5 risk. The result was that a high-confidence bullish advisory
+    // (e.g. confidence_assessment = 95 with a 1% stop on a quiet
+    // symbol) counted as "low risk" while a low-confidence bearish
+    // advisory counted as "high risk" — the inverse of what the L7
+    // risk distribution should report. We now filter on the L5
+    // `cascade_risk_score` carried on every `AdvisoryMatrix`, which
+    // is the only L5 risk dimension available without changing the
+    // function signature. A score >= 70 means low risk; < 30 means
+    // high risk. The 30-70 band is the moderate middle.
     let total_adv = advisories.len().max(1) as f64;
     let low_risk = advisories
         .iter()
-        .filter(|a| a.confidence_assessment >= 70.0)
+        .filter(|a| a.cascade_risk_score <= 30.0)
         .count() as f64
         / total_adv
         * 100.0;
     let high_pct = advisories
         .iter()
-        .filter(|a| a.confidence_assessment < 30.0)
+        .filter(|a| a.cascade_risk_score >= 70.0)
         .count() as f64
         / total_adv
         * 100.0;
@@ -328,18 +355,31 @@ pub fn compute_overview(
         "LOW_RISK"
     };
 
-    // systemic_risk_score = 0.6 * high_pct + 0.4 * sync_penalty
-    let sync_penalty = if matches!(global_bias, GlobalBias::Bearish | GlobalBias::StrongBearish) {
-        match sync {
+    // systemic_risk_score = 0.6 * high_pct + 0.4 * sync_penalty.
+    // Bug-fix #10: the legacy `sync_penalty` was only computed when
+    // `global_bias` was Bearish or StrongBearish — a synchronized bull
+    // market produced `sync_penalty = 0.0`, understating the systemic
+    // risk for a perfectly correlated long-everything environment.
+    // We now apply the sync penalty for any directional bias
+    // (StrongBullish, Bullish, Neutral, Bearish, StrongBearish) with
+    // a magnitude that scales with directional strength. A
+    // StrongBullish synchronized market is just as risky (correlated
+    // longs unwind together on the next catalyst) as a StrongBearish
+    // one.
+    let directional_intensity: f64 = match global_bias {
+        GlobalBias::StrongBullish | GlobalBias::StrongBearish => 1.0,
+        GlobalBias::Bullish | GlobalBias::Bearish => 0.7,
+        GlobalBias::Mixed => 0.3,
+        GlobalBias::Neutral => 0.0,
+    };
+    let sync_penalty = directional_intensity
+        * match sync {
             SyncLevel::HighlySynchronized => 100.0,
             SyncLevel::Synchronized => 60.0,
             SyncLevel::Mixed => 30.0,
             SyncLevel::Fragmented => 10.0,
             SyncLevel::HighlyFragmented => 0.0,
-        }
-    } else {
-        0.0
-    };
+        };
     let systemic_risk_score = 0.6 * high_pct + 0.4 * sync_penalty;
 
     // market_health per spec §3.4: POOR when HIGH_RISK, then bias-based
@@ -413,7 +453,16 @@ pub fn compute_overview(
         cascade_risk_index: cascade_risk,
         systemic_risk_score,
         breadth_pct,
-        low_coverage: false,
+        // Bug-fix #15: `low_coverage` was hardcoded to `false` on every
+        // call, so the dashboard never knew when the overview was
+        // computed on a thin sample. The frontend used the flag to
+        // dim global aggregates that are statistically unreliable
+        // below 3 active symbols. The threshold of 3 matches the
+        // §3.5 "minimum coverage for breadth / sync / health
+        // aggregation" rule in the L7 spec; below this, market_breadth
+        // is just a count of 1-2 advisories and market_synchronization
+        // is undefined for n < 3.
+        low_coverage: active_symbols.len() < 3,
         global_summary: summary,
         instance_count,
         active_symbols,
@@ -427,9 +476,32 @@ mod tests {
     #[test]
     fn empty_returns_default() {
         let o = compute_overview(&[], &[]);
+        // Empty input → OverviewMatrix::empty() early-return path.
+        // The empty OverviewMatrix declares GlobalBias::Neutral as its
+        // canonical default; the live `compute_overview` path now
+        // returns Mixed (after the dead-branch removal) for the
+        // empty-advisories case, so we exercise the early-return by
+        // passing zero advisories AND zero active instances.
         assert!(matches!(o.global_market_bias, GlobalBias::Neutral));
         assert_eq!(o.instance_count, 0);
         assert_eq!(o.systemic_risk_score, 0.0);
+    }
+
+    #[test]
+    fn all_neutral_advisories_resolve_to_mixed() {
+        // Bug-fix #14: removed the `neutral_pct >= 0.6 → Neutral`
+        // branch. A market with 100% neutral advisories now falls
+        // through to `Mixed` (after `long_count > short_count` and
+        // `short_count > long_count` both fail). The empty-input
+        // case is still `Neutral` via the early-return default.
+        let advs: Vec<AdvisoryMatrix> = (0..5)
+            .map(|i| AdvisoryMatrix {
+                symbol: format!("X-USD{}", i),
+                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
+            })
+            .collect();
+        let o = compute_overview(&advs, &[]);
+        assert!(matches!(o.global_market_bias, GlobalBias::Mixed));
     }
 
     #[test]

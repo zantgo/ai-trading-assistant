@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -239,14 +239,16 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 ### 5.3 Engine Mapping
 
-| Display label | Internal key | Active content when selected |
-|---------------|--------------|-------------------------------|
-| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (backend `GET /api/exchange-status` served — see 06-01 §2.11), NTP Clock Monitor (backend `GET /api/system/clock` served — see 06-01 §2.11). Overview + Settings tabs. |
-| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). |
-| Trade Automation | `trade_automation` | `TradeAutomationDashboard` — 5-panel internal sidebar: Overview, Policies (expandable condition trees with risk parameters), Observability (trigger log), Paper Trading (positions/orders/history tabs), Lifecycle (per-instance cards with Start/Pause/Stop). Settings tab for strategy config. |
-| Portfolio Management | `portfolio` | `PortfolioDashboard` — 5-panel internal sidebar: Overview (safety state banner, equity composition), Positions (expandable cards with SL/TP/invalidation levels), Exposure (long/short bars, concentration, correlation), Capital (margin usage gauge, liquidation thresholds), Safety (circuit breakers, loss streaks, drawdown monitor, veto triggers). Settings tab for safety/fees config. |
-| Performance Analytics | `performance` | `PerformanceDashboard` — 6-panel internal sidebar: Overview (core stats + risk-adjusted metrics), Strategy (NHST table), Risk Metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES), Regime Map (regime-performance cards), Trade Analytics (trade ledger table), **Backtesting** (strategy config form + results summary + equity curve placeholder + trade log). Settings tab for analytics cadences. |
-| Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, active account count display, last sync timestamps. No Overview/Settings tabs (single-page engine). Added in v6.5. |
+> **Implementation status (v6.8).** The Data Infrastructure and Market Monitoring engines are **implemented**; their dashboards read live data. The Trade Automation, Portfolio Management, and Performance Analytics engines are **WIP** — the screen surfaces listed below match the **spec** but the components themselves currently render hardcoded placeholder data (the analytics tabs of Performance Analytics are real, but the Backtesting panel is a UI mock). See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3, §2.4, §2.5 and the phased delivery plan for the phases that finish each dashboard.
+
+| Display label | Internal key | Active content when selected | Status |
+|---------------|--------------|-------------------------------|--------|
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (backend `GET /api/exchange-status` served — see 06-01 §2.11), NTP Clock Monitor (backend `GET /api/system/clock` served — see 06-01 §2.11). Overview + Settings tabs. | ✅ Implemented |
+| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). | ✅ Implemented |
+| Trade Automation | `trade_automation` | `TradeAutomationDashboard` — 5-panel internal sidebar: Overview, Policies (expandable condition trees with risk parameters), Observability (trigger log), Paper Trading (positions/orders/history tabs), Lifecycle (per-instance cards with Start/Pause/Stop). Settings tab for strategy config. | ⚠️ WIP — backend live, dashboard is a hardcoded placeholder (Phase A of [`docs/ROADMAP.md`](../ROADMAP.md)) |
+| Portfolio Management | `portfolio` | `PortfolioDashboard` — 5-panel internal sidebar: Overview (safety state banner, equity composition), Positions (expandable cards with SL/TP/invalidation levels), Exposure (long/short bars, concentration, correlation), Capital (margin usage gauge, liquidation thresholds), Safety (circuit breakers, loss streaks, drawdown monitor, veto triggers). Settings tab for safety/fees config. | ⚠️ WIP — backend live, dashboard is a hardcoded placeholder (Phase A + C of [`docs/ROADMAP.md`](../ROADMAP.md)) |
+| Performance Analytics | `performance` | `PerformanceDashboard` — 6-panel internal sidebar: Overview (real `/api/dashboard/stats`), Strategy (real `/api/analytics/strategy`), Risk Metrics (real `/api/analytics/risk`), Regime Map (real `/api/analytics/performance`), Trade Analytics (real `/api/analytics/trades`), **Backtesting** (⚠️ UI mock today — `setTimeout` + placeholder data; no `/api/backtest/*` route). | ⚠️ WIP — analytics live, backtest UI mock (Phase D of [`docs/ROADMAP.md`](../ROADMAP.md)) |
+| Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, active account count display, last sync timestamps. No Overview/Settings tabs (single-page engine). Added in v6.5. | ✅ Implemented |
 
 ### 5.4 Quit Session Flow
 

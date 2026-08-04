@@ -1,6 +1,6 @@
 # Crate Layout & Cycle-Breaking Design
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 9 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.
@@ -18,8 +18,8 @@ The platform is a Cargo Workspace of 9 specialized, decoupled crates plus the Sv
 | `market-analyzer` | MME L1–L7 (logical ownership); DIE L2–L4 (physical execution) | 50 indicators across 4 timeframes, signal detection, multi-TF pipeline orchestrator (`ActivePair`, `TimeframePipeline`), `MarketContext` synthesis, candle generation, quality validation, distribution channels, indicator DTO re-exports. |
 | `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 active tables; migration history tracks table additions — see CHANGELOG), WAL telemetry logger, query layer, encryption helpers. |
 | `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid and Bitget, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
-| `portfolio-supervisor` | PME + TAE | Instance lifecycle, `SafetyManager`, sizing, exposure, capital, session state, profile evaluation, risk/commission math, registry orchestrator. |
-| `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator stub. |
+| `portfolio-supervisor` | PME + TAE | Instance lifecycle, `SafetyManager`, sizing, exposure, capital, session state, profile evaluation, risk/commission math, registry orchestrator. **WIP** overall — the backends run and expose state, but the dedicated `TradeAutomationDashboard` and `PortfolioDashboard` are hardcoded placeholders. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3, §2.4, §3 Phase A–C. |
+| `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator. **WIP** overall — the analytics APIs (`/api/analytics/*`) are live and consumed by the `PerformanceDashboard` Overview/Strategy/Risk/Regimes/Trades panels. The Backtesting panel is a UI-only mock; the in-process backtest runner + equity-curve visualization are pending. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5, §3 Phase D. |
 | `api-gateway` | HTTP/WS surface | Axum router (`build_router`), WebSocket broadcast handler, all HTTP request/response shapes (`IndicatorSnapshot`, `EvaluateRequest`, `RiskCalculationRequest`, `StatsQuery`, …), `AppState`, `DbState`, `WsState`. |
 | `execution-daemon` | Bootstrap | Binary entry point — parses CLI, reads config, initializes DB, builds `AppState`, spawns background tasks, runs the Axum server. Holds no business logic of its own. |
 
@@ -108,7 +108,7 @@ This is the **canonical pattern**: network-adjacent features that need both live
 
 **Decision:** `invalidate_position` was a **no-op stub** (`Ok(())` regardless of inputs). The decision was to delete the call site in `analyzer::run_single`, leaving the stub function in `portfolio-supervisor` for future re-implementation when a non-stub real implementation exists.
 
-> **Tradeoff.** Lost functionality: when a 1-minute candle closes decisively through a paper-trading position's invalidation level, no automated position-invalidation fires. Since the function was a no-op, this restores behavior to "what the stub did" — i.e. nothing. When the real paper-trading engine is implemented (separate from `portfolio-supervisor`), this hook can be reintroduced via a `callback` interface, not a direct crate import.
+> **Tradeoff.** Lost functionality: when a 1-minute candle closes decisively through a paper-trading position's invalidation level, no automated position-invalidation fires. Since the function was a no-op, this restores behavior to "what the stub did" — i.e. nothing. The paper trading engine **is** implemented today (`crates/portfolio-supervisor/src/paper_trading.rs`, 744 lines, 10 unit tests, with `submit_order` and `evaluate_order_fills`), but it lives in `portfolio-supervisor` rather than a separate crate. Therefore the `market-analyzer → portfolio-supervisor` edge is still avoided by the same call-site removal; reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
 
 ### 3.5 Summary table
 
@@ -117,7 +117,7 @@ This is the **canonical pattern**: network-adjacent features that need both live
 | MarketSnapshot.context synthesis | `core-domain` | `market-analyzer::indicators::registry` | Split struct (`MarketContext` in core-domain) vs. synthesis function (`synthesize_market_context` in market-analyzer) |
 | HTTP routes calling registry functions | `api-gateway` | `portfolio-supervisor` | Adapter: `AppState::registry_context(&self) -> RegistryContext` in `portfolio-supervisor` |
 | Network-quality state + DB persistence | `network-adapters` | `database-storage` | Tracker owns both state and its own 60s persistence loop; `database-storage` exposes only the query layer |
-| Stub invalidate call in analyzer | `market-analyzer` | `portfolio-supervisor` | Removed the call site; stub kept for future real re-implementation via callback interface |
+| Stub invalidate call in analyzer | `market-analyzer` | `portfolio-supervisor` | Removed the call site; stub kept for future real re-implementation via callback interface (the paper trading engine exists in `portfolio-supervisor` but the call site is still removed to avoid the cycle) |
 
 ## 4. Auxiliary Architectural Rules
 

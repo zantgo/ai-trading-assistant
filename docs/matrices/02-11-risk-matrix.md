@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer

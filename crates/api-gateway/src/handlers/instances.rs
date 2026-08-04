@@ -205,6 +205,7 @@ pub async fn serve_update_instance_config(
             weight_overrides: None,
             position_scaling: None,
             activation: None,
+            custom_pipelines: std::collections::HashMap::new(),
         });
     }
     let mut entry = existing.expect("entry created above");

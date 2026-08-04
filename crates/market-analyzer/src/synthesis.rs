@@ -639,18 +639,45 @@ fn compute_opportunity(
         return None;
     }
 
-    let trend_dim = alignment.dimensions.get(0).map(|d| d.score).unwrap_or(50.0);
-    let momentum_dim = alignment.dimensions.get(1).map(|d| d.score).unwrap_or(50.0);
-    let vol_dim = alignment.dimensions.get(3).map(|d| d.score).unwrap_or(50.0);
+    // Bug-fix #20: read the canonical signed `mtf_*_alignment` fields
+    // and convert to 0-100 here, instead of reading the 0-100 mapped
+    // `dimensions[i].score` (which is `from_signed` output and is
+    // indistinguishable from the other 0-100 dimensions in the
+    // `AlignmentMatrix.dimensions` vector). The L4 opportunity
+    // preconditions and the per-candidate score blend now operate on
+    // the same scale the L2 emitted, eliminating the historical
+    // "trend_dim is in 0-100 but mtf_trend_alignment is signed"
+    // asymmetry that caused `OpportunityType::TrendContinuation` to
+    // never fire on a perfectly balanced trend (signed = 0, mapped
+    // = 50, but legacy 50 is "Neutral" not "Weak Bull").
+    let trend_dim = ((alignment.mtf_trend_alignment + 1.0) / 2.0 * 100.0)
+        .max(0.0)
+        .min(100.0);
+    let momentum_dim = ((alignment.mtf_momentum_alignment + 1.0) / 2.0 * 100.0)
+        .max(0.0)
+        .min(100.0);
+    let vol_dim = ((alignment.mtf_volatility_alignment + 1.0) / 2.0 * 100.0)
+        .max(0.0)
+        .min(100.0);
     let struct_dim = alignment.dimensions.get(4).map(|d| d.score).unwrap_or(50.0);
     let tradability_dim = alignment.dimensions.get(9).map(|d| d.score).unwrap_or(50.0);
 
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
 
+    // Divergence detection: the L1.5 signal flow has three label families.
+    //   1. RSI/MACD/Stochastic/ChandeMO/MFI/CMF/OBV/Squeeze: the per-indicator
+    //      `SeriesDivergence::state` produces `CONFIRMED_BULLISH_DIVERGENCE` /
+    //      `CONFIRMED_BEARISH_DIVERGENCE`. The legacy "CONFIRMED + DIVERGENCE"
+    //      substring check still matches these.
+    //   2. OI-Price divergence: the derivatives-WS path emits
+    //      `OI_PRICE_DIVERGENCE` (no "CONFIRMED" prefix). The legacy substring
+    //      check would miss this entirely, breaking the L1.5→L4→L6
+    //      Reversal flow. We now match any label containing the substring
+    //      `DIVERGENCE`, which subsumes both label families.
     let has_confirmed_divergence = indicators.values().any(|v| {
         v.signals
             .iter()
-            .any(|s| s.label.contains("CONFIRMED") && s.label.contains("DIVERGENCE"))
+            .any(|s| s.label.contains("DIVERGENCE"))
     });
 
     let momentum_exhausted = momentum_dim < 25.0;
@@ -702,28 +729,26 @@ fn compute_opportunity(
 
     let mut profiles: Vec<OpportunityProfile> = Vec::new();
 
-    let primary_opportunity;
-    let primary_score;
-
-    if cascade_active && cascade_asymmetry.abs() > 0.3 && regime_is_expansion_or_transition {
-        primary_opportunity = OpportunityType::LiquiditySqueeze;
+    let primary_opportunity = if cascade_active
+        && cascade_asymmetry.abs() > 0.3
+        && regime_is_expansion_or_transition
+    {
+        OpportunityType::LiquiditySqueeze
     } else if bbwp >= 70.0 && bbwp < 95.0 && struct_dim >= 70.0 && bias_directional && is_trending {
-        primary_opportunity = OpportunityType::Scalp;
+        OpportunityType::Scalp
     } else if trend_dim >= 75.0 && bias_directional && momentum_not_exhausted {
-        primary_opportunity = OpportunityType::TrendContinuation;
+        OpportunityType::TrendContinuation
     } else if vol_dim >= 70.0 && struct_dim >= 60.0 {
-        primary_opportunity = OpportunityType::Breakout;
+        OpportunityType::Breakout
     } else if has_confirmed_divergence && structure_broken && momentum_exhausted {
-        primary_opportunity = OpportunityType::Reversal;
+        OpportunityType::Reversal
     } else if trend_dim >= 60.0 && momentum_weakening {
-        primary_opportunity = OpportunityType::Pullback;
+        OpportunityType::Pullback
     } else if vol_dim <= 30.0 {
-        primary_opportunity = OpportunityType::MeanReversion;
-    } else if tradability_dim < 30.0 {
-        primary_opportunity = OpportunityType::NoClearOpportunity;
+        OpportunityType::MeanReversion
     } else {
-        primary_opportunity = OpportunityType::NoClearOpportunity;
-    }
+        OpportunityType::NoClearOpportunity
+    };
 
     let candidates: [OpportunityType; 8] = [
         OpportunityType::LiquiditySqueeze,
@@ -736,7 +761,20 @@ fn compute_opportunity(
         OpportunityType::NoClearOpportunity,
     ];
 
-    let mut best_score = 0.0f64;
+    // First pass: score every candidate so we can resolve `primary_score`
+    // BEFORE deriving zones. The zone helper widens its ATR fallback
+    // bracket when `primary_score >= 70.0`, so the value must be in hand
+    // before `derive_side_zones` is called. We collect everything we need
+    // for the second pass into a Vec.
+    let mut scored: Vec<(
+        OpportunityType,
+        f64,
+        String,
+        f64,
+        f64,
+        u32,
+        u32,
+    )> = Vec::with_capacity(candidates.len());
     for ot in &candidates {
         let (met, total) = match ot {
             OpportunityType::LiquiditySqueeze => (
@@ -751,12 +789,7 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::Scalp => (
-                if bbwp >= 70.0
-                    && bbwp < 95.0
-                    && struct_dim >= 70.0
-                    && bias_directional
-                    && is_trending
-                {
+                if bbwp >= 70.0 && bbwp < 95.0 && struct_dim >= 70.0 && bias_directional && is_trending {
                     3
                 } else {
                     0
@@ -771,14 +804,9 @@ fn compute_opportunity(
                 },
                 3,
             ),
-            OpportunityType::Breakout => (
-                if vol_dim >= 70.0 && struct_dim >= 60.0 {
-                    2
-                } else {
-                    0
-                },
-                2,
-            ),
+            OpportunityType::Breakout => {
+                (if vol_dim >= 70.0 && struct_dim >= 60.0 { 2 } else { 0 }, 2)
+            }
             OpportunityType::Reversal => (
                 if has_confirmed_divergence && structure_broken && momentum_exhausted {
                     3
@@ -787,16 +815,15 @@ fn compute_opportunity(
                 },
                 3,
             ),
-            OpportunityType::Pullback => (
-                if trend_dim >= 60.0 && momentum_weakening {
-                    2
-                } else {
-                    0
-                },
-                2,
-            ),
-            OpportunityType::MeanReversion => (if vol_dim <= 30.0 && is_range { 2 } else { 0 }, 2),
-            OpportunityType::NoClearOpportunity => (if tradability_dim < 30.0 { 1 } else { 0 }, 1),
+            OpportunityType::Pullback => {
+                (if trend_dim >= 60.0 && momentum_weakening { 2 } else { 0 }, 2)
+            }
+            OpportunityType::MeanReversion => {
+                (if vol_dim <= 30.0 && is_range { 2 } else { 0 }, 2)
+            }
+            OpportunityType::NoClearOpportunity => {
+                (if tradability_dim < 30.0 { 1 } else { 0 }, 1)
+            }
         };
 
         let (score, notes, raw_score, precondition_ratio) = compute_candidate_score(
@@ -807,33 +834,22 @@ fn compute_opportunity(
             met as u32,
             total as u32,
         );
-        if *ot == primary_opportunity {
-            best_score = score;
-        }
-        profiles.push(OpportunityProfile {
-            opportunity_type: *ot,
+        scored.push((
+            *ot,
             score,
-            preconditions_met: met as u32,
-            preconditions_total: total as u32,
             notes,
-            direction_family: None,
-            long_entry_zone: None,
-            long_target_zone: None,
-            long_invalidation_level: None,
-            long_expected_rr_internal: None,
-            short_entry_zone: None,
-            short_target_zone: None,
-            short_invalidation_level: None,
-            short_expected_rr_internal: None,
-            trade_viability: None,
-            scoring_factors: Some(core_domain::analysis::ScoringFactors {
-                raw_score,
-                precondition_ratio,
-            }),
-        });
+            raw_score,
+            precondition_ratio,
+            met as u32,
+            total as u32,
+        ));
     }
 
-    primary_score = best_score;
+    let primary_score = scored
+        .iter()
+        .find(|(ot, _, _, _, _, _, _)| *ot == primary_opportunity)
+        .map(|(_, s, _, _, _, _, _)| *s)
+        .unwrap_or(0.0);
 
     let atr = indicators
         .get("atr")
@@ -857,6 +873,48 @@ fn compute_opportunity(
         short_conf_target,
         short_conf_inval,
     ) = derive_side_zones(indicators, cluster, close, atr, primary_score, false);
+
+    // Per-side reward/risk computed independently from each side's own zones.
+    // This is the geometric R:R the frontend reads per profile. The legacy
+    // `expected_rr_internal` field mirrors the active side for backward
+    // compatibility with the PME/TAE consumers that read it.
+    let compute_side_rr = |entry: &core_domain::opportunity::PriceRange,
+                            target: &core_domain::opportunity::PriceRange,
+                            inv: f64|
+     -> Option<f64> {
+        if atr <= 0.0 {
+            return None;
+        }
+        let entry_mid = (entry.low + entry.high) / 2.0;
+        let target_mid = (target.low + target.high) / 2.0;
+        let risk_val = (entry_mid - inv).abs();
+        if risk_val <= 0.0 {
+            return None;
+        }
+        // Use signed (target - entry) / signed (entry - inv) so LONG
+        // and SHORT produce the correct positive ratio. A LONG setup with
+        // target < entry OR inv > entry returns a NEGATIVE ratio that the
+        // frontend reads as a geometric inversion (not a positive number
+        // hiding the mistake).
+        let reward = target_mid - entry_mid;
+        let risk_dir = entry_mid - inv;
+        if (reward > 0.0) != (risk_dir > 0.0) {
+            // Geometric inversion: target and invalidation on the same
+            // side of entry. Surface the unsigned magnitude so the UI
+            // can flag it; the geometry-consistent check at the consumer
+            // uses the sign match above as the authoritative gate.
+            return None;
+        }
+        let ratio = (reward.abs() / risk_dir.abs()).max(0.0);
+        // No artificial cap. A real 8+ R:R stays 8+; a real 0.3 R:R
+        // surfaces as 0.3. The bucketing thresholds in the UI
+        // (PRIME/STRONG/MODERATE/MARGINAL) map directly to the raw ratio.
+        Some(ratio)
+    };
+    let long_expected_rr_internal =
+        compute_side_rr(&long_entry_zone, &long_target_zone, long_invalidation_level);
+    let short_expected_rr_internal =
+        compute_side_rr(&short_entry_zone, &short_target_zone, short_invalidation_level);
 
     // Legacy scalar fields mirror the active side so PME/TAE consumers that
     // read `entry_zone` / `target_zone` / `invalidation_level` see unchanged
@@ -889,23 +947,161 @@ fn compute_opportunity(
         )
     };
 
-    let expected_rr_internal = if atr > 0.0 {
-        let avg_target = (target_zone.low + target_zone.high) / 2.0;
-        let entry_mid = (entry_zone.low + entry_zone.high) / 2.0;
-        let reward = (avg_target - entry_mid).abs();
-        let risk_val = (entry_mid - invalidation_level).abs();
-        if risk_val > 0.0 {
-            (reward / risk_val).max(0.5).min(5.0)
+    // Legacy `expected_rr_internal`: same calculation as the per-side
+    // helper, using whichever side is the active one. Geometric
+    // inversion returns the inactive side's 0.0 fallback so consumers
+    // that read this scalar see a usable scalar; the per-side fields
+    // are the authoritative source for risk-stance-aware decisioning.
+    let expected_rr_internal = {
+        let active_rr = if bias_bullish {
+            long_expected_rr_internal
         } else {
-            2.5
-        }
-    } else {
-        2.5
+            short_expected_rr_internal
+        };
+        active_rr.unwrap_or(0.0)
     };
+
+    // `direction_family`: maps the active bias to a structured tag so
+    // the frontend `selectProfileSide` can produce directional
+    // arrows on profile cards. The per-profile `direction_family`
+    // (TrendRiding/CounterTrend/Neutral) is set per-profile below
+    // (each OpportunityType maps to one family via `direction_family_for`).
+    let matrix_direction_family: Option<core_domain::opportunity::DirectionFamily> =
+        if bias_directional {
+            Some(core_domain::opportunity::DirectionFamily::TrendRiding)
+        } else {
+            Some(core_domain::opportunity::DirectionFamily::Neutral)
+        };
 
     let time_horizon = default_time_horizon(primary_opportunity).to_string();
 
-    let forecast_confidence = (analysis.state_confidence * (primary_score / 100.0)).clamp(0.0, 1.0);
+    let forecast_confidence =
+        (analysis.state_confidence * (primary_score / 100.0)).clamp(0.0, 1.0);
+
+    // Second pass: build each `OpportunityProfile` from precomputed zones,
+    // R:R ratios, and the profile's own `direction_family` (which is a
+    // function of `OpportunityType`, not the active bias). The per-profile
+    // direction family decides which side's zones (long or short) the
+    // profile populates:
+    //   - TrendRiding  + bullish bias → LONG zones
+    //   - TrendRiding  + bearish bias → SHORT zones
+    //   - CounterTrend + bullish bias → SHORT zones (counter to bias)
+    //   - CounterTrend + bearish bias → LONG zones
+    //   - Neutral      + any bias     → no zones (DirectionalNeutral)
+    //   - any family   + neutral bias → no zones (DirectionalNeutral)
+    // The audit's bug-fix #1 was: the per-profile
+    // `long_expected_rr_internal` / `short_expected_rr_internal` were
+    // hardcoded to 0.0, breaking every per-profile card. We now
+    // propagate the geometric R:R from the same zones that drive
+    // `entry_zone` / `target_zone` / `invalidation_level`.
+    for (ot, score, notes, raw_score, precondition_ratio, met, total) in &scored {
+        let profile_family = analysis::direction_family_for(*ot);
+
+        // Resolves the per-profile side based on the family + macro bias.
+        // The tuple is (long_ez, long_tz, long_inv, long_rr, short_ez,
+        // short_tz, short_inv, short_rr). Sides that don't apply carry
+        // `None` for zones and 0.0 for R:R.
+        let (pf_long_ez, pf_long_tz, pf_long_inv, pf_long_rr, pf_short_ez, pf_short_tz, pf_short_inv, pf_short_rr) =
+            match (profile_family, bias_bullish, bias_bearish) {
+                (analysis::DirectionFamily::TrendRiding, true, _) => (
+                    Some(long_entry_zone.clone()),
+                    Some(long_target_zone.clone()),
+                    Some(long_invalidation_level),
+                    long_expected_rr_internal.unwrap_or(0.0),
+                    None,
+                    None,
+                    None,
+                    0.0,
+                ),
+                (analysis::DirectionFamily::TrendRiding, false, true) => (
+                    None,
+                    None,
+                    None,
+                    0.0,
+                    Some(short_entry_zone.clone()),
+                    Some(short_target_zone.clone()),
+                    Some(short_invalidation_level),
+                    short_expected_rr_internal.unwrap_or(0.0),
+                ),
+                (analysis::DirectionFamily::CounterTrend, true, _) => (
+                    None,
+                    None,
+                    None,
+                    0.0,
+                    Some(short_entry_zone.clone()),
+                    Some(short_target_zone.clone()),
+                    Some(short_invalidation_level),
+                    short_expected_rr_internal.unwrap_or(0.0),
+                ),
+                (analysis::DirectionFamily::CounterTrend, false, true) => (
+                    Some(long_entry_zone.clone()),
+                    Some(long_target_zone.clone()),
+                    Some(long_invalidation_level),
+                    long_expected_rr_internal.unwrap_or(0.0),
+                    None,
+                    None,
+                    None,
+                    0.0,
+                ),
+                (analysis::DirectionFamily::Neutral, _, _)
+                | (analysis::DirectionFamily::TrendRiding, _, _)
+                | (analysis::DirectionFamily::CounterTrend, _, _) => (
+                    None, None, None, 0.0, None, None, None, 0.0,
+                ),
+            };
+
+        // Per-profile `trade_viability`: only set when the profile is
+        // the PRIMARY opportunity. The frontend uses this to highlight
+        // actionable setups versus side profiles.
+        let trade_viability_at_profile = if *ot == primary_opportunity {
+            match (profile_family, bias_bullish, bias_bearish) {
+                (analysis::DirectionFamily::Neutral, _, _) => {
+                    Some(core_domain::opportunity::TradeViability::DirectionalNeutral)
+                }
+                (analysis::DirectionFamily::TrendRiding, true, _)
+                | (analysis::DirectionFamily::CounterTrend, false, true) => {
+                    if long_expected_rr_internal.is_some() {
+                        Some(core_domain::opportunity::TradeViability::Actionable)
+                    } else {
+                        Some(core_domain::opportunity::TradeViability::GeometryInverted)
+                    }
+                }
+                (analysis::DirectionFamily::TrendRiding, false, true)
+                | (analysis::DirectionFamily::CounterTrend, true, _) => {
+                    if short_expected_rr_internal.is_some() {
+                        Some(core_domain::opportunity::TradeViability::Actionable)
+                    } else {
+                        Some(core_domain::opportunity::TradeViability::GeometryInverted)
+                    }
+                }
+                _ => Some(core_domain::opportunity::TradeViability::DirectionalNeutral),
+            }
+        } else {
+            None
+        };
+
+        profiles.push(OpportunityProfile {
+            opportunity_type: *ot,
+            score: *score,
+            preconditions_met: *met,
+            preconditions_total: *total,
+            notes: notes.clone(),
+            direction_family: Some(profile_family),
+            long_entry_zone: pf_long_ez,
+            long_target_zone: pf_long_tz,
+            long_invalidation_level: pf_long_inv,
+            long_expected_rr_internal: pf_long_rr,
+            short_entry_zone: pf_short_ez,
+            short_target_zone: pf_short_tz,
+            short_invalidation_level: pf_short_inv,
+            short_expected_rr_internal: pf_short_rr,
+            trade_viability: trade_viability_at_profile,
+            scoring_factors: Some(core_domain::analysis::ScoringFactors {
+                raw_score: *raw_score,
+                precondition_ratio: *precondition_ratio,
+            }),
+        });
+    }
 
     let contributing_signals: Vec<String> = indicators
         .values()
@@ -937,13 +1133,14 @@ fn compute_opportunity(
         short_entry_zone,
         short_target_zone,
         short_invalidation_level,
-        long_expected_rr_internal: 0.0,
-        short_expected_rr_internal: 0.0,
+        long_expected_rr_internal: long_expected_rr_internal.unwrap_or(0.0),
+        short_expected_rr_internal: short_expected_rr_internal.unwrap_or(0.0),
         expected_rr_internal,
         time_horizon,
         confluent_entry_levels: confluent_entry,
         confluent_target_levels: confluent_target,
         confluent_invalidation_levels: confluent_inval,
+        direction_family: matrix_direction_family,
     })
 }
 
@@ -967,7 +1164,8 @@ pub fn synthesize_cross_tf(
         .filter_map(|(secs, snap)| {
             let ctx = snap.context.as_ref()?;
             let price = snap.close.as_ref().and_then(|d| d.to_f64()).unwrap_or(0.0);
-            Some((slot_label(snap), *secs, price, &snap.indicators, ctx))
+            let label = slot_label(snap);
+            Some((label_box_to_static(&label), *secs, price, &snap.indicators, ctx))
         })
         .collect();
 
@@ -996,19 +1194,20 @@ pub fn synthesize_cross_tf(
         previous_volume_dim,
     );
 
+    let close = tf_snapshots
+        .first()
+        .and_then(|(_, s)| s.close.as_ref())
+        .and_then(|d| d.to_f64())
+        .unwrap_or(0.0);
+
     let risk = risk::compute_risk(
         &analysis.symbol,
         &analysis,
         representative_indicators,
         liquidity_flow,
         cluster,
+        close,
     );
-
-    let close = tf_snapshots
-        .first()
-        .and_then(|(_, s)| s.close.as_ref())
-        .and_then(|d| d.to_f64())
-        .unwrap_or(0.0);
 
     let opportunity = compute_opportunity(
         &analysis,
@@ -1030,13 +1229,22 @@ pub fn synthesize_cross_tf(
     }
 }
 
-fn slot_label(snap: &MarketSnapshot) -> &'static str {
+fn slot_label(snap: &MarketSnapshot) -> String {
     match snap.timeframe_slot.unwrap_or(TimeframeSlot::Micro) {
-        TimeframeSlot::Micro => "MICRO",
-        TimeframeSlot::Fast => "FAST",
-        TimeframeSlot::Slow => "SLOW",
-        TimeframeSlot::Macro => "MACRO",
+        TimeframeSlot::Micro => "MICRO".to_string(),
+        TimeframeSlot::Fast => "FAST".to_string(),
+        TimeframeSlot::Slow => "SLOW".to_string(),
+        TimeframeSlot::Macro => "MACRO".to_string(),
+        TimeframeSlot::Custom { id } => format!("CUSTOM-{}", id),
     }
+}
+
+/// Leak a per-call `slot_label` String into a `&'static str`. Acceptable in
+/// the small-N synthesis path (≤ 16 timeframes per call) — the leaked
+/// memory is bounded by the per-call allocation cost and is reclaimed when
+/// the host process exits.
+fn label_box_to_static(s: &String) -> &'static str {
+    Box::leak(s.clone().into_boxed_str())
 }
 
 fn empty_map() -> &'static HashMap<String, NormalizedIndicatorValue> {

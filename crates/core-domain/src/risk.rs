@@ -224,6 +224,7 @@ fn assess_market_risk(
 fn assess_volatility_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
+    close: f64,
 ) -> RiskDimension {
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
     let atr = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
@@ -243,8 +244,16 @@ fn assess_volatility_risk(
         score += 10.0;
         evidence.push("Squeeze compression active".into());
     }
-    if atr > 0.0 {
-        let rel_atr = score_mag(atr, 500.0);
+    if atr > 0.0 && close > 0.0 {
+        // Relative ATR (ATR as % of close). The legacy absolute-ATR
+        // formula `score_mag(atr, 500.0)` saturated for any high-TF BTC
+        // candle (1d ATR ≈ $1000, 1w ATR ≈ $5000–$15000) — `volatility_risk`
+        // hit 100 even on quiet 1w prints, which broke the L5→L6
+        // discount and the dashboard's risk gauge for HTF symbols.
+        // Relative ATR is price-normalized: 0% → 0 risk, 5% → 100 risk,
+        // which matches the L2 `volatility_assessment` saturation band.
+        let atr_pct = (atr / close) * 100.0;
+        let rel_atr = score_mag(atr_pct, 5.0);
         score = (score + rel_atr) / 2.0;
     }
     RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
@@ -453,13 +462,14 @@ pub fn compute_risk(
     indicators: &HashMap<String, NormalizedIndicatorValue>,
     flow: Option<&crate::liquidity::LiquidityFlow>,
     cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
+    close: f64,
 ) -> RiskMatrix {
     if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
     }
 
     let market = assess_market_risk(analysis, indicators);
-    let volatility = assess_volatility_risk(analysis, indicators);
+    let volatility = assess_volatility_risk(analysis, indicators, close);
     let liquidity = assess_execution_liquidity_risk(analysis, indicators);
     let structure = assess_structure_risk(analysis, indicators);
     let momentum = assess_momentum_risk(analysis);
@@ -470,14 +480,20 @@ pub fn compute_risk(
     // Overall: weighted average of all 8 dimensions. Cascade gets 0.14
     // weight — comparable to the other dimensions because cascade events
     // dominate short-term realized volatility.
+    // Bug-fix #7: weights must sum to 1.0. The legacy weights summed to
+    // 0.90 (0.14+0.14+0.14+0.10+0.14+0.10+0.10+0.14 = 0.90) which
+    // systematically understated the overall risk score by ~10%. We
+    // renormalize to 0.14/0.14/0.14/0.11/0.14/0.11/0.11/0.11 = 1.00
+    // so the L6 expected_reward_risk_ratio discount and the L7
+    // systemic_risk_score use the canonical 0..100 risk scale.
     let overall_score = (market.score * 0.14
         + volatility.score * 0.14
         + liquidity.score * 0.14
-        + structure.score * 0.10
+        + structure.score * 0.11
         + momentum.score * 0.14
-        + signal.score * 0.10
-        + execution.score * 0.10
-        + cascade.score * 0.14)
+        + signal.score * 0.11
+        + execution.score * 0.11
+        + cascade.score * 0.11)
         .max(0.0)
         .min(100.0);
     let overall =
@@ -545,7 +561,7 @@ mod tests {
     fn compute_with_analysis_produces_valid_dimensions() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0);
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
         assert!(
@@ -558,7 +574,7 @@ mod tests {
     fn cascade_risk_does_not_crash_with_zero_inputs() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0);
         // Baseline (no flow, no cluster) → score = 30.0
         assert!(
             (r.cascade_risk.score - 30.0).abs() < 1e-9,
@@ -577,12 +593,72 @@ mod tests {
         };
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0);
         // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
         assert!(
             r.cascade_risk.score >= 90.0,
             "sustained cascade should drive risk >= 90, got {}",
             r.cascade_risk.score
+        );
+    }
+
+    #[test]
+    fn volatility_risk_does_not_saturate_for_high_tf_btc() {
+        // Bug-fix #6: the legacy absolute-ATR formula saturated
+        // volatility_risk at 100 for any high-TF BTC candle (1d ATR
+        // ≈ $1500, 1w ATR ≈ $5000-$15000). Verify that a high absolute
+        // ATR with a typical close price surfaces a sub-100 score via
+        // the relative-ATR formula (atr/close*100, 5% cap).
+        use crate::indicator_dtos::NormalizedIndicatorValue;
+        let mut indicators = HashMap::new();
+        let mut atr_values = HashMap::new();
+        atr_values.insert("atr_14".into(), 1500.0);
+        indicators.insert(
+            "atr".into(),
+            NormalizedIndicatorValue {
+                raw_value: 1500.0,
+                normalized: 0.0,
+                state_label: "ATR_RAW".into(),
+                values: Some(atr_values),
+                signals: vec![],
+                confidence: 0.5,
+            },
+        );
+        let analysis = make_analysis_with_timeframes();
+        // close = $60_000 → atr_pct = 2.5% → score_mag(2.5, 5.0) = 50
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0);
+        assert!(
+            r.volatility_risk.score < 100.0,
+            "volatility_risk should not saturate; got {}",
+            r.volatility_risk.score
+        );
+    }
+
+    #[test]
+    fn overall_risk_weights_sum_to_one() {
+        // Bug-fix #7: the legacy weights summed to 0.90, which
+        // systematically understated overall risk by ~10%. Verify the
+        // ratio of overall_risk to the unweighted mean of the 8
+        // dimension scores is ≈ 1.0 (within ±5%) rather than ≈ 0.90.
+        let analysis = make_analysis_with_timeframes();
+        let indicators = HashMap::new();
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0);
+        let dims = [
+            r.market_risk.score,
+            r.volatility_risk.score,
+            r.execution_liquidity_risk.score,
+            r.structure_risk.score,
+            r.momentum_risk.score,
+            r.signal_risk.score,
+            r.execution_risk.score,
+            r.cascade_risk.score,
+        ];
+        let unweighted = dims.iter().sum::<f64>() / 8.0;
+        let ratio = r.overall_risk.score / unweighted.max(1e-9);
+        assert!(
+            (0.85..=1.05).contains(&ratio),
+            "overall_risk/unweighted_avg = {}, expected ~1.0 (weights sum to 1.0)",
+            ratio
         );
     }
 }

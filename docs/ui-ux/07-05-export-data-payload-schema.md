@@ -1,6 +1,6 @@
 # Export Data Payload Schema
 
-**Version:** 6.7 (2026-07-31)
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors 1:1 the data the panel renders — no more, no less. Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -100,7 +100,7 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (rows 1–4 + 4 facet tabs).
   },
   "group_confluence": [
     {
-      "group": "Momentum",
+      "group": "MOMENTUM",
       "total": 5, "gates": 1, "bullish": 3, "bearish": 1, "neutral": 0,
       "active": 2, "active_signals": 4,
       "dominant": "bull",
@@ -128,33 +128,33 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (rows 1–4 + 4 facet tabs).
     {
       "key": "rsi",
       "display_name": "RSI",
-      "group": "Momentum",
-      "class": "Leading",
+      "group": "MOMENTUM",
+      "class": "LEADING",
       "raw": 65,
       "normalized": 0.3,
       "state": "BULLISH",
       "pending_candle": false,
       "confidence_pct": 75,
       "signals": [
-        { "kind": "CRO", "direction": "Bullish", "status": "Active", "label": "RSI cross up", "strength": 0.8, "age_bars": 2 }
+        { "kind": "CRO", "direction": "BULLISH", "status": "ACTIVE", "label": "RSI cross up", "strength": 0.8, "age_bars": 2 }
       ],
       "sub_values": null,
-      "indicator_lifecycle": { "state": "Live", "bars_seen": 100, "bars_required": 14 }
+      "indicator_lifecycle": { "state": "LIVE", "bars_seen": 100, "bars_required": 14 }
     }
   ],
   "signals_total": 4,
   "signals_by_kind": {
-    "Divergence": [], "Crossover": [ /* ... */ ], "Threshold": [], "Breakout": [],
-    "BandTouch": [], "ZeroLineCross": [], "CompressionRelease": [], "LevelTest": [],
-    "TrendFlip": [], "VolumeClimax": [], "StackChange": [], "PatternForming": []
+    "DIVERGENCE": [], "CROSSOVER": [ /* ... */ ], "THRESHOLD": [], "BREAKOUT": [],
+    "BAND_TOUCH": [], "ZERO_LINE_CROSS": [], "COMPRESSION_RELEASE": [], "LEVEL_TEST": [],
+    "TREND_FLIP": [], "VOLUME_CLIMAX": [], "STACK_CHANGE": [], "PATTERN_FORMING": []
   },
   "divergences": [
     {
       "indicator_key": "rsi",
       "display_name": "RSI",
       "sub_kind": "Regular Bull",
-      "direction": "Bullish",
-      "status": "Confirmed",
+      "direction": "BULLISH",
+      "status": "CONFIRMED",
       "strength": 0.85,
       "confidence_pct": 80,
       "age_bars": 3,
@@ -170,18 +170,18 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (rows 1–4 + 4 facet tabs).
       "indicator_key": "pivot_points",
       "display_name": "Pivot Points",
       "level_name": "R1",
-      "kind": "Pivot",
+      "kind": "PIVOT",
       "role": "resistance",
       "price_text": "65100",
-      "direction": "Bullish",
-      "status": "Active",
+      "direction": "BULLISH",
+      "status": "ACTIVE",
       "strength": 0.7,
       "confidence_pct": 80,
       "age_bars": 0
     }
   ],
   "liquidity_signals": [
-    { "kind": "CASCADE", "direction": "Bullish", "strength": 0.8, "confidence": 0.7, "evidence": ["Liq surge"] }
+    { "kind": "CASCADE", "direction": "BULLISH", "strength": 0.8, "confidence": 0.7, "evidence": ["Liq surge"] }
   ],
   "liquidity_flow": { /* LiquidityFlowExport — see §3.10 */ },
   "cluster_matrix": { /* ClusterMatrixExport — see §3.11 */ }
@@ -197,19 +197,19 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   "source_tab": "mtf",
   "meta": { ... },
   "groups": [
-    { "key": "Momentum", "label": "Momentum", "accent": "#a78bfa", "indicator_count": 4 }
+    { "key": "MOMENTUM", "label": "MOMENTUM", "accent": "#a78bfa", "indicator_count": 4 }
   ],
   "indicators": [
     {
       "key": "rsi",
       "display_name": "RSI",
-      "group": "Momentum",
+      "group": "MOMENTUM",
       "directional": true,
       "values": [
-        { "timeframe": "Micro", "normalized": 0.5, "active": true },
-        { "timeframe": "Fast",  "normalized": 0.3, "active": true },
-        { "timeframe": "Slow",  "normalized": -0.1, "active": true },
-        { "timeframe": "Macro", "normalized": -0.5, "active": true }
+        { "timeframe": "MICRO", "normalized": 0.5, "active": true },
+        { "timeframe": "FAST",  "normalized": 0.3, "active": true },
+        { "timeframe": "SLOW",  "normalized": -0.1, "active": true },
+        { "timeframe": "MACRO", "normalized": -0.5, "active": true }
       ],
       "agreement": 0.05,
       "agreement_label": "MIXED"
@@ -217,7 +217,7 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   ],
   "timeframes": [
     {
-      "label": "Micro",
+      "label": "MICRO",
       "duration_seconds": 60,
       "mark_price": 65000,
       "timestamp": 1753950000,
@@ -250,25 +250,25 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
     "trend_agreement_pct": 75
   },
   "dimensions": [
-    { "name": "Trend",       "score": 75, "state": "BULLISH", "confidence": 80 },
-    { "name": "Momentum",    "score": 60, "state": "BULLISH", "confidence": 70 },
-    { "name": "Volume",      "score": 50, "state": "NEUTRAL", "confidence": 65 },
-    { "name": "Volatility",  "score": 40, "state": "NEUTRAL", "confidence": 60 },
-    { "name": "Structure",   "score": 55, "state": "BULLISH", "confidence": 70 },
-    { "name": "Signal",      "score": 65, "state": "BULLISH", "confidence": 75 },
-    { "name": "Regime",      "score": 70, "state": "BULLISH", "confidence": 80 },
-    { "name": "Confidence",  "score": 80, "state": "BULLISH", "confidence": 85 },
-    { "name": "Liquidity",   "score": 45, "state": "NEUTRAL", "confidence": 60 },
-    { "name": "Tradability", "score": 60, "state": "BULLISH", "confidence": 70 }
+    { "name": "TREND",       "score": 75, "state": "BULLISH", "confidence": 80 },
+    { "name": "MOMENTUM",    "score": 60, "state": "BULLISH", "confidence": 70 },
+    { "name": "VOLUME",      "score": 50, "state": "NEUTRAL", "confidence": 65 },
+    { "name": "VOLATILITY",  "score": 40, "state": "NEUTRAL", "confidence": 60 },
+    { "name": "STRUCTURE",   "score": 55, "state": "BULLISH", "confidence": 70 },
+    { "name": "SIGNAL",      "score": 65, "state": "BULLISH", "confidence": 75 },
+    { "name": "REGIME",      "score": 70, "state": "BULLISH", "confidence": 80 },
+    { "name": "CONFIDENCE",  "score": 80, "state": "BULLISH", "confidence": 85 },
+    { "name": "LIQUIDITY",   "score": 45, "state": "NEUTRAL", "confidence": 60 },
+    { "name": "TRADABILITY", "score": 60, "state": "BULLISH", "confidence": 70 }
   ],
   "consensus": {
     "trend_agreement_pct": 75,
     "label": "strong_consensus",
     "polarization": [
-      { "key": "T",  "label": "Trend",      "value": 0.5 },
-      { "key": "M",  "label": "Momentum",   "value": 0.3 },
-      { "key": "Vt", "label": "Volume",     "value": 0.1 },
-      { "key": "Vm", "label": "Volatility", "value": 0.2 }
+      { "key": "T",  "label": "TREND",      "value": 0.5 },
+      { "key": "M",  "label": "MOMENTUM",   "value": 0.3 },
+      { "key": "VT", "label": "VOLUME",     "value": 0.1 },
+      { "key": "VM", "label": "VOLATILITY", "value": 0.2 }
     ]
   },
   "per_timeframe": [
@@ -276,10 +276,10 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   ],
   "score_calculation": {
     "weights": [
-      { "key": "T",  "label": "Trend",      "pct": 50, "color": "#22c55e", "value": 0.5, "contribution": 0.25 },
-      { "key": "M",  "label": "Momentum",   "pct": 30, "color": "#3b82f6", "value": 0.3, "contribution": 0.09 },
-      { "key": "Vt", "label": "Vol.trend",  "pct": 10, "color": "#a78bfa", "value": 0.1, "contribution": 0.01 },
-      { "key": "Vm", "label": "Vol.market", "pct": 10, "color": "#f59e0b", "value": 0.2, "contribution": 0.02 }
+      { "key": "T",  "label": "TREND",      "pct": 50, "color": "#22c55e", "value": 0.5, "contribution": 0.25 },
+      { "key": "M",  "label": "MOMENTUM",   "pct": 30, "color": "#3b82f6", "value": 0.3, "contribution": 0.09 },
+      { "key": "VT", "label": "Vol.trend",  "pct": 10, "color": "#a78bfa", "value": 0.1, "contribution": 0.01 },
+      { "key": "VM", "label": "Vol.market", "pct": 10, "color": "#f59e0b", "value": 0.2, "contribution": 0.02 }
     ],
     "formula": "0.5 * (0.50) + 0.3 * (0.30) + 0.1 * (0.10) + 0.1 * (0.20) = 40.0"
   },
@@ -294,14 +294,14 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   "source_tab": "opportunity",
   "meta": { ... },
   "header": {
-    "opportunity_class": "TrendContinuation",
+    "opportunity_class": "TREND_CONTINUATION",
     "lean": "bullish_setups_dominate",
     "setup_score": 78,
     "setup_quality": "STRONG"
   },
   "trade_setups": [
     {
-      "opportunity_type": "TrendContinuation",
+      "opportunity_type": "TREND_CONTINUATION",
       "side": "LONG",
       "rank_idx": 0,
       "is_top": true,
@@ -320,9 +320,9 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   "rr_internal": { "expected_rr": 2.5, "time_horizon": "INTRADAY" },
   "invalidation_note": "Below 63000 invalidates the setup",
   "evaluated_setups": [
-    { "opportunity_type": "TrendContinuation", "score": 78, "preconditions_met": 4, "preconditions_total": 5, "notes": "Trend alignment strong" },
-    { "opportunity_type": "Breakout",          "score": 65, "preconditions_met": 3, "preconditions_total": 5, "notes": "Watching for breakout above 65k" },
-    { "opportunity_type": "NoClearOpportunity", "score": 20, "preconditions_met": 0, "preconditions_total": 5, "notes": "" }
+    { "opportunity_type": "TREND_CONTINUATION", "score": 78, "preconditions_met": 4, "preconditions_total": 5, "notes": "Trend alignment strong" },
+    { "opportunity_type": "BREAKOUT",          "score": 65, "preconditions_met": 3, "preconditions_total": 5, "notes": "Watching for breakout above 65k" },
+    { "opportunity_type": "NO_CLEAR_OPPORTUNITY", "score": 20, "preconditions_met": 0, "preconditions_total": 5, "notes": "" }
   ],
   "confluent_entry_levels": [
     { "price": 64000, "sources": ["FIBONACCI", "VOLUME_PROFILE"], "strength": 85 }
@@ -331,10 +331,10 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
     { "price": 67000, "sources": ["FIBONACCI"], "strength": 70 }
   ],
   "market_position": {
-    "bias": "Bullish",
+    "bias": "BULLISH",
     "regime": "TRENDING_BULL",
-    "trend": "Healthy",
-    "quality": "Good"
+    "trend": "HEALTHY",
+    "quality": "GOOD"
   },
   "environment": {
     "timeframes_considered": 4,
@@ -351,10 +351,10 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   "meta": { ... },
   "hero": {
     "overall_score": 65,
-    "overall_level": "High",
-    "overall_state": "Stable",
+    "overall_level": "HIGH",
+    "overall_state": "STABLE",
     "overall_confidence": 80,
-    "top_severity": "Extreme",
+    "top_severity": "EXTREME",
     "ring_pct": 65
   },
   "summary_counts": {
@@ -365,7 +365,7 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
       "name": "Cascade Risk",
       "key": "cascade_risk",
       "weight": 0.14, "weight_pct": 14,
-      "score": 90, "level": "Extreme", "state": "Critical",
+      "score": 90, "level": "EXTREME", "state": "CRITICAL",
       "confidence": 90,
       "evidence": ["$50M long liquidation event"],
       "bar_pct": 90, "weight_mark_pct": 14,
@@ -388,11 +388,11 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   "source_tab": "analysis",
   "meta": { ... },
   "header": {
-    "bias": "Bullish",
+    "bias": "BULLISH",
     "confidence": 0.72,
     "state_confidence": 0.72,
     "market_regime": "TRENDING_BULL",
-    "market_quality": "Good"
+    "market_quality": "GOOD"
   },
   "signals": {
     "supporting": [
@@ -404,11 +404,11 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
     "lean": { "label": "Net bullish · 2↑ vs 1↓", "bullish": 2, "bearish": 1, "tone": "bull" }
   },
   "qualitative_assessment": {
-    "trend": "Healthy",
-    "momentum": "Increasing",
-    "structure": "Strong",
-    "volatility": "Normal",
-    "volume": "Strong",
+    "trend": "HEALTHY",
+    "momentum": "INCREASING",
+    "structure": "STRONG",
+    "volatility": "NORMAL",
+    "volume": "STRONG",
     "cycle_phase": "MARKUP"
   },
   "per_timeframe_alignment": [
@@ -429,13 +429,13 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
   "source_tab": "recommendation",
   "meta": { ... },
   "environment": {
-    "directional_guidance": "Long",
-    "market_stance": "Constructive",
-    "strategy_environment": "TrendFollowing",
-    "opportunity_classification": "TrendContinuation",
+    "directional_guidance": "LONG",
+    "market_stance": "CONSTRUCTIVE",
+    "strategy_environment": "TREND_FOLLOWING",
+    "opportunity_type": "TREND_CONTINUATION",
     "confidence_pct": 78,
     "readiness": "READY",
-    "entry_danger": { "score": 30, "level": "Low", "state": "Stable", "confidence": 0.7 }
+    "entry_danger": { "score": 30, "level": "LOW", "state": "STABLE", "confidence": 0.7 }
   },
   "verdict": {
     "top": "LONG",
@@ -450,7 +450,7 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
     { "action": "HOLD",  "prob_pct": 15 }
   ],
   "top_setup": {
-    "opportunity_type": "TrendContinuation",
+    "opportunity_type": "TREND_CONTINUATION",
     "score": 78,
     "preconditions_met": 4,
     "preconditions_total": 5,
@@ -483,9 +483,9 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
     "scenarios": null
   },
   "strategy": {
-    "entry": "Pullback",
-    "exit": "TrendWeakening",
-    "protection": "StructureBased",
+    "entry": "PULLBACK",
+    "exit": "TREND_WEAKENING",
+    "protection": "STRUCTURE_BASED",
     "target": "RRBased"
   },
   "final_verdict": "Long bias — structure-based entry with R:R 2.5"
@@ -527,7 +527,7 @@ Mirrors `MtfView.svelte` (4 × N grid with per-row agreement).
       "is_active": true,
       "mark_price": 65000,
       "pnl": 37.50,
-      "status": "Active"
+      "status": "ACTIVE"
     }
   ],
   "brackets": {

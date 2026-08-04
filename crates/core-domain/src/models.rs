@@ -53,6 +53,14 @@ pub enum TimeframeSlot {
     Slow,
     #[serde(alias = "macro")]
     Macro,
+    /// Operator-defined custom slot. The 16-bit `id` is an index into the
+    /// slot-name registry carried by `TimeframeSlotsConfig`. The original
+    /// name is preserved in the registry for display and DB persistence.
+    /// Custom slots come from `[instances.*].timeframes` extras and carry
+    /// their `timeframe_secs` and inferred `TimeframeCategory` in the slot
+    /// metadata. Default ladder (Micro/Fast/Slow/Macro) continues to work
+    /// for backward compatibility.
+    Custom { id: u16 },
 }
 
 /// Per-timeframe pipeline lifecycle state. One value per `(instance, slot)`.
@@ -114,27 +122,37 @@ impl CandlePipelineState {
 
 impl TimeframeSlot {
     /// Lowercase identifier used on the wire and in URLs.
-    pub fn as_str(self) -> &'static str {
+    /// For `Custom { id }` returns `"custom-{id}"` (formatted at call time);
+    /// legacy slots return the canonical lowercase identifier. Note: returns
+    /// `String` (not `&str`) because the `Custom` branch allocates. Callers
+    /// that need `&str` should use `.as_str()` only for legacy slots, or take
+    /// a `&` (e.g. `&slot.as_str()`) which deref-coerces.
+    pub fn as_str(&self) -> String {
         match self {
-            TimeframeSlot::Micro => "micro",
-            TimeframeSlot::Fast => "fast",
-            TimeframeSlot::Slow => "slow",
-            TimeframeSlot::Macro => "macro",
+            TimeframeSlot::Micro => "micro".to_string(),
+            TimeframeSlot::Fast => "fast".to_string(),
+            TimeframeSlot::Slow => "slow".to_string(),
+            TimeframeSlot::Macro => "macro".to_string(),
+            TimeframeSlot::Custom { id } => format!("custom-{}", id),
         }
     }
 
     /// Uppercase label rendered in the UI column header.
-    pub fn display_name(self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
-            TimeframeSlot::Micro => "MICRO",
-            TimeframeSlot::Fast => "FAST",
-            TimeframeSlot::Slow => "SLOW",
-            TimeframeSlot::Macro => "MACRO",
+            TimeframeSlot::Micro => "MICRO".to_string(),
+            TimeframeSlot::Fast => "FAST".to_string(),
+            TimeframeSlot::Slow => "SLOW".to_string(),
+            TimeframeSlot::Macro => "MACRO".to_string(),
+            TimeframeSlot::Custom { id } => format!("CUSTOM-{}", id),
         }
     }
 
     /// Inverse lookup. Unknown / legacy values default to `Micro` so a
     /// stale wire or older client never silently reroutes to the wrong slot.
+    /// Custom slot names are NOT routed to `Custom` here — only the slot-name
+    /// registry can produce a `Custom { id }`. This preserves the legacy
+    /// 4-slot dispatcher contract that 0.6-era clients depend on.
     pub fn parse(raw: &str) -> TimeframeSlot {
         match raw {
             "micro" => TimeframeSlot::Micro,
@@ -147,15 +165,28 @@ impl TimeframeSlot {
 
     /// Best-effort slot reconstruction when only the historical timeframe
     /// duration is available (e.g. snapshot rows read from `market_snapshots`
-    /// before the slot column was introduced). Defaults to Micro on ties or
-    /// collisions so we never assign data to a slot that wasn't its source.
+    /// before the slot column was introduced).
     pub fn parse_from_secs(secs: u64) -> TimeframeSlot {
         match secs {
-            ..180 => TimeframeSlot::Micro,
-            180..300 => TimeframeSlot::Fast,
-            300..900 => TimeframeSlot::Slow,
-            _ => TimeframeSlot::Macro,
+            60 => TimeframeSlot::Micro,
+            180 => TimeframeSlot::Fast,
+            300 => TimeframeSlot::Slow,
+            900 => TimeframeSlot::Macro,
+            _ => TimeframeSlot::Custom {
+                id: secs as u16,
+            },
         }
+    }
+
+    /// True if the slot is one of the 4 default ladder positions.
+    pub fn is_legacy(&self) -> bool {
+        matches!(
+            self,
+            TimeframeSlot::Micro
+                | TimeframeSlot::Fast
+                | TimeframeSlot::Slow
+                | TimeframeSlot::Macro
+        )
     }
 }
 

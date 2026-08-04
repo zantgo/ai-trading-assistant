@@ -1,22 +1,24 @@
 # AGENTS.md
 
-This project is a **Trading Platform** — a complete quantitative trading system that ingests live cryptocurrency data from exchanges, computes 50 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
+This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 50 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
+
+> **Implementation status (v6.8).** Of the five logical engines, **DIE (Data Infrastructure) and MME (Market Monitoring) are implemented end-to-end** — every layer, every dashboard, every primary endpoint. **TAE (Trade Automation), PME (Portfolio Management), and PAE (Performance Analytics) are WIP / partial**: the Rust backends compile and produce state, but their dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest tab) render hardcoded placeholder data and are clearly labelled as such. The phased delivery plan and the verification checklist are in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Project overview
 
 The platform is organized around a **Two-Dimensional Architecture** — 5 specialized logical engines (DIE, MME, TAE, PME, PAE) across sequenced analytical layers. These logical engines are mapped onto 9 physical Rust crates so that "Engine" remains a logical term and the physical directories describe their engineering role.
 
-| Logical Engine | Physical Crate(s) | Responsibility |
-|---------------|-------------------|----------------|
-| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` + `market-analyzer` (L2–L4) | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries; candle generation, quality validation, distribution (executes in `market-analyzer` for latency — logical ownership remains DIE's) |
-| Market Monitoring Engine (MME) | `market-analyzer` | 50 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis; plus L1.5 (derivatives telemetry) and L2.5 (liquidity synthesis) fractional extension layers |
-| Trade Automation Engine (TAE) | `portfolio-supervisor` | Policy evaluation, position sizing, profile evaluation, trigger engine |
-| Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto |
-| Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator; SQLite persistence for analytics tables |
-| (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps |
-| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers |
-| (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving |
-| (cross-cutting) | `execution-daemon` | Headless CLI binary that wires everything together |
+| Logical Engine | Physical Crate(s) | Responsibility | Status |
+|---------------|-------------------|----------------|--------|
+| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` + `market-analyzer` (L2–L4) | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries; candle generation, quality validation, distribution (executes in `market-analyzer` for latency — logical ownership remains DIE's) | ✅ Implemented |
+| Market Monitoring Engine (MME) | `market-analyzer` | 50 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis; plus L1.5 (derivatives telemetry) and L2.5 (liquidity synthesis) fractional extension layers | ✅ Implemented |
+| Trade Automation Engine (TAE) | `portfolio-supervisor` | Policy evaluation, position sizing, profile evaluation, trigger engine, paper-trading matching engine, veto loop | ⚠️ WIP — backend runs; `TradeAutomationDashboard` is placeholder data; full wiring lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase A–B |
+| Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto | ⚠️ WIP — backend runs; `PortfolioDashboard` is placeholder data; full wiring lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase A + C |
+| Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator; SQLite persistence for analytics tables | ⚠️ WIP — analytics APIs live and Overview/Strategy/Risk/Regimes/Trades panels render real data; **backtest tab is a UI mock**; lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase D |
+| (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps | ✅ Implemented |
+| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers | ✅ Implemented |
+| (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving | ✅ Implemented |
+| (cross-cutting) | `execution-daemon` | Headless CLI binary that wires everything together | ✅ Implemented |
 
 ```
 crates/

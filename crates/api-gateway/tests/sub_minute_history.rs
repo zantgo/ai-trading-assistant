@@ -93,6 +93,7 @@ async fn build_router_with_snapshots(
 
     let active_pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
+        custom_pipelines: std::collections::HashMap::new(),
         // Micro gets the requested sub-minute duration; the other three
         // slots use dummy values so `pipeline_for_duration` never has a
         // collision.

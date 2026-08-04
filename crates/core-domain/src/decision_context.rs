@@ -33,10 +33,11 @@ pub struct DecisionContext {
     /// 5-state `MarketBias` family: `STRONG_BULLISH` / `BULLISH` / `NEUTRAL`
     /// / `BEARISH` / `STRONG_BEARISH`. Mirrors `Analysis.bias` exactly.
     pub bias: String,
-    /// `[0.0, 1.0]` derived as `|score| / 100.0`.
-    pub confidence: f64,
-    /// `score_confidence` in the wire schema; see
-    /// [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md).
+    /// `[0.0, 1.0]` derived as `|score| / 100.0`. Canonical name in the wire
+    /// schema (renamed from `confidence` in the institutional redesign; see
+    /// [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md)).
+    /// The legacy `confidence` field has been removed; the audit identified
+    /// the duplicate as breaking the canonical field-ownership contract.
     pub score_confidence: f64,
     /// Synoptic entry-danger in `[0, 100]` (high = dangerous). `RiskDimension`
     /// shape matching the wire contract documented at
@@ -121,8 +122,7 @@ impl DecisionContext {
         }
         .to_string();
 
-        let confidence = (confluence_score.abs() / 100.0).min(1.0);
-        let score_confidence = confidence;
+        let score_confidence = (confluence_score.abs() / 100.0).min(1.0);
 
         // Contributing indicators: any indicator with confidence >= 0.6
         let contributing_indicators: Vec<String> = indicators
@@ -134,7 +134,6 @@ impl DecisionContext {
         Self {
             score: confluence_score,
             bias,
-            confidence,
             score_confidence,
             entry_danger,
             expected_reward_risk_ratio,

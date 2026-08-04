@@ -1,7 +1,7 @@
 # Instance Lifecycle & Programmable State Control
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — target of record (implementation status: README §Feature Status)
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Specified — **WIP**; `LifecycleState` enum is defined; Gate 0 / lifecycle tables / automation schema / UI lifecycle badges are pending. See [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase B (AUDIT-V6-202 … V6-207).
 **Engine:** Trade Automation Engine (TAE)
 **Owner:** portfolio-supervisor + execution-daemon
 

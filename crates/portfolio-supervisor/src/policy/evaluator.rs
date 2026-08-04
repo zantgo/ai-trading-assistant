@@ -74,7 +74,7 @@ fn resolve_field_numeric(field: &str, snapshot: &MarketSnapshot) -> Option<f64> 
 
     match field {
         "decision.bias" => dc.and_then(|d| bias_numeric(&d.bias)),
-        "decision.confidence_assessment" => dc.map(|d| d.confidence * 100.0),
+        "decision.confidence_assessment" => dc.map(|d| d.score_confidence * 100.0),
         "decision.score" => dc.map(|d| d.score),
         "decision.expected_reward_risk_ratio" => dc.map(|d| d.expected_reward_risk_ratio),
         "decision.entry_danger.score" => dc.map(|d| d.entry_danger.score),
@@ -470,7 +470,6 @@ mod tests {
             decision_context: Some(DecisionContext {
                 score: 97.0,
                 bias: "STRONG_BULLISH".into(),
-                confidence: 0.97,
                 score_confidence: 0.97,
                 entry_danger: core_domain::risk::RiskDimension::from_score(12.5),
                 expected_reward_risk_ratio: 1.79,

@@ -23,6 +23,7 @@ pub struct PipelineContext {
     pub base: String,
     /// Unified internal symbol (e.g. "BTC-USDT") used across the state.
     pub internal_symbol: String,
+    pub custom_pipelines: std::collections::HashMap<u16, TimeframeConfig>,
     /// Settlement/quote currency for this session.
     pub quote: Currency,
     pub pair_key: String,
@@ -155,6 +156,7 @@ pub async fn build_pipelines(
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
+        custom_pipelines: std::collections::HashMap::new(),
         micro: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Micro,
             history: micro_history.clone(),
@@ -609,6 +611,12 @@ async fn spawn_tasks(
             core_domain::models::TimeframeSlot::Fast => fast_cluster_matrix.clone(),
             core_domain::models::TimeframeSlot::Slow => slow_cluster_matrix.clone(),
             core_domain::models::TimeframeSlot::Macro => macro_cluster_matrix.clone(),
+            core_domain::models::TimeframeSlot::Custom { .. } => {
+                // Custom slots don't have a per-TF cluster handle yet — fall
+                // back to the micro handle so the per-TF refresh loop still
+                // runs. Phase A wires a real per-custom-slot handle.
+                micro_cluster_matrix.clone()
+            }
         };
         let a_latency = active_pair.latency_tracker.clone();
         let a_quality = state.platform.read().await.quality.clone();
@@ -628,6 +636,7 @@ async fn spawn_tasks(
                 core_domain::models::TimeframeSlot::Fast => (x_micro, x_slow, x_macro),
                 core_domain::models::TimeframeSlot::Slow => (x_micro, x_fast, x_macro),
                 core_domain::models::TimeframeSlot::Macro => (x_micro, x_fast, x_slow),
+                core_domain::models::TimeframeSlot::Custom { .. } => (x_micro, x_fast, x_slow),
             };
 
             analyzer::run_single(
@@ -920,7 +929,7 @@ async fn spawn_tasks(
             println!(
                 "🌀 Cluster Refresh: {} {} started ({}s cadence, first fire immediate)",
                 pair_str,
-                slot.as_str(),
+                &slot.as_str(),
                 cadence_secs,
             );
             let pair_log = pair_str.clone();
@@ -949,7 +958,7 @@ async fn spawn_tasks(
                         println!(
                             "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters (first fire, {}ms)",
                             pair_log,
-                            slot.as_str(),
+                            &slot.as_str(),
                             mid,
                             oi,
                             n_short,
@@ -968,7 +977,7 @@ async fn spawn_tasks(
                         eprintln!(
                             "⚠️  Cluster Refresh: {} {} first fire skipped: {}",
                             pair_log,
-                            slot.as_str(),
+                            &slot.as_str(),
                             e,
                         );
                         write_cluster_status(
@@ -991,7 +1000,7 @@ async fn spawn_tasks(
                             println!(
                                 "🛑 Cluster Refresh: {} {} cancelled, shutting down.",
                                 pair_log,
-                                slot.as_str(),
+                                &slot.as_str(),
                             );
                             break;
                         }
@@ -1014,7 +1023,7 @@ async fn spawn_tasks(
                             println!(
                                 "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters ({}ms)",
                                 pair_log,
-                                slot.as_str(),
+                                &slot.as_str(),
                                 mid,
                                 oi,
                                 n_short,
@@ -1033,7 +1042,7 @@ async fn spawn_tasks(
                             eprintln!(
                                 "⚠️  Cluster Refresh: {} {} skipped this tick: {}",
                                 pair_log,
-                                slot.as_str(),
+                                &slot.as_str(),
                                 e,
                             );
                             write_cluster_status(
@@ -1143,7 +1152,10 @@ pub async fn compute_cluster_for_tf(
     }
 
     // 3. Build price history (last 200 candles of *this* TF, not micro).
-    let history_arc = tf_history(active_pair, slot);
+    let history_arc = match tf_history(active_pair, slot) {
+        Some(h) => h,
+        None => return Err(ClusterRefreshError::NoSnapshotYet),
+    };
     let history_handle = history_arc.read().await;
     let price_history: Vec<f64> = history_handle
         .iter()
@@ -1184,27 +1196,22 @@ async fn tf_latest_snapshot(
     active_pair: &Arc<analyzer::ActivePair>,
     slot: core_domain::models::TimeframeSlot,
 ) -> Option<core_domain::models::MarketSnapshot> {
-    let pipe = match slot {
-        core_domain::models::TimeframeSlot::Micro => &active_pair.micro,
-        core_domain::models::TimeframeSlot::Fast => &active_pair.fast,
-        core_domain::models::TimeframeSlot::Slow => &active_pair.slow,
-        core_domain::models::TimeframeSlot::Macro => &active_pair.r#macro,
-    };
+    let pipe = active_pair.pipeline_for_slot(slot)?;
     pipe.latest_snapshot.read().await.clone()
 }
+
+
 
 /// Helper: get a reference to the history `VecDeque` of one TF slot.
 fn tf_history(
     active_pair: &Arc<analyzer::ActivePair>,
     slot: core_domain::models::TimeframeSlot,
-) -> Arc<RwLock<std::collections::VecDeque<core_domain::normalized::NormalizedCandle>>> {
-    match slot {
-        core_domain::models::TimeframeSlot::Micro => active_pair.micro.history.clone(),
-        core_domain::models::TimeframeSlot::Fast => active_pair.fast.history.clone(),
-        core_domain::models::TimeframeSlot::Slow => active_pair.slow.history.clone(),
-        core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.history.clone(),
-    }
+) -> Option<Arc<RwLock<std::collections::VecDeque<core_domain::normalized::NormalizedCandle>>>> {
+    active_pair
+        .pipeline_for_slot(slot)
+        .map(|p| p.history.clone())
 }
+
 
 /// Write the cluster-status snapshot for one TF slot after a refresh tick.
 /// Always updates `last_refresh_attempt_ms`; on success also bumps

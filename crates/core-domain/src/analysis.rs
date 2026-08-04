@@ -255,10 +255,14 @@ pub struct OpportunityProfile {
     pub short_invalidation_level: Option<f64>,
     /// Per-side expected reward/risk ratio derived from the per-profile
     /// zones (faithful sign-aware R:R; never the legacy `2.5` mask).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub long_expected_rr_internal: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub short_expected_rr_internal: Option<f64>,
+    /// 0.0 means the side is not configured (no entry/target/invalidation
+    /// triangle was produced). Negative values are NOT allowed — the
+    /// producer emits 0.0 on geometric inversion rather than a signed
+    /// negative that the UI would misread as "trade against me".
+    #[serde(default)]
+    pub long_expected_rr_internal: f64,
+    #[serde(default)]
+    pub short_expected_rr_internal: f64,
     /// Trade viability classification for this profile. The L4 producer
     /// sets this so the UI can color-code the card. `None` on legacy
     /// payloads — UI should treat `None` as `NoClear`.
@@ -444,8 +448,19 @@ pub fn derive_analysis(
         MarketRegime::Range
     };
 
-    // Trend assessment from alignment trend dimension
-    let trend_dim = alignment.dimensions.get(0).map(|d| d.score).unwrap_or(50.0);
+    // Trend assessment from `mtf_trend_alignment` (signed mean in
+    // `[-1, +1]`). Bug-fix #20: the legacy code read
+    // `alignment.dimensions[0].score`, which is the 0-100 mapped
+    // version produced by `AlignmentDimension::from_signed` and is
+    // not directly comparable to the `mtf_trend_alignment` raw
+    // signed mean that downstream consumers (DecisionContext,
+    // confluence-score sign) use. We now read the raw
+    // `mtf_trend_alignment` field directly and scale to 0-100 via
+    // `((mtf_trend_alignment + 1) / 2) * 100` so the rest of the L3
+    // derivation operates on the canonical 0-100 scale.
+    let trend_dim = ((alignment.mtf_trend_alignment + 1.0) / 2.0 * 100.0)
+        .max(0.0)
+        .min(100.0);
     let trend_assessment = if trend_dim >= 90.0 {
         TrendAssessment::Strong
     } else if trend_dim >= 75.0 {
@@ -511,7 +526,20 @@ pub fn derive_analysis(
     };
 
     // ── MarketPhase: Wyckoff-style market-cycle phase (§3.9) ──
-    let is_low_volatility = vol_dim >= 20.0 && vol_dim < 40.0;
+    //
+    // Bug-fix #17: the legacy `is_low_volatility` band was
+    // `vol_dim >= 20.0 && vol_dim < 40.0` (the "Compressed" band only).
+    // A volatility score of 5-19 falls into the "Unstable" band and
+    // was silently excluded from the Wyckoff low-volatility path,
+    // which is the exact opposite of intent — the canonical Wyckoff
+    // "Accumulation" / "Distribution" setups prefer ANY form of
+    // suppressed activity (compressed OR unstable OR low-vol). We now
+    // use the full low-vol band (`vol_dim < 40.0`) which subsumes
+    // both Compressed and Unstable. The "Unstable" name is a label
+    // artifact; the L2 score is monotonically "less volatility than
+    // baseline" in that band, so it's a valid low-volatility
+    // detection input.
+    let is_low_volatility = vol_dim < 40.0;
     let is_price_trending_up = score > 20.0;
     let is_price_trending_down = score < -20.0;
     let is_volume_strong = volu_dim >= 70.0;
@@ -565,8 +593,16 @@ pub fn derive_analysis(
         OpportunityType::TrendContinuation
     };
 
-    // Market quality aggregate
-    let quality_score = (trend_dim + mom_dim + struct_dim + volu_dim) / 4.0;
+    // Market quality aggregate. Bug-fix #12: the legacy aggregate
+    // averaged 4 dimensions (trend + momentum + structure + volume) and
+    // omitted `vol_dim` (volatility). For a high-TF BTC symbol with
+    // strong trend + momentum + structure + volume but compressed
+    // volatility (the typical "quiet before expansion" pattern), the
+    // quality score was inflated to 75+ (Good) even though the
+    // volatility dimension was clearly 25-35. We now include all 5
+    // alignment dimensions so `market_quality` reflects the full
+    // picture.
+    let quality_score = (trend_dim + mom_dim + struct_dim + volu_dim + vol_dim) / 5.0;
     let market_quality = if quality_score >= 80.0 {
         QualityLevel::Excellent
     } else if quality_score >= 65.0 {

@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -209,7 +209,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v6.5; retired name recorded in `docs/CHANGELOG.md`). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v6.8; retired name recorded in `docs/CHANGELOG.md`). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -255,12 +255,43 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 
 ### 2.12 Planned endpoints (not yet served)
 
-The key-rotation routes are **specified but not yet served** — tracked as AUDIT-V6-077 (Unscheduled). They are listed here for forward planning only and are not part of the served surface above: today they return `404 Not Found` per §5. Do not build clients against them.
+The key-rotation routes and the backtest routes are **specified but not yet served**. They are listed here for forward planning only and are not part of the served surface above: today they return `404 Not Found` per §5. Do not build clients against them.
 
-| Method | Path | Planned purpose |
-|--------|------|-----------------|
-| `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). |
-| `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. |
+| Method | Path | Planned purpose | Audit ID |
+|--------|------|-----------------|----------|
+| `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). | AUDIT-V6-077 (Unscheduled) |
+| `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. | AUDIT-V6-077 (Unscheduled) |
+| `POST` | `/api/backtest/run` | Submit a backtest request (policy, symbol, date range, capital, fee). | AUDIT-V6-403 (Phase D of [`docs/ROADMAP.md`](../ROADMAP.md)) |
+| `GET` | `/api/backtest/:id` | Poll backtest status + result. | AUDIT-V6-403 (Phase D) |
+| `GET` | `/api/backtest` | Catch-all for `/api/backtest/*` references (none served yet). | AUDIT-V6-403 (Phase D) |
+| `GET` | `/api/instances/:id/policies` | List per-instance execution policies. | AUDIT-V6-401 (Phase A) |
+| `GET` | `/api/instances/:id/triggers` | Recent `ObservableTrigger` events. | AUDIT-V6-401 (Phase A) |
+| `GET` | `/api/instances/:id/paper/positions` | Live paper trading positions. | AUDIT-V6-401 (Phase A) |
+| `GET` | `/api/instances/:id/paper/orders` | Live paper trading orders. | AUDIT-V6-401 (Phase A) |
+| `GET` | `/api/instances/:id/paper/history` | Paper-trade history. | AUDIT-V6-401 (Phase A) |
+| `GET` | `/api/instances/:id/lifecycle` | Per-instance `LifecycleState`. | AUDIT-V6-401 (Phase A) |
+| `GET` | `/api/instances/:id/portfolio` | PME Portfolio summary. | AUDIT-V6-402 (Phase A) |
+| `GET` | `/api/instances/:id/safety` | PME Safety state. | AUDIT-V6-402 (Phase A) |
+| `GET` | `/api/instances/:id/exposure` | PME Exposure metrics. | AUDIT-V6-402 (Phase A) |
+| `GET` | `/api/instances/:id/capital` | PME Capital ledger. | AUDIT-V6-402 (Phase A) |
+| `GET` | `/api/instances/:id/veto` | PME Veto events. | AUDIT-V6-402 (Phase A) |
+
+### 2.13 Performance Analytics endpoints (live)
+
+The Performance Analytics Engine exposes serving endpoints under `/api/analytics/*`. These are **live** today and consumed by the `PerformanceDashboard` Overview / Strategy / Risk Metrics / Regime Map / Trade Analytics panels. The Backtesting endpoints (`/api/backtest/*`) are **not yet served** — see §2.12 above.
+
+| Method | Path | Response |
+|--------|------|----------|
+| `GET` | `/api/analytics/summary` | `{ total_trades, total_pnl, win_rate, ... }` aggregate analytics summary. |
+| `GET` | `/api/analytics/strategy` | `StrategyAnalyticsRow[]` — per-policy NHST (T-Stat, P-Value, P_MC, classification). |
+| `GET` | `/api/analytics/risk` | `RiskAnalyticsRow` — Sharpe, Sortino, Calmar, Ulcer, VaR, ES, max drawdown. |
+| `GET` | `/api/analytics/performance` | `PerformanceMatrixRow[]` — regime-strategy performance map. |
+| `GET` | `/api/analytics/optimization` | `OptimizationReport` — per-regime performance + recommendations. |
+| `GET` | `/api/analytics/strategy/history?limit=` | `StrategyAnalyticsRow[]` — historical strategy analytics. |
+| `GET` | `/api/analytics/trades?limit=200` | `TradeAnalyticsRecord[]` — reconstructed closed trades (default limit 200). |
+| `GET` | `/api/analytics` | Catch-all for `/api/analytics/*` references in the corpus (none added beyond the rows above). | AUDIT-V6-403 (live) |
+
+The endpoints above are documented in segment form (not in the canonical `(METHOD, /path)` row layout) for readability. Each path is canonical to the per-tab `PerformanceDashboard` `fetch()` call and the `api-gateway` HTTP handler in `crates/api-gateway/src/handlers/analytics.rs`.
 
 ---
 

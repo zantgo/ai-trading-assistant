@@ -186,11 +186,24 @@ impl AlignmentMatrix {
     }
 
     /// Compute signal alignment: % of signals appearing in ≥2 TFs.
+    ///
+    /// Bug-fix #19: the legacy formula
+    /// `signal_cross_tf / tf_count * 33.3` was inconsistent with the
+    /// upstream `cross_tf_count = total_signals * 0.3` computation
+    /// (line 369). The two formulas lived in different units (one
+    /// counts cross-TF signals, the other scales total signals by
+    /// 0.3) and the 33.3 multiplier in the score formula meant
+    /// "every TF has a cross-TF signal" still produced a 33% score
+    /// rather than 100%. We now use the canonical %-of-TFs formula
+    /// `signal_cross_tf / tf_count * 100` which matches the trend /
+    /// regime / confidence alignment scoring convention and reads
+    /// "0% = no cross-TF signals, 100% = every TF has at least one
+    /// cross-TF signal".
     fn compute_signal_alignment(signal_cross_tf: u32, tf_count: u32) -> AlignmentDimension {
         if tf_count < 2 {
             return AlignmentDimension::new(0.0);
         }
-        let score = (signal_cross_tf as f64 / tf_count as f64 * 33.3).min(100.0);
+        let score = (signal_cross_tf as f64 / tf_count as f64 * 100.0).min(100.0);
         AlignmentDimension::new(score)
     }
 

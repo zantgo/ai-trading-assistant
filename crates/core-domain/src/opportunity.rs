@@ -31,6 +31,11 @@ use crate::analysis::{OpportunityProfile, OpportunityType, SetupQuality};
 // consumers that read `core_domain::opportunity::PriceRange` keep
 // compiling. The canonical home is `crate::analysis::PriceRange`.
 pub use crate::analysis::PriceRange;
+// Re-export `DirectionFamily` and `TradeViability` at the `opportunity`
+// module path so consumers can write `core_domain::opportunity::DirectionFamily`
+// and `core_domain::opportunity::TradeViability` without depending on
+// `core_domain::analysis` directly. Canonical home: `crate::analysis`.
+pub use crate::analysis::{DirectionFamily, TradeViability};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,4 +122,9 @@ pub struct OpportunityMatrix {
     pub confluent_target_levels: Vec<ConfluentLevel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub confluent_invalidation_levels: Vec<ConfluentLevel>,
+    /// Bias of the active setup. `Long` for bullish, `Short` for bearish,
+    /// `None` for Neutral. The frontend `selectProfileSide` reads this to
+    /// determine the per-card direction arrow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction_family: Option<crate::analysis::DirectionFamily>,
 }

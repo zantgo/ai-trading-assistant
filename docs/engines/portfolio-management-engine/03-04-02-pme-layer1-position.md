@@ -1,7 +1,7 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Approved
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/position_layer.rs`) is implemented; dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4
 **Input Contract:** Exchange execution events and order fill confirmations (from TAE)

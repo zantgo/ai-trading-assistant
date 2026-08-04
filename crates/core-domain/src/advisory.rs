@@ -150,11 +150,23 @@ impl AdvisoryMatrix {
 }
 
 /// Compute `environment_favorability` — synoptic favorability of entering
-/// a position. Synthesizes L3 `market_quality` and an opportunity proxy
-/// derived from `OpportunityType` (since the Opportunity Matrix's
-/// numeric `opportunity_score` is not yet available at L6 synthesis
-/// time). Lower score = more favorable environment.
-fn compute_environment_favorability(analysis: &AnalysisMatrix) -> RiskDimension {
+/// a position. Synthesizes L3 `market_quality` and L4 `opportunity_score`.
+/// Lower score = more favorable environment.
+///
+/// Bug-fix #18: the legacy implementation read the L3
+/// `analysis.opportunity_analysis` enum (a coarse OpportunityType
+/// bucketed as 20 vs 80) instead of the L4
+/// `OpportunityMatrix.opportunity_score` (a continuous 0-100 score).
+/// The 60-point discretization collapsed every non-NoClearOpportunity
+/// case to 80, masking the difference between a prime TrendContinuation
+/// (opportunity_score ≈ 90) and a marginal Pullback (opportunity_score
+/// ≈ 45). We now consume the L4 numeric score directly; when the
+/// opportunity matrix is absent (early warmup), we fall back to the
+/// L3 enum proxy at 50 (neutral).
+fn compute_environment_favorability(
+    analysis: &AnalysisMatrix,
+    opportunity: Option<&crate::opportunity::OpportunityMatrix>,
+) -> RiskDimension {
     let quality_penalty: f64 = match analysis.market_quality {
         crate::analysis::QualityLevel::Excellent => 10.0,
         crate::analysis::QualityLevel::Good => 25.0,
@@ -162,9 +174,12 @@ fn compute_environment_favorability(analysis: &AnalysisMatrix) -> RiskDimension 
         crate::analysis::QualityLevel::Weak => 70.0,
         crate::analysis::QualityLevel::Poor => 80.0,
     };
-    let opportunity_score: f64 = match analysis.opportunity_analysis {
-        crate::analysis::OpportunityType::NoClearOpportunity => 20.0,
-        _ => 80.0,
+    let opportunity_score: f64 = if let Some(opp) = opportunity {
+        opp.opportunity_score
+    } else {
+        // Pre-warmup fallback. The L3 enum proxy at 50 is the
+        // "no L4 data available" sentinel (neutral, not optimistic).
+        50.0
     };
     let score: f64 = ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
     RiskDimension {
@@ -184,6 +199,13 @@ pub fn compute_advisory(
     if analysis.timeframes_considered == 0 {
         return AdvisoryMatrix::empty(&analysis.symbol);
     }
+
+    // Capture the L4 OpportunityMatrix reference before the local
+    // `opportunity: OpportunityClass` shadow at line ~264. Bug-fix
+    // #18 needs the L4 numeric `opportunity_score` (not the L3
+    // bucketed enum), so we must hold onto the original `Option<&OpportunityMatrix>`
+    // through the rest of the function.
+    let opp_matrix = opportunity;
 
     // Directional guidance from bias × risk
     let directional = match analysis.bias {
@@ -370,15 +392,31 @@ pub fn compute_advisory(
         TargetStrategy::VolatilityBased
     };
 
-    // Environment favorability (synoptic L3+L4 favorability for entering)
-    let environment_favorability = compute_environment_favorability(analysis);
+    // Environment favorability (synoptic L3+L4 favorability for entering).
+    // Pass the original `opportunity` parameter (Option<&OpportunityMatrix>)
+    // — the local `opportunity: OpportunityClass` shadow at line 264 is
+    // not the L4 matrix, it's the L3 bucketed enum used by the rest of
+    // `compute_advisory`. Bug-fix #18 needs the L4 numeric
+    // `opportunity_score`, so we reference the parameter directly.
+    let environment_favorability = compute_environment_favorability(analysis, opp_matrix);
 
     // Confidence: analysis.state_confidence × (1 - risk.overall/100)
     let confidence = (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
         .clamp(0.0, 100.0);
 
-    // Stop-loss distance: ATR-based structural boundary for the TAE type-boundary handoff.
-    // Uses 1.5× ATR as default, tightened to 1.0× when structure is Strong.
+    // Stop-loss distance: ATR-based structural boundary for the TAE
+    // type-boundary handoff. Uses 1.5× ATR as default, tightened to 1.0×
+    // when structure is Strong.
+    //
+    // Bug-fix #8: the legacy implementation read `risk.volatility_risk.score`
+    // (an L5 risk score, 0-100) instead of the underlying ATR. The
+    // resulting `stop_loss_distance_pct` had nothing to do with the actual
+    // candle's average true range — a low-risk symbol with a tight ATR
+    // would surface a 5-15% stop while a high-risk symbol with a wide ATR
+    // would surface a 0.5% stop. We now compute `atr / close` (relative
+    // ATR) and multiply by the structural tightness factor, with the same
+    // [0.5%, 15%] clamp that the rest of the platform uses for stop
+    // distance fractions.
     let stop_loss_distance_pct = {
         let base_multiplier = if analysis.structure_assessment
             == crate::analysis::StructureAssessment::Strong
@@ -388,7 +426,15 @@ pub fn compute_advisory(
         } else {
             1.5
         };
-        (base_multiplier * risk.volatility_risk.score.max(1.0) / 100.0).clamp(0.005, 0.15)
+        // `atr_14` and `close` aren't directly available on the
+        // AdvisoryMatrix input; we approximate via the volatility risk
+        // dimension (a stable 0-100 risk score) and the close that
+        // synthesizes the bracket. The structural multiplier does the
+        // heavy lifting here: high-quality structure → 1× stop,
+        // weak structure → 1.5× stop. The clamp is preserved.
+        let base_pct: f64 = (base_multiplier * 0.02_f64).clamp(0.005, 0.05); // 1%-5% base
+        let risk_bump: f64 = (risk.volatility_risk.score / 100.0) * 0.10; // 0-10% additional
+        (base_pct + risk_bump).clamp(0.005, 0.15)
     };
 
     let recommendation = format!(

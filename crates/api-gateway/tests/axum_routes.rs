@@ -170,6 +170,7 @@ async fn test_websocket_stream_with_active_pair() {
             oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
             funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+    custom_pipelines: std::collections::HashMap::new(),
         micro: TimeframePipeline {
             slot: TimeframeSlot::Micro,
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),

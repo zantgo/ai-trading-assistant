@@ -1,9 +1,10 @@
-# Documentation Consistency Manifest — v6.5
+# Documentation Consistency Manifest — v6.8
 
-**Generated:** 2026-07-24
-**Audit run:** v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; docs-only remediation, code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
-**Scope:** `docs/` — **147 markdown files** at v6.5 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 144 numbered docs)
-**Source code:** **Inspected.** v6.2 is the first manifest version where the doc audit covers the per-instance `LifecycleState` axis (RUNNING / PAUSED / STOPPING / STOPPED) and the new Gate 0 (lifecycle) in the pre-trade chain.
+**Generated:** 2026-08-03
+**Audit run:** v6.8 implementation-status register + WIP banner pass (1 new doc + 18 status-banners + version stamps + status-header rename + stale claim corrections). Prior run: v6.7 per-tab 1:1 export payload architecture (5 new docs + 8 updates; docs-only remediation). v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
+**Scope:** `docs/` — **150 markdown files** at v6.8 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 1 ROADMAP + 146 numbered docs)
+**Source code:** **Inspected.** v6.8 is the first manifest version where the doc audit covers the **WIP** engines (TAE, PME, PAE) by reconciling the docs against the actual frontend-backend delivery state. Audit IDs AUDIT-V6-401 … V6-407 are the new items opened specifically by this alignment.
+**v6.8 source-of-truth:** `docs/ROADMAP.md` (introduced in v6.8). All implementation-status claims and per-engine WIP markers are verified against that document. The phased delivery plan (§3) and the verification checklist (§6) are the canonical contract for retiring the WIP labels.
 **v6.5 source-of-truth:** `docs/operations-and-compliance/08-08-candle-buffer-spec.md` (introduced in v6.5). All single-source-of-truth claims for candle buffer size, sub-minute / ≥ 1 minute behavior split, per-TF state machine, and per-indicator lifecycle are verified against that document and its four companion specs (`03-01-06`, `03-01-07`, `03-02-15`, `01-08`).
 **v6.2 source-of-truth:** `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` (introduced in v6.2). All lifecycle-table and Gate-0 ordering claims in this manifest are verified against that document.
 **v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
@@ -38,11 +39,11 @@ docs/
 └── operations-and-compliance/                      (8)   08-01 … 08-08
 ```
 
-**Total: 147 markdown files** = 144 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST).
+**Total: 150 markdown files** = 147 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 147 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 146 spec files.
 Engine specs: 39 = 8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE.
-File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → **v6.5 = 147** (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
+File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → v6.5 = 147 → v6.6 = 147 (Bitget V2 derivatives + UI feed-state) → v6.7 = 147 (per-tab 1:1 export payload) → **v6.8 = 150** (+00-ROADMAP, +07-05-export-data-payload-schema, +01-08 corrections) (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 144 numbered docs. Zero remaining v6.4.x or earlier stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
 
 ---
 
@@ -131,7 +132,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] `cascade_asymmetry > +0.3` ⇒ `SHORT_SQUEEZE_RISK`; `< -0.3` ⇒ `LONG_SQUEEZE_RISK`. Verified in `02-13-liquidation-cluster-matrix.md §Cascade asymmetry` (canonical) and `07-04-ui-liquidity-panel-spec.md §Cascade asymmetry sign convention (canonical mapping)` (UI); the worked example in `07-04` now reads `Sign: -0.400  Direction: LONG_SQUEEZE_RISK` (was the inverted `SHORT_SQUEEZE_RISK`).
 - [x] Canonical LiquiditySignalKind names used everywhere (Phase 3 registry at `03-02-11`) ✓
 - [x] `cascade_risk` is the **8th** of the eight sub-dimensions (plus `overall_risk` as the 9th aggregate field). The textual reference at `03-02-06 §7` ("plus `overall_risk` as the 9th and final aggregate field") is correct; no surviving "9th dimension" error.
-- [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred to v6.5 per CHANGELOG §Open Items `AUDIT-V4-005`).
+- [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred per CHANGELOG §Open Items `AUDIT-V4-005`).
 - [x] **Liquidity data-flow invariant (pinned).** `L1.5 → {L4, L5}; L2.5 → {L4, L5}; L4 + L5 → L6`.
 - [x] **Instance identity (canonical register).** Market Instance = (symbol, exchange) container of up to four TimeframePipelines; canonical glossary: `06-01` §1.0. All other documents link to the glossary instead of restating the definition.
 
@@ -183,7 +184,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
 
-- [x] Every numbered doc carries `**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
+- [x] Every numbered doc carries `**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
 - [x] Exactly three files are permitted to carry a version marker outside the numbered-doc stamp convention: `docs/README.md` (stats line; the corpus entry point), `docs/CHANGELOG.md` (the canonical single version history), and this MANIFEST (the title line). All four coherence points must read the current corpus version.
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 

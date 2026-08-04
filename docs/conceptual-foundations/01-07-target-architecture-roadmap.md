@@ -1,8 +1,10 @@
 # Target Architecture Roadmap
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical home for "Target Architecture (Not Yet Implemented)" callouts scattered across the corpus. It enumerates each target state, its current status, blocking requirements, and target version. Future revisions update this single document instead of duplicating target notes across layer docs.
+
+> **Implementation status (v6.8).** This roadmap covers **future design improvements** that go beyond the as-spec'd target (e.g. layout changes, f64 hot-path, SoA history). It is **orthogonal** to the implementation roadmap at [`docs/ROADMAP.md`](../ROADMAP.md), which covers the phased delivery of the **as-spec'd** WIP engines (TAE, PME, PAE) and their dashboards. Both are required for the v6.8 documentation set.
 
 ---
 
@@ -16,8 +18,8 @@
 | **Multi-venue failover** | Not supported. `SymbolMapper` binds each internal symbol to exactly one venue. | Define a "primary venue" model with N-second failover timeout; introduce cross-venue reconciliation (currently listed in [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) as `cross_venue_offset` but not implemented). | Unscheduled | DIE team |
 | **WASM per-instance connection-quality scoring** | Not started. Tracker is process-wide; target: per-(pair, timeframe). | Move tracker to a WASM module to isolate per-instance memory; profile overhead. | Unscheduled (AUDIT-V4-078) | DIE team |
 | **Pre-dispatch crash-recoverable persistence** | Not implemented. `PRE_DISPATCH` orders live in process memory only. | Add `pre_dispatch_orders` SQLite table; recovery path on daemon restart. | Unscheduled (per [README §Feature Status](../README.md#feature-status)) | TAE team |
-| **caller-supplied `X-Operator-Id` identity** | Not implemented. v4.0 fixed identity = `"local"`. | Auth contract; possibly mTLS for non-local callers. | Unscheduled (AUDIT-V4-076) | Cross-cutting |
-| **`cascade_risk_index` aggregation** | Placeholder field. Not aggregated into `systemic_risk_score`. | Define aggregation formula; produce L7 sample rows. | Deferred (v6.5) | PAE team |
+| `caller-supplied `X-Operator-Id` identity` | Not implemented. v4.0 fixed identity = `"local"`. | Auth contract; possibly mTLS for non-local callers. | Unscheduled (AUDIT-V4-076) | Cross-cutting |
+| **`cascade_risk_index` aggregation** | Placeholder field. Not aggregated into `systemic_risk_score`. | Define aggregation formula; produce L7 sample rows. | Unscheduled (AUDIT-V4-005) | PAE team |
 
 ### Removed in v6.5
 

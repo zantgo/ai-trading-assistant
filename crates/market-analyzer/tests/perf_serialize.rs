@@ -107,7 +107,6 @@ fn build_realistic_snapshot() -> MarketSnapshot {
     let decision = DecisionContext {
         score: 45.0,
         bias: "BULLISH".into(),
-        confidence: 0.72,
         score_confidence: 0.68,
         entry_danger: core_domain::risk::RiskDimension::from_score(35.0),
         expected_reward_risk_ratio: 2.1,

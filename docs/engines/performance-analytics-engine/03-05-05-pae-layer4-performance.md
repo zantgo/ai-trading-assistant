@@ -1,7 +1,7 @@
 # PAE Layer 4 — Performance Layer
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Approved
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/performance_layer.rs`, `strategy_optimizer.rs`, `performance_evaluator.rs`) is implemented and the Regime Map / Regimes panel renders live data. Backtest-runner integration and PAE→DB configuration feedback land in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D (AUDIT-V6-304).
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 4 of 4
 **Input Contract:** Trade Analytics (L1), Strategy Analytics (L2), Risk Analytics (L3), historical MME regime logs

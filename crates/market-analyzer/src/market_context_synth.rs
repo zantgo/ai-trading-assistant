@@ -119,9 +119,32 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     };
 
     // Liquidity proxy: VWAP proximity + volume participation.
+    //
+    // Bug-fix #16: the legacy implementation hardcoded
+    // `liquidity.score = 0.0` (the "neutral" sentinel), so the L2
+    // liquidity dimension was always 0 regardless of the actual
+    // VWAP proximity and volume participation. The downstream
+    // confidence-weighted blend `Σ(score × confidence) / Σ(confidence)`
+    // includes liquidity with confidence ≈ 0.3, so the zeroed score
+    // dragged the overall_score down by ~5-10 points on every
+    // snapshot. We now compute a real liquidity score:
+    //   - rvol contribution: `(rvol - 1) * 50`, clamped to [-50, +50]
+    //   - vwap proximity contribution: `vwap_conf * 50` (when vwap
+    //     has high confidence, the price is near the institutional
+    //     fair value → higher liquidity score)
+    //   - the two contributions are summed and clamped to [-100, +100]
+    //     (matches the L2 score convention used by trend, momentum,
+    //     volatility, volume).
     let vwap_conf = map.get("vwap").map(|v| v.confidence).unwrap_or(0.0);
+    let vwap_score = map
+        .get("vwap")
+        .map(|v| v.normalized)
+        .unwrap_or(0.0);
+    let rvol_contrib = ((rvol - 1.0) * 50.0).clamp(-50.0, 50.0);
+    let vwap_contrib = vwap_score * 50.0;
+    let liquidity_score = (rvol_contrib + vwap_contrib).clamp(-100.0, 100.0);
     let liquidity = ContextDimension {
-        score: 0.0,
+        score: liquidity_score,
         confidence: ((vwap_conf + volume.confidence) / 2.0).clamp(0.0, 1.0),
         label: if rvol >= 1.2 {
             "GOOD".into()

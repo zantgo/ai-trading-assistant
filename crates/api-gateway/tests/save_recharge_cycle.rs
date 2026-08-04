@@ -124,6 +124,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
 
     let pair = Arc::new(ActivePair {
         symbol: PAIR_KEY.to_string(),
+        custom_pipelines: std::collections::HashMap::new(),
         latest_oi: Arc::new(RwLock::new(None)),
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),

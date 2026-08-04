@@ -46,7 +46,7 @@ fn make_pipe(slot: TimeframeSlot, secs: u64, tx: broadcast::Sender<MarketSnapsho
             None::<core_domain::liquidity::LiquidationClusterMatrix>,
         )),
         cluster_status: Arc::new(RwLock::new(
-            core_domain::liquidity::ClusterStatusSnapshot::pending("BTC-USDT", slot.as_str()),
+            core_domain::liquidity::ClusterStatusSnapshot::pending("BTC-USDT", &slot.as_str()),
         )),
         pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -148,7 +148,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
 
     let active = Arc::new(ActivePair {
         symbol: "BTC-USDT".into(),
-        micro: micro_pipe,
+        custom_pipelines: std::collections::HashMap::new(),        micro: micro_pipe,
         fast: fast_pipe,
         slow: make_pipe(TimeframeSlot::Slow, 600, {
             let (t, _) = broadcast::channel::<MarketSnapshot>(1);
@@ -223,7 +223,7 @@ async fn per_tf_cluster_refresh_returns_error_when_no_snapshot() {
 
     let active = Arc::new(ActivePair {
         symbol: "BTC-USDT".into(),
-        micro: micro_pipe,
+        custom_pipelines: std::collections::HashMap::new(),        micro: micro_pipe,
         fast: make_pipe(TimeframeSlot::Fast, 300, {
             let (t, _) = broadcast::channel::<MarketSnapshot>(1);
             t
@@ -270,7 +270,7 @@ async fn per_tf_cluster_refresh_returns_error_when_no_oi() {
 
     let active = Arc::new(ActivePair {
         symbol: "BTC-USDT".into(),
-        micro: micro_pipe,
+        custom_pipelines: std::collections::HashMap::new(),        micro: micro_pipe,
         fast: make_pipe(TimeframeSlot::Fast, 300, {
             let (t, _) = broadcast::channel::<MarketSnapshot>(1);
             t
@@ -317,6 +317,7 @@ async fn cluster_refresh_skip_reason_templates_on_active_exchange() {
 
         Arc::new(ActivePair {
             symbol: "BTC-USDT".into(),
+            custom_pipelines: std::collections::HashMap::new(),
             micro: micro_pipe,
             fast: make_pipe(TimeframeSlot::Fast, 300, {
                 let (t, _) = broadcast::channel::<MarketSnapshot>(1);

@@ -96,6 +96,7 @@ fn write_initial_config(path: &std::path::Path) {
         weight_overrides: None,
         position_scaling: None,
         activation: None,
+        custom_pipelines: std::collections::HashMap::new(),
     });
     let on_disk = TestOnDiskConfig {
         hyperliquid: Default::default(),
@@ -147,7 +148,7 @@ fn build_stub_instance(
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
         cluster_status: Arc::new(RwLock::new(
-            ClusterStatusSnapshot::pending("TEST-USD", slot.as_str()),
+            ClusterStatusSnapshot::pending("TEST-USD", &slot.as_str()),
         )),
         pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -157,6 +158,7 @@ fn build_stub_instance(
 
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
+        custom_pipelines: std::collections::HashMap::new(),
         micro: build_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone()),
         fast: build_pipe(TimeframeSlot::Fast, 180, bcast_tx.clone()),
         slow: build_pipe(TimeframeSlot::Slow, 300, bcast_tx.clone()),

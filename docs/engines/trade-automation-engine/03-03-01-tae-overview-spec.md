@@ -1,7 +1,7 @@
 # Trade Automation Engine — Overview Specification
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Approved
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Specified — **WIP**; backend code is implemented (policy engine, execution engine, paper trading, lifecycle manager, veto loop, all wired in `execution-daemon`), but the dedicated `TradeAutomationDashboard` is a hardcoded placeholder. Full wiring and dashboard wiring land in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A–B.
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, API limits, transaction state-transition model, and order-management architecture of the Trade Automation Engine — the engine that evaluates user-defined execution policies against MME decision support and routes orders to live or simulated venues.
 

@@ -261,7 +261,7 @@ impl Instance {
             // `cluster_matrix`). Tests don't exercise refresh, so we
             // initialize as Pending with empty fields.
             cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending(&format!("{}-{}", pair.0, pair.1), slot.as_str()),
+                core_domain::liquidity::ClusterStatusSnapshot::pending(&format!("{}-{}", pair.0, pair.1), &slot.as_str()),
             )),
             pipeline_state: Arc::new(RwLock::new(
                 core_domain::models::CandlePipelineState::Initializing,
@@ -277,6 +277,7 @@ impl Instance {
         let internal_symbol = format!("{}-{}", pair.0, pair.1);
         let active_pair = Arc::new(ActivePair {
             symbol: internal_symbol,
+            custom_pipelines: std::collections::HashMap::new(),
             micro: micro_pipe,
             fast: fast_pipe,
             slow: slow_pipe,

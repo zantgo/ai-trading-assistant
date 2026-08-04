@@ -1,7 +1,9 @@
 # Trading Platform Architecture Specification
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
+
+> **Implementation status (v6.8).** DIE and MME are end-to-end implemented. TAE, PME, and PAE are **WIP** — the backends run and expose state, but the dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest panel) render hardcoded placeholder data. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality and §3 for the phased delivery plan.
 
 ---
 
@@ -117,10 +119,12 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 
 ### 2.3 Trade Automation Engine (TAE)
 
+> **Implementation status (v6.8).** **WIP** — backend code is implemented end-to-end (policy engine, execution engine, paper trading, lifecycle manager, veto loop, all wired in `execution-daemon`); the dedicated `TradeAutomationDashboard` is a hardcoded placeholder. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3 and §3 Phase A–B for the engine-by-engine reality and the phased delivery plan.
+
 The Trade Automation Engine evaluates user-defined execution rules and coordinates order execution with external venues.
 
 ```
-[MME Decision] -> (Policy Layer) -> (Execution Layer) -> [Exchange APIs]
+[MME Decision] -> (Policy Layer) -> (Execution Layer) -> [Paper Engine / Live Venue (WIP)]
 ```
 
 #### Layer 1: Policy Layer
@@ -129,15 +133,20 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 *   **Output (Policy Matrix):** Active policy directives containing target direction, entry parameters, and protective criteria.
 
 #### Layer 2: Execution Layer
-*   **Purpose:** Route transactional orders and manage trade lifecycles on live exchanges (a simulated paper trading environment is planned for a future release; currently only live execution is supported).
+
+> **Implementation status (v6.8).** TAE is **WIP** overall (see [`docs/ROADMAP.md`](../ROADMAP.md) §2.3). The execution engine, position sizing, paper trading, and the in-process TAE event loop are implemented. **Live exchange order dispatch is not yet built** — paper trading is the **default and only execution path** today. The Execution Layer diagrams the target spec; current implementation aligns with the target except for the live adapter.
+
+*   **Purpose:** Route transactional orders and manage trade lifecycles on the configured execution venue. The current implementation routes to the internal paper trading matching engine (`crates/portfolio-supervisor/src/paper_trading.rs`); a live exchange adapter is the target (Phase E).
 *   **Processing:** Execute the Position Sizing Protocol upon trade entry validation. Query PME Capital Matrix for Available Margin ($E$) and MME Decision Matrix for Stop-Loss Distance as a raw percentage float ($D_{sl}$, e.g. `1.5`). Calculate the exact trade size ($S$) based on the user-configured risk-per-trade fraction ($R$, e.g. $0.01$ = 1% of margin; with the default `risk_per_trade_pct = 1.0`, $R = 0.01$):
     $$S = \frac{E \times R}{D_{sl} / 100}$$
-    Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue, and track order execution states.
+    Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue (live or paper), and track order execution states. The `f64 → Decimal` cast at the analytical/transitional boundary lives in `crates/portfolio-supervisor/src/execution/order.rs::construct_order` (see [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 *   **Output (Execution Matrix):** Structured database of outstanding, filled, modified, and cancelled orders.
 
 ---
 
 ### 2.4 Portfolio Management Engine (PME)
+
+> **Implementation status (v6.8).** **WIP** — backend code is implemented (`safety.rs`, `position_layer.rs`, `exposure_layer.rs`, `capital_layer.rs`, `portfolio_risk.rs`, `veto_loop.rs`, registry, all wired in `execution-daemon`); the dedicated `PortfolioDashboard` is a hardcoded placeholder. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.4 and §3 Phase A + C.
 
 The Portfolio Management Engine manages capital safety boundaries, tracks asset exposures, and maintains active ledger accounts.
 
@@ -168,6 +177,8 @@ The Portfolio Management Engine manages capital safety boundaries, tracks asset 
 ---
 
 ### 2.5 Performance Analytics Engine (PAE)
+
+> **Implementation status (v6.8).** **WIP** — the PAE backend (`crates/performance-analytics/`) is implemented and the `PerformanceDashboard` Overview/Strategy/Risk/Regimes/Trades panels render real data from `/api/analytics/*`. The **Backtesting panel is a UI-only mock** (no `/api/backtest/*` route) and the in-process backtest runner + equity-curve visualization are pending. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5 and §3 Phase D.
 
 The Performance Analytics Engine evaluates historical trading records to isolate strategy efficacy and identify system drag.
 

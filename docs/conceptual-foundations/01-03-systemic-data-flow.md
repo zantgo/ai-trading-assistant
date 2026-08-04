@@ -1,6 +1,6 @@
 # Systemic Data Flow Specification
 
-**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved  
 **Purpose:** This document details the chronological, systemic data flows across the five core engines of the Trading Platform. It specifies the step-by-step path of telemetry as it transforms from raw exchange events into structured market intelligence, automated order routing, active portfolio tracking, and post-trade performance analytics.
 
@@ -123,9 +123,7 @@ This sequence is initiated when the Decision Matrix declares an asset is ready f
   |                     |<=[Order State & Execution Matrix]===========================|
 ```
 
-> **Target Architecture (Not Yet Implemented).** The dashed **type boundary** above is where the fast analytical hot path (`f64`) meets the precise financial cold path (`Decimal`). In the target design the MME Decision Matrix passes `stop_loss_distance_pct` as an `f64`, the TAE pulls available margin from the PME as a `Decimal`, and the TAE casts the float to `Decimal` before sizing so the protocol runs entirely in fixed-point:
-> $$S\,(\text{Decimal}) = \frac{E\,(\text{Decimal}) \times R\,(\text{Decimal})}{D_{sl}\,(\text{Decimal}) / 100}$$
-> *Current implementation:* the sizing math in `risk_calculator.rs` runs in `f64` end-to-end; the boundary cast is not yet in place.
+> **Mixed implementation status.** The dashed **type boundary** above is where the fast analytical hot path (`f64`) meets the precise financial cold path (`Decimal`). The canonical `f64 → Decimal` cast described above is **implemented** today in `crates/portfolio-supervisor/src/execution/order.rs::construct_order` (see [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) for the line-level citation). The cast uses `Decimal::from_f64_retain` for both `stop_loss_distance_pct / 100.0` and `risk_per_trade_pct / 100.0`; all sizing math downstream of the cast is `Decimal`. The earlier `risk_calculator.rs::compute_size` does still report `f64` for backward compatibility with the rest of the engine, but the canonical order-construction path runs in `Decimal`. The DOD target (audit AUDIT-V8-400 … V8-407) will move the indicator hot path to `f64` per-indicator signatures — orthogonal to this Decimal-cast fix.
 
 #### Detailed Operations:
 1. **Policy Evaluation:** The TAE Policy Layer consumes the MME **Decision Matrix**. It maps the values to user configurations. If the stance is `Active` and the decision state satisfies entry triggers, a buy signal is dispatched to the Execution Layer.

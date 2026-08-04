@@ -107,6 +107,12 @@ pub struct ActivePair {
     pub fast: TimeframePipeline,
     pub slow: TimeframePipeline,
     pub r#macro: TimeframePipeline,
+    /// Operator-defined custom slot pipelines (`TimeframeSlot::Custom { id }`).
+    /// Empty for the default 4-slot ladder; populated when the operator
+    /// selects additional timeframes from `[instances.*].timeframes`.
+    /// The slot id (`u16`) acts as the key; the registry that maps id →
+    /// name lives in `config_models::TimeframeSlotsConfig`.
+    pub custom_pipelines: std::collections::HashMap<u16, TimeframePipeline>,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
     /// Latest Open Interest (shared across all timeframes, updated by WS events).
@@ -137,12 +143,13 @@ impl ActivePair {
     /// O(1) slot-based dispatch. Replaces the legacy `pipeline_for(secs)`
     /// linear lookup that collapsed duplicate durations and silently
     /// defaulted to `micro` for any unmatched frame.
-    pub fn pipeline_for_slot(&self, slot: TimeframeSlot) -> &TimeframePipeline {
+    pub fn pipeline_for_slot(&self, slot: TimeframeSlot) -> Option<&TimeframePipeline> {
         match slot {
-            TimeframeSlot::Micro => &self.micro,
-            TimeframeSlot::Fast => &self.fast,
-            TimeframeSlot::Slow => &self.slow,
-            TimeframeSlot::Macro => &self.r#macro,
+            TimeframeSlot::Micro => Some(&self.micro),
+            TimeframeSlot::Fast => Some(&self.fast),
+            TimeframeSlot::Slow => Some(&self.slow),
+            TimeframeSlot::Macro => Some(&self.r#macro),
+            TimeframeSlot::Custom { id } => self.custom_pipelines.get(&id),
         }
     }
 
@@ -190,8 +197,9 @@ impl ActivePair {
     pub fn subscribe_broadcast_by_slot(
         &self,
         slot: TimeframeSlot,
-    ) -> broadcast::Receiver<MarketSnapshot> {
-        self.pipeline_for_slot(slot).broadcast_tx.subscribe()
+    ) -> Option<broadcast::Receiver<MarketSnapshot>> {
+        self.pipeline_for_slot(slot)
+            .map(|p| p.broadcast_tx.subscribe())
     }
 
     pub async fn latest_close_str(&self) -> Option<String> {
@@ -213,7 +221,7 @@ impl ActivePair {
     /// waiting `candle_buffer.size × timeframe_secs` for the first
     /// shadow tick.
     pub async fn latest_snapshot_for_slot(&self, slot: TimeframeSlot) -> Option<MarketSnapshot> {
-        self.pipeline_for_slot(slot)
+        self.pipeline_for_slot(slot)?
             .latest_snapshot
             .read()
             .await
@@ -221,7 +229,10 @@ impl ActivePair {
     }
 
     pub async fn snapshot_history_vec(&self, slot: TimeframeSlot) -> Vec<MarketSnapshot> {
-        let hist = self.pipeline_for_slot(slot).snapshot_history.read().await;
+        let Some(p) = self.pipeline_for_slot(slot) else {
+            return Vec::new();
+        };
+        let hist = p.snapshot_history.read().await;
         hist.iter().cloned().collect()
     }
 

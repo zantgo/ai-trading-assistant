@@ -282,6 +282,12 @@ pub struct InstanceEntry {
     /// Per-instance activation overrides (union with global [activation]).
     #[serde(default)]
     pub activation: Option<ActivationConfig>,
+    /// Operator-defined custom slot pipelines (`TimeframeSlot::Custom { id }`).
+    /// Empty for the default 4-slot ladder. The registry maps `id → name`
+    /// and the `TimeframeSlot::Custom { id }` enum variant carries the index
+    /// on the wire. Default is empty for backward compatibility.
+    #[serde(default)]
+    pub custom_pipelines: std::collections::HashMap<u16, TimeframeConfig>,
 }
 
 fn default_initial_capital() -> f64 {
@@ -520,6 +526,7 @@ indicators = { rsi_period = 14 }
             weight_overrides: None,
             position_scaling: None,
             activation: None,
+            custom_pipelines: std::collections::HashMap::new(),
         });
         ws.instances.push(InstanceEntry {
             id: "eth".into(),
@@ -536,6 +543,7 @@ indicators = { rsi_period = 14 }
             weight_overrides: None,
             position_scaling: None,
             activation: None,
+            custom_pipelines: std::collections::HashMap::new(),
         });
         let syms = ws.declared_symbols();
         assert_eq!(syms, vec!["BTC-USDT", "ETH-USDT"]);

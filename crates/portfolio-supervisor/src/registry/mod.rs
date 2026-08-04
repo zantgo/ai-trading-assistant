@@ -228,6 +228,7 @@ pub async fn add_instance(
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
         internal_symbol: normalized.clone(),
+        custom_pipelines: std::collections::HashMap::new(),
         quote: quote.clone(),
         pair_key: pair_key.clone(),
         exchange_choice: exchange_choice.clone(),
@@ -315,7 +316,8 @@ pub async fn add_instance(
                 weight_overrides: weight_overrides.clone(),
                 position_scaling: position_scaling.clone(),
                 activation: None,
-            };
+                custom_pipelines: std::collections::HashMap::new(),
+                };
             config.instances.push(entry);
         }
         if let Err(e) = config_models::save_workspace(&config) {
@@ -641,6 +643,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
         internal_symbol: pair_key.to_string(),
+        custom_pipelines: std::collections::HashMap::new(),
         quote: quote.clone(),
         pair_key: pair_key.to_string(),
         exchange_choice: exchange_choice.clone(),
@@ -816,8 +819,11 @@ pub async fn reload_timeframe(
     );
 
     // Reset only the slot's pipeline_state so the next emitted snapshot
-    // carries the LOADING badge.
-    let pipeline = instance.active_pair.pipeline_for_slot(slot_enum);
+    // carries the LOADING badge. Custom slots route to a full recharge
+    // since the legacy 4-slot reset can't address them individually.
+    let Some(pipeline) = instance.active_pair.pipeline_for_slot(slot_enum) else {
+        return recharge_instance(state, instance_id).await;
+    };
     *pipeline.pipeline_state.write().await = CandlePipelineState::Initializing;
     pipeline.indicator_lifecycle.write().await.clear();
 

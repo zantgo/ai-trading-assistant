@@ -59,6 +59,16 @@ async fn spawn_analyzer(
         core_domain::models::TimeframeSlot::Fast => "Fast",
         core_domain::models::TimeframeSlot::Slow => "Slow",
         core_domain::models::TimeframeSlot::Macro => "Macro",
+        core_domain::models::TimeframeSlot::Custom { id } => {
+            // Custom slot: map to the closest legacy label by id parity.
+            // The test only fires under 60s (id=60) or 1s (id=1) so the
+            // legacy labels remain meaningful.
+            if id % 60 == 0 {
+                "Macro"
+            } else {
+                "Micro"
+            }
+        }
     };
 
     tokio::spawn(async move {

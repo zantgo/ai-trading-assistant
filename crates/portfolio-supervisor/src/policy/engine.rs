@@ -135,10 +135,10 @@ impl PolicyEngine {
                 let existing_same_dir = triggers.iter()
                     .find(|t| t.direction == policy.direction)
                     .map(|t| (t.policy_id.clone(), t.decision_context_snapshot
-                        .get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0)));
+                        .get("score_confidence").and_then(|c| c.as_f64()).unwrap_or(0.0)));
                 if let Some((existing_id, existing_conf)) = existing_same_dir {
                     let new_conf = snapshot.decision_context.as_ref()
-                        .map(|d| d.confidence).unwrap_or(0.0);
+                        .map(|d| d.score_confidence).unwrap_or(0.0);
                     if new_conf <= existing_conf {
                         continue;
                     }
@@ -157,7 +157,7 @@ impl PolicyEngine {
                 serde_json::json!({
                     "score": dc.score,
                     "bias": dc.bias,
-                    "confidence": dc.confidence,
+                    "score_confidence": dc.score_confidence,
                     "trade_readiness": dc.trade_readiness,
                 })
             }).unwrap_or(serde_json::Value::Null);
@@ -284,7 +284,6 @@ mod tests {
             decision_context: Some(DecisionContext {
                 score: 97.0,
                 bias: "STRONG_BULLISH".into(),
-                confidence: 0.97,
                 score_confidence: 0.97,
                 entry_danger: core_domain::risk::RiskDimension::from_score(12.5),
                 expected_reward_risk_ratio: 1.79,
