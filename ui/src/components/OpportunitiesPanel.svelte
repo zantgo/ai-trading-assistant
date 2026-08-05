@@ -142,11 +142,25 @@
         (opportunity?.profiles ?? []).find((p) => p.opportunity_type === 'NoClearOpportunity') ?? null,
     );
 
-    // R:R (Internal) display: when verdict is HOLD AND the expected_rr
-    // is 0, surface "N/A — no directional bias" instead of a misleading
-    // "0.00" that operators read as "this trade has 0 R:R".
+    // Active-side R:R (per-side, gated on macro bias). The legacy
+    // matrix-level `expected_rr_internal` was removed in v6.9; the
+    // canonical R:R is now the per-side field. When the bias is
+    // Neutral (no active side), surface "N/A — no directional bias"
+    // instead of a misleading "0.00" that operators read as "this
+    // trade has 0 R:R".
     const rrInternalDisplay = $derived.by((): { value: string; isNA: boolean } => {
-        const v = opportunity?.expected_rr_internal ?? 0;
+        const bias = analysis?.bias ?? 'Neutral';
+        const opp = opportunity;
+        let v = 0;
+        if (opp) {
+            if (bias === 'Bullish' || bias === 'StrongBullish') {
+                v = opp.long_expected_rr_internal ?? 0;
+            } else if (bias === 'Bearish' || bias === 'StrongBearish') {
+                v = opp.short_expected_rr_internal ?? 0;
+            } else {
+                v = 0;
+            }
+        }
         if (rank.top === 'HOLD' && v === 0) {
             return { value: 'N/A', isNA: true };
         }
@@ -271,6 +285,7 @@
     </div>
 
     <div class={styles.section}>
+        <div class={styles.topSetupLabel}>TOP SETUP</div>
         <div class={styles.headerRow}>
             <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">
                 {analysis ? oppLabel(analysis.opportunity_analysis) : '—'}

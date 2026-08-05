@@ -1,4 +1,4 @@
-# Documentation Consistency Manifest — v6.8
+# Documentation Consistency Manifest — v6.9
 
 **Generated:** 2026-08-03
 **Audit run:** v6.8 implementation-status register + WIP banner pass (1 new doc + 18 status-banners + version stamps + status-header rename + stale claim corrections). Prior run: v6.7 per-tab 1:1 export payload architecture (5 new docs + 8 updates; docs-only remediation). v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
@@ -43,7 +43,7 @@ docs/
 Engine specs: 39 = 8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE.
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → v6.5 = 147 → v6.6 = 147 (Bitget V2 derivatives + UI feed-state) → v6.7 = 147 (per-tab 1:1 export payload) → **v6.8 = 150** (+00-ROADMAP, +07-05-export-data-payload-schema, +01-08 corrections) (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
 
 ---
 
@@ -95,7 +95,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 ### 12.1 Cross-reference integrity
 - [x] Every internal markdown link resolves. (Manual scan; broken-link detector passes for the 18 file-tree spanning the corpus.)
 - [x] No `§3.7 weights`-style references to non-existent sections. The previously broken reference in `02-04-decision-matrix.md §6` is replaced by `02-04-decision-matrix.md §2.3` (the new `confluence_score` formula), and the file owns its own headline score formula.
-- [x] Every cross-doc rename usage is `state_confidence`, `forecast_confidence`, `score_confidence`, `confidence_assessment`, `entry_danger`, `expected_rr_internal`, `expected_reward_risk_ratio`, `invalidation_level`, `execution_liquidity_risk`, `cascade_risk`, `tradability_dim`, `CompressionRelease` — verified by per-term grep counts (§4 below).
+- [x] Every cross-doc rename usage is `state_confidence`, `forecast_confidence`, `score_confidence`, `confidence_assessment`, `entry_danger`, `long_expected_rr_internal`, `short_expected_rr_internal`, `expected_reward_risk_ratio`, `invalidation_level`, `execution_liquidity_risk`, `cascade_risk`, `tradability_dim`, `CompressionRelease` — verified by per-term grep counts (§4 below). The legacy matrix-level `expected_rr_internal` was removed in v6.9.
 
 ### 12.2 Numerical counts (registry-verified, `crates/market-analyzer/src/indicators/registry.rs` at `2026-07-16`)
 - [x] **50 indicators / 8 groups** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives)
@@ -115,11 +115,11 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] `01-01 §A.5` `overall_risk.score = 28.3` (was 28.0; recompute from per-dimension scores `(35, 45, 15, 25, 20, 30, 25, 30)` and weights: `0.14·35 + 0.14·45 + 0.14·15 + 0.10·25 + 0.14·20 + 0.10·30 + 0.10·25 + 0.14·30 = 28.3` ✓)
 - [x] `01-01 §A.6` `confidence_assessment = 46.61` from inputs `(state_confidence = 0.65, overall_risk = 28.3)`: `0.65 × (1 − 0.283) × 100 = 0.65 × 0.717 × 100 = 46.605 → 46.61` ✓. *Verified: 2026-07-17.*
   *(Historical note: prior versions used `state_confidence = 0.82` → `59.07`; the v6.3 chain unifies on `0.65` → `46.61`. The `58.79` number was a transposition artefact, now closed.)*
-- [x] `01-01 §A.6` `expected_reward_risk_ratio = 1.79` from `(expected_rr_internal=2.5, overall_risk=28.3)`: `2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.7925` ✓. *Verified: 2026-07-17.*
+- [x] `01-01 §A.6` `expected_reward_risk_ratio = 1.79` from `(active-side R:R = 2.5, overall_risk=28.3)`: `2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.7925` ✓. The active side resolves to `long_expected_rr_internal` for bullish bias. The legacy matrix-level `expected_rr_internal` was removed in v6.9. *Verified: 2026-07-17.*
 - [x] `02-04 §6` worked example (Scenario B) — recomputed under `confluence_score = 0.50·100 + 0.30·100 + 0.20·85 = 97.0` (max feasible) and the L6 `confidence_assessment = 71.7` ✓. *Verified: 2026-07-17.*
 - [x] `02-04-decision-matrix.md §3.6/§3.7` `NO_RECOMMENDATION` is reached on the empty-state fallback (full coverage of all 5 variants per enum) ✓
 - [x] `08-05 §Composite Score` worked example: `50×0.95 + 30×(1−0.8) + 20×(1−0.4) − 5×min(300/600,1) − 5×min(50/100,1) = 47.5 + 6 + 12 − 2.5 − 2.5 = 60.5` ✓. *Verified: 2026-07-17.*
-- [x] `01-02 §6.3` `expected_reward_risk_ratio = 2.5 × (1 − 0.283) = 1.79` ✓
+- [x] `01-02 §6.3` `expected_reward_risk_ratio = 2.5 × (1 − 0.283) = 1.79` ✓ (active-side R:R is `long_expected_rr_internal` for bullish bias; legacy `expected_rr_internal` removed in v6.9)
 - [x] `01-02 §2.2` clock-drift boundary: `:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000` — all integer epoch multiples ✓
 
 ### 12.4 Boundary conventions
@@ -184,7 +184,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
 
-- [x] Every numbered doc carries `**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
+- [x] Every numbered doc carries `**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
 - [x] Exactly three files are permitted to carry a version marker outside the numbered-doc stamp convention: `docs/README.md` (stats line; the corpus entry point), `docs/CHANGELOG.md` (the canonical single version history), and this MANIFEST (the title line). All four coherence points must read the current corpus version.
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 
@@ -211,7 +211,7 @@ Grep counts for the canonical renames (post-v4.0 corpus):
 | `score_confidence` (L6 decision_context) | 4 | full coverage |
 | `confidence_assessment` (L6 advisory) | 13 | full coverage |
 | `entry_danger` (L6) | 10 | replaces `environment_favorability`; no survivors of the prior name |
-| `expected_rr_internal` (L4) | 4 | distinct from `expected_reward_risk_ratio` (L6) |
+| `long_expected_rr_internal` / `short_expected_rr_internal` (L4) | 4 | per-direction R:R; active side resolved by `analysis.bias`. The legacy matrix-level `expected_rr_internal` was removed in v6.9. |
 | `expected_reward_risk_ratio` (L6) | 6 | no `expected_rr_ratio` abbreviation (H-10 fix) |
 | `invalidation_level` (L4 / L6 / Position Matrix) | 6 | no `invalid_level` or `final_invalidation_level` survivors (H-11 fix) |
 | `execution_liquidity_risk` (L5) | 9 | no normative `liquidity_risk` survivors; one documented serde alias remains in `01-05` (backward compatibility) |

@@ -262,6 +262,12 @@
     onMount(async () => {
         await app.fetchSessionStatus();
         await fetchConfig();
+        // Start the L7 OverviewMatrix polling loop. The GeneralDashboard
+        // depends on `app.overviewMatrix` for the system-wide Roll-up
+        // cards (risk_distribution, asset_ranking, regime_distribution,
+        // market_health, etc.). The loop is idempotent and tolerates
+        // transient network failures — see state.svelte.ts.
+        app.startOverviewPolling(3000);
         const route = parseEngineHash(window.location.hash);
         if (route && configReady && app.sessionActive) {
             applyRoute(route.engine, route.middleTab, route.instance, route.view);
@@ -285,6 +291,7 @@
         for (const sym of Object.keys(wssMap)) {
             disconnectWsForInstance(wssMap, sym);
         }
+        app.stopOverviewPolling();
     });
 
     $effect(() => {

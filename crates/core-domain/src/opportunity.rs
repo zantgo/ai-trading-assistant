@@ -11,7 +11,9 @@
 //! - `primary_opportunity`, `opportunity_score`, `setup_quality` — produced by L4.
 //! - `profiles[]` — per-setup-type scored profiles with precondition fractions.
 //! - `forecast_confidence` — confidence in the profiling [0, 1].
-//! - `expected_rr_internal` — produced by L4 from the candidate setup profiles.
+//! - `long_expected_rr_internal` / `short_expected_rr_internal` — produced by L4
+//!   from the per-side zones; consumers read the active side via `analysis.bias`.
+//!   The legacy matrix-level `expected_rr_internal` was removed in v6.9.
 //! - `invalidation_level`, `entry_zone`, `target_zone`, `time_horizon` — produced by L4 from
 //!   structural context (S/R, fib, pivot, VWAP).
 //! - `confluent_entry_levels`, `confluent_target_levels`, `confluent_invalidation_levels` —
@@ -106,15 +108,15 @@ pub struct OpportunityMatrix {
     pub short_invalidation_level: f64,
     /// Per-direction expected reward/risk ratio for a long setup, computed
     /// from `long_target_zone` vs `long_entry_zone` and `long_invalidation_level`.
-    /// Independent of `expected_rr_internal` so consumers can surface a
-    /// directional R:R even when the legacy scalars mirror the inactive side.
+    /// This is the canonical per-side R:R. The legacy `expected_rr_internal`
+    /// matrix-level scalar was removed in v6.9; consumers now read this
+    /// per-side value gated on `analysis.bias` to recover the active side.
     #[serde(default)]
     pub long_expected_rr_internal: f64,
     /// Per-direction expected reward/risk ratio for a short setup, computed
     /// from `short_target_zone` vs `short_entry_zone` and `short_invalidation_level`.
     #[serde(default)]
     pub short_expected_rr_internal: f64,
-    pub expected_rr_internal: f64,
     pub time_horizon: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub confluent_entry_levels: Vec<ConfluentLevel>,

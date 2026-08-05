@@ -111,12 +111,10 @@ fn compute_candidate_score(
         (raw * ratio).clamp(0.0, 100.0)
     };
 
-    // User-facing rationale. Cleansed of raw/ratio debug strings — those
-    // are kept in the `scoring_factors` field, which is `#[serde(skip)]`.
-    let notes = format!(
-        "{:?}: preconditions {}/{}",
-        opportunity_type, preconditions_met, preconditions_total
-    );
+    // User-facing rationale. Precondition count is displayed separately
+    // via the structured `preconditions_met` / `preconditions_total`
+    // fields on every profile card — keep the `notes` lean.
+    let notes = format!("{:?}", opportunity_type);
 
     (score, notes, raw, ratio)
 }
@@ -574,24 +572,63 @@ fn derive_side_zones(
     let has_confluent_target = confluent_target.len() >= 2;
     let has_confluent_inval = !confluent_inval.is_empty();
 
+    // ── Entry zone — side-specific clamp ───────────────────────────────
+    // LONG:  zone must sit BELOW close (`high ≤ close`).
+    // SHORT: zone must sit ABOVE close (`low ≥ close`).
+    // The legacy implementation clamped both bounds to `close` in the
+    // same direction (`low = low.min(close); high = high.max(close)`)
+    // which produced zones straddling close instead of sitting cleanly
+    // on one side. Fix: clamp the bound that touches `close`, then
+    // widen the other bound away from `close` by ATR.
     let entry_zone = if has_confluent_entry {
         let prices: Vec<f64> = confluent_entry.iter().map(|c| c.price).collect();
-        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
-        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let low = low.min(close).max(0.0);
-        let high = high.max(close);
+        let raw_low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let raw_high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let (low, high) = if bias_long {
+            // LONG: high must NOT exceed close; widen low further below.
+            let high = raw_high.min(close);
+            let low = raw_low.min(high).min(close - atr * 0.1).max(0.0);
+            (low, high)
+        } else {
+            // SHORT: low must NOT go below close; widen high further above.
+            let low = raw_low.max(close);
+            let high = raw_high.max(low).max(close + atr * 0.1);
+            (low, high)
+        };
         core_domain::opportunity::PriceRange { low, high }
     } else {
-        core_domain::opportunity::PriceRange {
-            low: (close - atr * 0.5).max(0.0),
-            high: close + atr * 0.5,
+        // ATR fallback — symmetric, side-correct.
+        if bias_long {
+            core_domain::opportunity::PriceRange {
+                low: (close - atr * 0.5).max(0.0),
+                high: close,
+            }
+        } else {
+            core_domain::opportunity::PriceRange {
+                low: close,
+                high: close + atr * 0.5,
+            }
         }
     };
 
+    // ── Target zone — side-correct, with min distance from close ────────
+    // LONG:  zone must sit ABOVE close (`low ≥ close + δ`).
+    // SHORT: zone must sit BELOW close (`high ≤ close − δ`).
     let target_zone = if has_confluent_target {
         let prices: Vec<f64> = confluent_target.iter().map(|c| c.price).collect();
-        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
-        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let raw_low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let raw_high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let (low, high) = if bias_long {
+            // LONG: low must be above close; widen high further above.
+            let low = raw_low.max(close + atr * 0.1);
+            let high = raw_high.max(low);
+            (low, high)
+        } else {
+            // SHORT: high must be below close; widen low further below.
+            let high = raw_high.min(close - atr * 0.1);
+            let low = raw_low.min(high);
+            (low, high)
+        };
         core_domain::opportunity::PriceRange { low, high }
     } else if bias_long {
         let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
@@ -607,14 +644,37 @@ fn derive_side_zones(
         }
     };
 
+    // ── Invalidation — MUST sit OUTSIDE the entry zone ────────────────
+    // LONG:  inv < entry.low  (a stop above entry.high would be a no-op).
+    // SHORT: inv > entry.high.
+    // The legacy implementation picked `confluent_inval[0].price`
+    // regardless of side, which surfaced the screenshot bug where
+    // SL = $63937 sat at entry.low (= $63937).
     let invalidation_level = if has_confluent_inval {
-        confluent_inval[0].price.max(0.0)
+        // Side-prune the candidates: keep only those on the correct
+        // side of the entry zone. If none survive, fall through to the
+        // ATR fallback below.
+        let survivors: Vec<&ConfluentLevel> = confluent_inval
+            .iter()
+            .filter(|c| {
+                if bias_long {
+                    c.price < entry_zone.low
+                } else {
+                    c.price > entry_zone.high
+                }
+            })
+            .collect();
+        if let Some(best) = survivors.first() {
+            best.price.max(0.0)
+        } else if bias_long {
+            (entry_zone.low - atr * 0.5).max(0.0)
+        } else {
+            entry_zone.high + atr * 0.5
+        }
     } else if bias_long {
-        let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
-        (close - atr * k).max(0.0)
+        (entry_zone.low - atr * 0.5).max(0.0)
     } else {
-        let k = if primary_score >= 70.0 { 2.0 } else { 1.5 };
-        close + atr * k
+        entry_zone.high + atr * 0.5
     };
 
     (
@@ -874,47 +934,47 @@ fn compute_opportunity(
         short_conf_inval,
     ) = derive_side_zones(indicators, cluster, close, atr, primary_score, false);
 
-    // Per-side reward/risk computed independently from each side's own zones.
-    // This is the geometric R:R the frontend reads per profile. The legacy
-    // `expected_rr_internal` field mirrors the active side for backward
-    // compatibility with the PME/TAE consumers that read it.
-    let compute_side_rr = |entry: &core_domain::opportunity::PriceRange,
-                            target: &core_domain::opportunity::PriceRange,
-                            inv: f64|
-     -> Option<f64> {
-        if atr <= 0.0 {
-            return None;
+    // Per-side reward/risk computed with the three-state model
+    // (`core_domain::risk_reward::compute_side_rr_v2`) which distinguishes:
+    //   Value(f64)  — bracket is geometrically valid
+    //   NoValue(r)  — bracket exists but geometry is inverted
+    //   Error(msg)  — computation failed (NaN, division by zero)
+    // The legacy closure conflated NoValue and Error as `None`.
+    use core_domain::risk_reward::{compute_side_rr_v2, SideRrStatus};
+    let long_rr_status = compute_side_rr_v2(
+        long_entry_zone.low,
+        long_entry_zone.high,
+        long_target_zone.low,
+        long_target_zone.high,
+        long_invalidation_level,
+        close,
+        core_domain::risk_reward::Side::Long,
+    );
+    let short_rr_status = compute_side_rr_v2(
+        short_entry_zone.low,
+        short_entry_zone.high,
+        short_target_zone.low,
+        short_target_zone.high,
+        short_invalidation_level,
+        close,
+        core_domain::risk_reward::Side::Short,
+    );
+
+    // Extract the f64 from the three-state result (for backward compat
+    // with the per-profile `f64` fields). The trade_viability badge
+    // reads the three-state status directly; the per-profile R:R
+    // fields carry the numeric value.
+    fn rr_value(status: &SideRrStatus) -> Option<f64> {
+        match status {
+            SideRrStatus::Value(v) => Some(*v),
+            _ => None,
         }
-        let entry_mid = (entry.low + entry.high) / 2.0;
-        let target_mid = (target.low + target.high) / 2.0;
-        let risk_val = (entry_mid - inv).abs();
-        if risk_val <= 0.0 {
-            return None;
-        }
-        // Use signed (target - entry) / signed (entry - inv) so LONG
-        // and SHORT produce the correct positive ratio. A LONG setup with
-        // target < entry OR inv > entry returns a NEGATIVE ratio that the
-        // frontend reads as a geometric inversion (not a positive number
-        // hiding the mistake).
-        let reward = target_mid - entry_mid;
-        let risk_dir = entry_mid - inv;
-        if (reward > 0.0) != (risk_dir > 0.0) {
-            // Geometric inversion: target and invalidation on the same
-            // side of entry. Surface the unsigned magnitude so the UI
-            // can flag it; the geometry-consistent check at the consumer
-            // uses the sign match above as the authoritative gate.
-            return None;
-        }
-        let ratio = (reward.abs() / risk_dir.abs()).max(0.0);
-        // No artificial cap. A real 8+ R:R stays 8+; a real 0.3 R:R
-        // surfaces as 0.3. The bucketing thresholds in the UI
-        // (PRIME/STRONG/MODERATE/MARGINAL) map directly to the raw ratio.
-        Some(ratio)
-    };
-    let long_expected_rr_internal =
-        compute_side_rr(&long_entry_zone, &long_target_zone, long_invalidation_level);
-    let short_expected_rr_internal =
-        compute_side_rr(&short_entry_zone, &short_target_zone, short_invalidation_level);
+    }
+    fn rr_is_ok(status: &SideRrStatus) -> bool {
+        matches!(status, SideRrStatus::Value(_))
+    }
+    let long_expected_rr_internal = rr_value(&long_rr_status);
+    let short_expected_rr_internal = rr_value(&short_rr_status);
 
     // Legacy scalar fields mirror the active side so PME/TAE consumers that
     // read `entry_zone` / `target_zone` / `invalidation_level` see unchanged
@@ -945,20 +1005,6 @@ fn compute_opportunity(
             short_conf_target,
             short_conf_inval,
         )
-    };
-
-    // Legacy `expected_rr_internal`: same calculation as the per-side
-    // helper, using whichever side is the active one. Geometric
-    // inversion returns the inactive side's 0.0 fallback so consumers
-    // that read this scalar see a usable scalar; the per-side fields
-    // are the authoritative source for risk-stance-aware decisioning.
-    let expected_rr_internal = {
-        let active_rr = if bias_bullish {
-            long_expected_rr_internal
-        } else {
-            short_expected_rr_internal
-        };
-        active_rr.unwrap_or(0.0)
     };
 
     // `direction_family`: maps the active bias to a structured tag so
@@ -1060,7 +1106,7 @@ fn compute_opportunity(
                 }
                 (analysis::DirectionFamily::TrendRiding, true, _)
                 | (analysis::DirectionFamily::CounterTrend, false, true) => {
-                    if long_expected_rr_internal.is_some() {
+                    if rr_is_ok(&long_rr_status) {
                         Some(core_domain::opportunity::TradeViability::Actionable)
                     } else {
                         Some(core_domain::opportunity::TradeViability::GeometryInverted)
@@ -1068,7 +1114,7 @@ fn compute_opportunity(
                 }
                 (analysis::DirectionFamily::TrendRiding, false, true)
                 | (analysis::DirectionFamily::CounterTrend, true, _) => {
-                    if short_expected_rr_internal.is_some() {
+                    if rr_is_ok(&short_rr_status) {
                         Some(core_domain::opportunity::TradeViability::Actionable)
                     } else {
                         Some(core_domain::opportunity::TradeViability::GeometryInverted)
@@ -1135,7 +1181,6 @@ fn compute_opportunity(
         short_invalidation_level,
         long_expected_rr_internal: long_expected_rr_internal.unwrap_or(0.0),
         short_expected_rr_internal: short_expected_rr_internal.unwrap_or(0.0),
-        expected_rr_internal,
         time_horizon,
         confluent_entry_levels: confluent_entry,
         confluent_target_levels: confluent_target,

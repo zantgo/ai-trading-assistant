@@ -175,14 +175,26 @@
         bullish: number;
         bearish: number;
         tone: 'bull' | 'bear' | 'split';
+        callHtml: string;
+        metaHtml: string;
     } => {
         const bull = (analysis?.supporting_signals ?? []).length;
         const bear = (analysis?.contradicting_signals ?? []).length;
         const total = bull + bear;
-        if (total === 0) return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split' };
-        if (bull > bear * 1.5) return { label: `Net bullish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bull' };
-        if (bear > bull * 1.5) return { label: `Net bearish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bear' };
-        return { label: `Split signals · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'split' };
+        if (total === 0) return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split',
+            callHtml: 'No signals', metaHtml: 'Waiting for cross-TF consensus' };
+        if (bull > bear * 1.5) {
+            const ratio = bear > 0 ? (bull / bear).toFixed(1) : bull.toFixed(0);
+            return { label: `Net bullish \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'bull',
+                callHtml: `Net bullish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratio}:1 signal ratio` };
+        }
+        if (bear > bull * 1.5) {
+            const ratio = bull > 0 ? (bear / bull).toFixed(1) : bear.toFixed(0);
+            return { label: `Net bearish \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'bear',
+                callHtml: `Net bearish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratio}:1 signal ratio` };
+        }
+        return { label: `Split signals \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'split',
+            callHtml: 'Split signals', metaHtml: `${bull}\u2191 vs ${bear}\u2193` };
     });
 
     // Helper to decompose raw signal strings into structural elements
@@ -272,6 +284,15 @@
                 {analysis ? displayRegime(analysis.market_regime) : '—'}
             </span>
             <span>| Quality: <span class="{styles.qualityBadge} {qualityClass(analysis?.market_quality ?? '')}">{analysis?.market_quality ?? '—'}</span></span>
+        </div>
+    </div>
+
+    <!-- ── Signal Lean Hero ── -->
+    <div class={styles.section}>
+        <div class={styles.signalLeanHeroLabel}>SIGNAL LEAN</div>
+        <div class="{styles.signalLeanHero} {signalLean.tone === 'bull' ? styles.signalLeanBull : signalLean.tone === 'bear' ? styles.signalLeanBear : styles.signalLeanSplit}">
+            <span class={styles.signalLeanHeroCall}>{signalLean.callHtml}</span>
+            <span class={styles.signalLeanHeroMeta}>{signalLean.metaHtml}</span>
         </div>
     </div>
 

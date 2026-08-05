@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-**Version:** 6.8 (2026-08-03) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
 **Status:** In progress — partial implementation; multiple engines still in WIP.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 

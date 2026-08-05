@@ -45,7 +45,10 @@ pub struct DecisionContext {
     /// Synthesized from L3 `market_quality` and L4 `opportunity_score` via
     /// the formula in Decision Matrix §3.8.
     pub entry_danger: RiskDimension,
-    /// Risk-discounted R:R — `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)`.
+    /// Risk-discounted R:R — `(active-side R:R) × (1 − L5.overall_risk / 100.0)`.
+    /// The active-side R:R is `L4.long_expected_rr_internal` for bullish
+    /// bias, `L4.short_expected_rr_internal` for bearish, 0 for Neutral.
+    /// The legacy matrix-level `L4.expected_rr_internal` was removed in v6.9.
     pub expected_reward_risk_ratio: f64,
     /// Gate label — one of `READY` / `FORMING` / `WATCH` / `STAND_ASIDE`.
     pub trade_readiness: String,
@@ -88,13 +91,23 @@ impl DecisionContext {
         }
         .to_string();
 
-        // -- expected_reward_risk_ratio = L4.expected_rr_internal × (1 − overall_risk/100)
-        // `expected_rr_internal == 0` is the explicit "no setup" sentinel from
-        // `compute_opportunity`; propagate as 0 here too rather than masking
-        // a NoClearOpportunity with the legacy 2.5 default.
-        let expected_rr_internal = opportunity.map(|o| o.expected_rr_internal).unwrap_or(0.0);
+        // -- expected_reward_risk_ratio = active-side R:R × (1 − overall_risk/100)
+        // The legacy matrix-level `expected_rr_internal` was removed in v6.9;
+        // we now read the per-side R:R gated on the analysis bias so the
+        // active side's R:R flows into the L6 discount. When the active
+        // side is unset (Neutral bias) or its R:R is zero, the L6 value
+        // is also zero — explicit "no setup" sentinel.
+        let active_rr = opportunity
+            .map(|o| match analysis.bias {
+                crate::analysis::MarketBias::StrongBullish
+                | crate::analysis::MarketBias::Bullish => o.long_expected_rr_internal,
+                crate::analysis::MarketBias::StrongBearish
+                | crate::analysis::MarketBias::Bearish => o.short_expected_rr_internal,
+                crate::analysis::MarketBias::Neutral => 0.0,
+            })
+            .unwrap_or(0.0);
         let risk_disc = 1.0 - risk.overall_risk.score / 100.0;
-        let expected_reward_risk_ratio = expected_rr_internal * risk_disc;
+        let expected_reward_risk_ratio = active_rr * risk_disc;
 
         // -- entry_danger = mean(quality_penalty, 100 − opportunity_score)
         let quality_penalty: f64 = match analysis.market_quality {
@@ -201,7 +214,8 @@ mod tests {
 
     #[test]
     fn bearish_low_risk_yields_high_rr() {
-        let analysis = make_analysis_with_quality(QualityLevel::Good);
+        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
+        analysis.bias = MarketBias::Bullish;
         let risk = make_risk_with_overall(20.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -211,7 +225,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            expected_rr_internal: 2.5,
+            long_expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
@@ -224,7 +238,8 @@ mod tests {
 
     #[test]
     fn high_risk_blocks_at_70() {
-        let analysis = make_analysis_with_quality(QualityLevel::Average);
+        let mut analysis = make_analysis_with_quality(QualityLevel::Average);
+        analysis.bias = MarketBias::Bullish;
         let risk = make_risk_with_overall(80.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -234,7 +249,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Strong,
             profiles: vec![],
             forecast_confidence: 0.7,
-            expected_rr_internal: 2.5,
+            long_expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
@@ -256,7 +271,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Marginal,
             profiles: vec![],
             forecast_confidence: 0.3,
-            expected_rr_internal: 2.5,
+            long_expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
@@ -281,7 +296,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            expected_rr_internal: 2.5,
+            long_expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
@@ -304,7 +319,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            expected_rr_internal: 2.5,
+            long_expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
@@ -324,7 +339,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::None,
             profiles: vec![],
             forecast_confidence: 0.0,
-            expected_rr_internal: 0.0,
+            long_expected_rr_internal: 0.0,
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
@@ -345,7 +360,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            expected_rr_internal: 3.0,
+            long_expected_rr_internal: 3.0,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
@@ -354,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn no_clear_opportunity_expected_rr_internal_is_zero_propagated() {
+    fn no_clear_opportunity_active_side_rr_is_zero_propagated() {
         let analysis = make_analysis_with_quality(QualityLevel::Good);
         let risk = make_risk_with_overall(20.0);
         let indicators = HashMap::new();
@@ -365,7 +380,7 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::None,
             profiles: vec![],
             forecast_confidence: 0.0,
-            expected_rr_internal: 0.0, // explicit Neutral sentinel
+            long_expected_rr_internal: 0.0, // explicit Neutral sentinel
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };

@@ -286,22 +286,27 @@ def check_g4_canonical_scenario():
     expect(abs((abs(align["mtf_overall_score"]) / 100 + 0.15 + 0.10) - ana["state_confidence"]) < 1e-9,
            "02-02 §5: state_confidence does not recompute from the seed")
 
-    # expected_rr_internal = (65750 − 64100) / (64100 − 63440) = 2.5
+    # long_expected_rr_internal = (65750 − 64100) / (64100 − 63440) = 2.5
+    # (the legacy matrix-level `expected_rr_internal` was removed in v6.9)
     entry_mid = (float(opp["entry_zone"]["low"]) + float(opp["entry_zone"]["high"])) / 2
     target_mid = (float(opp["target_zone"]["low"]) + float(opp["target_zone"]["high"])) / 2
     inv = float(opp["invalidation_level"])
     rr = (target_mid - entry_mid) / (entry_mid - inv)
     expect(abs(rr - 2.5) < 1e-9, f"02-08 §7: recomputed RR {rr}, expected 2.5")
-    expect(opp["expected_rr_internal"] == 2.5,
-           f"02-08 §7: expected_rr_internal is {opp['expected_rr_internal']}, expected 2.5")
+    expect(opp["long_expected_rr_internal"] == 2.5,
+           f"02-08 §7: long_expected_rr_internal is {opp['long_expected_rr_internal']}, expected 2.5")
     expect(opp["opportunity_score"] == 85.0 and opp["setup_quality"] == "PRIME",
            f"02-08 §7: opportunity_score/setup_quality = {opp['opportunity_score']}/{opp['setup_quality']}, expected 85.0/PRIME")
 
     # Ontology Appendix A mirrors (A.2–A.4)
     expect(a2["mtf_overall_score"] == 40.0, f"01-01 §A.2: mtf_overall_score is {a2['mtf_overall_score']}, expected 40.0")
     expect(a3["state_confidence"] == 0.65, f"01-01 §A.3: state_confidence is {a3['state_confidence']}, expected 0.65")
-    expect(a4["expected_rr_internal"] == 2.5 and a4["opportunity_score"] == 85.0 and a4["setup_quality"] == "PRIME",
-           "01-01 §A.4: chain values (RR 2.5 / score 85.0 / PRIME) diverge")
+    # The legacy `expected_rr_internal` was removed in v6.9; the canonical
+    # R:R is now the per-direction `long_expected_rr_internal` /
+    # `short_expected_rr_internal` pair. The active side is resolved by
+    # `analysis.bias`; for a bullish bias it equals `long_expected_rr_internal`.
+    expect(a4["long_expected_rr_internal"] == 2.5 and a4["opportunity_score"] == 85.0 and a4["setup_quality"] == "PRIME",
+           "01-01 §A.4: chain values (long_rr 2.5 / score 85.0 / PRIME) diverge")
 
     # A.5 overall_risk = 0.14·35 + 0.14·45 + 0.14·15 + 0.10·25 + 0.14·20 + 0.10·30 + 0.10·25 + 0.14·30 = 28.3
     weights = {"market_risk": 0.14, "volatility_risk": 0.14, "execution_liquidity_risk": 0.14,

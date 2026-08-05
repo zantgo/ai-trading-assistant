@@ -240,10 +240,11 @@ function buildSafetyFlagsBlock(
   decisionContext: DecisionContext | null,
   advisory: AdvisoryMatrix | null,
   readiness: string,
+  activeSideRr: number,
 ): SafetyFlagsBlock {
   return {
     readiness,
-    internal_rr: opportunity?.expected_rr_internal ?? 0,
+    internal_rr: activeSideRr,
     risk_adj_rr: decisionContext?.expected_reward_risk_ratio ?? 0,
     stop_loss_pct: advisory?.stop_loss_distance_pct ?? 0,
     confidence_pct: advisory?.confidence_assessment ?? 0,
@@ -338,6 +339,21 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     opportunity: args.opportunity,
     analysis: args.analysis,
   });
+  // Active-side R:R (per-side, gated on macro bias). The legacy
+  // matrix-level `opportunity.expected_rr_internal` was removed in
+  // v6.9; we now read the per-side value that matches the active
+  // bias.
+  const activeSideRr = (() => {
+    if (!args.opportunity) return 0;
+    const bias = args.analysis?.bias ?? 'Neutral';
+    if (bias === 'Bullish' || bias === 'StrongBullish') {
+      return args.opportunity.long_expected_rr_internal ?? 0;
+    }
+    if (bias === 'Bearish' || bias === 'StrongBearish') {
+      return args.opportunity.short_expected_rr_internal ?? 0;
+    }
+    return 0;
+  })();
   const payload: RecommendationPayload = {
     source_tab: 'recommendation',
     meta,
@@ -350,6 +366,7 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
       args.decisionContext,
       args.advisory,
       rank.headline.state,
+      activeSideRr,
     ),
     why: rank.rationale.slice(0, 3),
     price_levels: buildPriceLevelsBlock(args.opportunity, rank.top),

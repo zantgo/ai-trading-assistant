@@ -57,7 +57,6 @@ pub struct ConnectionQualityTracker {
 
 struct TrackerState {
     events: VecDeque<QualityEvent>,
-    reconstructed_candle_count: u32,
     last_heartbeat_ms: u64,
     last_connected_ms: Option<u64>,
     cumulative_connected_secs: u64,
@@ -68,6 +67,13 @@ enum QualityEvent {
     Connected { at_ms: u64 },
     Disconnected { at_ms: u64 },
     ReconnectCompleted { at_ms: u64, duration_ms: u64 },
+    /// AUDIT-V9 B3: a candle was reconstructed (REST gap fill or
+    /// sub-minute synthesis). Carries the timestamp so the rolling
+    /// window report can count only events that fall inside the
+    /// window — replacing the previous unbounded process-lifetime
+    /// `reconstructed_candle_count` which permanently penalised the
+    /// composite score for the rest of the session.
+    Reconstructed { at_ms: u64 },
 }
 
 impl ConnectionQualityTracker {
@@ -75,7 +81,6 @@ impl ConnectionQualityTracker {
         Self {
             state: Arc::new(RwLock::new(TrackerState {
                 events: VecDeque::new(),
-                reconstructed_candle_count: 0,
                 last_heartbeat_ms: 0,
                 last_connected_ms: None,
                 cumulative_connected_secs: 0,
@@ -120,9 +125,13 @@ impl ConnectionQualityTracker {
         state.last_heartbeat_ms = at_ms;
     }
 
-    pub async fn record_reconstructed_candle(&self) {
+    pub async fn record_reconstructed_candle(&self, at_ms: u64) {
         let mut state = self.state.write().await;
-        state.reconstructed_candle_count = state.reconstructed_candle_count.saturating_add(1);
+        append_event(
+            &mut state,
+            QualityEvent::Reconstructed { at_ms },
+            at_ms,
+        );
     }
 
     pub async fn report(&self, window: QualityWindow, now_ms: u64) -> ConnectionQualityReport {
@@ -147,6 +156,9 @@ impl ConnectionQualityTracker {
                 QualityEvent::Connected { .. } | QualityEvent::ReconnectCompleted { .. } => {
                     disconnected_at_ms = None;
                 }
+                // AUDIT-V9 B3: reconstructed events do not affect the
+                // open-disconnect-window state.
+                QualityEvent::Reconstructed { .. } => {}
             }
         }
 
@@ -154,6 +166,7 @@ impl ConnectionQualityTracker {
         let mut disconnect_count = 0_u32;
         let mut reconnect_sum_ms = 0_u64;
         let mut reconnect_count = 0_u32;
+        let mut reconstructed_count = 0_u32;
 
         for event in ordered_events.iter() {
             let at_ms = event_timestamp(event);
@@ -175,6 +188,13 @@ impl ConnectionQualityTracker {
                     reconnect_sum_ms = reconnect_sum_ms.saturating_add(*duration_ms);
                     reconnect_count = reconnect_count.saturating_add(1);
                     close_disconnect(&mut data_loss_ms, &mut disconnected_at_ms, at_ms);
+                }
+                QualityEvent::Reconstructed { .. } => {
+                    // AUDIT-V9 B3: count reconstructed candles inside the
+                    // window instead of using the previous unbounded
+                    // process-lifetime counter. Prevents a single bad
+                    // cold start from permanently depressing the score.
+                    reconstructed_count = reconstructed_count.saturating_add(1);
                 }
             }
         }
@@ -199,7 +219,7 @@ impl ConnectionQualityTracker {
         let reconnect_factor = 1.0 - (avg_reconnect_ms / 5000.0).min(1.0);
         let data_loss_penalty = 5.0 * (total_data_loss_secs as f64 / 600.0).min(1.0);
         let reconstructed_penalty =
-            5.0 * (state.reconstructed_candle_count as f64 / 100.0).min(1.0);
+            5.0 * (reconstructed_count as f64 / 100.0).min(1.0);
         let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor
             - data_loss_penalty
             - reconstructed_penalty)
@@ -213,7 +233,7 @@ impl ConnectionQualityTracker {
             disconnect_count,
             avg_reconnect_ms,
             total_data_loss_secs,
-            reconstructed_candles: state.reconstructed_candle_count,
+            reconstructed_candles: reconstructed_count,
             score,
         }
     }
@@ -307,9 +327,25 @@ impl ConnectionQualityRegistry {
     }
 
     /// Cross-scope aggregate (the process-wide view served when the API
-    /// caller does not filter by instance/timeframe). Recomputes the
-    /// composite score from the aggregated components using the canonical
-    /// formula so a perfect empty session still scores 100.
+    /// caller does not filter by instance/timeframe). The composite
+    /// `score` is the **mean of per-scope scores** — operators expect
+    /// the workspace-wide view to behave like an average of the
+    /// individual pair × TF panels, not a re-application of the formula
+    /// against summed counters.
+    ///
+    /// AUDIT-V9 B2: the previous implementation summed `disconnect_count`
+    /// and `reconstructed_candles` across scopes then re-applied the
+    /// formula. With N pairs × 4 TFs, a single reconnect cycle on one
+    /// pair inflated the aggregate disconnect count by 4, so a 3-pair
+    /// workspace hit the disconnect_factor = 0 floor and permanently
+    /// lost all 30 score points.
+    ///
+    /// AUDIT-V9 B12: `total_data_loss_secs` is now summed (was max).
+    /// Previously a workspace where 2 of 5 pairs each lost 60 s of
+    /// data reported `total_data_loss_secs = 60`, which made the
+    /// aggregate **optimistic** relative to summing — combined with B2
+    /// this gave asymmetric and confusing behaviour. Sum is the
+    /// conservative interpretation.
     pub async fn aggregate_report(
         &self,
         window: QualityWindow,
@@ -343,23 +379,16 @@ impl ConnectionQualityRegistry {
         } else {
             reconnects.iter().sum::<f64>() / reconnects.len() as f64
         };
-        let total_data_loss_secs = reports
+        let total_data_loss_secs: u64 = reports
             .iter()
             .map(|(_, _, r)| r.total_data_loss_secs)
-            .max()
-            .unwrap_or(0);
+            .sum();
         let reconstructed_candles: u32 =
             reports.iter().map(|(_, _, r)| r.reconstructed_candles).sum();
-        let disconnect_factor = 1.0 - (disconnect_count as f64 / 10.0).min(1.0);
-        let reconnect_factor = 1.0 - (avg_reconnect_ms / 5000.0).min(1.0);
-        let data_loss_penalty =
-            5.0 * (total_data_loss_secs as f64 / 600.0).min(1.0);
-        let reconstructed_penalty =
-            5.0 * (reconstructed_candles as f64 / 100.0).min(1.0);
-        let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor
-            - data_loss_penalty
-            - reconstructed_penalty)
-            .clamp(0.0, 100.0);
+        // AUDIT-V9 B2: composite is the mean of per-scope composite
+        // scores — a workspace-wide re-application of the formula is
+        // misleading because its counters aggregate cross-scope.
+        let score = reports.iter().map(|(_, _, r)| r.score).sum::<f64>() / n;
         ConnectionQualityReport {
             window,
             window_start_ms,
@@ -369,7 +398,7 @@ impl ConnectionQualityRegistry {
             avg_reconnect_ms,
             total_data_loss_secs,
             reconstructed_candles,
-            score,
+            score: score.clamp(0.0, 100.0),
         }
     }
 
@@ -453,7 +482,8 @@ fn event_timestamp(event: &QualityEvent) -> u64 {
     match event {
         QualityEvent::Connected { at_ms }
         | QualityEvent::Disconnected { at_ms }
-        | QualityEvent::ReconnectCompleted { at_ms, .. } => *at_ms,
+        | QualityEvent::ReconnectCompleted { at_ms, .. }
+        | QualityEvent::Reconstructed { at_ms } => *at_ms,
     }
 }
 
@@ -561,9 +591,9 @@ mod tests {
     #[tokio::test]
     async fn reconstructed_candles_counted() {
         let tracker = ConnectionQualityTracker::new();
-        tracker.record_reconstructed_candle().await;
-        tracker.record_reconstructed_candle().await;
-        tracker.record_reconstructed_candle().await;
+        tracker.record_reconstructed_candle(10_000_000).await;
+        tracker.record_reconstructed_candle(10_000_000).await;
+        tracker.record_reconstructed_candle(10_000_000).await;
 
         let report = tracker.report(QualityWindow::OneHour, 10_000_000).await;
 
@@ -584,5 +614,104 @@ mod tests {
 
         assert_eq!(report.disconnect_count, 1);
         assert!((report.avg_reconnect_ms - 1_000.0).abs() < f64::EPSILON);
+    }
+
+    /// AUDIT-V9 B3: reconstructed candles from a previous window MUST NOT
+    /// count in the current window's report. The previous implementation
+    /// accumulated `reconstructed_candle_count` for the lifetime of the
+    /// process and subtracted up to 5 points from the score forever —
+    /// which is why a single cold-start with a gap permanently
+    /// depressed the score for the rest of the session.
+    #[tokio::test]
+    async fn reconstructed_candles_are_windowed() {
+        let tracker = ConnectionQualityTracker::new();
+        let now_ms = 10_000_000;
+        let window_start_ms = now_ms - 3_600_000;
+        // 5 reconstructions inside the 1h window.
+        for off in [60_000, 120_000, 180_000, 240_000, 300_000] {
+            tracker
+                .record_reconstructed_candle(window_start_ms + off)
+                .await;
+        }
+        // 50 reconstructions OUTSIDE the window (90 minutes ago) — these
+        // must be pruned and NOT count toward the report.
+        for off in 0..50 {
+            tracker
+                .record_reconstructed_candle(window_start_ms - 60_000 - (off * 1_000))
+                .await;
+        }
+
+        let report = tracker.report(QualityWindow::OneHour, now_ms).await;
+
+        assert_eq!(
+            report.reconstructed_candles, 5,
+            "old reconstructed events must not pollute the current window report"
+        );
+    }
+
+    /// AUDIT-V9 B2: aggregate_score must be the mean of per-scope scores
+    /// and must NOT collapse to the disconnect_factor=0 floor when many
+    /// scopes each report 1 disconnect. The previous implementation
+    /// summed disconnect counts across scopes, then re-applied the
+    /// formula — so a 12-scope workspace (3 pairs × 4 TFs) lost all 30
+    /// disconnect-factor points from a single reconnect cycle on one
+    /// pair.
+    #[tokio::test]
+    async fn aggregate_score_averages_per_scope_scores() {
+        let registry = ConnectionQualityRegistry::new();
+        let now_ms = 10_000_000;
+        // 12 scopes, each with exactly 1 disconnect inside the window.
+        for pair in 0..3 {
+            for tf_secs in [60_u64, 180, 300, 900] {
+                let t = registry
+                    .scope(&format!("PAIR-{pair}"), tf_secs)
+                    .await;
+                t.record_connect(now_ms - 60_000).await;
+                t.record_disconnect(now_ms - 30_000).await;
+                t.record_reconnect(now_ms - 29_000, 100).await;
+            }
+        }
+
+        let agg = registry
+            .aggregate_report(QualityWindow::OneHour, now_ms)
+            .await;
+        // Per-scope score should be 99.x (one tiny disconnect).
+        // Average across 12 scopes should still be in the 90s — NOT
+        // 70.0 (which is what the old summed formula would give).
+        assert!(
+            agg.score > 90.0,
+            "aggregate must average per-scope scores; got {} (expected > 90)",
+            agg.score
+        );
+        // disconnect_count summed is reported as-is (12) so operators
+        // can see total incident count even though the score is averaged.
+        assert_eq!(agg.disconnect_count, 12);
+    }
+
+    /// AUDIT-V9 B12: total_data_loss_secs is summed, not maxed. Two
+    /// scopes each losing 60 s of data must report 120 s in the
+    /// aggregate, not 60.
+    #[tokio::test]
+    async fn aggregate_sums_data_loss_secs() {
+        let registry = ConnectionQualityRegistry::new();
+        let now_ms = 10_000_000;
+        // Pair A: 60s of data loss.
+        let a = registry.scope("PAIR-A", 60).await;
+        a.record_connect(now_ms - 600_000).await;
+        a.record_disconnect(now_ms - 240_000).await;
+        a.record_reconnect(now_ms - 180_000, 1_000).await;
+        // Pair B: 90s of data loss.
+        let b = registry.scope("PAIR-B", 60).await;
+        b.record_connect(now_ms - 600_000).await;
+        b.record_disconnect(now_ms - 360_000).await;
+        b.record_reconnect(now_ms - 270_000, 1_000).await;
+
+        let agg = registry
+            .aggregate_report(QualityWindow::OneHour, now_ms)
+            .await;
+        assert_eq!(
+            agg.total_data_loss_secs, 150,
+            "data loss must be summed across scopes (60 + 90)"
+        );
     }
 }

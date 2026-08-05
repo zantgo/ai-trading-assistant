@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -201,7 +201,7 @@ Alignment measures the degree of agreement regarding market direction or structu
 Analysis represents the structural and behavioral diagnosis of observed market behavior. It synthesizes alignment and timeframe metrics to determine the dominant directional bias—represented qualitatively as a categorical classification and quantitatively as a continuous **Market Bias Score** normalized between `-1.0` (absolute bearish) and `+1.0` (absolute bullish)—as well as the market regime, active cycle phase, and trend quality.
 
 ### 3.14 Opportunity
-Opportunity represents the **forecast** identified within the current market conditions. It evaluates whether favorable trading setups exist (e.g., Trend Continuation, Breakout, Pullback) and scores them from 0 to 100, independent of actual execution parameters. The canonical `OpportunityType` enum (eight variants — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)) is owned by the Opportunity Matrix (L4); the Analysis Matrix's former `opportunity_analysis` field has been removed. The Opportunity Matrix's full schema (including the institutional fields `entry_zone`, `target_zone`, `invalidation_level`, `expected_rr_internal`, and `time_horizon`) is documented in [02-08-opportunity-matrix.md §2](../matrices/02-08-opportunity-matrix.md); this §3.14 entry is the conceptual definition only.
+Opportunity represents the **forecast** identified within the current market conditions. It evaluates whether favorable trading setups exist (e.g., Trend Continuation, Breakout, Pullback) and scores them from 0 to 100, independent of actual execution parameters. The canonical `OpportunityType` enum (eight variants — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)) is owned by the Opportunity Matrix (L4); the Analysis Matrix's former `opportunity_analysis` field has been removed. The Opportunity Matrix's full schema (including the institutional fields `entry_zone`, `target_zone`, `invalidation_level`, `long_/short_expected_rr_internal`, and `time_horizon`) is documented in [02-08-opportunity-matrix.md §2](../matrices/02-08-opportunity-matrix.md); this §3.14 entry is the conceptual definition only. The legacy matrix-level `expected_rr_internal` was removed in v6.9.
 
 ### 3.15 Risk
 Risk represents the structural, technical, and environmental dangers present in the current market, independent of directional bias. It scores threats (volatility risk, **execution_liquidity_risk** [renamed from `liquidity_risk` in the Phase 3 liquidity extension to free the term `liquidity` for positional concepts], structural distance to invalidation) from 0 to 100, providing an objective metric for exposure limits. *In the institutional redesign, the Risk Matrix contains 8 unipolar danger dimensions + `overall_risk` (no reward synthesis). Reward evaluation is a Decision-Layer concept and lives in the Decision Matrix as `entry_danger`.*
@@ -1339,7 +1339,8 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
   "entry_zone":  { "low": 64000.0, "high": 64200.0 },
   "target_zone": { "low": 65500.0, "high": 66000.0 },
   "invalidation_level": 63440.0,
-  "expected_rr_internal": 2.5,
+  "long_expected_rr_internal": 2.5,
+  "short_expected_rr_internal": 0.0,
   "time_horizon": "SWING"
 }
 ```
@@ -1350,7 +1351,7 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
 
 > The JSON key for confidence is **`forecast_confidence`** (not `confidence`).
 >
-> **Institutional redesign fields.** `entry_zone`, `target_zone`, `invalidation_level`, `expected_rr_internal`, and `time_horizon` are required fields for PM-consumable setup profiles. The L4 opportunity-reward field is `expected_rr_internal` (distinct from the L6 Decision-Layer `expected_reward_risk_ratio`). The L4 invalidation field is `invalidation_level` (canonical across L4, Decision Matrix, and Position Matrix).
+> **Institutional redesign fields.** `entry_zone`, `target_zone`, `invalidation_level`, `long_/short_expected_rr_internal`, and `time_horizon` are required fields for PM-consumable setup profiles. The L4 opportunity-reward fields are `long_expected_rr_internal` and `short_expected_rr_internal` (per-direction, distinct from the L6 Decision-Layer `expected_reward_risk_ratio`); the active side is resolved by `analysis.bias`. The legacy matrix-level `expected_rr_internal` was removed in v6.9. The L4 invalidation field is `invalidation_level` (canonical across L4, Decision Matrix, and Position Matrix).
 
 The canonical `OpportunityType` enum has **eight** variants (six original + `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension + `Scalp` added in the v2.1 institutional completeness sweep):
 
@@ -1436,10 +1437,10 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 >
 > **Institutional redesign fields.** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` were added to `advisory` in the institutional redesign. `opportunity_type` is gone (read from L4 instead).
 
-> **Worked example for the JSON above (matches Risk Matrix §A.5).** With `analysis.state_confidence = 0.65`, `L5.overall_risk.score = 28.3`, `L4.expected_rr_internal = 2.5`, and `L4.opportunity_score = 85.0`:
+> **Worked example for the JSON above (matches Risk Matrix §A.5).** With `analysis.state_confidence = 0.65`, `L5.overall_risk.score = 28.3`, `L4.long_expected_rr_internal = 2.5` (active side for bullish bias), and `L4.opportunity_score = 85.0`:
 >
 > - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(25, 15) = 20.0` (GOOD quality ⇒ `quality_penalty = 25`)
-> - `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 1.79`
+> - `expected_reward_risk_ratio = (active-side R:R) × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 1.79`
 > - `confidence_assessment = state_confidence × (1 − overall_risk / 100) × 100 = 0.65 × 0.717 × 100 = 46.61`
 >
 > See [Decision Matrix §6](../matrices/02-04-decision-matrix.md) for the corresponding worked calculation.

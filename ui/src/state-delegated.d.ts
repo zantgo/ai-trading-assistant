@@ -5,6 +5,7 @@ import type {
     ScaleInPortion, TakeProfitTarget, UserTrade,
     SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
     OpenOrder, SlotState, PositionSlot, EquitySnapshot,
+    OverviewMatrix,
 } from './types';
 
 declare module './state.svelte' {
@@ -70,6 +71,11 @@ declare module './state.svelte' {
         journalLookbackDepth: number; systemHeartbeat: SystemHeartbeat | null;
         recentDecisions: DecisionMemoryRow[]; completedTrades: CompletedTradesRow[];
         userTrades: UserTrade[];
+
+        overviewMatrix: OverviewMatrix | null;
+        fetchOverview(): Promise<void>;
+        startOverviewPolling(intervalMs?: number): void;
+        stopOverviewPolling(): void;
 
         fetchSessionStatus(): Promise<void>;
         initSession(currency: string, exchange: string): Promise<{ success: boolean; error?: string }>;

@@ -242,7 +242,6 @@ function makeTf() {
             short_entry_zone: { low: 65200, high: 65600 },
             short_target_zone: { low: 64000, high: 64500 },
             short_invalidation_level: 65800,
-            expected_rr_internal: 2.5,
             time_horizon: 'SWING',
             confluent_entry_levels: [
                 { price: 65000, confluence_count: 3, sources: ['FIBONACCI', 'VOLUME_PROFILE', 'SUPPORT_RESISTANCE'], strength: 0.86 },

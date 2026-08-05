@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -47,9 +47,9 @@ The Decision Matrix is realized by two complementary structures:
 | `confidence_assessment` | `f64` | Guidance confidence in `[0, 100]`. |
 | `trade_readiness` | `TradeReadiness` | Headline readiness state (§4). `READY` / `FORMING` / `WATCH` / `STAND_ASIDE`. *(Added to the schema in the institutional redesign; previously documented in §4 but missing from §2.1.)* |
 | `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `risk_favorability` in v2.1; semantic successor of `Risk.expected_rr`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `risk_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
-| `expected_reward_risk_ratio` | `f64` | Synthesized from `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)`. `L4.expected_rr_internal` is the L4 Opportunity Matrix's internal score (renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`). *(Added in the institutional redesign.)* |
+| `expected_reward_risk_ratio` | `f64` | Synthesized from the active-side R:R (`L4.long_expected_rr_internal` for bullish bias, `L4.short_expected_rr_internal` for bearish, 0 for Neutral) × `(1 − L5.overall_risk / 100.0)`. The legacy matrix-level `L4.expected_rr_internal` was removed in v6.9. *(Added in the institutional redesign.)* |
 
-> **`expected_reward_risk_ratio` formula — unit normalization.** `overall_risk` is on the canonical `[0, 100]` scale; the formula divides by `100.0` before the subtraction: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0) = 2.5 × (1 − 0.283) = 1.79`. Without the `/100.0` normalization the formula produces nonsensical values for any non-trivial risk score (e.g. with `overall_risk = 28.3`, the unnormalized form gives `2.5 × (1 − 28.3) = −68.25`). The same formula appears in the canonical ownership map at [02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md).
+> **`expected_reward_risk_ratio` formula — unit normalization.** `overall_risk` is on the canonical `[0, 100]` scale; the formula divides by `100.0` before the subtraction: `active-side R:R × (1 − L5.overall_risk / 100.0) = 2.5 × (1 − 0.283) = 1.79`. Without the `/100.0` normalization the formula produces nonsensical values for any non-trivial risk score (e.g. with `overall_risk = 28.3`, the unnormalized form gives `2.5 × (1 − 28.3) = −68.25`). The same formula appears in the canonical ownership map at [02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md).
 | `final_recommendation` | `string` | Natural-language recommendation summary. |
 
 ### 2.2 DecisionContext Fields
@@ -313,7 +313,7 @@ The Decision Matrix carries the structural invalidation and target context used 
 - `confidence_assessment = clamp(1.0 × (1 − 0.283) × 100, 0, 100) = clamp(71.7, 0, 100) = 71.7` ✓
 - `bias = STRONG_BULLISH` with `overall_risk = 28.3 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
 - `decision_context.score = 97.0` per the §2.3 confluence-score formula: with `alignment.tradability_dim = 100`, `analysis.market_quality_score = 100` (EXCELLENT → 100), and `opportunity.opportunity_score = 85`, the formula yields `0.50·100 + 0.30·100 + 0.20·85 = 97.0` ⇒ `score_confidence = |score| / 100 = 0.97` per the §2.2 mapping ✓
-- `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.expected_rr_internal = 2.5` from the Opportunity Matrix example and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
+- `expected_reward_risk_ratio = (active-side R:R) × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.long_expected_rr_internal = 2.5` from the Opportunity Matrix example — active side for the bullish `STRONG_BULLISH` bias — and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
 - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals) ✓
 - `trade_readiness = READY` per the §4 ordered rules: rule 1 does not fire (`market_stance = CONSTRUCTIVE`, `confidence_assessment = 71.7 ≥ 20`); rule 2 fires — non-neutral guidance (`STRONG_LONG`), `71.7 ≥ 60`, `market_stance = CONSTRUCTIVE ∈ {AGGRESSIVE, CONSTRUCTIVE}`, `entry_guidance = IMMEDIATE ≠ WAIT_FOR_CONFIRMATION` ✓
 - `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary.

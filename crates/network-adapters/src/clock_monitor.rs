@@ -55,7 +55,7 @@ impl Default for ClockMonitorConfig {
         Self {
             ntp_servers: vec!["pool.ntp.org".to_string(), "time.aws.com".to_string()],
             poll_interval: Duration::from_secs(30),
-            threshold: Duration::from_micros(100),
+            threshold: Duration::from_micros(50),
             breach_action: BreachAction::Warn,
             warn_on_breach: true,
             jitter_window_size: 20,

@@ -362,7 +362,7 @@ mod tests {
             entry_zone: core_domain::opportunity::PriceRange { low: 0.0, high: 0.0 },
             target_zone: core_domain::opportunity::PriceRange { low: 0.0, high: 0.0 },
             invalidation_level: 0.0,
-            expected_rr_internal: 2.5,
+            long_expected_rr_internal: 2.5,
             time_horizon: "SWING".into(),
             ..Default::default()
         });

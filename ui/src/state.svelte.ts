@@ -192,6 +192,51 @@ export class AppStore {
     async closePositionPct(_pct: number) { return { success: false, message: '' }; }
     async savePaperConfig(_initialUSD: number, _allocPct: number, _autoExec: boolean) { /***/ }
 
+    // ── L7 Overview Matrix polling ─────────────────────────────────────
+    // The Overview Matrix is the pre-aggregated cross-symbol synthesis
+    // (asset_ranking, risk_distribution, opportunity_distribution,
+    // market_health, global_summary, regime_distribution, etc.) produced
+    // by the L7 layer in `compute_overview()` and serialised at
+    // `GET /api/overview`. The `GeneralDashboard` consumes the last
+    // fetched matrix as the source of truth for system-wide Roll-up
+    // cards. Errors are tolerated silently — the per-instance derivation
+    // in `GeneralDashboard` provides the fallback.
+    private _overviewTimer: ReturnType<typeof setInterval> | null = null;
+    private _overviewFetchInFlight = false;
+
+    async fetchOverview(): Promise<void> {
+        if (this._overviewFetchInFlight) return;
+        this._overviewFetchInFlight = true;
+        try {
+            const res = await fetch('/api/overview', { headers: { Accept: 'application/json' } });
+            if (res.ok) {
+                this.overviewMatrix = (await res.json()) as OverviewMatrix;
+            }
+        } catch (_e) {
+            // Tolerate transient network failures — keep the previous
+            // matrix in place. The dashboard renders the placeholder
+            // when `overviewMatrix` is null (e.g. before first fetch).
+        } finally {
+            this._overviewFetchInFlight = false;
+        }
+    }
+
+    startOverviewPolling(intervalMs = 3000): void {
+        if (this._overviewTimer != null) return;
+        // Initial fetch — fire-and-forget to avoid blocking the caller.
+        void this.fetchOverview();
+        this._overviewTimer = setInterval(() => {
+            void this.fetchOverview();
+        }, intervalMs);
+    }
+
+    stopOverviewPolling(): void {
+        if (this._overviewTimer != null) {
+            clearInterval(this._overviewTimer);
+            this._overviewTimer = null;
+        }
+    }
+
     exchangeAccounts = $state<ExchangeAccount[]>([]);
     exchangeActiveCount = $state(0);
     exchangeMaxAccounts = $state(5);

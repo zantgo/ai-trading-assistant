@@ -1,6 +1,6 @@
 # OI Delta (1-Hour Rolling)
 
-**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## Fundamental Mechanism

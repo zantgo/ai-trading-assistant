@@ -1,0 +1,57 @@
+.strip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    font-feature-settings: "tnum" 1;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 999px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    flex-shrink: 0;
+}
+
+.dot.active {
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.sep {
+    color: rgba(255,255,255,0.2);
+}
+
+.item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.label {
+    color: rgba(255,255,255,0.35);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.val {
+    color: rgba(255,255,255,0.85);
+    font-weight: 600;
+}

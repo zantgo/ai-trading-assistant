@@ -162,7 +162,6 @@ interface OpportunityExport {
     target_zone: { low: number; high: number } | null;
     invalidation_level: number | null;
     invalidation_note: string;
-    expected_rr_internal: number | null;
     contributing_signals: string[];
     profiles: OpportunityMatrix['profiles'];
     confluent_entry_levels: ConfluentLevel[];
@@ -249,7 +248,6 @@ interface AdvisoryExport {
     confidence_assessment: number;
     entry_danger: { score: number; level: string; state: string; confidence: number } | null;
     expected_reward_risk_ratio: number;
-    expected_rr_internal: number | null;
     final_recommendation: string;
     contributing_indicators: string[];
     /** Per-symbol cascade risk score lifted from the L5 Risk Matrix. */
@@ -751,7 +749,6 @@ function exportOpportunity(opp: OpportunityMatrix | null, indicators: Record<str
         target_zone: opp.target_zone ? { low: opp.target_zone.low, high: opp.target_zone.high } : null,
         invalidation_level: opp.invalidation_level ?? null,
         invalidation_note: opp.invalidation_note,
-        expected_rr_internal: opp.expected_rr_internal ?? null,
         contributing_signals: opp.contributing_signals,
         profiles: opp.profiles,
         confluent_entry_levels: opp.confluent_entry_levels ?? [],
@@ -794,7 +791,6 @@ function exportAdvisory(
         trade_readiness: String((decisionContext as { trade_readiness?: string })?.trade_readiness ?? 'UNKNOWN'),
         confidence_assessment: adv.confidence_assessment,
         expected_reward_risk_ratio: (decisionContext as { expected_reward_risk_ratio?: number })?.expected_reward_risk_ratio ?? 0,
-        expected_rr_internal: null,
         final_recommendation: adv.final_recommendation,
         contributing_indicators: (decisionContext as { contributing_indicators?: string[] })?.contributing_indicators ?? [],
         entry_danger: ed ? {

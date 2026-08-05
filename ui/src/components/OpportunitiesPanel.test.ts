@@ -169,7 +169,8 @@ function makeOpportunity(): OpportunityMatrix {
         short_entry_zone: { low: 65000, high: 65200 },
         short_target_zone: { low: 62000, high: 62400 },
         short_invalidation_level: 66000,
-        expected_rr_internal: 2.5,
+        long_expected_rr_internal: 1.0,
+        short_expected_rr_internal: 0,
         time_horizon: 'SWING',
         confluent_entry_levels: [],
         confluent_target_levels: [],
@@ -391,7 +392,6 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
         opp.primary_opportunity = 'NoClearOpportunity';
         opp.opportunity_score = 0;
         opp.setup_quality = 'None';
-        opp.expected_rr_internal = 0;
         opp.profiles = [
             {
                 opportunity_type: 'NoClearOpportunity',
@@ -447,7 +447,6 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
         opp.primary_opportunity = 'NoClearOpportunity';
         opp.opportunity_score = 0;
         opp.setup_quality = 'None';
-        opp.expected_rr_internal = 0;
         opp.profiles = [
             {
                 opportunity_type: 'NoClearOpportunity',

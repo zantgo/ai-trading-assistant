@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -41,7 +41,8 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `entry_zone` | `PriceRange` | Recommended entry band. *(Added in the institutional redesign — institutional quant field.)* |
 | `target_zone` | `PriceRange` | Expected target band. *(Added in the institutional redesign.)* |
 | `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; the prior L4/Decision and Position Matrix spellings were unified to the canonical `invalidation_level` in v2.1 — retired names recorded in `docs/CHANGELOG.md`.)* |
-| `expected_rr_internal` | `f64` | Expected reward/risk ratio for this setup. Internal L4 value used by the L6 Decision Matrix's `expected_reward_risk_ratio` synthesis. *(Renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`.)* |
+| `long_expected_rr_internal` | `f64` | Per-direction R:R for a long setup, derived from `long_target_zone`, `long_entry_zone`, and `long_invalidation_level`. The active side is resolved by `analysis.bias`; the legacy matrix-level `expected_rr_internal` was removed in v6.9. |
+| `short_expected_rr_internal` | `f64` | Per-direction R:R for a short setup, derived from `short_target_zone`, `short_entry_zone`, and `short_invalidation_level`. |
 | `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION`. The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
 
 #### 2.1.1 PriceRange
@@ -216,12 +217,13 @@ A representative Opportunity Matrix frame. The values derive from the canonical 
   "entry_zone":  { "low": 64000.0, "high": 64200.0 },
   "target_zone": { "low": 65500.0, "high": 66000.0 },
   "invalidation_level": 63440.0,
-  "expected_rr_internal": 2.5,
+  "long_expected_rr_internal": 2.5,
+  "short_expected_rr_internal": 0.0,
   "time_horizon": "SWING"
 }
 ```
 
-> **Worked-example consistency.** `expected_rr_internal = (target_mid − entry_mid) / (entry_mid − invalidation_level) = (65750 − 64100) / (64100 − 63440) = 1650 / 660 = 2.5`. `setup_quality = PRIME` because `opportunity_score = 85.0 ∈ [85, 100]` per the §5 canonical bands. `time_horizon = SWING` matches the §3 default for `TrendContinuation`.
+> **Worked-example consistency.** `long_expected_rr_internal = (target_mid − entry_mid) / (entry_mid − invalidation_level) = (65750 − 64100) / (64100 − 63440) = 1650 / 660 = 2.5`. `setup_quality = PRIME` because `opportunity_score = 85.0 ∈ [85, 100]` per the §5 canonical bands. `time_horizon = SWING` matches the §3 default for `TrendContinuation`. The active-side R:R is resolved by `analysis.bias`: bullish → `long_expected_rr_internal`, bearish → `short_expected_rr_internal`, Neutral → 0. The legacy matrix-level `expected_rr_internal` was removed in v6.9.
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

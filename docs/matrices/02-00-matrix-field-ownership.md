@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -143,7 +143,8 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `entry_zone` (`PriceRange`) | L4 | Recommended entry band *(institutional redesign)* |
 | `target_zone` (`PriceRange`) | L4 | Expected target band *(institutional redesign)* |
 | `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior per-matrix spellings (L4/Decision and Position Matrix) unified to `invalidation_level` in v2.1; retired names recorded in `docs/CHANGELOG.md`.)* |
-| `expected_rr_internal` (`f64`) | L4 | Expected reward/risk ratio for this setup *(renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`)* |
+| `long_expected_rr_internal` (`f64`) | L4 | Per-direction R:R for a long setup. The active side is resolved by `analysis.bias`; the legacy matrix-level `expected_rr_internal` was removed in v6.9. |
+| `short_expected_rr_internal` (`f64`) | L4 | Per-direction R:R for a short setup. |
 | `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 
 **Ownership rules for L4:**

@@ -1459,11 +1459,27 @@ pub struct ReconnectConfig {
     pub max_backoff_ms: u64,
     #[serde(default = "default_reconnect_jitter")]
     pub jitter_pct: f64,
+    /// Time (ms) after a successful WS handshake at which the supervisor
+    /// marks the exchange "Connected". Default: 2000. If the handshake
+    /// completes faster, the mark fires later (so transient error
+    /// windows do not flip the panel red). Increase if your network
+    /// path is consistently slow to complete the WS handshake.
+    #[serde(default = "default_reconnect_connect_grace_ms")]
+    pub connect_grace_ms: u64,
+    /// Time (ms) after a WS termination during which the supervisor
+    /// waits before marking the exchange "Disconnected". If the next
+    /// iteration's "Connected" event fires within this window the
+    /// pending disconnect is cancelled. Default: 5000. Set to 0 to
+    /// disable (legacy behaviour: instant flip to Disconnected).
+    #[serde(default = "default_reconnect_disconnect_grace_ms")]
+    pub disconnect_grace_ms: u64,
 }
 
 fn default_reconnect_initial_ms() -> u64 { 1000 }
 fn default_reconnect_max_ms() -> u64 { 30000 }
 fn default_reconnect_jitter() -> f64 { 0.2 }
+fn default_reconnect_connect_grace_ms() -> u64 { 2000 }
+fn default_reconnect_disconnect_grace_ms() -> u64 { 5000 }
 
 impl Default for ReconnectConfig {
     fn default() -> Self {
@@ -1471,6 +1487,8 @@ impl Default for ReconnectConfig {
             initial_backoff_ms: 1000,
             max_backoff_ms: 30000,
             jitter_pct: 0.2,
+            connect_grace_ms: 2000,
+            disconnect_grace_ms: 5000,
         }
     }
 }

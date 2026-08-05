@@ -13,7 +13,7 @@ This directory contains the full specification for the Trading Platform — a co
 ```
 docs/
 ├── README.md                                         ← you are here
-├── ROADMAP.md                                        ← implementation-status register + phased delivery plan (v6.8; new)
+├── ROADMAP.md                                        ← implementation-status register + phased delivery plan (v6.9; new)
 ├── DOCS-CONSISTENCY-MANIFEST.md                      ← release-gate corpus check report
 ├── CHANGELOG.md                                      ← canonical version history + audit-ID register
 ├── conceptual-foundations/                           (01 — 8 files)
@@ -120,7 +120,7 @@ docs/
     └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
 ```
 
-Total: **150 markdown files** at v6.8 — 147 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 9 conceptual + 17 matrix + **40 engine** (8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 51 indicator + 13 signal + 3 integration + 4 UI + 8 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **15 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines.
+Total: **150 markdown files** at v6.9 — 147 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 9 conceptual + 17 matrix + **40 engine** (8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 51 indicator + 13 signal + 3 integration + 4 UI + 8 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **15 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines.
 
 ## The Five Engines
 
@@ -167,7 +167,7 @@ Total: **150 markdown files** at v6.8 — 147 numbered docs + 3 governance docs 
 
 ## Feature Status
 
-This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built. **Implementation status is the registered status at v6.8 (2026-08-03). For the detailed phased delivery plan, see [`docs/ROADMAP.md`](ROADMAP.md).**
+This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built. **Implementation status is the registered status at v6.9 (2026-08-04). For the detailed phased delivery plan, see [`docs/ROADMAP.md`](ROADMAP.md).**
 
 **Status legend.**
 - **✅ Implemented** — end-to-end, exercised by integration tests, observable in the running system.

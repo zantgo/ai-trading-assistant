@@ -1234,7 +1234,7 @@ pub async fn run_single(
                             Some(good) => {
                                 reliability.increment_reconstructed(1).await;
                                 if let Some(ref cq) = quality_scope {
-                                    cq.record_reconstructed_candle().await;
+                                    cq.record_reconstructed_candle(good.start_time_ms).await;
                                 }
                                 completed_opt = Some(good);
                             }
@@ -1320,7 +1320,7 @@ pub async fn run_single(
                             for gap_candle in filled {
                                 reliability.increment_reconstructed(1).await;
                                 if let Some(ref cq) = quality_scope {
-                                    cq.record_reconstructed_candle().await;
+                                    cq.record_reconstructed_candle(gap_candle.start_time_ms).await;
                                 }
                                 {
                                     let mut hist = history.write().await;

@@ -223,7 +223,7 @@ describe('RecommendationPanel — environment header + safety flags', () => {
         expect(screen.getByText(/Opportunity classification/i)).toBeTruthy();
     });
 
-    it('renders the safety-flags row with 5 chips (readiness, internal R:R, risk-adj R:R, stop-loss, confidence)', () => {
+    it('renders the safety-flags row with 4 chips (readiness, risk-adj R:R, stop-loss, confidence)', () => {
         seedPair('BTC-USDT');
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         // SAFETY FLAGS section title is unique to this row.
@@ -231,7 +231,12 @@ describe('RecommendationPanel — environment header + safety flags', () => {
         // `getAllByText` because "Readiness" / "Confidence" labels also
         // appear in the environment header.
         expect(screen.getAllByText(/Readiness/i).length).toBeGreaterThanOrEqual(2);
-        expect(screen.getByText(/Internal R:R/i)).toBeTruthy();
+        // The legacy "Internal R:R" KPI was removed in v6.9 along with
+        // the matrix-level `expected_rr_internal` field; the active-side
+        // R:R is now reflected via the per-side fields and the L6
+        // Risk-Adj R:R. We assert that the legacy label is gone and the
+        // remaining three KPIs render.
+        expect(screen.queryByText(/Internal R:R/i)).toBeNull();
         expect(screen.getByText(/Risk-Adj R:R/i)).toBeTruthy();
         expect(screen.getByText('Stop-Loss')).toBeTruthy();
         expect(screen.getAllByText(/Confidence/i).length).toBeGreaterThanOrEqual(2);

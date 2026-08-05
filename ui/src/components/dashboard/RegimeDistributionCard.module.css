@@ -1,0 +1,77 @@
+.card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+}
+
+.count {
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.row {
+    display: grid;
+    grid-template-columns: 110px 1fr 40px;
+    align-items: center;
+    gap: 12px;
+}
+
+.label {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bar {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    line-height: 1;
+    color: #22d3ee;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: 0;
+}
+
+.pct {
+    font-size: 11px;
+    font-weight: 700;
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+    color: rgba(255,255,255,0.85);
+}
+
+.empty {
+    font-size: 11px;
+    color: rgba(255,255,255,0.3);
+    font-style: italic;
+    padding: 12px 0;
+}

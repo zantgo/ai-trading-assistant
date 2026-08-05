@@ -13,13 +13,21 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
 }
 
 .header {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.headerLeft {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
 }
 
 .title {
@@ -38,190 +46,29 @@
     font-feature-settings: "tnum" 1;
 }
 
-.grid {
+.grid4 {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 12px;
 }
 
-@media (max-width: 1200px) {
-    .grid { grid-template-columns: 1fr; }
-}
-
-.card {
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 6px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
+.grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 12px;
 }
 
-.cardHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
+@media (max-width: 1400px) {
+    .grid4 { grid-template-columns: repeat(2, 1fr); }
 }
 
-.cardTitle {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    text-transform: uppercase;
-}
-
-.cardCount {
-    font-size: 10px;
-    color: rgba(255,255,255,0.35);
-    font-feature-settings: "tnum" 1;
-}
-
-.barList {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.barRow {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.barLabel {
-    font-size: 11px;
-    font-weight: 600;
-    min-width: 90px;
-    white-space: nowrap;
-}
-
-.barTrack {
-    flex: 1;
-    height: 6px;
-    background: rgba(255,255,255,0.06);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.barFill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.3s;
-}
-
-.barVal {
-    font-size: 11px;
-    color: rgba(255,255,255,0.5);
-    min-width: 24px;
-    text-align: right;
-    font-feature-settings: "tnum" 1;
-}
-
-.riskStats {
-    display: flex;
-    gap: 32px;
-}
-
-.riskMetric {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: center;
-}
-
-.riskLabel {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    text-transform: uppercase;
-}
-
-.riskVal {
-    font-size: 22px;
-    font-weight: 700;
-    color: rgba(255,255,255,0.95);
-    font-feature-settings: "tnum" 1;
-}
-
-.emptyRow {
-    font-size: 11px;
-    color: rgba(255,255,255,0.3);
-    font-style: italic;
-}
-
-.tableSection {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.sectionTitle {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    text-transform: uppercase;
-    margin: 0;
-}
-
-.table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-}
-
-.th {
-    text-align: left;
-    padding: 10px 14px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    text-transform: uppercase;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-
-.tr {
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-
-.tr:last-child {
-    border-bottom: none;
-}
-
-.tdSymbol {
-    padding: 10px 14px;
-    font-weight: 600;
-    color: rgba(255,255,255,0.85);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.tdMono {
-    padding: 10px 14px;
-    color: rgba(255,255,255,0.65);
-    font-feature-settings: "tnum" 1;
-}
-
-.td {
-    padding: 10px 14px;
-    color: rgba(255,255,255,0.65);
-}
-
-.statusDot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.15);
-    flex-shrink: 0;
-}
-
-.statusDot.active {
-    background: #22c55e;
+@media (max-width: 800px) {
+    .grid4 { grid-template-columns: 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 
 .featurePlaceholder {
@@ -235,6 +82,7 @@
     padding: 40px;
     text-align: center;
     color: rgba(255,255,255,0.3);
+    min-height: 320px;
 }
 
 .featurePlaceholderTitle {

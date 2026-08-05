@@ -1,6 +1,6 @@
 # PAE Layer 2 — Strategy Analytics Layer
 
-**Version:** 6.8 (2026-08-03) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/strategy_analytics.rs`) is implemented and the Strategy panel renders live data. Backtest-runner integration lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 2 of 4

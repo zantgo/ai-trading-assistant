@@ -99,9 +99,9 @@ async fn data_loss_degrades_score_via_uptime() {
 async fn reconstructed_candles_tracked_in_report() {
     let tracker = ConnectionQualityTracker::new();
 
-    tracker.record_reconstructed_candle().await;
-    tracker.record_reconstructed_candle().await;
-    tracker.record_reconstructed_candle().await;
+    tracker.record_reconstructed_candle(10_000_000).await;
+    tracker.record_reconstructed_candle(10_000_000).await;
+    tracker.record_reconstructed_candle(10_000_000).await;
 
     let report = tracker.report(QualityWindow::OneHour, 10_000_000).await;
 

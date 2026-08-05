@@ -546,6 +546,18 @@ export interface OverviewMatrix {
     global_summary: string;
     instance_count: number;
     active_symbols: string[];
+    /// v6.9+ — Continuous signed breadth percentage ∈ [-100, 100].
+    /// Source of the UI's −100% to +100% breadth gauge and the
+    /// input to `market_breadth` and `market_synchronization`.
+    breadth_pct?: number;
+    /// v6.9+ — True when breadth is computed over a reduced signal set
+    /// (fewer than 4 of the 12 SignalKinds enabled).
+    low_coverage?: boolean;
+    /// v6.9+ — Cross-symbol aggregate of L5 `cascade_risk`.
+    cascade_risk_index?: RiskDimension;
+    /// v6.9+ — Market-wide danger index consumed by the PME safety
+    /// veto. `0.6 × high_pct + 0.4 × sync_penalty`.
+    systemic_risk_score?: number;
 }
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
@@ -1179,7 +1191,10 @@ export interface OpportunityMatrix {
     short_entry_zone: PriceRange;
     short_target_zone: PriceRange;
     short_invalidation_level: number;
-    expected_rr_internal: number;
+    /** Per-side LONG R:R. Active side is resolved by `analysis.bias`. */
+    long_expected_rr_internal: number;
+    /** Per-side SHORT R:R. Active side is resolved by `analysis.bias`. */
+    short_expected_rr_internal: number;
     time_horizon: string;
     confluent_entry_levels: ConfluentLevel[];
     confluent_target_levels: ConfluentLevel[];

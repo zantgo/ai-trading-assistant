@@ -240,13 +240,28 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
   });
   const lean = deriveLean(rank.top);
   const opp = args.opportunity;
+  // Active-side R:R (per-side, gated on macro bias). The legacy
+  // matrix-level `opportunity.expected_rr_internal` was removed in
+  // v6.9; we now read the per-side value that matches the active
+  // bias. `null` when the opportunity matrix is absent.
+  const activeSideRr = (() => {
+    if (!opp) return null;
+    const bias = args.analysis?.bias ?? 'Neutral';
+    if (bias === 'Bullish' || bias === 'StrongBullish') {
+      return opp.long_expected_rr_internal ?? 0;
+    }
+    if (bias === 'Bearish' || bias === 'StrongBearish') {
+      return opp.short_expected_rr_internal ?? 0;
+    }
+    return 0;
+  })();
   const payload: OpportunityPayload = {
     source_tab: 'opportunity',
     meta,
     header: buildHeaderBlock(opp, args.analysis, lean),
     trade_setups: buildTradeSetups(opp, args.analysis, rank.top),
     rr_internal: {
-      expected_rr: opp?.expected_rr_internal ?? null,
+      expected_rr: activeSideRr,
       time_horizon: opp?.time_horizon ?? '—',
     },
     invalidation_note: opp?.invalidation_note ?? '',

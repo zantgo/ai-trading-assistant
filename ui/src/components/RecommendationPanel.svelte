@@ -7,6 +7,7 @@
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
     import { computeDecisionRank, entryDangerLevel, selectProfileSide, profileZones, topSetupSummary } from '../lib/decisionRank';
+    import { computeRiskReward, discountRiskReward, type RiskRewardDisplay } from '../lib/riskReward';
 
     const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
@@ -290,7 +291,14 @@
                     <div class={styles.profileRecZone}>
                         <span class={styles.profileRecZoneLabel}>R:R</span>
                         <span class={styles.profileRecZoneValue}>
-                            {topSetup.rr != null ? topSetup.rr.toFixed(2) : '—'}
+                            {(() => {
+                                const z = topSetup.zones;
+                                if (z && z.entry && z.target && z.invalidation) {
+                                    const disp = computeRiskReward(z.entry, z.target, z.invalidation, z.side, markPrice);
+                                    return disp.display;
+                                }
+                                return topSetup.rr != null ? `R:R ${topSetup.rr.toFixed(2)}` : '—';
+                            })()}
                         </span>
                     </div>
                 </div>
@@ -324,15 +332,15 @@
                 </span>
             </div>
             <div class={styles.kpi}>
-                <span class={styles.kpiLabel}>Internal R:R</span>
-                <span class={styles.kpiVal} style="color: {(opportunity?.expected_rr_internal ?? 0) >= 2 ? '#22c55e' : (opportunity?.expected_rr_internal ?? 0) >= 1 ? '#f59e0b' : '#ef4444'}">
-                    {(opportunity?.expected_rr_internal ?? 0).toFixed(2)}
-                </span>
-            </div>
-            <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>Risk-Adj R:R</span>
                 <span class={styles.kpiVal} style="color: {riskAdjRrDisplay.isNA ? '#94a3b8' : rrDisplay >= 2 ? '#22c55e' : rrDisplay >= 1 ? '#f59e0b' : '#ef4444'}">
-                    {riskAdjRrDisplay.value}
+                    {(() => {
+                        if (riskAdjRrDisplay.isNA) return riskAdjRrDisplay.value;
+                        const v = Number(riskAdjRrDisplay.value);
+                        if (Number.isNaN(v) || v <= 0) return 'R:R \u2014';
+                        const norm = v >= 9.99 ? '9.99+' : v >= 5 ? v.toFixed(1) : v.toFixed(2);
+                        return `R:R 1 : ${norm}`;
+                    })()}
                 </span>
             </div>
             <div class={styles.kpi}>

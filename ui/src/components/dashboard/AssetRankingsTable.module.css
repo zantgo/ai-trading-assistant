@@ -1,0 +1,143 @@
+.tableSection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tableHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.sectionTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+    margin: 0;
+}
+
+.sortHint {
+    font-size: 10px;
+    color: rgba(255,255,255,0.3);
+    font-weight: 500;
+    font-style: italic;
+}
+
+.tableWrap {
+    overflow-x: auto;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    background: rgba(255,255,255,0.02);
+}
+
+.th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255,255,255,0.02);
+    transition: color 0.15s;
+    white-space: nowrap;
+}
+
+.th:hover {
+    color: rgba(255,255,255,0.85);
+}
+
+.tr {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.tr:last-child {
+    border-bottom: none;
+}
+
+.tr:hover {
+    background: rgba(255,255,255,0.02);
+}
+
+.tdSymbol {
+    padding: 10px 12px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.95);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.tdMono {
+    padding: 10px 12px;
+    color: rgba(255,255,255,0.7);
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.td {
+    padding: 10px 12px;
+    color: rgba(255,255,255,0.7);
+    white-space: nowrap;
+}
+
+.signal {
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+}
+
+.scoreCell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.scoreVal {
+    font-weight: 700;
+    font-feature-settings: "tnum" 1;
+    min-width: 22px;
+    text-align: right;
+}
+
+.scoreBar {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 8px;
+    line-height: 1;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 0;
+}
+
+.tdUpdated {
+    padding: 10px 12px;
+    color: rgba(255,255,255,0.55);
+    font-feature-settings: "tnum" 1;
+    white-space: nowrap;
+}
+
+.statusDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    flex-shrink: 0;
+}
+
+.statusDot.active {
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}

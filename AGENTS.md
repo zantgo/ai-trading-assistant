@@ -2,7 +2,7 @@
 
 This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 50 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
 
-> **Implementation status (v6.8).** Of the five logical engines, **DIE (Data Infrastructure) and MME (Market Monitoring) are implemented end-to-end** — every layer, every dashboard, every primary endpoint. **TAE (Trade Automation), PME (Portfolio Management), and PAE (Performance Analytics) are WIP / partial**: the Rust backends compile and produce state, but their dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest tab) render hardcoded placeholder data and are clearly labelled as such. The phased delivery plan and the verification checklist are in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> **Implementation status (v6.9).** Of the five logical engines, **DIE (Data Infrastructure) and MME (Market Monitoring) are implemented end-to-end** — every layer, every dashboard, every primary endpoint. **TAE (Trade Automation), PME (Portfolio Management), and PAE (Performance Analytics) are WIP / partial**: the Rust backends compile and produce state, but their dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest tab) render hardcoded placeholder data and are clearly labelled as such. The phased delivery plan and the verification checklist are in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Project overview
 

@@ -33,7 +33,6 @@ describe('deriveTradePlan', () => {
                 short_target_zone: { low: mirror(69500), high: mirror(69000) },
                 short_invalidation_level: mirror(67400),
                 short_expected_rr_internal: 2.5,
-                expected_rr_internal: 2.5,
                 time_horizon: 'SWING',
                 confluent_entry_levels: [
                     { price: 68000, confluence_count: 3, sources: ['FIBONACCI', 'VOLUME_PROFILE', 'SUPPORT_RESISTANCE'], strength: 0.86 },

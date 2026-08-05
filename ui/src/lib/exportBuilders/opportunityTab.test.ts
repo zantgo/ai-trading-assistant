@@ -21,7 +21,8 @@ function makeOpportunityMatrix(overrides: Partial<OpportunityMatrix> = {}): Oppo
     short_entry_zone: { low: 65500, high: 66000 },
     short_target_zone: { low: 63000, high: 64000 },
     short_invalidation_level: 66500,
-    expected_rr_internal: 2.5,
+    long_expected_rr_internal: 2.5,
+    short_expected_rr_internal: 0,
     contributing_signals: ['RSI cross up', 'VWAP support'],
     profiles: [
       {

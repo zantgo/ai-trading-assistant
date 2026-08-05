@@ -1,0 +1,44 @@
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.85);
+    font-feature-settings: "tnum" 1;
+    user-select: none;
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.date {
+    color: rgba(255,255,255,0.55);
+}
+
+.time {
+    color: rgba(255,255,255,0.95);
+    font-variant-numeric: tabular-nums;
+}
+
+.zone {
+    color: rgba(255,255,255,0.45);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}

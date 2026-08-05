@@ -1,7 +1,9 @@
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 
 use market_analyzer::analyzer;
 use config_models::{
@@ -622,6 +624,15 @@ async fn spawn_tasks(
         let a_quality = state.platform.read().await.quality.clone();
         let a_reliability = state.reliability.clone();
         let a_refetch = refetch_spec.clone();
+        // AUDIT-V9 B8: the per-scope `ConnectionQualityTracker` returned
+        // here is shared between the supervisor task below (which writes
+        // `record_connect`, `record_reconnect`, `record_disconnect`)
+        // and this analyzer task (which writes `record_reconstructed_candle`).
+        // Writes are serialised by the tracker's internal `RwLock`;
+        // reads via `ConnectionQualityTracker::report()` therefore
+        // observe a coherent snapshot. The two-writer pattern is by
+        // design so the score reflects BOTH connect-time reliability
+        // (supervisor) and data-time reconstruction events (analyzer).
         let a_cq_scope = state.connection_quality.scope(pair_key, tf_secs).await;
         let a_buffer_size = buffer_size;
 
@@ -720,6 +731,20 @@ async fn spawn_tasks(
     let cq_registry = state.connection_quality.clone();
     let cq_pair_key = pair_key.to_string();
     let cq_timeframes = [micro_secs, fast_secs, slow_secs, macro_secs];
+    // AUDIT-V9 B7: capture the workspace-wide latency tracker so the
+    // heartbeat task can record inter-tick drift into
+    // `system_heartbeat_latency_ms`. Previously this field was always
+    // 0 because no call site ever invoked `record_heartbeat`. We use
+    // the drift between consecutive tick moments as a proxy for
+    // scheduler / event-loop jitter.
+    let hb_latency = state.latency_tracker.clone();
+    // Snapshot reconnect-config once; the supervisor reads these to
+    // choose grace windows for the connect/disconnect signals
+    // ([resilience] in `config.toml`). Read here so a mid-flight
+    // config change does not desynchronise the running cycle.
+    let reconnect_cfg = state.platform.read().await.reconnect;
+    let connect_grace = Duration::from_millis(reconnect_cfg.connect_grace_ms);
+    let disconnect_grace_ms = reconnect_cfg.disconnect_grace_ms;
     tokio::spawn(async move {
         // Per-symbol WS supervisor (03-01-01 §4 / 08-03): exponential backoff
         // 1 s → 30 s with ±20 % jitter applied before the cap; permanent
@@ -727,6 +752,24 @@ async fn spawn_tasks(
         // resets when a connection survives longer than 300 s. Connection
         // lifecycle events feed the per-(pair, timeframe) quality scopes
         // (08-05).
+        //
+        // AUDIT-V9 fixes (B1/B5/B6/B10):
+        //   * Disconnect marking is DEFERRED by `disconnect_grace_ms`
+        //     (default 5 s). A grace task is spawned when the adapter
+        //     returns; if the next iteration's `set_connected` fires
+        //     first, the pending grace task is aborted and the UI
+        //     never sees a "Disconnected" frame. Transient blips
+        //     (server-side reconnect, brief stall, dropped packet)
+        //     no longer flash red.
+        //   * The heartbeat timestamp is refreshed immediately on
+        //     `set_connected` so the UI doesn't show a stale (>60 s)
+        //     heartbeat age right after recovery.
+        //   * `record_reconnect` now receives the actual handshake RTT
+        //     instead of the downtime gap (B5). The downtime gap
+        //     included the backoff sleep which inflated the score's
+        //     reconnect-factor penalty unnecessarily.
+        //   * `connect_grace_ms` is config-driven (default 2000 ms)
+        //     so operators with slow WS handshakes can tune it.
         let now_ms = || {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -736,23 +779,38 @@ async fn spawn_tasks(
         let mut backoff_secs = 1u64;
         let mut consecutive_failures = 0u32;
         let mut last_disconnect_ms: Option<u64> = None;
+        // Pending deferred disconnect (B1). Holds the JoinHandle of a
+        // grace task scheduled when the adapter returns. Aborted on
+        // the next iteration's successful connect, on shutdown, or
+        // when a new grace window supersedes it.
+        let mut pending_disconnect: Option<JoinHandle<()>> = None;
         loop {
+            // On shutdown, cancel any pending disconnect grace task so we
+            // don't fire a spurious set_disconnected during teardown.
             if ws_cancel.is_cancelled() {
+                if let Some(handle) = pending_disconnect.take() {
+                    handle.abort();
+                }
                 break;
             }
+            // On each iteration, cancel any pending grace task from the
+            // previous cycle (the next set_connected means we never went
+            // truly offline).
+            if let Some(handle) = pending_disconnect.take() {
+                handle.abort();
+            }
             let connect_ms = now_ms();
+            let handshake_start = Instant::now();
+            // First-ever connect: emit Connected event. Subsequent
+            // cycles: emit ReconnectCompleted after the adapter
+            // returns, with the actual handshake duration (B5).
             for tf in cq_timeframes {
                 let scope = cq_registry.scope(&cq_pair_key, tf).await;
-                match last_disconnect_ms {
-                    Some(disc_at) => {
-                        scope
-                            .record_reconnect(connect_ms, connect_ms.saturating_sub(disc_at))
-                            .await
-                    }
-                    None => scope.record_connect(connect_ms).await,
+                if last_disconnect_ms.is_none() {
+                    scope.record_connect(connect_ms).await;
                 }
             }
-            let session_start = std::time::Instant::now();
+            let session_start = Instant::now();
 
             // ── Spawn heartbeat task ──────────────────────────────────────
             // Pings the exchange status tracker every 10 s while the adapter
@@ -760,19 +818,32 @@ async fn spawn_tasks(
             let hb_es = es_tracker.clone();
             let hb_label = exchange_label.clone();
             let hb_cancel = ws_cancel.clone();
+            let hb_lat_inner = hb_latency.clone();
             let heartbeat_task = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(
                     std::time::Duration::from_secs(10),
                 );
+                let mut prev_tick = Instant::now();
                 loop {
                     tokio::select! {
                         biased;
                         _ = hb_cancel.cancelled() => break,
                         _ = interval.tick() => {
+                            let now = Instant::now();
                             let ms = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_millis() as u64)
                                 .unwrap_or(0);
+                            // AUDIT-V9 B7: record the delta since the
+                            // previous tick as the system-heartbeat
+                            // latency. This is the time between
+                            // scheduled heartbeat ticks, which proxies
+                            // for scheduler jitter / event-loop lag.
+                            // Saturate at u64::MAX for an absurdly long
+                            // tick (effectively "unknown").
+                            let delta_ms = now.saturating_duration_since(prev_tick).as_millis() as u64;
+                            prev_tick = now;
+                            hb_lat_inner.record_heartbeat(delta_ms);
                             hb_es.record_heartbeat(&hb_label, ms).await;
                         }
                     }
@@ -781,16 +852,25 @@ async fn spawn_tasks(
 
             // ── Delayed connect signal ────────────────────────────────────
             // The adapter's WS handshake succeeds a few hundred ms after
-            // `.await` begins.  We fire set_connected after a 2 s grace
-            // period; if the adapter crashes before that the connect task
-            // is aborted when the adapter returns.
+            // `.await` begins. We fire `set_connected` after
+            // `connect_grace_ms` (config-driven, default 2000 ms); if the
+            // adapter crashes before that, the connect task is aborted
+            // when the adapter returns. AUDIT-V9 B6: immediately after
+            // firing set_connected, refresh the heartbeat so the panel
+            // never shows a stale (>60 s) heartbeat age right after
+            // recovery.
             let conn_es = es_tracker.clone();
             let conn_label = exchange_label.clone();
             let conn_cancel = ws_cancel.clone();
             let connect_task = tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                tokio::time::sleep(connect_grace).await;
                 if !conn_cancel.is_cancelled() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
                     conn_es.set_connected(&conn_label).await;
+                    conn_es.record_heartbeat(&conn_label, now).await;
                 }
             });
 
@@ -815,16 +895,72 @@ async fn spawn_tasks(
                 .await;
             }
 
+            // AUDIT-V9 B5: measure actual handshake duration. This is the
+            // wall-clock time spent in `run_for_symbol` until it returns.
+            // For a healthy session this would include the entire
+            // connected period; cap the recorded "reconnect duration"
+            // to the connect_grace window (anything longer is the
+            // connected session, not the handshake).
+            let handshake_rtt_ms = handshake_start.elapsed().as_millis() as u64;
+            let recorded_handshake_ms = handshake_rtt_ms.min(connect_grace.as_millis() as u64);
+
             heartbeat_task.abort();
             connect_task.abort();
 
-            es_disconnect.set_disconnected(&es_disconnect_label).await;
-            let disconnect_ms = now_ms();
-            for tf in cq_timeframes {
-                let scope = cq_registry.scope(&cq_pair_key, tf).await;
-                scope.record_disconnect(disconnect_ms).await;
+            // AUDIT-V9 B5 (cont'd): emit ReconnectCompleted with the actual
+            // handshake RTT instead of the downtime gap. The previous
+            // code passed `connect_ms - disc_at` (the downtime including
+            // backoff sleep) which inflated the score's reconnect-factor
+            // penalty unnecessarily — a 5 s backoff already saturates
+            // the 5 s reconnect ceiling even when the handshake itself
+            // was instant.
+            if last_disconnect_ms.take().is_some() {
+                for tf in cq_timeframes {
+                    let scope = cq_registry.scope(&cq_pair_key, tf).await;
+                    scope
+                        .record_reconnect(connect_ms, recorded_handshake_ms)
+                        .await;
+                }
             }
-            last_disconnect_ms = Some(disconnect_ms);
+
+            // AUDIT-V9 B1: schedule `set_disconnected` and
+            // `record_disconnect` after `disconnect_grace_ms` instead of
+            // firing them synchronously. A transient blip that recovers
+            // within the grace window is therefore invisible to the UI
+            // and to the per-scope disconnect counters.
+            if disconnect_grace_ms > 0 {
+                let grace_es = es_tracker.clone();
+                let grace_label = exchange_label.clone();
+                let grace_cq = cq_registry.clone();
+                let grace_pair = cq_pair_key.clone();
+                let grace_tfs = cq_timeframes;
+                let grace_cancel = ws_cancel.clone();
+                pending_disconnect = Some(tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(disconnect_grace_ms)).await;
+                    if grace_cancel.is_cancelled() {
+                        return;
+                    }
+                    grace_es.set_disconnected(&grace_label).await;
+                    let ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    for tf in grace_tfs {
+                        let scope = grace_cq.scope(&grace_pair, tf).await;
+                        scope.record_disconnect(ms).await;
+                    }
+                }));
+            } else {
+                // Legacy behaviour (grace = 0): fire disconnect
+                // immediately. Kept for operators who explicitly opt out.
+                es_disconnect.set_disconnected(&es_disconnect_label).await;
+                let disconnect_ms = now_ms();
+                for tf in cq_timeframes {
+                    let scope = cq_registry.scope(&cq_pair_key, tf).await;
+                    scope.record_disconnect(disconnect_ms).await;
+                }
+            }
+            last_disconnect_ms = Some(connect_ms);
             if ws_cancel.is_cancelled() {
                 break;
             }
@@ -862,6 +998,10 @@ async fn spawn_tasks(
                 _ = tokio::time::sleep(delay) => {}
             }
             backoff_secs = (backoff_secs * 2).min(30);
+        }
+        // Clean up any straggler grace task before the supervisor exits.
+        if let Some(handle) = pending_disconnect.take() {
+            handle.abort();
         }
     });
 

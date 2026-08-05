@@ -220,7 +220,8 @@
                 <circle cx="48" cy="48" r={ringRadius}
                         class="{styles.ringProgress} {risk ? levelClass(risk.overall_risk.level) : ''}"
                         stroke-dasharray={ringCircumference}
-                        stroke-dashoffset={ringCircumference * (1 - Math.min(risk?.overall_risk?.score ?? 0, 100) / 100)} />
+                        stroke-dashoffset={ringCircumference * (1 - Math.min(risk?.overall_risk?.score ?? 0, 100) / 100)}
+                        transform="rotate(-90 48 48)" />
             </svg>
             <div class={styles.ringCenter}>
                 <span class={styles.ringScore}>{risk ? risk.overall_risk.score.toFixed(0) : '\u2014'}</span>
