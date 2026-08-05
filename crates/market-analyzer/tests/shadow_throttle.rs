@@ -31,6 +31,7 @@ fn make_test_config(duration_seconds: u64) -> TimeframeConfig {
     TimeframeConfig {
         candles: config_models::CandlesConfig { duration_seconds },
         indicators: IndicatorsConfig::default(),
+        leverage: Default::default(),
     }
 }
 
@@ -112,6 +113,9 @@ async fn spawn_analyzer(
             None,
             None,
             1,
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
+            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         )
         .await
     })

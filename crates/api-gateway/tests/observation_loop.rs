@@ -88,6 +88,7 @@ fn make_test_config() -> TimeframeConfig {
             volume_profile_window: 500,
             volume_profile_value_area: 0.7,
         },
+        leverage: Default::default(),
     }
 }
 
@@ -177,6 +178,9 @@ async fn observation_loop_latency_p95_below_threshold() {
             None,
             None,
             1,
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
+            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         )
     });
 

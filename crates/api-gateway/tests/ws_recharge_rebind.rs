@@ -150,6 +150,8 @@ fn build_active_pair_with_channels(
             core_domain::models::CandlePipelineState::Initializing,
         )),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        advisory: Arc::new(RwLock::new(None)),
+        tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
         buffer_size: 500,
         stale_threshold_secs: 300,
     };

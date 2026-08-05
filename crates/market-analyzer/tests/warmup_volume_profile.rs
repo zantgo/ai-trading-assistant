@@ -80,6 +80,7 @@ fn make_test_config(window: usize, bins: usize) -> TimeframeConfig {
             volume_profile_window: window,
             volume_profile_value_area: 0.7,
         },
+        leverage: Default::default(),
     }
 }
 
@@ -140,6 +141,7 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         60,
         core_domain::models::TimeframeSlot::Micro,
         500,
+        &market_analyzer::active_set::ActiveSet::all_enabled(),
     );
 
     assert!(
@@ -243,6 +245,7 @@ fn warmup_sub_minute_timeframes_also_populate() {
         5,
         core_domain::models::TimeframeSlot::Micro,
         500,
+        &market_analyzer::active_set::ActiveSet::all_enabled(),
     );
 
     let last_vp = warmed
@@ -273,6 +276,7 @@ fn seeded_volume_profile_clears_at_25_bars() {
         15,
         core_domain::models::TimeframeSlot::Micro,
         500,
+        &market_analyzer::active_set::ActiveSet::all_enabled(),
     );
 
     let populated: Vec<_> = warmed

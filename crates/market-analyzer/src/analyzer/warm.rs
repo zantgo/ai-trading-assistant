@@ -229,6 +229,7 @@ pub fn warm_indicators_for_timeframe(
     timeframe_secs: u64,
     slot: TimeframeSlot,
     buffer_size: usize,
+    active_set: &crate::active_set::ActiveSet,
 ) -> WarmedPipelineState {
     let active_indicators = tf_config.indicators.clone();
 
@@ -593,6 +594,8 @@ pub fn warm_indicators_for_timeframe(
             volume_profile_reading,
             smc_reading,
             volume_profile_snapshot,
+            // v6.10 (Phase 5 / E1): warm-up defaults to all-enabled.
+            &crate::active_set::ActiveSet::all_enabled(),
         );
 
         latest_snapshot = Some(snapshot.clone());
@@ -687,6 +690,11 @@ pub fn warm_indicators_for_timeframe(
 }
 
 /// Build a `MarketSnapshot` from indicator state during historical pre-warming.
+///
+/// v6.10 (Phase 5 / E1): active_set is passed so disabled indicators
+/// are filtered out of the warmed snapshot. Defaults to all-enabled
+/// when the function is called from warm-up paths that don't have
+/// a per-instance ActiveSet yet.
 #[allow(clippy::too_many_arguments)]
 fn build_historical_snapshot(
     all_candles: &[NormalizedCandle],
@@ -740,6 +748,7 @@ fn build_historical_snapshot(
     volume_profile: Option<crate::indicators::VolumeProfileOutput>,
     smc: Option<crate::indicators::SmcOutput>,
     volume_profile_snapshot: Option<VolumeProfileSnapshot>,
+    active_set: &crate::active_set::ActiveSet,
 ) -> MarketSnapshot {
     let candle_close_sec = completed.start_time_ms / 1000;
 
@@ -846,6 +855,7 @@ fn build_historical_snapshot(
         },
         all_candles.len() as u32,
         false,
+        active_set,
     );
 
     MarketSnapshot {

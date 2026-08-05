@@ -32,6 +32,11 @@ impl ActiveSet {
         global: &ActivationConfig,
         instance: Option<&ActivationConfig>,
         config_version: u64,
+        // v6.10 (Phase 5 / E2): the master `[liquidity] enabled` toggle
+        // is read from the global LiquidityConfig (not the per-instance
+        // ActivationConfig) so operators can disable the entire liquidity
+        // chain via `[liquidity] enabled = false` (CA-15).
+        liquidity_config_enabled: bool,
     ) -> Self {
         let mut disabled_indicators: HashSet<String> =
             global.disabled_indicators.iter().cloned().collect();
@@ -70,16 +75,27 @@ impl ActiveSet {
             disabled_signals,
             disabled_signal_kinds,
             config_version,
-            liquidity_enabled: true,
+            // v6.10 (Phase 5 / E2): wire the `[liquidity] enabled` master
+            // toggle. When `false`, L1.5/L2.5/Phase 3 are all disabled
+            // and to_metrics_config reports it accurately.
+            liquidity_enabled: liquidity_config_enabled,
+            // v6.10 (Phase 5 / E3): per-instance liquidity sub-toggles use
+            // `Option<bool>`. `None` means inherit the global; `Some(v)`
+            // means force the instance value. This lets operators opt
+            // out of a sub-feature on a specific instance (e.g. disable
+            // cluster estimation on macro while keeping liquidation feed).
             liquidation_feed: instance
-                .map(|i| i.liquidation_feed)
-                .unwrap_or(global.liquidation_feed),
+                .and_then(|i| i.liquidation_feed)
+                .or(global.liquidation_feed)
+                .unwrap_or(true),
             cluster_estimation: instance
-                .map(|i| i.cluster_estimation)
-                .unwrap_or(global.cluster_estimation),
+                .and_then(|i| i.cluster_estimation)
+                .or(global.cluster_estimation)
+                .unwrap_or(true),
             liquidity_signals_enabled: instance
-                .map(|i| i.liquidity_signals_enabled)
-                .unwrap_or(global.liquidity_signals_enabled),
+                .and_then(|i| i.liquidity_signals_enabled)
+                .or(global.liquidity_signals_enabled)
+                .unwrap_or(true),
         }
     }
 
@@ -129,5 +145,48 @@ impl ActiveSet {
 impl Default for ActiveSet {
     fn default() -> Self {
         Self::all_enabled()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_enabled_has_no_disabled_sets() {
+        let s = ActiveSet::all_enabled();
+        assert!(s.disabled_indicators.is_empty());
+        assert!(s.disabled_signals.is_empty());
+        assert!(s.disabled_signal_kinds.is_empty());
+        assert!(s.liquidity_enabled);
+        assert!(s.liquidation_feed);
+        assert!(s.cluster_estimation);
+        assert!(s.liquidity_signals_enabled);
+    }
+
+    #[test]
+    fn default_matches_all_enabled() {
+        let s = ActiveSet::default();
+        assert_eq!(s.liquidity_enabled, ActiveSet::all_enabled().liquidity_enabled);
+    }
+
+    #[test]
+    fn has_any_disabled_returns_true_when_indicator_listed() {
+        let mut s = ActiveSet::all_enabled();
+        s.disabled_indicators.insert("rsi".to_string());
+        assert!(s.has_any_disabled());
+    }
+
+    #[test]
+    fn liquidity_master_off_reaches_metrics_config() {
+        use config_models::ActivationConfig;
+        let global = ActivationConfig::default();
+        // Master off: pass `false` for `liquidity_config_enabled`.
+        let s = ActiveSet::from_config(&global, None, 1, false);
+        assert!(!s.liquidity_enabled, "master off must disable liquidity");
+        let cfg = s.to_metrics_config();
+        if let Some(cfg) = cfg {
+            assert!(!cfg.liquidity.enabled);
+        }
     }
 }

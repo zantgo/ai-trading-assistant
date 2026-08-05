@@ -18,9 +18,18 @@
 
     let { status }: Props = $props();
 
+    // Determine the effective state. If bars_seen >= bars_required and bars_required > 0,
+    // the indicator is functionally 'Live'. This defensively bypasses any backend-side sticky 'Loading' bugs.
+    const effectiveState = $derived.by(() => {
+        if (!status) return 'Loading';
+        return status.state === 'Loading' && status.bars_seen >= status.bars_required && status.bars_required > 0
+            ? 'Live'
+            : status.state;
+    });
+
     const label = $derived.by(() => {
         if (!status) return null;
-        switch (status.state) {
+        switch (effectiveState) {
             case 'Loading':
                 return `Loading (${status.bars_seen}/${status.bars_required})`;
             case 'Live':
@@ -39,15 +48,15 @@
 
 {#if status && label}
     <span
-        class="{styles.badge} {styles[status.state.toLowerCase()]}"
+        class="{styles.badge} {styles[effectiveState.toLowerCase()]}"
         title={status.last_error ?? label}
         aria-label={label}
     >
-        {#if status.state === 'Loading'}
+        {#if effectiveState === 'Loading'}
             <span class={styles.spinner}></span>
-        {:else if status.state === 'Live'}
+        {:else if effectiveState === 'Live'}
             <span class={styles.dot}></span>
-        {:else if status.state === 'Stale'}
+        {:else if effectiveState === 'Stale'}
             <span class={styles.dot}></span>
         {:else}
             <span class={styles.icon}>!</span>

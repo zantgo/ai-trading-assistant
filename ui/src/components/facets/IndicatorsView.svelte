@@ -182,7 +182,7 @@
     /** v6.5+: authoritative lifecycle status from the indicator lifecycle map.
      *  Falls back to the legacy heuristic when the map is not yet populated.
      *  v6.6+: also surfaces `feed_state` and `silent` so the State column
-     *  can distinguish WAITING FEED ⏳ from SILENT ⚡ from LIVE. */
+     *  can distinguish WAITING FEED ⏳ from SILENT from LIVE. */
     function lifecycleStatus(
         key: string,
     ): {
@@ -195,11 +195,19 @@
     } | null {
         const lc = tf.indicatorLifecycle?.[key];
         if (lc) {
+            // Determine the active state. If bars_seen >= bars_required and bars_required > 0,
+            // the indicator is functionally 'Live'. This defensively bypasses
+            // any backend-side lifecycle state sticky 'Loading' bugs.
+            const effectiveState =
+                lc.state === 'Loading' && lc.bars_seen >= lc.bars_required && lc.bars_required > 0
+                    ? 'Live'
+                    : lc.state;
+
             return {
-                label: lc.state === 'Live' ? 'Live' : `Loading (${lc.bars_seen}/${lc.bars_required})`,
+                label: effectiveState === 'Live' ? 'Live' : `Loading (${lc.bars_seen}/${lc.bars_required})`,
                 bars_seen: lc.bars_seen,
                 bars_required: lc.bars_required,
-                state: lc.state,
+                state: effectiveState,
                 feed_state: (lc as { feed_state?: string }).feed_state,
                 silent: (lc as { silent?: boolean }).silent,
             };
@@ -247,7 +255,7 @@
                 // upstream feed hasn't delivered yet (e.g. Bitget
                 // ticker channel's `holdingAmount` field absent for
                 // the first few seconds after cold start). Distinct
-                // from SILENT ⚡ which means "feed arrived and said
+                // from SILENT which means "feed arrived and said
                 // zero". The bit is set on the lifecycle by
                 // `build_indicator_lifecycle_map` in market-analyzer.
                 // The wire field is snake_case (`feed_state`); the
@@ -273,7 +281,7 @@
                 const lcSilent = (lc as { silent?: boolean }).silent === true;
                 if (lcSilent || capability === 'Conditional' || capability === 'DataOnly') {
                     return {
-                        label: 'SILENT \u26A1', // ⚡
+                        label: 'SILENT',
                         cssClass: styles.stateSilent,
                     };
                 }
@@ -300,7 +308,7 @@
             // Conditional/DataOnly legacy fallback treats entry without a
             // fresh signal as SILENT.
             if ((e.signals?.length ?? 0) === 0 && (capability === 'Conditional' || capability === 'DataOnly')) {
-                return { label: 'SILENT \u26A1', cssClass: styles.stateSilent };
+                return { label: 'SILENT', cssClass: styles.stateSilent };
             }
             return { label: formatStateLabel(e.state_label), cssClass: styles.stateLive };
         }
@@ -329,11 +337,11 @@
         return styles.confBarLow;
     }
 
-    /** Heuristic status dot: green (live + signal) / grey ⚡ (silent) /
+    /** Heuristic status dot: green (live + signal) / grey (silent) /
      *  amber (warming) / grey (unknown / no data). The silent dot is
      *  intentionally grey rather than green so an AlwaysActive
      *  indicator with no fresh signal does NOT light up green; the
-     *  trader reads SILENT ⚡ as "alive but nothing of note right
+     *  trader reads SILENT as "alive but nothing of note right
      *  now". */
     function statusDotClass(key: string): string {
         const lc = lifecycleStatus(key);

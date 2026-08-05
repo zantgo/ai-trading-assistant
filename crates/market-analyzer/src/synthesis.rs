@@ -58,12 +58,20 @@ fn compute_candidate_score(
     preconditions_met: u32,
     preconditions_total: u32,
 ) -> (f64, String, f64, f64) {
+    // v6.10 (Phase 2 / B2): align L4's QualityLevel → f64 mapping with the
+    // canonical L6 fallback table at
+    // `docs/matrices/02-04-decision-matrix.md §2.3` (POOR=20, WEAK=40,
+    // AVERAGE=55, GOOD=70, EXCELLENT=100). The previous L4 mapping
+    // (10/30/55/80/95) drifted from L6 (20/40/55/70/100) and caused the
+    // same QualityLevel value to contribute a different f64 score
+    // depending on which layer read it. With this change, the same enum
+    // yields the same contribution whether consumed by L4 or L6.
     let q_ctx = match analysis.market_quality {
-        analysis::QualityLevel::Excellent => 95.0,
-        analysis::QualityLevel::Good => 80.0,
+        analysis::QualityLevel::Excellent => 100.0,
+        analysis::QualityLevel::Good => 70.0,
         analysis::QualityLevel::Average => 55.0,
-        analysis::QualityLevel::Weak => 30.0,
-        analysis::QualityLevel::Poor => 10.0,
+        analysis::QualityLevel::Weak => 40.0,
+        analysis::QualityLevel::Poor => 20.0,
     };
 
     let s_sig = {
@@ -95,20 +103,31 @@ fn compute_candidate_score(
     };
 
     let raw = (0.35 * q_ctx + 0.30 * s_sig + 0.20 * a_mtf + 0.15 * f_fresh).clamp(0.0, 100.0);
-    // Discount the raw score by the precondition completion ratio so profiles
-    // that didn't meet their gate get a faithful (low) score rather than the
-    // same headline number as fully-satisfied candidates.
+    // v6.10.1 (bug-fix): `score` is the raw viability blend, NOT gated by
+    // the precondition completion ratio. The previous expression
+    // `raw * ratio` collapsed every active-setup-but-inactive-condition
+    // candidate to score = 0, hiding the operator's view of how close
+    // each setup was to firing (every inactive profile card showed
+    // `preconditions 0/N met` AND `score 0`). The activation signal is
+    // already published separately on every `OpportunityProfile` as
+    // `preconditions_met` / `preconditions_total`, and is also surfaced
+    // in `scoring_factors.precondition_ratio` (Rust-only, serde-skipped)
+    // for telemetry. The dashboard renders this as a dedicated progress
+    // bar (`ui/src/components/OpportunitiesPanel.svelte:430-437`).
     let ratio = if preconditions_total > 0 {
         preconditions_met as f64 / preconditions_total as f64
     } else {
         0.0
     };
-    // NoClearOpportunity is the unconditional-zero sentinel: it can never
-    // surface as an actionable trade, even if its single precondition was met.
+    // NoClearOpportunity is the unconditional-zero sentinel: it is the
+    // explicit "no setup detected" placeholder and can never surface as an
+    // actionable trade. Every other opportunity emits the raw viability
+    // score so the operator can compare setups head-to-head even when
+    // their preconditions are currently unmet.
     let score = if matches!(opportunity_type, OpportunityType::NoClearOpportunity) {
         0.0
     } else {
-        (raw * ratio).clamp(0.0, 100.0)
+        raw.clamp(0.0, 100.0)
     };
 
     // User-facing rationale. Precondition count is displayed separately
@@ -1720,6 +1739,186 @@ mod tests {
         assert_eq!(opp.entry_zone.high, opp.short_entry_zone.high);
         assert_eq!(opp.target_zone.low, opp.short_target_zone.low);
         assert_eq!(opp.target_zone.high, opp.short_target_zone.high);
-        assert_eq!(opp.invalidation_level, opp.short_invalidation_level);
+            assert_eq!(opp.invalidation_level, opp.short_invalidation_level);
+    }
+
+    // ─── v6.10.1 (bug-fix): the four regression-locking tests for the
+    // `opportunity_score = raw * ratio` bug — the user observed 5 of 7
+    // profiles silently scored 0 whenever preconditions were unmet. These
+    // tests lock in:
+    //   (1) inactive setups still surface raw viability;
+    //   (2) NoClearOpportunity stays the unconditional zero;
+    //   (3) `scoring_factors.precondition_ratio` is preserved on the
+    //       Rust struct (telemetry consumers can still read the ratio);
+    //   (4) `primary_opportunity` selection is unaffected by the fix
+    //       (it was already driven by raw preconditions, not by score).
+
+    #[test]
+    fn inactive_candidates_survive_precondition_discount() {
+        // Mirrors the user's screenshot: BTC +0.78% with a moderate-vol
+        // mid-range regime. The four big conditional setups (Trend,
+        // Breakout, Reversal, MeanReversion) almost never have all
+        // preconditions met on a quiet-volatility regime, but their raw
+        // viability must still show through to the dashboard.
+        let ctx = make_context("COMPRESSION", 0.55, 0.50, 0.40, 0.45, 25);
+        let snap = make_snapshot(60, 64000.0, ctx);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        assert!(!opp.profiles.is_empty());
+
+        // Every non-NoClear profile must have a non-zero score now
+        // (the previous v6.10 implementation forced every score with
+        // 0/N preconditions to 0).
+        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        for p in &opp.profiles {
+            if p.opportunity_type != analysis::OpportunityType::NoClearOpportunity {
+                assert!(
+                    p.score > 0.0,
+                    "inactive profile {:?} has score 0 (raw viability dropped): score={}, raw={:?}",
+                    p.opportunity_type,
+                    p.score,
+                    p.scoring_factors.as_ref().map(|sf| sf.raw_score),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn no_clear_opportunity_score_is_unconditional_zero() {
+        // NoClearOpportunity is the explicit "no setup detected"
+        // placeholder and must stay at score 0 regardless of the fix.
+        // It has a single precondition (`tradability_dim < 30.0`); when
+        // met, the previous code still emitted score 0. The fix
+        // preserves that semantic via the explicit branch above.
+        let ctx = make_context("RANGE", 0.30, 0.30, 0.20, 0.20, -5);
+        let snap = make_snapshot(60, 64000.0, ctx);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let no_clear = opp
+            .profiles
+            .iter()
+            .find(|p| p.opportunity_type == analysis::OpportunityType::NoClearOpportunity)
+            .expect("NoClearOpportunity profile must be present in every OpportunityMatrix");
+        assert_eq!(no_clear.score, 0.0, "NoClearOpportunity must stay at score 0");
+    }
+
+    #[test]
+    fn precondition_ratio_is_preserved_in_scoring_factors() {
+        // The fix dropped `raw * ratio` from `score`, but the ratio is
+        // still published on the wire via the per-profile
+        // `scoring_factors.precondition_ratio` field (serde-skipped per
+        // the Rust struct definition, but kept for telemetry consumers
+        // that read profiles directly).
+        let ctx = make_context("TRENDING", 0.50, 0.50, 0.50, 0.50, 10);
+        let snap = make_snapshot(60, 64000.0, ctx);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        for p in &opp.profiles {
+            let sf = p
+                .scoring_factors
+                .as_ref()
+                .expect("scoring_factors must be present on every profile");
+            let expected_ratio = if p.preconditions_total > 0 {
+                p.preconditions_met as f64 / p.preconditions_total as f64
+            } else {
+                0.0
+            };
+            assert!(
+                (sf.precondition_ratio - expected_ratio).abs() < 1e-9,
+                "precondition_ratio drifted: {} (expected {})",
+                sf.precondition_ratio,
+                expected_ratio,
+            );
+            // raw_score must also still be in [0, 100]
+            assert!(
+                sf.raw_score >= 0.0 && sf.raw_score <= 100.0,
+                "raw_score out of range: {}",
+                sf.raw_score,
+            );
+            // After the fix, score == raw_score for non-NoClear profiles
+            if p.opportunity_type != analysis::OpportunityType::NoClearOpportunity {
+                assert!(
+                    (p.score - sf.raw_score).abs() < 1e-9,
+                    "non-NoClear score ({}) must equal raw_score ({}) after fix",
+                    p.score,
+                    sf.raw_score,
+                );
+            } else {
+                // NoClearOpportunity stays at 0 regardless of raw_score
+                assert_eq!(p.score, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn primary_opportunity_unaffected_by_score_fix() {
+        // The fix changed `score` to drop the precondition ratio, but
+        // `primary_opportunity` is selected from a separate chain at
+        // synthesis.rs:800-819 (raw preconditions, not the score). The
+        // primary's reported `opportunity_score` should also be the raw
+        // viability, not a discounted value.
+        let ctx = make_context("TRENDING", 0.65, 0.60, 0.55, 0.55, 45);
+        let snap = make_snapshot(60, 64000.0, ctx);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // The headline `opportunity_score` equals the selected primary
+        // profile's `score` (synthesis.rs:916-920). After the fix both
+        // are equal to the primary profile's raw viability.
+        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let primary_type = opp.primary_opportunity;
+        let primary_profile = opp
+            .profiles
+            .iter()
+            .find(|p| p.opportunity_type == primary_type)
+            .expect("primary_opportunity must be present in profiles");
+        assert!(
+            (opp.opportunity_score - primary_profile.score).abs() < 1e-9,
+            "matrix-level score ({}) must equal primary profile score ({})",
+            opp.opportunity_score,
+            primary_profile.score,
+        );
+        // Setup quality derives from opportunity_score via the same
+        // private `setup_quality_band` helper, so the matrix-level and
+        // primary-profile scores must classify identically.
+        assert_eq!(
+            opp.setup_quality,
+            setup_quality_band(primary_profile.score),
+            "matrix-level setup_quality must match primary profile score",
+        );
     }
 }

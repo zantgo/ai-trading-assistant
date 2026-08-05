@@ -189,20 +189,20 @@ pub fn compute_overview(
             _ => neutral_count += 1,
         }
     }
-    // Bug-fix #13: the legacy `breadth_pct` divided by `total = long +
-    // short + neutral`, which systematically diluted the breadth signal
-    // by the neutral ratio. In a 50/50/50 mix (50 longs, 50 shorts, 50
-    // neutrals) the formula yielded breadth_pct = 0% — the canonical
-    // "everyone is bearish" case. We now use the advance-decline
-    // formula `(L - S) / (L + S)` which excludes neutrals from the
-    // denominator. A 50/0/0 mix yields +100% (everyone bullish); a
-    // 0/0/50 mix yields 0/0% via the `max(1)` guard (no directional
-    // breadth to measure).
-    let directional_total = (long_count + short_count).max(1) as f64;
-    let total = (long_count + short_count + neutral_count).max(1) as f64;
+// v6.10 (Phase 6 / F4): `breadth_pct` formula is the canonical spec
+        // calculation `(L - S) / (L + S + N) × 100` per
+        // `docs/engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md` line 30
+        // and `docs/matrices/02-09-overview-matrix.md` line 104. The
+        // previous v6.9 implementation used the advance-decline formula
+        // `(L - S) / (L + S)` which excluded neutrals from the
+        // denominator, producing non-canonical values for mixed-mood
+        // markets. The corrected formula includes neutrals in the
+        // denominator so that a 50L/0S/50N mix yields +50% (vs the
+        // v6.9 result of +100%).
+        let total = (long_count + short_count + neutral_count).max(1) as f64;
 
-    // Market breadth
-    let breadth_pct = (long_count as f64 - short_count as f64) / directional_total * 100.0;
+        // Market breadth
+        let breadth_pct = (long_count as f64 - short_count as f64) / total * 100.0;
     let breadth = if breadth_pct > 60.0 {
         MarketBreadth::StrongPositive
     } else if breadth_pct > 20.0 {
@@ -366,11 +366,17 @@ pub fn compute_overview(
     // StrongBullish synchronized market is just as risky (correlated
     // longs unwind together on the next catalyst) as a StrongBearish
     // one.
+    // v6.10 (Phase 6 / F5): `sync_penalty` is restricted to BEARISH /
+    // STRONG_BEARISH global market biases per the spec table at
+    // `docs/matrices/02-09-overview-matrix.md` lines 165-170. The previous
+    // implementation applied a `directional_intensity` multiplier (0/0.3/0.7/1.0)
+    // to ALL directional biases; the canonical spec restricts the penalty
+    // to bearish regimes only. For Bullish / StrongBullish / Mixed /
+    // Neutral we emit `sync_penalty = 0` regardless of sync level; the
+    // `high_pct` term still contributes to `SystemicRisk`.
     let directional_intensity: f64 = match global_bias {
-        GlobalBias::StrongBullish | GlobalBias::StrongBearish => 1.0,
-        GlobalBias::Bullish | GlobalBias::Bearish => 0.7,
-        GlobalBias::Mixed => 0.3,
-        GlobalBias::Neutral => 0.0,
+        GlobalBias::StrongBearish | GlobalBias::Bearish => 1.0,
+        _ => 0.0,
     };
     let sync_penalty = directional_intensity
         * match sync {

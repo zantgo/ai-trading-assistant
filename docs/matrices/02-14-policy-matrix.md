@@ -1,6 +1,6 @@
 # Policy Matrix Specification
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Producing Layer:** Layer 1 — Policy Layer

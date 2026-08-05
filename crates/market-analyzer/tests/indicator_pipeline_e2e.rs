@@ -184,7 +184,15 @@ pub fn run_pipeline_snapshot(
     // Calling it again here would double-push every state-derived signal,
     // which is exactly the each_key_duplicate class of bug we are hunting.
     let map = NormalizationEngine::normalize_all(inputs, ctx, is_shadow);
-    let lifecycle = build_indicator_lifecycle_map(&map, 300, bar_count, is_shadow);
+    let lifecycle = build_indicator_lifecycle_map(
+        &map,
+        &core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+        300,
+        bar_count,
+        is_shadow,
+        1000,
+        true,
+    );
 
     let entry: Option<&NormalizedIndicatorValue> = map.get(key);
     let (state_label, normalized, confidence, values_opt, signals) = match entry {

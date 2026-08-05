@@ -464,7 +464,17 @@ impl NormalizationEngine {
             );
         }
 
-        if !ctx.support_levels.is_empty() || !ctx.resistance_levels.is_empty() {
+        // v6.10 (Phase 5 / E5): `support_resistance` is always inserted into the
+        // map on the completed path with a meaningful state_label, not just
+        // when the SrRoleTracker has produced levels. This fixes BUG-4
+        // ("support_resistance never inserted in live map"): previously the
+        // entry was WARMING-placeholdered until the tracker accumulated
+        // enough levels, leaving the dashboard unable to distinguish
+        // "tracker warming up" from "no S/R levels detected in this
+        // regime". With this fix the entry is always present and
+        // normalized state_label reports whether levels are absent / scarce
+        // / populated.
+        if !shadow {
             out.insert(
                 "support_resistance".into(),
                 Self::normalize_sr(

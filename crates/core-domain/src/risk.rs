@@ -477,23 +477,29 @@ pub fn compute_risk(
     let execution = assess_execution_risk(analysis, indicators);
     let cascade = assess_cascade_risk(analysis, flow, cluster);
 
-    // Overall: weighted average of all 8 dimensions. Cascade gets 0.14
-    // weight — comparable to the other dimensions because cascade events
-    // dominate short-term realized volatility.
-    // Bug-fix #7: weights must sum to 1.0. The legacy weights summed to
-    // 0.90 (0.14+0.14+0.14+0.10+0.14+0.10+0.10+0.14 = 0.90) which
-    // systematically understated the overall risk score by ~10%. We
-    // renormalize to 0.14/0.14/0.14/0.11/0.14/0.11/0.11/0.11 = 1.00
-    // so the L6 expected_reward_risk_ratio discount and the L7
-    // systemic_risk_score use the canonical 0..100 risk scale.
+    // v6.10 (Phase 1 / A6): Risk weights restored to the canonical spec table
+    // at `docs/matrices/02-11-risk-matrix.md §3`. The previous v6.9 weights
+    // put cascade at 0.11 (vs spec 0.14), under-weighting the cascade
+    // dimension by ~21% relative to spec. We restore the spec weighting:
+    //
+    //   market × 0.14
+    //   volatility × 0.14
+    //   liquidity × 0.14
+    //   structure × 0.10
+    //   momentum × 0.14
+    //   signal × 0.10
+    //   execution × 0.10
+    //   cascade × 0.14
+    //
+    // Sum = 5×0.14 + 3×0.10 = 0.70 + 0.30 = 1.00.
     let overall_score = (market.score * 0.14
         + volatility.score * 0.14
         + liquidity.score * 0.14
-        + structure.score * 0.11
+        + structure.score * 0.10
         + momentum.score * 0.14
-        + signal.score * 0.11
-        + execution.score * 0.11
-        + cascade.score * 0.11)
+        + signal.score * 0.10
+        + execution.score * 0.10
+        + cascade.score * 0.14)
         .max(0.0)
         .min(100.0);
     let overall =

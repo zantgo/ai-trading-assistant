@@ -1,6 +1,6 @@
 # Export Data Payload Schema
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors 1:1 the data the panel renders — no more, no less. Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 

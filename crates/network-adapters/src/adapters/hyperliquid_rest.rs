@@ -316,9 +316,18 @@ pub fn derivatives_ctx_to_events(
         }
     }
     if let Some(rate) = ctx.funding {
+        // v6.10 (Phase 1 / A2): Hyperliquid publishes the funding rate per
+        // HOUR, while every downstream consumer (Bitget adapter, funding
+        // normalizer, L2.5 cluster estimator, L5 cascade risk, Phase 3
+        // signals `FUNDING_EXTREME` / `FUNDING_FLIP`) assumes per-8h
+        // semantics. We normalize HL's per-hour rate to per-8h here at
+        // the adapter boundary by multiplying by 8. This makes the
+        // `FundingRateEvent` cross-venue comparable with Bitget and keeps
+        // all downstream thresholds calibrated as documented.
+        let rate_per_8h = rate * Decimal::from(8);
         out.push(NormalizedEvent::FundingRate(FundingRateEvent {
             symbol: internal_symbol.to_string(),
-            rate,
+            rate: rate_per_8h,
         }));
     }
     if let Some(mark) = ctx.mark_px {

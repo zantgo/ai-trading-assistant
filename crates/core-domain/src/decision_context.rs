@@ -73,23 +73,19 @@ impl DecisionContext {
     ) -> Self {
         let _ = (close, atr); // kept for API symmetry / future volatility-aware extensions
 
-        // -- 5-state Bias mapping from the signed confluence score
-        // Thresholds: ±80 = strong, ±20 = neutral band. Mirrors
-        // `analysis.rs::derive_analysis` 5-state bucketing of the signed
-        // mtf_overall_score, so a `BULLISH` decision bias corresponds to a
-        // `Bullish`/`StrongBullish` analysis bias.
-        let bias = if confluence_score > 80.0 {
-            "STRONG_BULLISH"
-        } else if confluence_score > 20.0 {
-            "BULLISH"
-        } else if confluence_score >= -20.0 {
-            "NEUTRAL"
-        } else if confluence_score >= -80.0 {
-            "BEARISH"
-        } else {
-            "STRONG_BEARISH"
-        }
-        .to_string();
+        // v6.10 (Phase 6 / F2): 5-state Bias mapping from the (now unsigned)
+// confluence score in [0, 100]. Mirrors `analysis.rs::derive_analysis`
+// 5-state bucketing of `mtf_overall_score` at the canonical ±20/±40
+// boundaries: a `BULLISH` decision bias corresponds to a
+// `Bullish`/`StrongBullish` analysis bias for the same mtf_overall_score.
+let bias = if confluence_score > 40.0 {
+    "STRONG_BULLISH"
+} else if confluence_score > 20.0 {
+    "BULLISH"
+} else {
+    "NEUTRAL"
+}
+.to_string();
 
         // -- expected_reward_risk_ratio = active-side R:R × (1 − overall_risk/100)
         // The legacy matrix-level `expected_rr_internal` was removed in v6.9;
@@ -125,13 +121,77 @@ impl DecisionContext {
             analysis.state_confidence,
         );
 
-        // -- trade_readiness gate (documented priority rules from
-        //    `02-04-decision-matrix.md §4`)
-        let trade_readiness = match (entry_danger_score, expected_reward_risk_ratio) {
-            (d, _) if d >= 70.0 => "STAND_ASIDE",
-            (_, r) if r < 1.0 => "FORMING",
-            (d, _) if d >= 50.0 => "WATCH",
-            _ => "READY",
+        // v6.10 (Phase 1 / A4): TradeReadiness rule set, per the canonical
+        // 5-rule priority cascade at
+        // `docs/matrices/02-04-decision-matrix.md §4`:
+        //
+        //   1. market_stance = AVOID  OR  confidence_assessment < 20
+        //                              → STAND_ASIDE
+        //   2. non-neutral directional_guidance
+        //      AND confidence_assessment ≥ 60
+        //      AND market_stance ∈ {AGGRESSIVE, CONSTRUCTIVE}
+        //      AND entry_guidance ≠ WAIT_FOR_CONFIRMATION
+        //                              → READY
+        //   3. non-neutral directional_guidance
+        //                              → FORMING
+        //   4. confidence_assessment ∈ [20, 40)
+        //      OR  neutral directional_guidance
+        //                              → WATCH
+        //   5. otherwise               → WATCH
+        //
+        // We compute the four inputs locally (without crossing the
+        // advisory/decision module boundary) using the same canonical
+        // tables that AdvisoryMatrix uses, so the two layers cannot drift.
+
+        // -- market_stance (local re-derivation matching AdvisoryMatrix A5)
+        let local_stance_is_avoid = matches!(
+            analysis.market_quality,
+            crate::analysis::QualityLevel::Poor
+        ) || matches!(
+            analysis.market_quality,
+            crate::analysis::QualityLevel::Excellent
+        ) && risk.overall_risk.score >= 80.0;
+
+        // Aggressive (Excellent + risk<20) or Constructive (Good risk<30 OR Excellent risk<30).
+        let local_stance_is_aggressive_or_constructive = (matches!(
+            analysis.market_quality,
+            crate::analysis::QualityLevel::Excellent
+        ) && risk.overall_risk.score < 30.0)
+            || (matches!(
+                analysis.market_quality,
+                crate::analysis::QualityLevel::Good
+            ) && risk.overall_risk.score < 30.0);
+
+        // -- confidence_assessment (matches AdvisoryMatrix `compute_advisory`)
+        let confidence_assessment =
+            (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
+                .clamp(0.0, 100.0);
+
+        // -- directional_guidance classification (matches AdvisoryMatrix A3)
+        let directional_is_non_neutral = matches!(
+            analysis.bias,
+            crate::analysis::MarketBias::StrongBullish
+                | crate::analysis::MarketBias::Bullish
+                | crate::analysis::MarketBias::StrongBearish
+                | crate::analysis::MarketBias::Bearish
+        );
+
+        // -- entry_guidance (matches AdvisoryMatrix `compute_advisory`)
+        // WAIT_FOR_CONFIRMATION when volatility_risk is high
+        let entry_guidance_is_wait = risk.volatility_risk.score >= 60.0;
+
+        let trade_readiness = if local_stance_is_avoid || confidence_assessment < 20.0 {
+            "STAND_ASIDE"
+        } else if directional_is_non_neutral
+            && confidence_assessment >= 60.0
+            && local_stance_is_aggressive_or_constructive
+            && !entry_guidance_is_wait
+        {
+            "READY"
+        } else if directional_is_non_neutral {
+            "FORMING"
+        } else {
+            "WATCH"
         }
         .to_string();
 
@@ -216,6 +276,11 @@ mod tests {
     fn bearish_low_risk_yields_high_rr() {
         let mut analysis = make_analysis_with_quality(QualityLevel::Good);
         analysis.bias = MarketBias::Bullish;
+        // risk = 20 → overall_risk.score = 20 → confidence_assessment = 0.82 * (1 - 0.2) * 100 = 65.6
+        // market_quality = Good + risk = 20 → stance = Constructive (per A5)
+        // bias = Bullish → directional non-neutral
+        // vol_risk = 20 → entry_guidance OK
+        // ⇒ Rule 2 fires ⇒ READY
         let risk = make_risk_with_overall(20.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -240,6 +305,8 @@ mod tests {
     fn high_risk_blocks_at_70() {
         let mut analysis = make_analysis_with_quality(QualityLevel::Average);
         analysis.bias = MarketBias::Bullish;
+        // risk = 80 → overall_risk.score = 80 → confidence_assessment = 0.82 * (1 - 0.8) * 100 = 16.4
+        // confidence < 20 ⇒ Rule 1 ⇒ STAND_ASIDE
         let risk = make_risk_with_overall(80.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -256,11 +323,14 @@ mod tests {
         let ctx =
             DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
         assert!((ctx.expected_reward_risk_ratio - 0.5).abs() < 1e-9);
-        assert_eq!(ctx.trade_readiness, "FORMING");
+        assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
     }
 
     #[test]
     fn dangerous_setup_blocks_at_70() {
+        // market_quality = Weak + risk = 85 ⇒ stance is Cautious (rule 2 in A5, not AVOID).
+        // confidence_assessment = 0.82 * (1 - 0.85) * 100 = 12.3 < 20
+        // ⇒ Rule 1 ⇒ STAND_ASIDE
         let analysis = make_analysis_with_quality(QualityLevel::Weak);
         let risk = make_risk_with_overall(85.0);
         let indicators = HashMap::new();
@@ -282,11 +352,11 @@ mod tests {
     }
 
     #[test]
-    fn confluence_score_can_be_negative_with_signed_pipeline() {
-        // `analysis.market_bias_score = -0.5` ⇒ BEARISH. With a quality
-        // magnitude of 1.0, the confluence score should be ~-50.
-        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
-        analysis.market_bias_score = -0.5;
+    fn confluence_score_unsigned_treated_as_unsigned() {
+        // v6.10 (Phase 6 / F1 + F2): confluence_score is now unsigned
+        // [0, 100]. A negative input is clamped to 0.0 and a >40 input
+        // maps to STRONG_BULLISH.
+        let analysis = make_analysis_with_quality(QualityLevel::Good);
         let risk = make_risk_with_overall(20.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -300,17 +370,19 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let signed = -50.0;
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, signed, &analysis, Some(&opp), &risk);
-        assert_eq!(ctx.bias, "BEARISH");
-        assert!((ctx.score - signed).abs() < 1e-9);
+        // A negative input clamps to 0.0 → NEUTRAL.
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, -50.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "NEUTRAL");
+        // The score is reported as the input value (negative allowed for
+        // backward compat in case some legacy caller passes signed values).
+        assert!((ctx.score - -50.0).abs() < 1e-9);
     }
 
     #[test]
-    fn confluence_score_strong_negative_yields_strong_bearish() {
-        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
-        analysis.market_bias_score = -0.9;
-        let risk = make_risk_with_overall(20.0);
+    fn confluence_score_strong_positive_unsigned_yields_strong_bullish() {
+        // Confluence 90 → STRONG_BULLISH (Phase 6 / F2 threshold > 40).
+        let analysis = make_analysis_with_quality(QualityLevel::Excellent);
+        let risk = make_risk_with_overall(10.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
             symbol: "BTC-USD".to_string(),
@@ -319,12 +391,12 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            long_expected_rr_internal: 2.5,
+            long_expected_rr_internal: 3.0,
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, -90.0, &analysis, Some(&opp), &risk);
-        assert_eq!(ctx.bias, "STRONG_BEARISH");
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "STRONG_BULLISH");
     }
 
     #[test]

@@ -312,6 +312,12 @@ pub async fn fetch_and_warm_bootstrap(
     gate_warn(&slow_candles, input.slow_secs);
     gate_warn(&macro_candles, input.macro_secs);
 
+    // v6.10 (Phase 5 / E1): bootstrap warm-up runs with all indicators enabled
+    // by default. Per-instance activation sets are constructed later in
+    // `build_pipelines`; warm-up only needs to seed all 50 indicators so the
+    // production pipelines can apply active_set filtering to the warmed state.
+    let warm_active_set = market_analyzer::active_set::ActiveSet::all_enabled();
+
     let w_micro = analyzer::warm_indicators_for_timeframe(
         micro_candles,
         &input.micro_cfg,
@@ -320,6 +326,7 @@ pub async fn fetch_and_warm_bootstrap(
         input.micro_secs,
         core_domain::models::TimeframeSlot::Micro,
         input.buffer_size,
+        &warm_active_set,
     );
     let w_fast = analyzer::warm_indicators_for_timeframe(
         fast_candles,
@@ -329,6 +336,7 @@ pub async fn fetch_and_warm_bootstrap(
         input.fast_secs,
         core_domain::models::TimeframeSlot::Fast,
         input.buffer_size,
+        &warm_active_set,
     );
     let w_slow = analyzer::warm_indicators_for_timeframe(
         slow_candles,
@@ -338,6 +346,7 @@ pub async fn fetch_and_warm_bootstrap(
         input.slow_secs,
         core_domain::models::TimeframeSlot::Slow,
         input.buffer_size,
+        &warm_active_set,
     );
     let w_macro = analyzer::warm_indicators_for_timeframe(
         macro_candles,
@@ -347,6 +356,7 @@ pub async fn fetch_and_warm_bootstrap(
         input.macro_secs,
         core_domain::models::TimeframeSlot::Macro,
         input.buffer_size,
+        &warm_active_set,
     );
 
     Ok((w_micro, w_fast, w_slow, w_macro))

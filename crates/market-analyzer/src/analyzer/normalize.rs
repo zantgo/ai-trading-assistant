@@ -218,10 +218,16 @@ pub fn series_divergence_confirmed(
 /// It suppresses the WARMING fill for close-only indicators so the
 /// frontend per-key merge can preserve the last completed-candle value
 /// across shadow ticks (see [`NormalizationEngine::normalize_all`]).
+///
+/// v6.10 (Phase 5 / E1): takes an `active_set` parameter and applies
+/// CA-06 — Disabled ≡ absent ≡ NO_DATA. Disabled indicators are filtered
+/// from the returned map BEFORE downstream layers (L2/L3/L4/L5/L6) read
+/// from it. No downstream layer can branch on "disabled".
 pub fn build_indicator_map(
     p: NormalizeParams,
     bar_count: u32,
     shadow: bool,
+    active_set: &crate::active_set::ActiveSet,
 ) -> HashMap<String, NormalizedIndicatorValue> {
     /// Look up the canonical minimum-bar gate for an indicator.  Returns 0
     /// (always ready) when the key is not in the registry or when the
@@ -445,6 +451,18 @@ pub fn build_indicator_map(
         od2f(p.ema_long),
     );
     inject_volume(&mut map, od2f(p.volume), od2f(p.average_volume));
+
+    // v6.10 (Phase 5 / E1): CA-06 enforcement. Disabled indicators are
+    // absent from the returned map. No downstream layer (L2 alignment,
+    // L3 analysis, L4 opportunity, L5 risk, L6 advisory) can read a
+    // disabled indicator because it's filtered out before they see it.
+    map.retain(|key, _| active_set.is_indicator_enabled(key));
+    // Disable signal kinds globally (any indicator emitting a
+    // disabled SignalKind has that signal filtered). This preserves the
+    // indicator entry itself if it's not disabled at the indicator level.
+    // SignalKind filtering happens at derive_signals step (not here).
+    // For pair-level disabled signals (indicator+kind), the registry's
+    // derive_signals path consults active_set at signal-emit time.
 
     // Preserve the raw Fibonacci resting levels on the fibonacci entry so they
     // can be persisted to dedicated DB columns and rendered on charts.

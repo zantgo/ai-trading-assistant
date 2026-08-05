@@ -207,64 +207,105 @@ pub fn compute_advisory(
     // through the rest of the function.
     let opp_matrix = opportunity;
 
-    // Directional guidance from bias × risk
-    let directional = match analysis.bias {
-        crate::analysis::MarketBias::StrongBullish => {
-            if risk.overall_risk.score < 50.0 {
-                DirectionalGuidance::StrongLong
-            } else {
-                DirectionalGuidance::Long
-            }
-        }
-        crate::analysis::MarketBias::Bullish => {
-            if risk.overall_risk.score < 40.0 {
-                DirectionalGuidance::Long
-            } else {
-                DirectionalGuidance::Neutral
-            }
-        }
-        crate::analysis::MarketBias::StrongBearish => {
-            if risk.overall_risk.score < 50.0 {
-                DirectionalGuidance::StrongShort
-            } else {
-                DirectionalGuidance::Short
-            }
-        }
-        crate::analysis::MarketBias::Bearish => {
-            if risk.overall_risk.score < 40.0 {
-                DirectionalGuidance::Short
-            } else {
-                DirectionalGuidance::Neutral
-            }
-        }
-        crate::analysis::MarketBias::Neutral => DirectionalGuidance::Neutral,
-    };
-
-    // Market stance from quality × risk
+    // v6.10 (Phase 1 / A5): Market stance from quality × risk, per the
+    // 6-rule canonical table at
+    // `docs/matrices/02-04-decision-matrix.md §3.2`. We compute stance
+    // BEFORE directional guidance so the AVOID short-circuit can run first
+    // (see v6.10 A3 below).
     let stance = match analysis.market_quality {
-        crate::analysis::QualityLevel::Excellent => MarketStance::Aggressive,
-        crate::analysis::QualityLevel::Good => {
-            if risk.overall_risk.score < 50.0 {
-                MarketStance::Constructive
+        // Rule 1: POOR quality OR overall_risk ≥ 80 → AVOID.
+        // Rule 2: POOR/WEAK quality OR overall_risk ≥ 60 → CAUTIOUS.
+        // Rule 3: AVERAGE quality AND overall_risk < 40 → NEUTRAL.
+        // Rule 4: EXCELLENT quality AND overall_risk < 20 → AGGRESSIVE.
+        // Rule 5: GOOD/EXCELLENT quality AND overall_risk < 30 → CONSTRUCTIVE.
+        // Rule 6 (default): everything else → CAUTIOUS.
+        //
+        // NOTE: rules 1 and 2 share the POOR/WEAK triggers with rule 6;
+        // ordering matters. We model them as a single match against quality
+        // with risk-band sub-matches.
+        crate::analysis::QualityLevel::Poor => {
+            if risk.overall_risk.score >= 80.0 {
+                MarketStance::Avoid
             } else {
-                MarketStance::Neutral
-            }
-        }
-        crate::analysis::QualityLevel::Average => {
-            if risk.overall_risk.score > 60.0 {
+                // POOR + any other risk band → CAUTIOUS (rule 2)
                 MarketStance::Cautious
-            } else {
-                MarketStance::Neutral
             }
         }
         crate::analysis::QualityLevel::Weak => {
-            if risk.overall_risk.score > 40.0 {
-                MarketStance::Avoid
+            if risk.overall_risk.score >= 60.0 {
+                MarketStance::Cautious
             } else {
+                // WEAK + risk < 60 → still CAUTIOUS (rule 2)
                 MarketStance::Cautious
             }
         }
-        crate::analysis::QualityLevel::Poor => MarketStance::Avoid,
+        crate::analysis::QualityLevel::Average => {
+            if risk.overall_risk.score < 40.0 {
+                MarketStance::Neutral // rule 3
+            } else {
+                MarketStance::Cautious // default rule 6
+            }
+        }
+        crate::analysis::QualityLevel::Good => {
+            if risk.overall_risk.score < 30.0 {
+                MarketStance::Constructive // rule 5 (with EXCELLENT below)
+            } else {
+                MarketStance::Cautious // default rule 6
+            }
+        }
+        crate::analysis::QualityLevel::Excellent => {
+            if risk.overall_risk.score >= 80.0 {
+                MarketStance::Avoid // rule 1
+            } else if risk.overall_risk.score < 20.0 {
+                MarketStance::Aggressive // rule 4
+            } else if risk.overall_risk.score < 30.0 {
+                MarketStance::Constructive // rule 5
+            } else {
+                MarketStance::Cautious // default rule 6
+            }
+        }
+    };
+
+    // v6.10 (Phase 1 / A3): DirectionalGuidance short-circuits on AVOID
+    // stance. Per spec rule 1: `market_stance == AVOID → AVOID_DIRECTIONAL_EXPOSURE`
+    // must precede bias derivation. Without this guard, a POOR-quality
+    // setup with StrongBullish bias would emit `StrongLong`, which is a
+    // dangerous contradiction (operator should not be told to go long when
+    // the matrix says "stay out").
+    let directional = if stance == MarketStance::Avoid {
+        DirectionalGuidance::AvoidDirectionalExposure
+    } else {
+        match analysis.bias {
+            crate::analysis::MarketBias::StrongBullish => {
+                if risk.overall_risk.score < 50.0 {
+                    DirectionalGuidance::StrongLong
+                } else {
+                    DirectionalGuidance::Long
+                }
+            }
+            crate::analysis::MarketBias::Bullish => {
+                if risk.overall_risk.score < 40.0 {
+                    DirectionalGuidance::Long
+                } else {
+                    DirectionalGuidance::Neutral
+                }
+            }
+            crate::analysis::MarketBias::StrongBearish => {
+                if risk.overall_risk.score < 50.0 {
+                    DirectionalGuidance::StrongShort
+                } else {
+                    DirectionalGuidance::Short
+                }
+            }
+            crate::analysis::MarketBias::Bearish => {
+                if risk.overall_risk.score < 40.0 {
+                    DirectionalGuidance::Short
+                } else {
+                    DirectionalGuidance::Neutral
+                }
+            }
+            crate::analysis::MarketBias::Neutral => DirectionalGuidance::Neutral,
+        }
     };
 
     // Opportunity from L4 OpportunityMatrix (fallback to analysis.opportunity_analysis)
@@ -408,6 +449,16 @@ pub fn compute_advisory(
     // type-boundary handoff. Uses 1.5× ATR as default, tightened to 1.0×
     // when structure is Strong.
     //
+    // v6.10 (Phase 1 / A1): wire format is RAW PERCENTAGES in `[0.5, 15.0]`
+    // (e.g. `2.5` means 2.5%). The TAE position-sizing path in
+    // `crates/portfolio-supervisor/src/execution/order.rs:54-58` divides the
+    // raw value by 100 to get the fractional stop distance used in the
+    // sizing formula `size_quote = (E × R) / (D_sl / 100)`. The legacy
+    // implementation produced fractional values in `[0.005, 0.15]`; when
+    // the TAE divided by 100, the effective stop distance was 0.005%–0.15%,
+    // which inflated position sizes ~100×. We now multiply the entire
+    // expression by 100 so the output range is `[0.5, 15.0]` percent.
+    //
     // Bug-fix #8: the legacy implementation read `risk.volatility_risk.score`
     // (an L5 risk score, 0-100) instead of the underlying ATR. The
     // resulting `stop_loss_distance_pct` had nothing to do with the actual
@@ -432,9 +483,9 @@ pub fn compute_advisory(
         // synthesizes the bracket. The structural multiplier does the
         // heavy lifting here: high-quality structure → 1× stop,
         // weak structure → 1.5× stop. The clamp is preserved.
-        let base_pct: f64 = (base_multiplier * 0.02_f64).clamp(0.005, 0.05); // 1%-5% base
-        let risk_bump: f64 = (risk.volatility_risk.score / 100.0) * 0.10; // 0-10% additional
-        (base_pct + risk_bump).clamp(0.005, 0.15)
+        let base_pct: f64 = (base_multiplier * 2.0_f64).clamp(0.5, 5.0); // 0.5%-5% base (percent)
+        let risk_bump: f64 = (risk.volatility_risk.score / 100.0) * 10.0; // 0-10% additional (percent)
+        (base_pct + risk_bump).clamp(0.5, 15.0) // final: percent in [0.5, 15.0]
     };
 
     let recommendation = format!(

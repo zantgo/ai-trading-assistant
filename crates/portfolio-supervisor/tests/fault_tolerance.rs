@@ -107,6 +107,9 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 None,
                 1,
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
+                Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
 
         )
             .await;

@@ -602,18 +602,26 @@ pub fn derive_analysis(
     // volatility dimension was clearly 25-35. We now include all 5
     // alignment dimensions so `market_quality` reflects the full
     // picture.
-    let quality_score = (trend_dim + mom_dim + struct_dim + volu_dim + vol_dim) / 5.0;
-    let market_quality = if quality_score >= 80.0 {
-        QualityLevel::Excellent
-    } else if quality_score >= 65.0 {
-        QualityLevel::Good
-    } else if quality_score >= 50.0 {
-        QualityLevel::Average
-    } else if quality_score >= 35.0 {
-        QualityLevel::Weak
-    } else {
-        QualityLevel::Poor
-    };
+// v6.10 (Phase 6 / F3): `market_quality` is the mean of the trend,
+// momentum, structure, and volume dimension scores (4 dims, NOT 5 —
+// volatility is excluded per the canonical spec at
+// `docs/matrices/02-02-analysis-matrix.md §3.6`). The previous v6.9
+// implementation included volatility, which inflated the score for
+// "compression" regimes. Bands are the canonical half-open
+// thresholds: POOR <30, WEAK [30,50), AVERAGE [50,70), GOOD [70,85),
+// EXCELLENT ≥85.
+let quality_score = (trend_dim + mom_dim + struct_dim + volu_dim) / 4.0;
+let market_quality = if quality_score >= 85.0 {
+    QualityLevel::Excellent
+} else if quality_score >= 70.0 {
+    QualityLevel::Good
+} else if quality_score >= 50.0 {
+    QualityLevel::Average
+} else if quality_score >= 30.0 {
+    QualityLevel::Weak
+} else {
+    QualityLevel::Poor
+};
 
     let mut rationale_parts: Vec<String> = Vec::new();
     rationale_parts.push(format!(

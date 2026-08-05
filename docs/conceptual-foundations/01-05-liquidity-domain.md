@@ -1,6 +1,6 @@
 # Liquidity Phase 0-4 — Architecture Spec
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
 ## Overview

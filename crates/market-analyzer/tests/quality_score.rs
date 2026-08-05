@@ -86,6 +86,7 @@ fn make_test_config() -> TimeframeConfig {
             volume_profile_window: 500,
             volume_profile_value_area: 0.7,
         },
+        leverage: Default::default(),
     }
 }
 
@@ -147,6 +148,9 @@ Arc::new(RwLock::new(VecDeque::with_capacity(60))),
             None,
             None,
             5,
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
+            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         )
     });
 

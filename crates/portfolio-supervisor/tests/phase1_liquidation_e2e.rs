@@ -86,6 +86,7 @@ fn make_test_config() -> TimeframeConfig {
             volume_profile_window: 500,
             volume_profile_value_area: 0.7,
         },
+        leverage: Default::default(),
     }
 }
 
@@ -146,6 +147,9 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             None,
             None,
             1,
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
+            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         )
     });
 

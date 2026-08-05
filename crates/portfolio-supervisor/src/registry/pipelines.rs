@@ -179,6 +179,8 @@ pub async fn build_pipelines(
             cluster_status: micro_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            advisory: Arc::new(RwLock::new(None)),
+            tf_leverage_config: Arc::new(ctx.micro_cfg.leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
         },
@@ -202,6 +204,8 @@ pub async fn build_pipelines(
             cluster_status: fast_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            advisory: Arc::new(RwLock::new(None)),
+            tf_leverage_config: Arc::new(ctx.fast_cfg.leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
         },
@@ -225,6 +229,8 @@ pub async fn build_pipelines(
             cluster_status: slow_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            advisory: Arc::new(RwLock::new(None)),
+            tf_leverage_config: Arc::new(ctx.slow_cfg.leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
         },
@@ -248,6 +254,8 @@ pub async fn build_pipelines(
             cluster_status: macro_cluster_status.clone(),
             pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
             indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            advisory: Arc::new(RwLock::new(None)),
+            tf_leverage_config: Arc::new(ctx.macro_cfg.leverage.clone()),
             buffer_size: ctx.buffer_size,
             stale_threshold_secs: ctx.stale_threshold_secs,
         },
@@ -635,6 +643,44 @@ async fn spawn_tasks(
         // (supervisor) and data-time reconstruction events (analyzer).
         let a_cq_scope = state.connection_quality.scope(pair_key, tf_secs).await;
         let a_buffer_size = buffer_size;
+        // v6.10 (Phase 2 / B3): per-TF advisory handle for write-through.
+        let a_advisory: Arc<RwLock<Option<core_domain::advisory::AdvisoryMatrix>>> = match slot {
+            core_domain::models::TimeframeSlot::Micro => active_pair.micro.advisory.clone(),
+            core_domain::models::TimeframeSlot::Fast => active_pair.fast.advisory.clone(),
+            core_domain::models::TimeframeSlot::Slow => active_pair.slow.advisory.clone(),
+            core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.advisory.clone(),
+            core_domain::models::TimeframeSlot::Custom { id } => active_pair
+                .custom_pipelines
+                .get(&id)
+                .map(|p| p.advisory.clone())
+                .unwrap_or_else(|| Arc::new(RwLock::new(None))),
+        };
+        // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle handle
+        // used as prev-state input AND as write-through target on every
+        // completed candle emit.
+        let a_indicator_lifecycle: Arc<RwLock<core_domain::indicator_dtos::IndicatorLifecycleMap>> = match slot {
+            core_domain::models::TimeframeSlot::Micro => active_pair.micro.indicator_lifecycle.clone(),
+            core_domain::models::TimeframeSlot::Fast => active_pair.fast.indicator_lifecycle.clone(),
+            core_domain::models::TimeframeSlot::Slow => active_pair.slow.indicator_lifecycle.clone(),
+            core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.indicator_lifecycle.clone(),
+            core_domain::models::TimeframeSlot::Custom { id } => active_pair
+                .custom_pipelines
+                .get(&id)
+                .map(|p| p.indicator_lifecycle.clone())
+                .unwrap_or_else(|| Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new()))),
+        };
+        // v6.10 (Phase 3 / C3): per-TF pipeline_state handle for write-through.
+        let a_pipeline_state: Arc<RwLock<core_domain::models::CandlePipelineState>> = match slot {
+            core_domain::models::TimeframeSlot::Micro => active_pair.micro.pipeline_state.clone(),
+            core_domain::models::TimeframeSlot::Fast => active_pair.fast.pipeline_state.clone(),
+            core_domain::models::TimeframeSlot::Slow => active_pair.slow.pipeline_state.clone(),
+            core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.pipeline_state.clone(),
+            core_domain::models::TimeframeSlot::Custom { id } => active_pair
+                .custom_pipelines
+                .get(&id)
+                .map(|p| p.pipeline_state.clone())
+                .unwrap_or_else(|| Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing))),
+        };
 
         let x_micro = micro_latest.clone();
         let x_fast = fast_latest.clone();
@@ -690,6 +736,12 @@ async fn spawn_tasks(
                 Some(a_refetch),
                 Some(a_cq_scope),
                 a_buffer_size,
+                // v6.10 (Phase 2 / B3): per-TF advisory handle.
+                a_advisory,
+                // v6.10 (Phase 3 / C1 + C3): per-TF indicator_lifecycle
+                // and pipeline_state handles for write-through.
+                a_indicator_lifecycle,
+                a_pipeline_state,
             )
             .await;
         });
@@ -1054,6 +1106,28 @@ async fn spawn_tasks(
         ];
 
         for (slot, handle, status_handle, tf_secs) in per_tf_handles {
+            // v6.10 (Phase 2 / B5): per-TF kill switch. Read
+            // `tf_leverage_config.enabled` from the active pipeline; if false,
+            // skip this TF entirely (no spawn, no cluster field on snapshot).
+            let tf_leverage_enabled = active_pair
+                .pipeline_for_slot(slot)
+                .map(|p| p.tf_leverage_config.enabled)
+                .unwrap_or(true);
+            if !tf_leverage_enabled {
+                println!(
+                    "⏭  Cluster Refresh: {} {} skipped (per-TF leverage.enabled=false)",
+                    pair_str,
+                    &slot.as_str(),
+                );
+                write_cluster_status(
+                    &status_handle,
+                    ClusterRefreshStatus::Skipped,
+                    Some("per-TF leverage.enabled=false".to_string()),
+                    None,
+                )
+                .await;
+                continue;
+            }
             // Cadence resolution:
             //   - `cluster_refresh_secs == 0` → synchronize with TF candle cadence
             //   - any value > 0                  → clamp(min, 60); operator override
@@ -1312,7 +1386,13 @@ pub async fn compute_cluster_for_tf(
         return Err(ClusterRefreshError::InsufficientHistory(price_history.len()));
     }
 
-    // 4. Compute.
+    // 4. Compute. v6.10 (Phase 2 / B5): pull leverage_buckets / leverage_weights
+    //    / min_cluster_notional_usd from the per-TF `TfLeverageConfig` on the
+    //    active pipeline, replacing the hardcoded legacy distribution.
+    let tf_cfg = active_pair
+        .pipeline_for_slot(slot)
+        .map(|p| p.tf_leverage_config.as_ref().clone())
+        .unwrap_or_default();
     let symbol = tf_snapshot.symbol.clone();
     let input = ClusterEstimateInput {
         symbol: &symbol,
@@ -1324,9 +1404,9 @@ pub async fn compute_cluster_for_tf(
         maintenance_margin_rate: config.maintenance_margin_rate,
         funding_extreme_pct: config.funding_extreme_pct,
         funding_modulation_active: true,
-        leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
-        leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
-        min_cluster_notional_usd: config.min_cluster_notional_usd,
+        leverage_buckets: &tf_cfg.buckets,
+        leverage_weights: &tf_cfg.weights,
+        min_cluster_notional_usd: tf_cfg.min_cluster_notional_usd,
     };
     Ok(estimate_clusters(&input))
 }

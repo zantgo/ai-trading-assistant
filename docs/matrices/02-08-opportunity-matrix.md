@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -187,7 +187,9 @@ $$\text{score} = 0.35\,Q_{ctx} + 0.30\,S_{sig} + 0.20\,A_{mtf} + 0.15\,F_{fresh}
 | Context quality | `Q_ctx` | Analysis `market_quality` + relevant assessment dimension. |
 | Signal support | `S_sig` | Strength and confirmation status of contributing Metrics-Matrix signals. |
 | MTF agreement | `A_mtf` | Alignment `trend_agreement_pct` for directional setups. |
-| Freshness | `F_fresh` | Inverse of the youngest contributing signal's `age_bars`. |
+| Freshness | `F_{fresh}` | Inverse of the youngest contributing signal's `age_bars`. |
+
+**Activation vs viability.** The score above is the **raw viability blend** — it tells the operator *how favourable the underlying setup looks*, independent of whether the setup is currently firing. It is **not** gated by the precondition completion ratio. The previous v6.10 implementation multiplied the score by `preconditions_met / preconditions_total`, which collapsed every inactive setup (e.g. `preconditions 0/3 met`) to `score = 0`. That conflated two orthogonal signals: activation (handled separately) and viability (which the dashboard displays). The v6.10.1 fix returns the raw blend so every non-`NoClear` profile surfaces its true viability; the activation signal is communicated via the per-profile `preconditions_met` / `preconditions_total` fields on `OpportunityProfile` (rendered as the precondition progress bar in the UI: `ui/src/components/OpportunitiesPanel.svelte:430-437`) and via the Rust-only `scoring_factors.precondition_ratio` field for telemetry consumers. `OpportunityType::NoClearOpportunity` retains the unconditional-zero sentinel — it is the explicit "no setup detected" placeholder and can never surface as actionable.
 
 The primary opportunity is determined by the **priority-ordered decision tree in §4** (first match wins). The `opportunity_score` and `profiles[]` array expose the full scoring breakdown for downstream consumers but do **not** override the tree selection. In a tie, the profile with the higher `preconditions_met / preconditions_total` ratio wins.
 

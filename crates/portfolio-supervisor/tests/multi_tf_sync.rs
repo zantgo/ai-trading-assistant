@@ -73,24 +73,28 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                 duration_seconds: 30,
             },
             indicators: indicators.clone(),
+            leverage: Default::default(),
         };
         let fast_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
             },
             indicators: indicators.clone(),
+            leverage: Default::default(),
         };
         let slow_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 90,
             },
             indicators: indicators.clone(),
+            leverage: Default::default(),
         };
         let macro_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 150,
             },
             indicators: indicators.clone(),
+            leverage: Default::default(),
         };
 
         // Event router fanning out to 4 timeframes
@@ -163,6 +167,9 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     None,
                     None,
                 1,
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
+                Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
                 )
                 .await;
             })

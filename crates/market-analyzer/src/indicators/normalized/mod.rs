@@ -347,7 +347,17 @@ mod meta_tests {
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
-        let event_driven = ["fibonacci", "support_resistance", "patterns"];
+        // v6.10 (Phase 5 / E5): `support_resistance` is now always
+        // inserted with a meaningful state_label (STRUCTURE_NEUTRAL when
+        // no levels are present), so the operator can distinguish
+        // "tracker warming up" from "no S/R detected in this regime".
+        // Only fibonacci and patterns remain EventDriven with WARMING.
+        let event_driven = ["fibonacci", "patterns"];
+        let divergent_keys = [
+            "fibonacci",
+            "patterns",
+            "support_resistance",
+        ];
         let divergence_keys = [
             "rsi_divergence",
             "macd_divergence",
@@ -364,6 +374,22 @@ mod meta_tests {
                 .unwrap_or_else(|| panic!("{key} must be present"));
             assert_eq!(v.state_label, "WARMING", "{key} should be WARMING");
             assert!(v.confidence <= 0.01, "{key} confidence should be ~0");
+        }
+        for &key in &divergent_keys {
+            let v = map
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} must be present"));
+            // support_resistance always emits a real state_label
+            // (STRUCTURE_NEUTRAL when the SrRoleTracker has no levels
+            // yet), so it is no longer treated as EventDriven-WARMING.
+            if key == "support_resistance" {
+                assert_eq!(
+                    v.state_label, "STRUCTURE_NEUTRAL",
+                    "support_resistance must report STRUCTURE_NEUTRAL when levels empty"
+                );
+            } else {
+                assert_eq!(v.state_label, "WARMING", "{key} should be WARMING");
+            }
         }
         for &key in &divergence_keys {
             assert!(!map.contains_key(key), "{key} mirror should NOT be present");

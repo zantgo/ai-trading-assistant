@@ -114,6 +114,8 @@ fn build_stub_instance(
         )),
         pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        advisory: Arc::new(RwLock::new(None)),
+        tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
         buffer_size: 500,
         stale_threshold_secs: 300,
     };
@@ -374,6 +376,8 @@ fn build_stub_instance_v2(
         )),
         pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        advisory: Arc::new(RwLock::new(None)),
+        tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
         buffer_size: 500,
         stale_threshold_secs: 300,
     };

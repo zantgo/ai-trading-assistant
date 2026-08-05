@@ -942,6 +942,11 @@ pub struct TimeframeConfig {
     pub candles: CandlesConfig,
     #[serde(default)]
     pub indicators: IndicatorsConfig,
+    /// v6.10 (Phase 2 / B4): per-TF leverage configuration feeding the
+    /// cluster estimator. `#[serde(default)]` preserves backwards compat
+    /// with existing `config.toml` files that don't include the section.
+    #[serde(default)]
+    pub leverage: TfLeverageConfig,
 }
 
 impl TimeframeConfig {
@@ -949,6 +954,7 @@ impl TimeframeConfig {
         Self {
             candles: CandlesConfig { duration_seconds },
             indicators,
+            leverage: TfLeverageConfig::default(),
         }
     }
 }
@@ -1061,7 +1067,14 @@ fn default_fast_seconds() -> u64 {
 }
 
 /// Configurable activation: per-indicator, per-signal, and per-SignalKind
-/// denylists. Omitting this section defaults to all-enabled.
+/// v6.10 (Phase 5 / E3): the three liquidity sub-toggles are now
+/// `Option<bool>` so an instance config can:
+///   * omit the field entirely → inherit the global default
+///   * set `liquidation_feed = false` → override the global to false
+/// Previously the field was `bool` with serde `default = true`, so an
+/// instance could not opt out of the global. With `Option<bool>`,
+/// `None` means "fall through to global" and `Some(false)` means
+/// "force-disable this sub-feature on this instance".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivationConfig {
     #[serde(default)]
@@ -1070,12 +1083,12 @@ pub struct ActivationConfig {
     pub disabled_signals: Vec<String>,
     #[serde(default)]
     pub disabled_signal_kinds: Vec<String>,
-    #[serde(default = "default_true_bool")]
-    pub liquidation_feed: bool,
-    #[serde(default = "default_true_bool")]
-    pub cluster_estimation: bool,
-    #[serde(default = "default_true_bool")]
-    pub liquidity_signals_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidation_feed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_estimation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidity_signals_enabled: Option<bool>,
 }
 
 impl Default for ActivationConfig {
@@ -1084,9 +1097,9 @@ impl Default for ActivationConfig {
             disabled_indicators: Vec::new(),
             disabled_signals: Vec::new(),
             disabled_signal_kinds: Vec::new(),
-            liquidation_feed: true,
-            cluster_estimation: true,
-            liquidity_signals_enabled: true,
+            liquidation_feed: Some(true),
+            cluster_estimation: Some(true),
+            liquidity_signals_enabled: Some(true),
         }
     }
 }
@@ -1216,6 +1229,56 @@ fn default_oi_funding_divergence_pct() -> f64 {
 }
 fn default_min_cluster_notional_usd() -> f64 {
     50_000.0
+}
+
+// v6.10 (Phase 2 / B4): per-TF leverage configuration for the cluster
+// estimator. Operators can tune the leverage-bucket distribution that
+// feeds `ClusterEstimateInput::leverage_buckets` / `leverage_weights`
+// per timeframe, and disable the cluster estimator for specific TFs.
+// Defaults preserve the legacy hardcoded values
+// `[1, 3, 5, 10, 20, 50, 100]` / `[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05]`
+// so existing operators see no behavior change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TfLeverageConfig {
+    /// Per-TF kill switch. When `false`, the per-TF cluster refresh task
+    /// is suppressed entirely (no spawn, no `cluster` field on snapshot).
+    /// Default `true` matches the prior always-on behavior.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Leverage buckets (in ascending order) used to distribute OI
+    /// notional when estimating liquidation clusters.
+    /// Default: `[1, 3, 5, 10, 20, 50, 100]`.
+    #[serde(default = "default_leverage_buckets")]
+    pub buckets: Vec<u32>,
+    /// Per-bucket weights summing to ~1.0. The default is the documented
+    /// platform-wide distribution:
+    /// `[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05]` (peaks at 10×).
+    #[serde(default = "default_leverage_weights")]
+    pub weights: Vec<f64>,
+    /// Minimum cluster notional in USD below which a bin is treated as
+    /// noise and dropped from the cluster list. Default `50_000` matches
+    /// the existing `LiquidityConfig.min_cluster_notional_usd` default.
+    #[serde(default = "default_min_cluster_notional_usd")]
+    pub min_cluster_notional_usd: f64,
+}
+
+impl Default for TfLeverageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true_bool(),
+            buckets: default_leverage_buckets(),
+            weights: default_leverage_weights(),
+            min_cluster_notional_usd: default_min_cluster_notional_usd(),
+        }
+    }
+}
+
+fn default_leverage_buckets() -> Vec<u32> {
+    vec![1, 3, 5, 10, 20, 50, 100]
+}
+
+fn default_leverage_weights() -> Vec<f64> {
+    vec![0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05]
 }
 
 /// Liquidation Heatmap configuration.

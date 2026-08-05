@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 > **Implementation status (v6.8).** DIE and MME are end-to-end implemented. TAE, PME, and PAE are **WIP** — the backends run and expose state, but the dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest panel) render hardcoded placeholder data. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality and §3 for the phased delivery plan.

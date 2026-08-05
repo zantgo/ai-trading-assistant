@@ -943,6 +943,32 @@ impl<'a> Default for ClusterEstimateInput<'a> {
     }
 }
 
+/// Per-bin notional accumulator, segmented by leverage bucket.
+///
+/// v6.10 (Phase 2 / B6): each 0.1% price bin now records notional per
+/// leverage bucket so the cluster detector can surface the dominant
+/// leverage (the bucket with the highest aggregate USD contribution).
+/// `BinsByLeverage` is internal to `estimate_clusters` and is flattened
+/// to a scalar `dominant_leverage` field on each emitted `LiquidationCluster`.
+#[derive(Debug, Default, Clone)]
+struct BinsByLeverage {
+    by_lev: Vec<(u32, f64)>,
+}
+
+impl BinsByLeverage {
+    fn add(&mut self, lev: u32, notional: f64) {
+        if let Some(entry) = self.by_lev.iter_mut().find(|(l, _)| *l == lev) {
+            entry.1 += notional;
+        } else {
+            self.by_lev.push((lev, notional));
+        }
+    }
+
+    fn total(&self) -> f64 {
+        self.by_lev.iter().map(|(_, v)| *v).sum()
+    }
+}
+
 /// Apply funding-rate modulation to the leverage weights. Extreme funding
 /// → heavier high-leverage tail (because crowded trades = high leverage).
 fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct: f64) {
@@ -1066,9 +1092,15 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
 
     // 4. For each (entry_price, leverage) combination, compute the
     //    liquidation price and accumulate into 0.1% price buckets.
+    //
+    // v6.10 (Phase 2 / B6): per-bin notional now tracks per-leverage-bucket
+    // contribution so that `detect_clusters` can surface the dominant
+    // leverage for each emitted cluster (previously hardcoded to 10).
     let price_bin_pct = 0.001; // 0.1% buckets
-    let mut long_bins: std::collections::BTreeMap<i64, f64> = std::collections::BTreeMap::new();
-    let mut short_bins: std::collections::BTreeMap<i64, f64> = std::collections::BTreeMap::new();
+    let mut long_bins: std::collections::BTreeMap<i64, BinsByLeverage> =
+        std::collections::BTreeMap::new();
+    let mut short_bins: std::collections::BTreeMap<i64, BinsByLeverage> =
+        std::collections::BTreeMap::new();
 
     let bucket_long = |entry: f64, lev: u32| -> Option<f64> {
         let dist = (1.0 / lev as f64) - input.maintenance_margin_rate;
@@ -1096,28 +1128,28 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         if swing_lows.is_empty() {
             if let Some(liq_px) = bucket_long(input.mid_price, *lev) {
                 let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                *long_bins.entry(key).or_insert(0.0) += lev_notional_long;
+                long_bins.entry(key).or_default().add(*lev, lev_notional_long);
             }
         } else {
             let per_entry = lev_notional_long / swing_lows.len() as f64;
             for entry in &swing_lows {
                 if let Some(liq_px) = bucket_long(*entry, *lev) {
                     let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                    *long_bins.entry(key).or_insert(0.0) += per_entry;
+                    long_bins.entry(key).or_default().add(*lev, per_entry);
                 }
             }
         }
         if swing_highs.is_empty() {
             if let Some(liq_px) = bucket_short(input.mid_price, *lev) {
                 let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                *short_bins.entry(key).or_insert(0.0) += lev_notional_short;
+                short_bins.entry(key).or_default().add(*lev, lev_notional_short);
             }
         } else {
             let per_entry = lev_notional_short / swing_highs.len() as f64;
             for entry in &swing_highs {
                 if let Some(liq_px) = bucket_short(*entry, *lev) {
                     let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                    *short_bins.entry(key).or_insert(0.0) += per_entry;
+                    short_bins.entry(key).or_default().add(*lev, per_entry);
                 }
             }
         }
@@ -1172,8 +1204,11 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
 }
 
 /// Detect cluster peaks from the binned density.
+///
+/// v6.10 (Phase 2 / B6): bins are now `BinsByLeverage` so each cluster
+/// can report the leverage bucket contributing the most USD notional.
 fn detect_clusters(
-    bins: &std::collections::BTreeMap<i64, f64>,
+    bins: &std::collections::BTreeMap<i64, BinsByLeverage>,
     mid_price: f64,
     price_bin_pct: f64,
     is_long: bool,
@@ -1182,12 +1217,13 @@ fn detect_clusters(
     if bins.is_empty() || mid_price <= 0.0 {
         return vec![];
     }
-    // Convert to a sorted Vec<(price, notional)>.
-    let mut series: Vec<(f64, f64)> = bins
+    // Convert to a sorted Vec<(price, total_notional)> using the per-bin
+    // total so peak detection still uses the aggregate series.
+    let mut series: Vec<(f64, f64, &BinsByLeverage)> = bins
         .iter()
         .map(|(k, v)| {
             let price = (*k as f64) * price_bin_pct * mid_price;
-            (price, *v)
+            (price, v.total(), v)
         })
         .collect();
     series.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -1196,12 +1232,14 @@ fn detect_clusters(
     let mut clusters = Vec::new();
     let half = (series.len() / 20).max(2);
     for i in half..(series.len().saturating_sub(half)) {
-        let (_, v) = series[i];
+        let (_, v, _) = series[i];
         if v < min_notional {
             continue;
         }
-        let is_peak = series[i - half..i].iter().all(|(_, x)| *x <= v)
-            && series[i + 1..=i + half].iter().all(|(_, x)| *x <= v);
+        let is_peak = series[i - half..i].iter().all(|(_, x, _)| *x <= v)
+            && series[i + 1..=i + half]
+                .iter()
+                .all(|(_, x, _)| *x <= v);
         if !is_peak {
             continue;
         }
@@ -1218,7 +1256,26 @@ fn detect_clusters(
         let price_low = series[lo].0;
         let price_high = series[hi].0;
         let peak_price = series[i].0;
-        let notional: f64 = series[lo..=hi].iter().map(|(_, v)| *v).sum();
+        let notional: f64 = series[lo..=hi].iter().map(|(_, v, _)| *v).sum();
+
+        // v6.10 (Phase 2 / B6): dominant leverage = the bucket with the
+        // largest aggregate USD contribution across the cluster's bins.
+        // Ties resolve to the highest leverage bucket (max-by-(lev, notional)).
+        let mut best_lev_total: std::collections::HashMap<u32, f64> =
+            std::collections::HashMap::new();
+        for entry in series[lo..=hi].iter().flat_map(|(_, _, bl)| bl.by_lev.iter()) {
+            *best_lev_total.entry(entry.0).or_insert(0.0) += entry.1;
+        }
+        let dominant_leverage = best_lev_total
+            .iter()
+            .max_by(|(la, va), (lb, vb)| {
+                va.partial_cmp(vb)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(lb.cmp(la)) // tie → higher leverage wins
+            })
+            .map(|(l, _)| *l)
+            .unwrap_or(0);
+
         let distance_pct = ((peak_price - mid_price) / mid_price).abs() * 100.0;
         let kind = if distance_pct < 0.5 {
             ClusterKind::AtCurrentPrice
@@ -1236,7 +1293,7 @@ fn detect_clusters(
             price_high,
             peak_price,
             notional_usd: notional,
-            dominant_leverage: 10, // TODO: track per-bin
+            dominant_leverage,
             distance_from_mid_pct: distance_pct,
             cluster_kind: kind,
             magnet_strength: magnet,

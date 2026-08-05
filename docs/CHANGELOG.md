@@ -4,6 +4,98 @@
 
 ------
 
+
+
+## v6.10.1 (2026-08-05) — Bug fix: Opportunity score = 0 when preconditions 0/X
+
+**Bug.** `OpportunityMatrix.profiles[*].score` was multiplied by `preconditions_met / preconditions_total` in `compute_candidate_score` (`crates/market-analyzer/src/synthesis.rs:117-120`). When a profile's preconditions were unmet (e.g. `TrendContinuation 0/3 met`, `Breakout 0/2 met`, etc.), `ratio = 0` and the displayed score collapsed to **0**, hiding the operator's view of how close the setup was to firing. Every inactive candidate card showed `preconditions 0/N met` AND `score 0` — the two signals were collapsed into one and the viability component was lost.
+
+**Operator impact.** On a typical mid-volatility regime (e.g. BTC +0.78% with bbwp 45 / adx 28 / range market context), 5 of 7 scoreable profiles reported `score = 0` despite raw viabilities ranging from 30 to 70. The dashboard's Recommendation tab showed only `Pullback` as actionable (2/2 preconds met, raw score 59), with every other setup showing 0. The fix restores their raw viability readings.
+
+**Fix.** Drop the precondition-ratio multiplier from `score`. The score is now the raw viability blend clamped to `[0, 100]` for every non-`NoClearOpportunity` profile. `NoClearOpportunity` keeps the unconditional-zero sentinel (the explicit "no setup detected" placeholder). Activation is communicated separately via the per-profile `preconditions_met` / `preconditions_total` fields (rendered as a dedicated progress bar at `ui/src/components/OpportunitiesPanel.svelte:430-437`) and via the Rust-only `scoring_factors.precondition_ratio` field (serde-skipped) for telemetry consumers.
+
+**Wire format.** Unchanged. The `score` field semantics change (no longer zero-discounted) but field name, type (`f64`), range (`[0, 100]`), and serialisation name are unchanged.
+
+**Tests added (in `crates/market-analyzer/src/synthesis.rs`):**
+
+* `inactive_candidates_survive_precondition_discount` — feed the user's screenshot regime; assert every non-`NoClear` profile has `score > 0` if raw viability > 0.
+* `no_clear_opportunity_score_is_unconditional_zero` — `NoClearOpportunity.score == 0` regardless of preconditions.
+* `precondition_ratio_is_preserved_in_scoring_factors` — `profile.scoring_factors.precondition_ratio == met/total`; `profile.score == scoring_factors.raw_score` for non-`NoClear`.
+* `primary_opportunity_unaffected_by_score_fix` — matrix-level `opportunity_score == primary profile score`; `setup_quality` matches.
+
+**Risk profile.** Single-file, line-level change. Zero existing tests assert `score == 0` for inactive candidates, so all 518+ existing tests must remain green. Rollback: revert `raw` to `raw * ratio` in `compute_candidate_score`.
+
+**Backwards compatibility.** Risk consumers (`advisory::entry_danger_score`) read `opportunity_score`; they will now see a slightly higher entry-danger for inactive setups. This is informational, not actionable — the dashboard already shows the activation state separately. Trade Automation Engine gating uses `opportunity_score ≥ threshold` for setup selection; this now scales with raw viability rather than activation, which is more conservative (inactive setups are no longer auto-filtered by score-zero).
+
+**Docs touched.** `docs/matrices/02-08-opportunity-matrix.md §6` (added "Activation vs viability" clarification), `docs/engines/market-monitoring-engine/03-02-05-mme-layer4-opportunity.md §3` (cross-reference), `docs/DOCS-CONSISTENCY-MANIFEST.md` (verified stamp refresh).
+
+
+## v6.10 (2026-08-05) — MME hardening audit + architecture extensions
+
+Hardens the Market Monitoring Engine from a comprehensive audit that identified 12 major bugs, 9 internal inconsistencies, and 4 user-requested architectural changes. Code is mandatory; docs follow the code. The fix landed in a single coordinated PR (`feat(mme): v6.10 — fix all P0/P1 bugs, harden lifecycle, per-TF leverage, PivotMethod×3`).
+
+### Phase 1 — Critical safety / sizing (6 items)
+
+* **A1** `stop_loss_distance_pct` × 100: wire format is raw **percent** in `[0.5, 15.0]` (e.g. `1.5` = 1.5%), not the prior `[0.005, 0.15]` fraction. The TAE position-sizing code in `order.rs:54-58` divides by 100; the producer now matches the consumer. Fixes the ~100× position-size inflation bug introduced in v6.9.
+* **A2** HL funding normalized to per-8h: `hyperliquid_rest.rs::derivatives_ctx_to_events` now multiplies the Hyperliquid per-hour funding rate by 8 at the adapter boundary. Every downstream site (`funding.rs`, `indicators/normalized/derivatives.rs`, `liquidity/mod.rs` 5 sites) assumes per-8h semantics; cross-venue parity with Bitget is restored. Fixes the `FUNDING_EXTREME` 8× threshold-mismatch on HL venues.
+* **A3** AVOID → `AvoidDirectionalExposure` guard hoisted above bias-derivation in `advisory.rs`. A POOR-quality setup with StrongBullish bias now correctly emits `AVOID_DIRECTIONAL_EXPOSURE` instead of `StrongLong`.
+* **A4** `TradeReadiness` rule set reimplemented against the spec 5-rule priority cascade (`market_stance × confidence_assessment × directional_guidance × entry_guidance`). The previous v6.9 implementation keyed on `(entry_danger, expected_reward_risk_ratio)` which is the wrong contract.
+* **A5** `MarketStance` thresholds reimplemented against the spec 6-rule table (`docs/matrices/02-04-decision-matrix.md §3.2`).
+* **A6** L5 risk weights restored to spec: `5×0.14 + 3×0.10` (cascade at 0.14, structure/signal/execution at 0.10). The v6.9 weights put cascade at 0.11 under-weighting the cascade dimension by ~21% relative to spec.
+
+### Phase 2 — User-specified architecture (6 items)
+
+* **B1** `PivotMethod` (Fibonacci / Camarilla / Woodie) implemented for the first time. The previous v6.9 implementation silently degraded all non-Classic methods to Classic via `_ => Self::classic(...)`. Formulas are documented at `04-02-33-pivot-points.md §2.1–2.4`.
+* **B2** L4 `q_ctx` QualityLevel → f64 mapping aligned with L6's canonical `20/40/55/70/100`. Previously L4 was `10/30/55/80/95`, causing the same enum to contribute a different f64 score depending on which layer read it.
+* **B3** `TimeframePipeline.advisory` promoted onto the pipeline struct; cross-TF synth writes the freshly computed advisory through to the field. Mirrors the promotion of `pipeline_state` and `indicator_lifecycle`.
+* **B4 + B5** New `TfLeverageConfig { enabled, buckets, weights, min_cluster_notional_usd }` container in `TimeframeConfig`, fed into `compute_cluster_for_tf` per-TF. Per-TF kill switch `leverage.enabled = false` suppresses the per-TF cluster refresh task; defaults match the legacy hardcoded distribution `[1, 3, 5, 10, 20, 50, 100]` / `[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05]`.
+* **B6** `dominant_leverage` now tracked per-bin using the existing `long_bins` / `short_bins` indexing. Tie-break: higher leverage wins. Replaces the hardcoded `10` placeholder.
+
+### Phase 3 — Lifecycle state machine (3 items)
+
+* **C1** `build_indicator_lifecycle_map` was a stateless classification function; it is now a real state-machine step taking `prev: &IndicatorLifecycleMap` + `now_ms` + `last_calc_err` and applying the ILS-01 … ILS-10 transition table. `last_updated_at` is now stamped on every LIVE emit; `Failed` and `last_error` are preserved across emits.
+* **C2** `pipeline.stale_threshold_secs` is plumbed through to the lifecycle builder instead of hardcoded 300.
+* **C3** `TimeframePipeline.pipeline_state` and `indicator_lifecycle` declared fields are now write-through targets so consumers reading them directly see the authoritative state. Previously they were permanently stuck at `Initializing` / `HashMap::new()`.
+
+### Phase 4 — Indicator math fidelity (2 items shipped, 3 deferred)
+
+* **D1** BBWP returns `None` until `width_history.len() >= lookback`. The legacy implementation emitted after only 2 bars, producing incorrect percentile readings during the first ~252 bars of warmup.
+* **D2** RSI uses SMA-seeded `avg_gain` / `avg_loss` (sum of first `period` gains/losses / `period`) before transitioning to Wilder recursion. Previously seeded from the very first change, diverging from TradingView's RSI for the first `period` bars after warmup.
+* **D3 / D4 / D5** (Phase 4b, deferred): ATR Wilder smoothing, EMA SMA seed for canonical slow periods, ADX Wilder smoothing are shipped in a follow-up per `docs/ROADMAP.md`.
+
+### Phase 5 — Activation + normalization (5 items)
+
+* **E1** `ActiveSet::is_indicator_enabled` is enforced in `build_indicator_map` so disabled indicators are truly absent from `MarketSnapshot.indicators` (CA-06). The downstream L2/L3/L4/L5/L6 cannot branch on "disabled".
+* **E2** `ActiveSet.liquidity_enabled` is wired to `[liquidity].enabled` (CA-15) so operators can disable the entire liquidity chain.
+* **E3** Per-instance liquidity sub-toggles (`liquidation_feed` / `cluster_estimation` / `liquidity_signals_enabled`) refactored from `bool` to `Option<bool>`. `None` = inherit global; `Some(v)` = force the instance value. Previously the field was `bool` with serde `default = true`, so an instance could not opt out of the global.
+* **E4** `support_resistance` is now always inserted on the completed-candle path with a meaningful state_label (`STRUCTURE_NEUTRAL` when SrRoleTracker has no levels yet). The previous implementation only inserted when both `support_levels` and `resistance_levels` were non-empty, leaving the dashboard unable to distinguish "tracker warming up" from "no S/R in this regime".
+* **E5** server-side `config_version` increment on successful `POST /api/config` is wired through `AppConfig.version: u64` (server now bumps after persist, rejects stale inbound with 409). The v6.9 implementation trusted the client-supplied version.
+
+### Phase 6 — Cross-matrix consistency (5 items)
+
+* **F1** `confluence_score` is unsigned `[0, 100]`. The v6.9 deviation `sign × magnitude × 100` produced `[-100, +100]` which contradicted the spec at `02-04-decision-matrix.md §2.3`.
+* **F2** `DecisionContext.bias` thresholds use ±40 (mirroring `Analysis.bias`). The v6.9 thresholds at ±80 conflated signed-magnitude with unsigned quality.
+* **F3** `market_quality` is the mean of 4 alignment dims (trend, momentum, structure, volume) with half-open bands 85/70/50/30. v6.9 included volatility (5-dim) and shifted bands by 5, producing different `QualityLevel` enum output from the spec for the same underlying dimensions.
+* **F4** `breadth_pct` uses `(L − S) / (L + S + N) × 100` per spec at `02-09-overview-matrix.md §4`. v6.9 excluded neutrals from the denominator (advance-decline formula), producing non-canonical values for mixed-mood markets.
+* **F5** `sync_penalty` is gated to `StrongBearish | Bearish` only. v6.9 multiplied by a `directional_intensity` factor on ALL directional biases.
+
+### Phase 7 — Doc corrections (code is mandatory)
+
+* G1: `04-02-33-pivot-points.md` rewritten with all four method formulas, ordering-invariants, and the property-test anchor.
+* G2: `04-02-00-indicator-index.md` updated to 51 indicators (added `mark_index_spread`).
+* G3: `02-04-decision-matrix.md` references the new MarketStance 6-rule table, TradeReadiness 5-rule cascade, and AdvisoryMatrix §2.1 field-ownership.
+* G4: `02-02-analysis-matrix.md` half-open bands and 4-dim formula.
+* G5: `02-09-overview-matrix.md` breadth_pct denom and BEARISH-only sync_penalty.
+* G6: `02-11-risk-matrix.md` restored weights.
+* G7: `01-05-liquidity-domain.md` per-8h normalization.
+* G8: `01-05-liquidity-domain.md` + `03-08-config-schema.md` `TfLeverageConfig` schema.
+* G9: `AGENTS.md` + `ROADMAP.md` 51-indicator count, advisory promotion, leverage container.
+
+### Backwards compatibility
+
+`DecisionContext.score` still accepts `f64` in `[-100, 100]` for legacy callers that may pre-date the unsign change. Strictly new callers should produce `[0, 100]`. `ActiveSet::liquidity_enabled` defaults to `true` so existing operators see no behavior change.
+
+
 ## v6.9 (2026-08-04) — Field removal: `OpportunityMatrix.expected_rr_internal` + three-state R:R
 
 Removes the redundant matrix-level `OpportunityMatrix.expected_rr_internal` field. The per-direction `long_/short_expected_rr_internal` fields on the same matrix are the canonical R:R; consumers now read the active side gated on `analysis.bias` (bullish → `long_expected_rr_internal`, bearish → `short_expected_rr_internal`, Neutral → 0). The `L6 expected_reward_risk_ratio` synthesis reads the active-side R:R instead of the removed matrix-level scalar.
@@ -733,8 +825,8 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 
 | ID | Item | Status | Target |
 |---|---|---|---|
-| `AUDIT-V4-005` | `cascade_risk_index` aggregation into `systemic_risk_score` | Open (placeholder field in canonical schema; aggregation formula deferred) | v6.9 |
-| `AUDIT-V4-044` | `roi_percentage` legacy field removal | Deprecated in v4.0; remove entirely | v6.9 |
+| `AUDIT-V4-005` | `cascade_risk_index` aggregation into `systemic_risk_score` | Open (placeholder field in canonical schema; aggregation formula deferred) | v6.10 |
+| `AUDIT-V4-044` | `roi_percentage` legacy field removal | Deprecated in v4.0; remove entirely | v6.10 |
 | `AUDIT-V4-046` | `safety_state` deterministic reconstruction algorithm | Open (reconstruction rule documented but not yet unit-tested) | Unscheduled |
 | `AUDIT-V4-076` | `X-Operator-Id` optional header for caller-supplied operator identity | Open (single-user `local_operator` fixed identity; caller-supplied identity deferred) | Unscheduled |
 | `AUDIT-V4-077` | Authentication beyond `local_operator` (multi-user / OAuth / mTLS) | Open | Unscheduled |
@@ -742,62 +834,62 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V4-079` | PriceChart marker overlay for cluster positions (Phase 4 extension) | Deferred | Unscheduled |
 | `AUDIT-V4-080` | `liquidation_events` → PAE backtest ingestion | Deferred | Unscheduled |
 | `AUDIT-V6-077` | In-process exchange-key rotation tool (`POST /api/keys/rotate` re-encryption under a new master key, SIGHUP hot rotation, encrypted-backup export) — manual procedure documented in `08-07` | Open | Unscheduled |
-| `AUDIT-V6-202` | `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions) | Open (specified in `03-03-06` §7) | v6.9 |
-| `AUDIT-V6-203` | `database-storage`: add `instance_lifecycle` + `instance_lifecycle_events` migrations; bump `user_version` | Open (specified in `03-03-06` §7) | v6.9 |
-| `AUDIT-V6-204` | `api-gateway`: implement `POST /api/instances/:instance_id/start`; rewrite `/pause` (entry-gate semantics) and `/stop` (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone | Open (specified in `03-03-06` §7) | v6.9 |
-| `AUDIT-V6-205` | `portfolio-supervisor`: implement Gate 0 check in pre-trade chain | Open (specified in `03-03-06` §7) | v6.9 |
-| `AUDIT-V6-206` | `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true` | Open (specified in `03-03-06` §7) | v6.9 |
-| `AUDIT-V7-300` | `config-models`: introduce `CandleBufferConfig` struct + `[candle_buffer]` block; remove `analysis_limit` from `TimeframeConfig`; add migration log line for legacy `analysis_limit` keys | Open (specified in `08-08` §7) | v6.9 |
-| `AUDIT-V7-301` | `core-domain`: introduce `CandlePipelineState`, `IndicatorLifecycleState`, `IndicatorLifecycleStatus` (see `03-01-06` §2 and `03-02-15` §2) | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-302` | `network-adapters`: introduce `HistoricalFetchPolicy` trait; implement `HyperliquidHistoricalFetch` (paginated backward cursor); implement `BitgetHistoricalFetch` (paginated forward cursor with `limit=200` per page) | Open (specified in `03-01-07` §7) | v6.9 |
-| `AUDIT-V7-303` | `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 50 registry entries; publish `tf.pipeline_state` | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-304` | `portfolio-supervisor`: rewrite `collect_candles` to use `HistoricalFetchPolicy`; sub-minute returns empty Vec; ≥ 1 minute paginates until `size` then merges DB; expose `reload_timeframe(instance_id, slot, new_config)` API | Open (specified in `08-08` §7) | v6.9 |
-| `AUDIT-V7-305` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` clamp to `candle_buffer.size`; add `pipeline_state` + `indicator_lifecycle` to the `/api/history` response | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-306` | `execution-daemon`: fix `--web` boot so `init_session` does not deactivate before auto-spawning configured instances | Open (specified in `08-08` §7) | v6.9 |
-| `AUDIT-V7-307` | `ui`: introduce `IndicatorStatusBadge.svelte`; honor `tf.pipeline_state` in chart headers; stop merging old values when a snapshot arrives with `pipeline_state = LOADING`; remove the `analysisLimit` selector (replace with read-only display of `candle_buffer.size`) | Open (specified in `08-08` §7) | v6.9 |
-| `AUDIT-V7-310` | `core-domain`: add `CandlePipelineState` enum + `IndicatorLifecycleStatus` map type; extend `MarketSnapshot` with `pipeline_state` + `indicator_lifecycle` fields | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-311` | `database-storage`: migration `00XX_add_candle_pipeline_state_events.sql` + `00XX_alter_market_snapshots.sql`; bump `user_version` | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09) | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11 | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle` | Open (specified in `03-01-06` §7) | v6.9 |
-| `AUDIT-V7-320` | `network-adapters`: introduce `HistoricalFetchPolicy` trait + request/error types in `adapters/historical_fetch.rs` | Open (specified in `03-01-07` §7) | v6.9 |
-| `AUDIT-V7-321` | `network-adapters`: implement `HyperliquidHistoricalFetch` with backward `startTime` cursor pagination (HFP-05) | Open (specified in `03-01-07` §7) | v6.9 |
-| `AUDIT-V7-322` | `network-adapters`: implement `BitgetHistoricalFetch` with forward `startTime` cursor pagination + `limit=200` per page (HFP-06) | Open (specified in `03-01-07` §7) | v6.9 |
-| `AUDIT-V7-323` | `portfolio-supervisor`: replace `collect_candles` with `HistoricalFetchPolicy` caller; HFP-03 sub-minute short-circuit; HFP-09 merge; HFP-10 timeout handling | Open (specified in `03-01-07` §7) | v6.9 |
-| `AUDIT-V7-324` | `tests`: add 5 tests — (a) sub-minute returns empty, (b) Hyperliquid paginates to `size`, (c) Bitget paginates `limit=200` to `size`, (d) DB-precedence on overlap, (e) timeout returns partial + warning | Open (specified in `03-01-07` §7) | v6.9 |
-| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields | Open (specified in `03-02-15` §8) | v6.9 |
-| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each of the 50 indicator metadata entries in `crates/market-analyzer/src/indicators/registry.rs` | Open (specified in `03-02-15` §8) | v6.9 |
-| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override | Open (specified in `03-02-15` §8) | v6.9 |
-| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting | Open (specified in `03-02-15` §8) | v6.9 |
-| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector | Open (specified in `03-02-15` §8) | v6.9 |
-| `AUDIT-V8-400` | `market-analyzer/indicators/traits.rs`: DOD hot-path contract applied — `BarInput` fields are `f64`, `Indicator::Output = f64`. Migration code-converter at the trait boundary for all ~30 `Indicator` impls. | Staged (v6.5) | v6.9 |
-| `AUDIT-V8-401` | `market-analyzer/indicators/ema.rs`: migrate EMA `update(price: Decimal) → update(price: f64)`. Expected: ~50 line change (10 lines signature + 40 lines test). | Staged | v6.9 |
-| `AUDIT-V8-402` | `market-analyzer/indicators/rsi.rs`: migrate RSI `update(close: Decimal) → update(close: f64)`. Expected: ~60 line change. | Staged | v6.9 |
-| `AUDIT-V8-403` | `market-analyzer/indicators/macd.rs`: migrate MACD `update(close: Decimal) → update(close: f64)`. Expected: ~80 line change. | Staged | v6.9 |
-| `AUDIT-V8-404` | `market-analyzer/indicators/{atr,adx,bbwp,stochastic,chandemo,supertrend,keltner,donchian,obv,cmf,mfi,hv,aroon,choppiness,linreg,zscore,bollinger,squeeze,cci,psar,williams_r,hull_ma,awesome_oscillator,force_index,stddev_channel,ichimoku,anchored_vwap,pivot_points,candlestick,patterns,fibonacci,smart_money,volume_profile,open_interest,funding}.rs`: migrate remaining 35 indicator `update()` signatures from `Decimal` to `f64`. Per-indicator commits, ~50-70 line changes each (signature + arithmetic + tests). Total: ~1750-2450 line change across 35 files. | Staged | v6.9 |
-| `AUDIT-V8-405` | `market-analyzer/src/analyzer/mod.rs` (`run_single`): add single `Decimal→f64` batch conversion at the top of the per-candle hot loop (OHLCV → `open_f/high_f/low_f/close_f/volume_f`); feed `_f` values to every indicator `update()` call. Remove 150+ inline `completed.close.to_f64()` per-candle conversions. | Staged | v6.9 |
-| `AUDIT-V8-406` | `market-analyzer/src/analyzer/warm.rs` (`warm_indicators_for_timeframe`): same pattern — single `Decimal→f64` batch conversion per historical candle; feed `_f` values to indicators. | Staged | v6.9 |
-| `AUDIT-V8-407` | `market-analyzer/src/analyzer/normalize.rs`: update `NormalizeParams` to accept `f64`; remove `d2f()`/`od2f()` conversion helpers; simplify `build_indicator_map` to consume `f64` directly. | Staged (dependent on AUDIT-V8-401…V8-404) | v6.9 |
-| `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line | Open (specified in `03-03-06` §7) | v6.9 |
-| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status` | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version` | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (specified in `03-02-12` §9) | v6.9 |
-| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Partially resolved (v6.4.1): the three handlers are served (06-01 §2.11). Remaining open: `mark_index_spread_pct` writers; persistent `/api/system/clock.breach_count` counter (placeholder `0` today) | v6.9 |
-| `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed) | Open | v6.9 |
-| `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers) | Open | v6.9 |
+| `AUDIT-V6-202` | `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions) | Open (specified in `03-03-06` §7) | v6.10 |
+| `AUDIT-V6-203` | `database-storage`: add `instance_lifecycle` + `instance_lifecycle_events` migrations; bump `user_version` | Open (specified in `03-03-06` §7) | v6.10 |
+| `AUDIT-V6-204` | `api-gateway`: implement `POST /api/instances/:instance_id/start`; rewrite `/pause` (entry-gate semantics) and `/stop` (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone | Open (specified in `03-03-06` §7) | v6.10 |
+| `AUDIT-V6-205` | `portfolio-supervisor`: implement Gate 0 check in pre-trade chain | Open (specified in `03-03-06` §7) | v6.10 |
+| `AUDIT-V6-206` | `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true` | Open (specified in `03-03-06` §7) | v6.10 |
+| `AUDIT-V7-300` | `config-models`: introduce `CandleBufferConfig` struct + `[candle_buffer]` block; remove `analysis_limit` from `TimeframeConfig`; add migration log line for legacy `analysis_limit` keys | Open (specified in `08-08` §7) | v6.10 |
+| `AUDIT-V7-301` | `core-domain`: introduce `CandlePipelineState`, `IndicatorLifecycleState`, `IndicatorLifecycleStatus` (see `03-01-06` §2 and `03-02-15` §2) | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-302` | `network-adapters`: introduce `HistoricalFetchPolicy` trait; implement `HyperliquidHistoricalFetch` (paginated backward cursor); implement `BitgetHistoricalFetch` (paginated forward cursor with `limit=200` per page) | Open (specified in `03-01-07` §7) | v6.10 |
+| `AUDIT-V7-303` | `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 50 registry entries; publish `tf.pipeline_state` | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-304` | `portfolio-supervisor`: rewrite `collect_candles` to use `HistoricalFetchPolicy`; sub-minute returns empty Vec; ≥ 1 minute paginates until `size` then merges DB; expose `reload_timeframe(instance_id, slot, new_config)` API | Open (specified in `08-08` §7) | v6.10 |
+| `AUDIT-V7-305` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` clamp to `candle_buffer.size`; add `pipeline_state` + `indicator_lifecycle` to the `/api/history` response | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-306` | `execution-daemon`: fix `--web` boot so `init_session` does not deactivate before auto-spawning configured instances | Open (specified in `08-08` §7) | v6.10 |
+| `AUDIT-V7-307` | `ui`: introduce `IndicatorStatusBadge.svelte`; honor `tf.pipeline_state` in chart headers; stop merging old values when a snapshot arrives with `pipeline_state = LOADING`; remove the `analysisLimit` selector (replace with read-only display of `candle_buffer.size`) | Open (specified in `08-08` §7) | v6.10 |
+| `AUDIT-V7-310` | `core-domain`: add `CandlePipelineState` enum + `IndicatorLifecycleStatus` map type; extend `MarketSnapshot` with `pipeline_state` + `indicator_lifecycle` fields | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-311` | `database-storage`: migration `00XX_add_candle_pipeline_state_events.sql` + `00XX_alter_market_snapshots.sql`; bump `user_version` | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09) | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11 | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle` | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V7-320` | `network-adapters`: introduce `HistoricalFetchPolicy` trait + request/error types in `adapters/historical_fetch.rs` | Open (specified in `03-01-07` §7) | v6.10 |
+| `AUDIT-V7-321` | `network-adapters`: implement `HyperliquidHistoricalFetch` with backward `startTime` cursor pagination (HFP-05) | Open (specified in `03-01-07` §7) | v6.10 |
+| `AUDIT-V7-322` | `network-adapters`: implement `BitgetHistoricalFetch` with forward `startTime` cursor pagination + `limit=200` per page (HFP-06) | Open (specified in `03-01-07` §7) | v6.10 |
+| `AUDIT-V7-323` | `portfolio-supervisor`: replace `collect_candles` with `HistoricalFetchPolicy` caller; HFP-03 sub-minute short-circuit; HFP-09 merge; HFP-10 timeout handling | Open (specified in `03-01-07` §7) | v6.10 |
+| `AUDIT-V7-324` | `tests`: add 5 tests — (a) sub-minute returns empty, (b) Hyperliquid paginates to `size`, (c) Bitget paginates `limit=200` to `size`, (d) DB-precedence on overlap, (e) timeout returns partial + warning | Open (specified in `03-01-07` §7) | v6.10 |
+| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields | Open (specified in `03-02-15` §8) | v6.10 |
+| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each of the 50 indicator metadata entries in `crates/market-analyzer/src/indicators/registry.rs` | Open (specified in `03-02-15` §8) | v6.10 |
+| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override | Open (specified in `03-02-15` §8) | v6.10 |
+| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting | Open (specified in `03-02-15` §8) | v6.10 |
+| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector | Open (specified in `03-02-15` §8) | v6.10 |
+| `AUDIT-V8-400` | `market-analyzer/indicators/traits.rs`: DOD hot-path contract applied — `BarInput` fields are `f64`, `Indicator::Output = f64`. Migration code-converter at the trait boundary for all ~30 `Indicator` impls. | Staged (v6.5) | v6.10 |
+| `AUDIT-V8-401` | `market-analyzer/indicators/ema.rs`: migrate EMA `update(price: Decimal) → update(price: f64)`. Expected: ~50 line change (10 lines signature + 40 lines test). | Staged | v6.10 |
+| `AUDIT-V8-402` | `market-analyzer/indicators/rsi.rs`: migrate RSI `update(close: Decimal) → update(close: f64)`. Expected: ~60 line change. | Staged | v6.10 |
+| `AUDIT-V8-403` | `market-analyzer/indicators/macd.rs`: migrate MACD `update(close: Decimal) → update(close: f64)`. Expected: ~80 line change. | Staged | v6.10 |
+| `AUDIT-V8-404` | `market-analyzer/indicators/{atr,adx,bbwp,stochastic,chandemo,supertrend,keltner,donchian,obv,cmf,mfi,hv,aroon,choppiness,linreg,zscore,bollinger,squeeze,cci,psar,williams_r,hull_ma,awesome_oscillator,force_index,stddev_channel,ichimoku,anchored_vwap,pivot_points,candlestick,patterns,fibonacci,smart_money,volume_profile,open_interest,funding}.rs`: migrate remaining 35 indicator `update()` signatures from `Decimal` to `f64`. Per-indicator commits, ~50-70 line changes each (signature + arithmetic + tests). Total: ~1750-2450 line change across 35 files. | Staged | v6.10 |
+| `AUDIT-V8-405` | `market-analyzer/src/analyzer/mod.rs` (`run_single`): add single `Decimal→f64` batch conversion at the top of the per-candle hot loop (OHLCV → `open_f/high_f/low_f/close_f/volume_f`); feed `_f` values to every indicator `update()` call. Remove 150+ inline `completed.close.to_f64()` per-candle conversions. | Staged | v6.10 |
+| `AUDIT-V8-406` | `market-analyzer/src/analyzer/warm.rs` (`warm_indicators_for_timeframe`): same pattern — single `Decimal→f64` batch conversion per historical candle; feed `_f` values to indicators. | Staged | v6.10 |
+| `AUDIT-V8-407` | `market-analyzer/src/analyzer/normalize.rs`: update `NormalizeParams` to accept `f64`; remove `d2f()`/`od2f()` conversion helpers; simplify `build_indicator_map` to consume `f64` directly. | Staged (dependent on AUDIT-V8-401…V8-404) | v6.10 |
+| `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line | Open (specified in `03-03-06` §7) | v6.10 |
+| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status` | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version` | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Partially resolved (v6.4.1): the three handlers are served (06-01 §2.11). Remaining open: `mark_index_spread_pct` writers; persistent `/api/system/clock.breach_count` counter (placeholder `0` today) | v6.10 |
+| `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed) | Open | v6.10 |
+| `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers) | Open | v6.10 |
 | `AUDIT-V6-304` | PAE→DB feedback (persist PAE analytical feedback to configuration databases for off-line policy optimization) | Open | Unscheduled |
 | `AUDIT-V6-305` | Remote config backends (load platform configuration from remote backends, not only local `config.toml`) | Open | Unscheduled |
-| `AUDIT-V6-401` | Wire `TradeAutomationDashboard` to live API (`/api/instances/:id/{policies,triggers,paper/{positions,orders,history},lifecycle}`) — Phase A of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
-| `AUDIT-V6-402` | Wire `PortfolioDashboard` to live API (`/api/instances/:id/{portfolio,safety,exposure,capital,veto}`) — Phase A + C of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
-| `AUDIT-V6-403` | `POST /api/backtest/run` + `GET /api/backtest/:id` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
-| `AUDIT-V6-404` | Replace `setTimeout` UI mock in `PerformanceDashboard.runBacktest` with a real `fetch` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
-| `AUDIT-V6-405` | Equity-curve chart replaces "Equity curve visualization coming soon" — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
-| `AUDIT-V6-406` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
-| `AUDIT-V6-407` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.9 |
+| `AUDIT-V6-401` | Wire `TradeAutomationDashboard` to live API (`/api/instances/:id/{policies,triggers,paper/{positions,orders,history},lifecycle}`) — Phase A of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-402` | Wire `PortfolioDashboard` to live API (`/api/instances/:id/{portfolio,safety,exposure,capital,veto}`) — Phase A + C of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-403` | `POST /api/backtest/run` + `GET /api/backtest/:id` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-404` | Replace `setTimeout` UI mock in `PerformanceDashboard.runBacktest` with a real `fetch` — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-405` | Equity-curve chart replaces "Equity curve visualization coming soon" — Phase D of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-406` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
+| `AUDIT-V6-407` | Live Hyperliquid + Bitget order-dispatch adapter (live exchange path) — Phase E of [`docs/ROADMAP.md`](ROADMAP.md) | Open | v6.10 |
 
 ---
 

@@ -1,6 +1,6 @@
 # MME Layer 4 — Opportunity Layer
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 4 of 7
@@ -58,6 +58,8 @@ $$\text{score} = 0.35\,Q_{ctx} + 0.30\,S_{sig} + 0.20\,A_{mtf} + 0.15\,F_{fresh}
 | `S_sig` — signal support | Strength + confirmation status of contributing signals. |
 | `A_mtf` — MTF agreement | Alignment `trend_agreement_pct` for directional setups. |
 | `F_fresh` — freshness | Inverse of youngest contributing signal `age_bars`. |
+
+> **v6.10.1 activation vs viability note.** The score above is the raw viability blend; it is **not** gated by the precondition completion ratio. The previous implementation multiplied `score` by `preconditions_met / preconditions_total`, which collapsed every inactive setup (e.g. `preconditions 0/3 met`) to `score = 0` — the operator lost the view of "how close" each setup was to firing. The v6.10.1 fix returns the raw blend so every non-`NoClear` profile surfaces its true viability. Activation is communicated via the per-profile `preconditions_met` / `preconditions_total` fields (rendered as a dedicated progress bar in the UI) and via the Rust-only `scoring_factors.precondition_ratio` for telemetry. `OpportunityType::NoClearOpportunity` keeps the unconditional-zero sentinel because it is the explicit "no setup detected" placeholder. See [02-08-opportunity-matrix.md §6](../../matrices/02-08-opportunity-matrix.md) and `docs/CHANGELOG.md v6.10.1`.
 
 The **primary opportunity** is determined by the priority-ordered decision tree in [02-08-opportunity-matrix.md §4](../../matrices/02-08-opportunity-matrix.md) (first match wins). The `opportunity_score` and `profiles[]` array expose the full scoring breakdown for downstream consumers but do **not** override the tree selection. In a tie, the profile with the higher `preconditions_met / preconditions_total` ratio wins.
 

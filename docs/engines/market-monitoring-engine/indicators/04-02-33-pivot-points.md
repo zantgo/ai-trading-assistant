@@ -1,27 +1,53 @@
-# 📐 Session Pivot Points (Classic)
+# 📐 Session Pivot Points
 
-**Version:** 6.9 (2026-08-04) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction
 Session Pivot Points are static horizontal support/resistance levels derived from the **previous completed session's** High, Low, and Close. Unlike swing-derived support/resistance (which floats with market structure), pivot levels are fixed for the entire session and are widely used by intraday scalpers as reference levels for entries, exits, profit targets, and stop placement.
 
-This implementation uses **UTC-daily** sessions (`candle_close_secs / 86400`) and the **Classic** calculation method. The calculation method is exposed through a forward-compatible `PivotMethod` enum (`Classic`, `Fibonacci`, `Camarilla`, `Woodie`) so additional methods can be added without breaking the config surface; only `Classic` is implemented in V1.
+This implementation uses **UTC-daily** sessions (`candle_close_secs / 86400`) and supports four calculation methods exposed through a `PivotMethod` enum (`Classic`, `Fibonacci`, `Camarilla`, `Woodie`). **All four methods are implemented in v6.10** (Phase 2 / B1); the previous v6.9 implementation silently degraded Fibonacci / Camarilla / Woodie to Classic, which has been fixed.
 
 ---
 
-## 2. Calculation (Classic Method)
+## 2. Calculation Methods
 
-At the start of each new UTC day, the levels are computed from the prior session's High (H), Low (L), Close (C):
+At the start of each new UTC day, the levels are computed from the prior session's High (H), Low (L), Close (C). The four supported formulas:
 
+### 2.1 Classic
 ```
-Pivot (P) = (H + L + C) / 3
+P = (H + L + C) / 3
 R1 = 2P − L        S1 = 2P − H
 R2 = P + (H − L)   S2 = P − (H − L)
 R3 = H + 2(P − L)  S3 = L − 2(H − P)
 ```
 
-Level ordering is always: **S3 < S2 < S1 < P < R1 < R2 < R3**.
+### 2.2 Fibonacci
+```
+P = (H + L + C) / 3
+R1 = P + 0.382·(H − L)   S1 = P − 0.382·(H − L)
+R2 = P + 0.618·(H − L)   S2 = P − 0.618·(H − L)
+R3 = P + 1.000·(H − L)   S3 = P − 1.000·(H − L)
+```
+
+### 2.3 Camarilla
+```
+P = (H + L + C) / 3
+R1 = C + (1.1/12)·(H − L)·2   S1 = C − (1.1/12)·(H − L)·2
+R2 = C + (1.1/6)·(H − L)·2    S2 = C − (1.1/6)·(H − L)·2
+R3 = C + (1.1/4)·(H − L)·2    S3 = C − (1.1/4)·(H − L)·2
+```
+Note: Camarilla's R1/R2/R3 cluster near `C` by design (R-magnitudes 0.18–0.275·range), so the strict S3<S2<S1<P<R1<R2<R3 ordering may not always hold. Use the property test `all_methods_respect_level_ordering_invariant` (`crates/market-analyzer/src/indicators/pivot_points.rs`) to validate against your preferred hierarchy.
+
+### 2.4 Woodie
+```
+P = (H + L + 2C) / 4
+R1 = 2P − L        S1 = 2P − H
+R2 = P + (H − L)   S2 = P − (H − L)
+R3 = H + 2(P − L)  S3 = L − 2(H − P)
+```
+
+Level ordering invariant `S3 < S2 < S1 < P < R1 < R2 < R3` holds for Classic / Fibonacci / Woodie for any valid (H, L, C) triple (verified by property test on 100 random triples). For Camarilla, use `s1 < r1 < r2 < r3` as the strict invariant; S-side may overlap P when C is far from H/L.
 
 Levels remain constant until the next session begins. The calculator accumulates the running session High/Low and latest Close as candles arrive, then rolls those into a fresh set of levels on the day boundary.
 

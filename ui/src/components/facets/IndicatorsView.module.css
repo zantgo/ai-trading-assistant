@@ -210,7 +210,7 @@
    `holdingAmount` field absent on cold start). Amber tone with a
    faster pulse so the operator reads it as "expected, just hasn't
    arrived" rather than "broken" or "zero reading". Distinct from
-   SILENT ⚡ (feed delivered, says zero) and AWAITING DATA (not yet
+   SILENT (feed delivered, says zero) and AWAITING DATA (not yet
    warmed up). */
 .stateWaitingFeed {
     color: #f59e0b;
@@ -283,7 +283,7 @@
 /* Layer 2: silent lifecycle dot — grey ring, no green halo. The
    contrast is intentional: an always-active indicator in Live state
    DOES light up green (real signal fired), but a Conditional/
-   DataOnly indicator in Live+Silent does not. The trader reads grey ⚡
+   DataOnly indicator in Live+Silent does not. The trader reads grey
    as "running, just quiet". */
 .dotSilent {
     background: transparent;

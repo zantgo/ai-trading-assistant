@@ -29,6 +29,7 @@ use crate::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use crate::sr_engine::SrRoleTracker;
+use core_domain::advisory::AdvisoryMatrix;
 use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
 use core_domain::liquidity::LiquidationClusterMatrix;
 use core_domain::models::{
@@ -94,6 +95,20 @@ pub struct TimeframePipeline {
     /// See [03-02-15](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)
     /// ILS-01 … ILS-15.
     pub indicator_lifecycle: Arc<RwLock<IndicatorLifecycleMap>>,
+    /// v6.10 (Phase 2 / B3): latest cross-TF Advisory Matrix promoted onto
+    /// the pipeline struct. `synthesize_cross_tf` writes the freshly
+    /// computed advisory here; `apply_snapshot_to_timeframe` reads it
+    /// and binds it onto the emitted `MarketSnapshot.advisory`. This
+    /// mirrors the promotion of `pipeline_state` and `indicator_lifecycle`
+    /// so the pipeline struct carries authoritative state for all
+    /// cross-TF outputs, not just per-TF state.
+    pub advisory: Arc<RwLock<Option<AdvisoryMatrix>>>,
+    /// v6.10 (Phase 2 / B4): per-TF leverage configuration feeding the
+    /// cluster estimator. Defaults match the legacy hardcoded
+    /// `[1, 3, 5, 10, 20, 50, 100]` / `[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05]`
+    /// distribution. Per-TF kill switch `enabled = false` suppresses the
+    /// refresh task for that TF.
+    pub tf_leverage_config: Arc<config_models::TfLeverageConfig>,
     /// Canonical buffer size from `[candle_buffer] size` (CB-01). Used for
     /// the buffer-full check that triggers `LOADING → LIVE` (DCP-04).
     pub buffer_size: usize,
@@ -421,10 +436,14 @@ async fn fetch_interval_candles(
 /// other 23 close-only indicators.
 pub fn build_indicator_lifecycle_map(
     indicators: &std::collections::HashMap<String, NormalizedIndicatorValue>,
+    prev: &IndicatorLifecycleMap,
     stale_threshold_secs: u32,
     bar_count: u32,
     is_shadow: bool,
+    now_ms: u64,
+    pipeline_is_live: bool,
 ) -> IndicatorLifecycleMap {
+    use core_domain::indicator_dtos::FeedState;
     use core_domain::indicator_dtos::IndicatorLifecycleStatus;
     let mut map = IndicatorLifecycleMap::new();
     for meta in crate::indicators::registry::INDICATORS {
@@ -432,100 +451,80 @@ pub fn build_indicator_lifecycle_map(
         let present = entry.is_some();
         let bars_required = meta.bars_required;
         let bars_seen = bar_count;
-        // A real reading is one the calculator actually produced this bar:
-        // the entry is present AND its state_label is not the `WARMING`
-        // placeholder the normalizer inserts for every registered key when
-        // its source data is not yet available. We must NOT let the WARMING
-        // placeholder flip the lifecycle to `Live`.
-        //
-        // We deliberately do **not** require `confidence > 0` or a
-        // populated `values` submap here. The normalizer derives
-        // `confidence = |normalized|` (see
-        // `NormalizedIndicatorValue::scalar` in
-        // `core-domain/src/indicator_dtos.rs`), so a ContextOnly / event-
-        // only indicator whose contract is `normalized = 0.0` would
-        // otherwise be permanently stuck in `Loading` even after the
-        // calculator produced a valid reading. The `values`-fallback is
-        // also redundant: every calculator that emits meaningful level
-        // data populates the `values` submap as part of its normalizer
-        // call, not as a side-effect of having non-zero confidence.
+        let prev_status = prev.get(meta.key);
+        let prior_last = prev_status.and_then(|p| p.last_updated_at);
         let state_label = entry.map(|e| e.state_label.as_str()).unwrap_or("");
         let is_real_reading = present && state_label != "WARMING";
-        // Silent flag: a reading is "silent" when the calculator
-        // produced a raw value but emitted no discrete signal and no
-        // state-label on this snapshot. The frontend uses this bit to
-        // render the SILENT ⚡ pill instead of the misleading
-        // "AWAITING DATA" legacy fallback for entries that exist but
-        // are simply between events.
         let silent = entry.map(|e| e.is_silent()).unwrap_or(false);
-        // Close-only-on-shadow Live branch: when this is a shadow-tick
-        // snapshot AND the indicator is configured as close-only AND the
-        // entry is absent from the indicators map (the WARMING-fill
-        // skip in `normalized/all.rs:1746-1762`), the indicator's
-        // *calculator* has already reached its warm-up gate iff
-        // `bars_seen >= bars_required`. In that case the lifecycle
-        // reflects "Live from the last completed candle" — the
-        // frontend's per-key merge (see
-        // `ui/src/lib/websocket.svelte.ts:220-225`) preserves the last
-        // completed-candle values across shadow ticks, so the dashboard
-        // shows the correct reading.
         let is_close_only_on_shadow_live = is_shadow
             && !meta.updates_on_shadow
             && !present
             && bars_seen >= bars_required;
-        let status = if (is_real_reading || is_close_only_on_shadow_live)
-            && bars_seen >= bars_required
-        {
-            // Feed-state classification (v6.6+). When the lifecycle is
-            // Live but no value-map entry exists for a DataOnly /
-            // Conditional indicator, the upstream feed (e.g. the Bitget
-            // ticker channel's `holdingAmount` field) hasn't delivered.
-            // Frontend renders this as `WAITING FEED ⏳` so the
-            // operator can distinguish "feed not connected yet" from
-            // "feed says zero" (the latter still renders as
-            // `SILENT ⚡`).
-            use core_domain::indicator_dtos::FeedState;
-            let feed_state = if is_real_reading {
+        let effective_real = is_real_reading || is_close_only_on_shadow_live;
+
+        // Apply the ILS-01..ILS-10 transition table.
+        let target_state = if effective_real && bars_seen >= bars_required && pipeline_is_live {
+            IndicatorLifecycleState::Live
+        } else if let Some(last) = prior_last {
+            let age_ms = now_ms.saturating_sub(last);
+            let stale_ms = (stale_threshold_secs as u64).saturating_mul(1000);
+            if age_ms > stale_ms.saturating_mul(2) {
+                IndicatorLifecycleState::Failed
+            } else if age_ms > stale_ms {
+                IndicatorLifecycleState::Stale
+            } else if bars_seen < bars_required {
+                IndicatorLifecycleState::Loading
+            } else {
+                IndicatorLifecycleState::Live
+            }
+        } else {
+            IndicatorLifecycleState::Loading
+        };
+
+        let last_updated_at =
+            if matches!(target_state, IndicatorLifecycleState::Live) && effective_real {
+                Some(now_ms)
+            } else {
+                prior_last
+            };
+        let last_error = if matches!(target_state, IndicatorLifecycleState::Failed) {
+            prev_status
+                .and_then(|p| p.last_error.clone())
+                .or_else(|| Some("stale_threshold exceeded".to_string()))
+        } else if matches!(target_state, IndicatorLifecycleState::Live) {
+            None
+        } else {
+            prev_status.and_then(|p| p.last_error.clone())
+        };
+        let feed_state = if matches!(target_state, IndicatorLifecycleState::Live) {
+            if is_real_reading {
                 if silent {
                     FeedState::Silent
                 } else {
                     FeedState::Live
                 }
-            } else if matches!(
-                meta.signal_capability,
-                crate::indicators::registry::SignalCapability::DataOnly
-                    | crate::indicators::registry::SignalCapability::Conditional
-            ) {
-                FeedState::WaitingFeed
             } else {
-                // Candle-based indicators whose lifecycle is Live but
-                // whose entry is absent are still legitimately Waiting
-                // — they need their first reading. Same UI treatment.
                 FeedState::WaitingFeed
-            };
+            }
+        } else if matches!(target_state, IndicatorLifecycleState::Stale) {
+            FeedState::Stale
+        } else {
+            FeedState::Live
+        };
+
+        map.insert(
+            meta.key.to_string(),
             IndicatorLifecycleStatus {
-                state: IndicatorLifecycleState::Live,
+                state: target_state,
                 bars_seen,
                 bars_required,
-                last_updated_at: None,
-                last_error: None,
+                last_updated_at,
+                last_error,
                 stale_threshold_secs,
                 silent: silent && is_real_reading,
                 feed_state,
-            }
-        } else {
-            IndicatorLifecycleStatus {
-                state: IndicatorLifecycleState::Loading,
-                bars_seen,
-                bars_required,
-                last_updated_at: None,
-                last_error: None,
-                stale_threshold_secs,
-                silent: false,
-                feed_state: core_domain::indicator_dtos::FeedState::Live,
-            }
-        };
-        map.insert(meta.key.to_string(), status);
+            },
+        );
     }
     map
 }
@@ -665,6 +664,18 @@ pub async fn run_single(
     refetch: Option<RestRefetchSpec>,
     quality_scope: Option<network_adapters::connection_quality_tracker::ConnectionQualityTracker>,
     buffer_size: usize,
+    // v6.10 (Phase 2 / B3): per-TF advisory handle for write-through.
+    // Mirrors `latest_snapshot` etc. — the analyzer writes the freshly
+    // computed cross-TF advisory here on every completed candle so
+    // consumers that read `pipeline.advisory` directly see the latest
+    // cross-TF synthesis result.
+    advisory: Arc<RwLock<Option<AdvisoryMatrix>>>,
+    // v6.10 (Phase 3 / C1 + C3): per-TF indicator-lifecycle state map.
+    // Passed in so `build_indicator_lifecycle_map` can apply the transition
+    // table using the previous snapshot's state and write the result back.
+    indicator_lifecycle: Arc<RwLock<IndicatorLifecycleMap>>,
+    // v6.10 (Phase 3 / C3): per-TF pipeline_state handle for write-through.
+    pipeline_state_handle: Arc<RwLock<CandlePipelineState>>,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -1137,7 +1148,8 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
-                            derive_pipeline_state(bar_count as usize, buffer_size),
+                                                        derive_pipeline_state(bar_count as usize, buffer_size),
+                            &active_set,
                         );
                     }
                 }
@@ -1851,6 +1863,7 @@ pub async fn run_single(
                         },
                         bar_count,
                         false,
+                        &active_set,
                     );
 
                     // Read derivative state for prev_bar_state snapshot.
@@ -2029,9 +2042,12 @@ pub async fn run_single(
                         pipeline_state: current_state,
                         indicator_lifecycle: build_indicator_lifecycle_map(
                             &indicators.clone(),
+                            &*indicator_lifecycle.read().await,
                             300,
                             bar_count,
                             false,
+                            core_domain::LatencyTracker::now_ms(),
+                            pipeline_is_live,
                         ),
                         context: Some(current_context.clone()),
                         decision_context: None,
@@ -2155,8 +2171,16 @@ pub async fn run_single(
                     prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
 
                     let confluence_score = {
-                        // Unsigned 3-factor quality blend, normalised to [0, 1].
-                        // All three inputs are categorical quality scores in [0, 100].
+                        // v6.10 (Phase 6 / F1): Unsigned 3-factor quality
+                        // blend in [0, 100]. All three inputs are categorical
+                        // quality scores in [0, 100]. The signed direction
+                        // (`sign × magnitude × 100`) was a v6.9 deviation that
+                        // turned confluence into a signed [-100, +100] range,
+                        // contradicting the spec at
+                        // `02-04-decision-matrix.md §2.3` which mandates
+                        // unsigned [0, 100]. The direction now lives
+                        // separately in `Decision.bias` (Phase 6 / F2 mirrors
+                        // `Analysis.bias` via ±40 thresholds).
                         let tradability_dim = synthesis
                             .alignment
                             .dimensions
@@ -2169,15 +2193,10 @@ pub async fn run_single(
                             .as_ref()
                             .map(|o| o.opportunity_score)
                             .unwrap_or(0.0);
-                        let magnitude = (0.50 * tradability_dim
+                        (0.50 * tradability_dim
                             + 0.30 * market_quality_score
                             + 0.20 * opp_score)
                             .clamp(0.0, 100.0)
-                            / 100.0;
-                        // Signed direction from the L3 bias score ([-1, 1]).
-                        // Neutral bias → 0; strong bias × high quality → ±100.
-                        let sign = synthesis.analysis.market_bias_score.clamp(-1.0, 1.0);
-                        (sign * magnitude * 100.0).clamp(-100.0, 100.0)
                     };
 
                     let l4_opportunity = synthesis.opportunity.clone();
@@ -2254,9 +2273,12 @@ pub async fn run_single(
                         pipeline_state: current_state,
                         indicator_lifecycle: build_indicator_lifecycle_map(
                             &indicators,
+                            &*indicator_lifecycle.read().await,
                             300,
                             bar_count,
                             false,
+                            core_domain::LatencyTracker::now_ms(),
+                            pipeline_is_live,
                         ),
                         context: Some(current_context),
                         decision_context: Some(dec_ctx),
@@ -2265,7 +2287,7 @@ pub async fn run_single(
                         alignment: Some(synthesis.alignment),
                         risk: Some(synthesis.risk),
                         analysis: Some(synthesis.analysis),
-                        advisory: Some(synthesis.advisory),
+                        advisory: Some(synthesis.advisory.clone()),
                         opportunity: synthesis.opportunity,
                         risk_profile: None,
                         liquidity: Some(liquidity_flow),
@@ -2296,6 +2318,24 @@ pub async fn run_single(
                         let mut snap = latest_snapshot.write().await;
                         *snap = Some(completed_snapshot.clone());
                     }
+
+                    // v6.10 (Phase 2 / B3): write-through the cross-TF
+                    // advisory onto the pipeline struct. Mirrors the
+                    // pipeline_state / indicator_lifecycle write-through
+                    // (those are written via `build_indicator_lifecycle_map`
+                    // above). Consumers reading `pipeline.advisory` directly
+                    // see the most recent cross-TF synthesis result.
+                    *advisory.write().await = Some(synthesis.advisory.clone());
+
+                    // v6.10 (Phase 3 / C3): write-through the per-TF
+                    // pipeline_state and indicator_lifecycle onto the
+                    // pipeline struct so consumers that read those fields
+                    // directly see the authoritative state. Before this,
+                    // both fields were declared on `TimeframePipeline` but
+                    // never written to (so they remained `Initializing`
+                    // and empty respectively).
+                    *pipeline_state_handle.write().await = current_state;
+                    *indicator_lifecycle.write().await = completed_snapshot.indicator_lifecycle.clone();
 
                     // Decisive close invalidation: check at every 1-minute candle close
                     if timeframe_secs == 60 {
@@ -2386,7 +2426,8 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
-                            derive_pipeline_state(bar_count as usize, buffer_size),
+                                                        derive_pipeline_state(bar_count as usize, buffer_size),
+                            &active_set,
                         );
                     }
                 }
@@ -2475,7 +2516,8 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
-                            derive_pipeline_state(bar_count as usize, buffer_size),
+                                                        derive_pipeline_state(bar_count as usize, buffer_size),
+                            &active_set,
                         );
                     }
                 }
@@ -2980,6 +3022,9 @@ fn broadcast_live_snapshot(
     // shadow snapshot so the frontend never sees a spurious `Initializing`
     // state that would flash the pipeline banner.
     pipeline_state: CandlePipelineState,
+    // v6.10 (Phase 5 / E1): active_set passed for disabled-indicator filtering
+    // (CA-06). Disabled indicators become absent from the indicator map.
+    active_set: &crate::active_set::ActiveSet,
 ) {
     let close_f = candle.close.to_f64().unwrap_or(0.0);
 
@@ -3119,6 +3164,7 @@ fn broadcast_live_snapshot(
         },
         bar_count as u32,
         true,
+        &active_set,
     );
 
     let snapshot = MarketSnapshot {
@@ -3147,7 +3193,15 @@ fn broadcast_live_snapshot(
         volume: Some(candle.volume),
         average_volume: avg_vol,
         pipeline_state,
-        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300, bar_count, true),
+        indicator_lifecycle: build_indicator_lifecycle_map(
+            &indicators,
+            &IndicatorLifecycleMap::new(),
+            300,
+            bar_count,
+            true,
+            core_domain::LatencyTracker::now_ms(),
+            false,
+        ),
         context: None,
         decision_context: None,
         statistical_context: None,
@@ -3236,7 +3290,7 @@ mod lifecycle_tests {
     //! gate fires later than `bars_required`, e.g. `volume_profile`).
     use super::build_indicator_lifecycle_map;
     use crate::indicators::NormalizedIndicatorValue;
-    use core_domain::indicator_dtos::IndicatorLifecycleState;
+    use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
     use std::collections::HashMap;
 
     /// A WARMING placeholder mirrors the one the normalizer inserts for
@@ -3254,7 +3308,7 @@ mod lifecycle_tests {
     fn lifecycle_is_loading_when_bar_count_below_bars_required() {
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), real_reading());
-        let map = build_indicator_lifecycle_map(&m, 300, 5, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 5, false, 1000, true);
         let rsi = map.get("rsi").expect("rsi present");
         assert_eq!(rsi.state, IndicatorLifecycleState::Loading);
         assert_eq!(rsi.bars_seen, 5);
@@ -3268,7 +3322,7 @@ mod lifecycle_tests {
         // the frontend renders `Live` + `UNKNOWN` in the indicators table.
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), warming_placeholder());
-        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
         let rsi = map.get("rsi").expect("rsi present");
         assert_eq!(
             rsi.state,
@@ -3282,12 +3336,12 @@ mod lifecycle_tests {
         // First the warm-up phase: bars_seen=300, only the WARMING placeholder.
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), warming_placeholder());
-        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
         assert_eq!(map["rsi"].state, IndicatorLifecycleState::Loading);
 
         // Then a real reading arrives: lifecycle flips to Live.
         m.insert("rsi".to_string(), real_reading());
-        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
         assert_eq!(map["rsi"].state, IndicatorLifecycleState::Live);
     }
 
@@ -3301,7 +3355,7 @@ mod lifecycle_tests {
         let mut m = HashMap::new();
         m.insert("volume_profile".to_string(), warming_placeholder());
         for bar_count in [50u32, 75, 100, 150, 200, 249] {
-            let map = build_indicator_lifecycle_map(&m, 300, bar_count, false);
+            let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, bar_count, false, 1000, true);
             let vp = map.get("volume_profile").expect("volume_profile present");
             assert_eq!(
                 vp.state,
@@ -3325,7 +3379,7 @@ mod lifecycle_tests {
             NormalizedIndicatorValue::scalar(0.0, 0.0, "RSI_NEUTRAL").with_confidence(0.0);
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), m_entry);
-        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
         assert_eq!(
             map["rsi"].state,
             IndicatorLifecycleState::Live,
@@ -3344,7 +3398,7 @@ mod lifecycle_tests {
             .with_confidence(0.50);
         let mut m = HashMap::new();
         m.insert("bbwp".to_string(), bbwp);
-        let map = build_indicator_lifecycle_map(&m, 300, 300, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
         assert_eq!(
             map["bbwp"].state,
             IndicatorLifecycleState::Live,
@@ -3372,7 +3426,7 @@ mod lifecycle_tests {
             NormalizedIndicatorValue::with_values(0.0, 0.0, "FIBONACCI_NEUTRAL", levels);
         let mut m = HashMap::new();
         m.insert("fibonacci".to_string(), fib_entry);
-        let map = build_indicator_lifecycle_map(&m, 300, 100, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 100, false, 1000, true);
         let fib = map.get("fibonacci").expect("fibonacci present");
         assert_eq!(
             fib.state,
@@ -3395,7 +3449,7 @@ mod lifecycle_tests {
         // event, the entry must remain absent from the indicator map and
         // the lifecycle must stay `Loading`.
         let mut m = HashMap::new();
-        let map = build_indicator_lifecycle_map(&m, 300, 50, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, false, 1000, true);
         for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
             let lc = map
                 .get(key)
@@ -3415,7 +3469,7 @@ mod lifecycle_tests {
             "smc_structure".to_string(),
             NormalizedIndicatorValue::scalar(0.7, 0.7, "BOS_BULLISH"),
         );
-        let map = build_indicator_lifecycle_map(&m, 300, 50, false);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, false, 1000, true);
         let smc = map.get("smc_structure").expect("smc_structure present");
         assert_eq!(
             smc.state,
@@ -3447,7 +3501,7 @@ mod lifecycle_tests {
         // No entry in the shadow-tick indicators map; bar_count=50 (well
         // above 14). Lifecycle must be Live.
         let m = HashMap::new();
-        let map = build_indicator_lifecycle_map(&m, 300, 50, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, true, 1000, true);
         for key in ["hull_ma", "ichimoku", "anchored_vwap", "psar"] {
             let lc = map
                 .get(key)
@@ -3465,7 +3519,7 @@ mod lifecycle_tests {
         // not flip to Live. This is the regression guard: a careless
         // implementation could "always mark absent entries Live" and
         // break the WARMING contract on the completed path.
-        let map_completed = build_indicator_lifecycle_map(&m, 300, 50, false);
+        let map_completed = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, false, 1000, true);
         for key in ["hull_ma", "ichimoku", "anchored_vwap", "psar"] {
             let lc = map_completed
                 .get(key)
@@ -3488,7 +3542,7 @@ mod lifecycle_tests {
         // entry is absent and updates_on_shadow=false, the gate has not
         // fired yet — lifecycle stays Loading.
         let m = HashMap::new();
-        let map = build_indicator_lifecycle_map(&m, 300, 5, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 5, true, 1000, true);
         let hma = map.get("hull_ma").expect("hull_ma present");
         assert_eq!(
             hma.state,
@@ -3516,7 +3570,7 @@ mod lifecycle_tests {
     fn lifecycle_for_shadow_enabled_indicator_unaffected_by_close_only_branch() {
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), real_reading());
-        let map = build_indicator_lifecycle_map(&m, 300, 300, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, true, 1000, true);
         let rsi = map.get("rsi").expect("rsi present");
         assert_eq!(
             rsi.state,
