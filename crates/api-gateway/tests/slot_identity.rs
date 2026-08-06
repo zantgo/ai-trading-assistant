@@ -293,20 +293,20 @@ async fn pipeline_for_slot_dispatches_by_slot_not_duration() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pipeline_for_duration_rejects_collisions() {
+async fn pipeline_for_duration_rejects_no_match() {
     let (_router, state) = build_test_router().await;
     let pair = state
         .get_active_pair(PAIR_KEY)
         .await
         .expect("pair must be present");
 
-    // No unique duration exists — there is no slot whose duration alone
-    // uniquely matches 100. This is the case the frontend bug exposed:
-    // a duration lookup returns an ambiguous slot.
+    // No slot is configured for duration=100 (micro=5, fast=180,
+    // slow=60, macro=3600). The lookup must return an explicit error
+    // so callers don't silently default to micro.
     let err = pair
         .pipeline_for_duration(100)
         .err()
-        .expect("100s must be ambiguous — no slot configured for it");
+        .expect("100s must produce an error — no slot configured for it");
     assert!(
         err.contains("timeframe_secs=100"),
         "error should mention the offending duration: {err}"

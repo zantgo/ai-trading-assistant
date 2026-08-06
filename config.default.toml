@@ -226,8 +226,10 @@ render_hl_caveat = true
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Each `[[workspace.instances]]` block is one trading pair. The four
-# timeframes (micro / fast / slow / macro) are mandatory; slow and macro
-# are optional. Override indicator periods inside each timeframe.
+# timeframes (micro / fast / slow / macro) are positional slots; any
+# slot may share its duration with another — the engine runs each as
+# an independent pipeline regardless of numeric values. Override
+# indicator periods inside each timeframe.
 #
 # Add instances below, e.g.:
 #

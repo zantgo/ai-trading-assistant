@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy, tick } from 'svelte';
+    import { onMount, onDestroy, tick, untrack } from 'svelte';
     import { useAppStore } from './state.svelte';
     import type { CurrentView, InstanceState } from './types';
 
@@ -37,7 +37,7 @@
     const wssMap: Record<string, WsState> = {};
     // ─────────────────────────────────────────────────────────────────
 
-    let configReady = false;
+    let configReady = $state(false);
     let isSidebarOpen = $state(false);
     let isWorkspacePanelOpen = $state(false);
     let showQuitDialog = $state(false);
@@ -331,12 +331,14 @@
         void app.selectedInstance;
         const _keys = Object.keys(app.instancesMap).join('|');
         void _keys;
-        for (const sym of Object.keys(app.instancesMap)) {
-            const state = wssMap[sym];
-            if (!state || shouldReconnect(app, state, sym)) {
-                connectWsForInstance(app, wssMap, sym);
+        untrack(() => {
+            for (const sym of Object.keys(app.instancesMap)) {
+                const state = wssMap[sym];
+                if (!state || shouldReconnect(app, state, sym)) {
+                    connectWsForInstance(app, wssMap, sym);
+                }
             }
-        }
+        });
     });
 
     // ─── Workspace panel confirm actions ───────────────────────────────

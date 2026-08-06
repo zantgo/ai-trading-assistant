@@ -243,17 +243,6 @@
         const cleanedSymbol = draft.symbol.trim().toUpperCase();
         identityError = null;
 
-        const durations = [
-            tfDraft.micro.durationSeconds,
-            tfDraft.fast.durationSeconds,
-            tfDraft.slow.durationSeconds,
-            tfDraft.macro.durationSeconds,
-        ];
-        if (new Set(durations).size < 4) {
-            alert('Each timeframe must have a unique duration.');
-            return;
-        }
-
         const { automation: auto, visuals: vis } = draft;
         const isIdentityChanged = cleanedSymbol !== pair.symbol || draft.exchange !== pair.exchange;
         let targetTabKey = tabKey;

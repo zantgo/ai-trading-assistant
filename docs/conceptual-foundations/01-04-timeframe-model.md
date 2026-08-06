@@ -48,6 +48,8 @@ duration_seconds = 900
 
 The user may change any duration to suit their trading style (e.g., 15min / 1h / 4h / 1d for swing traders). The engine respects the 4-tier structure regardless of the numeric values — the semantics are always "micro < fast < slow < macro."
 
+> **Duration flexibility (v6.11).** Durations across tiers do **not** need to be unique. Any number of slots — including all four — may share the same duration. A trader who only wants two timeframes can set, for example, micro=60s and fast=60s (with indicators disabled on one), or all four to 900s for a unified macro view. Each slot runs its own independent pipeline regardless of its `duration_seconds` value. When legacy duration-keyed lookups (`pipeline_for_duration`) encounter multiple slots sharing a duration, micro (the fastest tier) is returned deterministically. Modern code paths use slot-based dispatch (`pipeline_for_slot`) which is O(1) and never ambiguous.
+
 ---
 
 ## 3. Pipeline Architecture

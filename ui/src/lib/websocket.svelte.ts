@@ -500,10 +500,10 @@ export function shouldReconnect(app: AppStore, state: WsState, symbol: string): 
 
     const connectionsNeeded = 4;
     let activeConnections = 0;
-    if (state.wsMicro && state.wsMicro.readyState === WebSocket.OPEN) activeConnections++;
-    if (state.wsFast  && state.wsFast.readyState  === WebSocket.OPEN) activeConnections++;
-    if (state.wsSlow  && state.wsSlow.readyState  === WebSocket.OPEN) activeConnections++;
-    if (state.wsMacro && state.wsMacro.readyState === WebSocket.OPEN) activeConnections++;
+    if (state.wsMicro && (state.wsMicro.readyState === WebSocket.OPEN || state.wsMicro.readyState === WebSocket.CONNECTING)) activeConnections++;
+    if (state.wsFast  && (state.wsFast.readyState  === WebSocket.OPEN || state.wsFast.readyState  === WebSocket.CONNECTING)) activeConnections++;
+    if (state.wsSlow  && (state.wsSlow.readyState  === WebSocket.OPEN || state.wsSlow.readyState  === WebSocket.CONNECTING)) activeConnections++;
+    if (state.wsMacro && (state.wsMacro.readyState === WebSocket.OPEN || state.wsMacro.readyState === WebSocket.CONNECTING)) activeConnections++;
 
     return activeConnections < connectionsNeeded;
 }

@@ -54,13 +54,24 @@ export function makeChartCoalescer(
         if (!Number.isFinite(ts) || ts <= 0) return null;
         snap.timestamp = ts;
 
-        const plainIndicators = deepUnwrap(tfVal.indicators ?? null) as IndicatorMap | null;
+        let plainIndicators: IndicatorMap | null = null;
+        try {
+            const raw = tfVal.indicators;
+            plainIndicators = raw ? JSON.parse(JSON.stringify(raw)) as IndicatorMap : null;
+        } catch {
+            plainIndicators = null;
+        }
         snap.indicators = plainIndicators;
 
-        const tfPlain: TimeframeTelemetry = {
-            ...deepUnwrap(tfVal),
-            indicators: plainIndicators,
-        } as TimeframeTelemetry;
+        let tfPlain: TimeframeTelemetry;
+        try {
+            tfPlain = {
+                ...JSON.parse(JSON.stringify(tfVal)),
+                indicators: plainIndicators,
+            } as TimeframeTelemetry;
+        } catch {
+            tfPlain = { indicators: plainIndicators } as TimeframeTelemetry;
+        }
 
         return { snap, tfPlain };
     }

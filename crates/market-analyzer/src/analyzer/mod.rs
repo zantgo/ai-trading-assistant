@@ -169,10 +169,14 @@ impl ActivePair {
     }
 
     /// Legacy shim for callers that still key on a duration. Picks the
-    /// uniquely matching slot; returns `Err` on a missing/colliding
-    /// duration so callers never silently default to micro.
+    /// matching slot; when multiple slots share the same duration, micro
+    /// (the fastest pipeline) is returned deterministically. Returns
+    /// `Err` only when no slot at all matches the requested duration.
     pub fn pipeline_for_duration(&self, timeframe_secs: u64) -> Result<&TimeframePipeline, String> {
         let mut hits: Vec<(&'static str, &TimeframePipeline)> = Vec::new();
+        if self.micro.timeframe_secs == timeframe_secs {
+            hits.push(("micro", &self.micro));
+        }
         if self.fast.timeframe_secs == timeframe_secs {
             hits.push(("fast", &self.fast));
         }
@@ -182,16 +186,9 @@ impl ActivePair {
         if self.r#macro.timeframe_secs == timeframe_secs {
             hits.push(("macro", &self.r#macro));
         }
-        if self.micro.timeframe_secs == timeframe_secs {
-            hits.push(("micro", &self.micro));
-        }
         match hits.len() {
-            1 => Ok(hits[0].1),
             0 => Err(format!("No slot matches timeframe_secs={timeframe_secs}")),
-            _ => Err(format!(
-                "Timeframe_secs={timeframe_secs} is configured on multiple slots: {:?}",
-                hits.iter().map(|(n, _)| *n).collect::<Vec<_>>()
-            )),
+            _ => Ok(hits[0].1),
         }
     }
 

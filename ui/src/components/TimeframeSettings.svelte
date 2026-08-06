@@ -149,18 +149,6 @@
     }
 
     async function applySettings() {
-        const durations = [
-            draft.micro.durationSeconds,
-            draft.fast.durationSeconds,
-            draft.slow.durationSeconds,
-            draft.macro.durationSeconds,
-        ];
-        const uniqueDurations = new Set(durations);
-        if (uniqueDurations.size < 4) {
-            alert('Each timeframe must have a unique duration. Duplicate durations are not allowed.');
-            return;
-        }
-
         const body = {
             micro_term: {
                 candles: { duration_seconds: draft.micro.durationSeconds, analysis_limit: draft.micro.analysisLimit },
