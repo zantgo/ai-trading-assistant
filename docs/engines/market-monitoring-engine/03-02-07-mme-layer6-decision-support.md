@@ -97,7 +97,7 @@ The Decision Matrix records the structural invalidation level and conditional bu
 
 The Market Monitor is designed for a **discretionary trader**: the platform does not place orders on its behalf, and the L6 output surfaces an *operator-readable trade list* rather than a single % score. The Recommendation tab implements this contract by:
 
-1. Rendering an environment header (the macro verdict: stance / guidance / strategy / opportunity) color-coded by `directional_guidance` family.
+1. Rendering an environment header (the macro verdict: stance / guidance / strategy / opportunity) color-coded by `directional_guidance` family (Red = bearish, Green = bullish, Amber = neutral; see canonical color conventions at [07-06-ui-color-conventions.md](../../ui-ux/07-06-ui-color-conventions.md)).
 2. Surfacing a top-call hero (`rank.top` argmax) for the operator who wants a quick read, with runner-up cells for dispersion.
 3. Listing **one recommendation card per qualifying `OpportunityMatrix.profiles` entry** (`preconditions_met > 0`). Each card is internally coherent — entry zone, target zone, invalidation, R:R, and supporting signals — so the operator can pick whichever setup fits their style.
 4. Verbatim rendering of `final_recommendation` at the bottom as a quote block (the natural-language summary from `compute_advisory`).

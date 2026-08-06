@@ -11,6 +11,10 @@ import {
     scoreColor,
     formatRR,
     asciiBar,
+    DIRECTION_COLORS,
+    directionColorFor,
+    directionBackgroundFor,
+    type DirectionMode,
 } from './dashboardColors';
 
 describe('biasColor', () => {
@@ -203,5 +207,51 @@ describe('asciiBar', () => {
     });
     it('respects custom width', () => {
         expect(asciiBar(50, 4)).toBe('██░░');
+    });
+});
+
+// ── v7.0-prod direction-vocabulary palette ─────────────────────────────
+//
+// The top badge on every MME tab is one of four canonical foreground
+// colours:
+//   green   — long / bullish
+//   red     — short / bearish
+//   amber   — sideways / neutral / hold / wait / stand aside
+//   gray    — disconnected / no data
+
+describe('DIRECTION_COLORS palette', () => {
+    const expectedHex: Record<DirectionMode, string> = {
+        long: '#22c55e',
+        short: '#ef4444',
+        sideways: '#f59e0b',
+        nodata: 'rgba(255, 255, 255, 0.35)',
+    };
+    const expectedRgba: Record<DirectionMode, string> = {
+        long: 'rgba(34, 197, 94, 0.10)',
+        short: 'rgba(239, 68, 68, 0.10)',
+        sideways: 'rgba(245, 158, 11, 0.10)',
+        nodata: 'rgba(255, 255, 255, 0.04)',
+    };
+
+    for (const mode of ['long', 'short', 'sideways', 'nodata'] as DirectionMode[]) {
+        it(`${mode} foreground = ${expectedHex[mode]}`, () => {
+            expect(DIRECTION_COLORS[mode].hex).toBe(expectedHex[mode]);
+            expect(directionColorFor(mode)).toBe(expectedHex[mode]);
+        });
+        it(`${mode} background = ${expectedRgba[mode]}`, () => {
+            expect(DIRECTION_COLORS[mode].rgba).toBe(expectedRgba[mode]);
+            expect(directionBackgroundFor(mode)).toBe(expectedRgba[mode]);
+        });
+    }
+
+    it('green and red are reserved for long / short only', () => {
+        // Cross-check that no other mode can leak into green/red —
+        // enforces "green = long, red = short" the operator requires.
+        expect(DIRECTION_COLORS.long.hex).toBe('#22c55e');
+        expect(DIRECTION_COLORS.short.hex).toBe('#ef4444');
+        expect(DIRECTION_COLORS.sideways.hex).not.toBe('#22c55e');
+        expect(DIRECTION_COLORS.sideways.hex).not.toBe('#ef4444');
+        expect(DIRECTION_COLORS.nodata.hex).not.toBe('#22c55e');
+        expect(DIRECTION_COLORS.nodata.hex).not.toBe('#ef4444');
     });
 });

@@ -9,6 +9,7 @@
     background: rgba(255,255,255,0.02);
     position: relative;
     overflow: hidden;
+    min-height: 72px;
 }
 
 .hero::before {
@@ -82,10 +83,7 @@
     font-size: 12px;
     font-weight: 500;
     color: rgba(255,255,255,0.7);
-    line-height: 1.4;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.5;
     max-width: 100%;
     font-feature-settings: "tnum" 1;
 }

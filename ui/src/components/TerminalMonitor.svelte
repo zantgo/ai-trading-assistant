@@ -20,6 +20,7 @@
         IndicatorMeta, IndicatorSignal, TimeframeTelemetry,
         SignalKind, MarketContext,
     } from '../types';
+    import type { WsState } from '../lib/websocket.svelte';
     import { defaultFilters, filterSignals, type FilterState } from '../lib/filtering';
     import MarketContextStrip from './MarketContextStrip.svelte';
     import GroupConfluenceGrid from './GroupConfluenceGrid.svelte';
@@ -30,6 +31,8 @@
     import DivergencesView from './facets/DivergencesView.svelte';
     import LevelsView from './facets/LevelsView.svelte';
     import MtfView from './facets/MtfView.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL1MetricsHeader, buildL1MtfHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
@@ -39,31 +42,38 @@
     import ExportDataButton from './ExportDataButton.svelte';
 
     const app = useAppStore();
-    let { pairKey }: { pairKey: string } = $props();
+    let { pairKey, wssState }: { pairKey: string; wssState?: WsState } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const registry = $derived<IndicatorMeta[]>((app.indicatorRegistry ?? []) as IndicatorMeta[]);
 
-    type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro' | 'Mtf';
-    let activeTf = $state<TfLabel>('Micro');
+    type TfLabel = 'Mtf' | 'Micro' | 'Fast' | 'Slow' | 'Macro';
+    let activeTf = $state<TfLabel>('Mtf');
 
     // Phase 9: single source of truth — the backend's pipeline registry
     // (via WebSocket telemetry `barDurationSec`) is the canonical duration
     // for every timeframe. The fallback `??` guards only during the initial
     // boot interstice when the pair hasn't been streamed yet.
+    //
+    // v7.0-prod (D7): the sidebar order is `MTF · MICRO · FAST · SLOW · MACRO`.
+    // MTF is the cross-timeframe synthesis view, mounted at top of the rail
+    // so first paint shows the operator the consolidated picture. The MTF
+    // entry is a sentinel (tfKey='', secs=null); activeTfObj resolves to
+    // `undefined` and the body switches to `MtfView` further down.
     const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; tfKey: string; secs: number | null }[] => {
         const p = pair;
         return [
-            { key: 'Micro', label: 'Micro', tfKey: 'microTerm', secs: p?.microTerm?.barDurationSec ?? null },
-            { key: 'Fast',  label: 'Fast',  tfKey: 'fastTerm',  secs: p?.fastTerm?.barDurationSec ?? null },
-            { key: 'Slow',  label: 'Slow',  tfKey: 'slowTerm',  secs: p?.slowTerm?.barDurationSec ?? null },
-            { key: 'Macro', label: 'Macro', tfKey: 'macroTerm', secs: p?.macroTerm?.barDurationSec ?? null },
+            { key: 'Mtf',   label: 'MTF',   tfKey: '',            secs: null },
+            { key: 'Micro', label: 'Micro', tfKey: 'microTerm',  secs: p?.microTerm?.barDurationSec ?? null },
+            { key: 'Fast',  label: 'Fast',  tfKey: 'fastTerm',   secs: p?.fastTerm?.barDurationSec ?? null },
+            { key: 'Slow',  label: 'Slow',  tfKey: 'slowTerm',   secs: p?.slowTerm?.barDurationSec ?? null },
+            { key: 'Macro', label: 'Macro', tfKey: 'macroTerm',  secs: p?.macroTerm?.barDurationSec ?? null },
         ];
     });
 
     const activeTfEntry = $derived(
         activeTf === 'Mtf'
             ? { key: 'Mtf' as TfLabel, label: 'MTF', tfKey: '', secs: null }
-            : TIMEFRAMES.find((t) => t.key === activeTf)!
+            : TIMEFRAMES.find((t) => t.key === activeTf && t.key !== 'Mtf')!
     );
     const activeTfObj = $derived<TimeframeTelemetry | undefined>(
         activeTf === 'Mtf'
@@ -201,49 +211,53 @@
         if (activeTf === 'Mtf') return buildMtfExport();
         return buildMetricsExport();
     }
+
+    // LayerHeader spec — single-TF reads the per-timeframe `tf.context`,
+    // MTF switches to the synthetic cross-TF header.
+    const headerSpec = $derived<LayerHeaderSpec>(
+        activeTf === 'Mtf'
+            ? buildL1MtfHeader(pair?.alignment ?? null, pair?.analysis?.market_regime ?? null)
+            : buildL1MetricsHeader(activeTfObj ?? null)
+    );
 </script>
 
 <div class={styles.monitor}>
     <div class={styles.tfSidebar}>
         <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
+        <!-- v7.0-prod (D7): MTF first, then MICRO · FAST · SLOW · MACRO.
+             The MTF entry is part of TIMEFRAMES itself (sentinel with
+             empty tfKey + secs=null); the body switches to MtfView when
+             activeTf === 'Mtf'. -->
         {#each TIMEFRAMES as tf (tf.key)}
             <button
                 class="{styles.tfSidebarItem} {activeTf === tf.key ? styles.active : ''}"
                 onclick={() => activeTf = tf.key}
             >
                 <span class={styles.tfLabel}>{tf.label}</span>
-                <span class={styles.tfSecs}>{tf.secs != null ? formatTimeframeLabel(tf.secs) : '—'}</span>
+                <span class={styles.tfSecs}>{tf.secs != null ? formatTimeframeLabel(tf.secs) : (tf.key === 'Mtf' ? 'Multi-TF' : '—')}</span>
             </button>
         {/each}
-        <button
-            class="{styles.tfSidebarItem} {activeTf === 'Mtf' ? styles.active : ''}"
-            onclick={() => activeTf = 'Mtf'}
-        >
-            <span class={styles.tfLabel}>MTF</span>
-            <span class={styles.tfSecs}>Multi-TF</span>
-        </button>
     </div>
 
     <div class={styles.contentArea}>
         {#if pair && registry.length > 0 && (activeTf === 'Mtf' || activeTfObj)}
-            <!-- HEADER -->
-            <div class={styles.header}>
-                <span class={styles.title}>METRICS</span>
-                <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
-                <span class={styles.tfBadge}>
-                    {#if activeTf === 'Mtf'}
-                        MULTI-TIMEFRAME
-                    {:else}
-                        {activeTfEntry.label} · {activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}
-                    {/if}
-                </span>
-                <ExportDataButton
-                    onExport={buildHeaderExport}
-                    title={activeTf === 'Mtf'
-                        ? "Copy the cross-timeframe grid as JSON"
-                        : "Copy current timeframe's indicators + signals as JSON"}
-                />
-            </div>
+            <!-- L1 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
+            <LayerHeader spec={headerSpec}>
+                {#snippet trailing()}
+                    <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
+                    <span class={styles.tfBadge}>
+                        {activeTf === 'Mtf'
+                            ? 'MULTI-TIMEFRAME'
+                            : `${activeTfEntry.label} · ${activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}`}
+                    </span>
+                    <ExportDataButton
+                        onExport={buildHeaderExport}
+                        title={activeTf === 'Mtf'
+                            ? 'Copy the cross-timeframe grid as JSON'
+                            : "Copy current timeframe's indicators + signals as JSON"}
+                    />
+                {/snippet}
+            </LayerHeader>
 
             {#if activeTf === 'Mtf'}
                 <!-- SEARCH + FILTER PILLS (Directly applied to the MTF Grid) -->

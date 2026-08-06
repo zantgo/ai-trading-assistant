@@ -5,8 +5,10 @@
     // first question: "Can I trade anything right now?" — within ~3 s
     // of opening the workspace.
     //
-    // Layout (top-down):
-    //   1. Header strip: title + UTC clock + scan status
+    // Layout (top-down) — v7.0-prod:
+    //   1. LayerHeader (L7 MARKET OVERVIEW) — canonical badge + meta
+    //      chips (health, systemic risk, sync) + status pill; trailing
+    //      slot hosts the UTC clock + scan strip + panel title.
     //   2. RecommendationHero (TRADE / WAIT / STAND ASIDE)
     //   3. Header KPI strip (6 cards)
     //   4. 4-up card row: Trade Opportunities, Risk Distribution,
@@ -17,6 +19,8 @@
     //   8. Watchlist runner button (CTA)
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL7OverviewHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './GeneralDashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import WatchlistRunnerButton from './WatchlistRunnerButton.svelte';
@@ -40,18 +44,24 @@
 
     const app = useAppStore();
     const totalCount = $derived(Object.keys(app.instancesMap).length);
+
+    // L7 LayerHeader — sourced from the system-wide Overview Matrix. The
+    // status pill mirrors the L7 fetch state (live/stale/error) so
+    // the operator can see at a glance whether the synthesis is fresh.
+    const now = $derived(Date.now());
+    const headerSpec = $derived<LayerHeaderSpec>(buildL7OverviewHeader(
+        app.overviewMatrix,
+        {
+            lastSuccessMs: app.lastOverviewFetchMs,
+            lastErrorMs: app.lastOverviewErrorMs,
+            now,
+            pollIntervalMs: 3000,
+        },
+    ));
 </script>
 
 <div class={styles.dashboardView}>
     <div class={styles.content}>
-        <div class={styles.header}>
-            <div class={styles.headerLeft}>
-                <h2 class={styles.title}>MARKET OVERVIEW</h2>
-                <UtcClockBadge />
-            </div>
-            <ScanStatusStrip />
-        </div>
-
         {#if totalCount === 0}
             <div class={styles.featurePlaceholder}>
                 <SvgIcon name="layoutDashboard" size={64} />
@@ -61,6 +71,19 @@
                 </p>
             </div>
         {:else}
+            <!-- L7 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
+            <LayerHeader spec={headerSpec}>
+                {#snippet trailing()}
+                    <div class={styles.header}>
+                        <div class={styles.headerLeft}>
+                            <h2 class={styles.title}>MARKET OVERVIEW</h2>
+                            <UtcClockBadge />
+                        </div>
+                        <ScanStatusStrip />
+                    </div>
+                {/snippet}
+            </LayerHeader>
+
             <RecommendationHero />
 
             <HeaderKpiStrip />

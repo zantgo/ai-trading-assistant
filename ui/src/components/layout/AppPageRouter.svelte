@@ -29,6 +29,12 @@
     }
 
     let { currentEngine, middleTab, selectedInstance, activePair, activeTab, wssMap }: Props = $props();
+
+    // Per-symbol WS state, derived once per render. The instance tabs
+    // (`TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`,
+    // `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`) all read this
+    // to feed the `LayerHeader` status pill (live / stale / error).
+    const activeWss = $derived<WsState | undefined>(wssMap[activeTab]);
 </script>
 
 <main class={styles.contentArea}>
@@ -50,17 +56,17 @@
                 {#if activePair.currentView === 'terminal'}
                     <LiveTerminal pairKey={activeTab} />
                 {:else if activePair.currentView === 'monitor'}
-                    <TerminalMonitor pairKey={activeTab} />
+                    <TerminalMonitor pairKey={activeTab} wssState={activeWss} />
                 {:else if activePair.currentView === 'alignment'}
-                    <AlignmentPanel pairKey={activeTab} />
+                    <AlignmentPanel pairKey={activeTab} wssState={activeWss} />
                 {:else if activePair.currentView === 'opportunity'}
-                    <OpportunitiesPanel pairKey={activeTab} />
+                    <OpportunitiesPanel pairKey={activeTab} wssState={activeWss} />
                 {:else if activePair.currentView === 'risk'}
-                    <RiskPanel pairKey={activeTab} />
+                    <RiskPanel pairKey={activeTab} wssState={activeWss} />
                 {:else if activePair.currentView === 'analysis'}
-                    <AnalysisPanel />
+                    <AnalysisPanel wssState={activeWss} />
                 {:else if activePair.currentView === 'recommendation'}
-                    <RecommendationPanel pairKey={activeTab} />
+                    <RecommendationPanel pairKey={activeTab} wssState={activeWss} />
                 {/if}
             {:else}
                 <GeneralDashboard {wssMap} />

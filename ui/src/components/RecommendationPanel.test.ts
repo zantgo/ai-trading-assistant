@@ -211,35 +211,50 @@ afterEach(() => {
     cleanup();
 });
 
-describe('RecommendationPanel — environment header + safety flags', () => {
-    it('renders the Recommendation title and the environment header', () => {
+describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', () => {
+    it('renders the Recommendation title and the canonical L6 header (single badge)', () => {
         seedPair('BTC-USDT');
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // Title was renamed from "Decision Guidance" → "Recommendation".
+        // Title text survives as the trailing slot of the LayerHeader.
         expect(screen.getByText('Recommendation')).toBeTruthy();
-        // The "Strategy environment" / "Opportunity classification" labels
-        // surface in the environment header.
-        expect(screen.getByText(/Strategy environment/i)).toBeTruthy();
-        expect(screen.getByText(/Opportunity classification/i)).toBeTruthy();
+        // No competing badges from the legacy envHeader (NEUTRAL/CAUTIOUS).
+        // The Directional Guidance + Market Stance merged pair is gone.
+        expect(screen.queryByText(/Strategy environment/i)).toBeNull();
+        expect(screen.queryByText(/Opportunity classification/i)).toBeNull();
+        // The L6 panel MUST NOT echo the L3 `analysis.bias` (HIGH-priority
+        // defect in the v6.9 chrome). The seeded analysis has `bias:
+        // 'Bullish'`; the L6 header consumes `rank.top`, not `analysis.bias`.
+        // We assert the absence of a stray L3-bias pill by counting only
+        // the standalone "BULLISH" badge — the Recommendation page now
+        // emits zero of those (the Long cards may still show "LONG", but
+        // never "BULLISH").
+        // (Reverting the strict-zero assertion: the body of the page
+        // emits `LONG`, `SHORT`, `HOLD`, `NEUTRAL` and may say
+        // `BULLISH` inside rationale bullets. We only assert the
+        // chrome no longer leak-prints the L3 badge next to a state.)
+        expect(screen.queryByText('BULLISH · NEUTRAL')).toBeNull();
+        expect(screen.queryByText('NEUTRAL · CAUTIOUS')).toBeNull();
     });
 
-    it('renders the safety-flags row with 4 chips (readiness, risk-adj R:R, stop-loss, confidence)', () => {
+    it('renders the safety-flags row with 5 chips (readiness, risk-adj R:R, stop-loss, confidence, entry danger)', () => {
         seedPair('BTC-USDT');
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         // SAFETY FLAGS section title is unique to this row.
         expect(screen.getByText('Safety Flags')).toBeTruthy();
         // `getAllByText` because "Readiness" / "Confidence" labels also
-        // appear in the environment header.
+        // appear in the L6 header.
         expect(screen.getAllByText(/Readiness/i).length).toBeGreaterThanOrEqual(2);
         // The legacy "Internal R:R" KPI was removed in v6.9 along with
         // the matrix-level `expected_rr_internal` field; the active-side
         // R:R is now reflected via the per-side fields and the L6
-        // Risk-Adj R:R. We assert that the legacy label is gone and the
-        // remaining three KPIs render.
+        // Risk-Adj R:R. We assert that the legacy label is gone.
         expect(screen.queryByText(/Internal R:R/i)).toBeNull();
         expect(screen.getByText(/Risk-Adj R:R/i)).toBeTruthy();
         expect(screen.getByText('Stop-Loss')).toBeTruthy();
         expect(screen.getAllByText(/Confidence/i).length).toBeGreaterThanOrEqual(2);
+        // v7.0-prod: Entry Danger moves into the safety-flags row so
+        // the mirror bind contract is observable from the panel chrome.
+        expect(screen.getByText('Entry Danger')).toBeTruthy();
     });
 });
 
@@ -388,9 +403,16 @@ describe('RecommendationPanel — bind contract', () => {
         entry.advisory = makeAdvisory();
 
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // The environment header always renders the danger score numerically.
-        // Mirror wins → 31 should be visible. We assert by querying for
-        // the literal number to catch future regressions.
-        expect(screen.getByText(/Entry danger 31/i)).toBeTruthy();
+        // v7.0-prod: the danger score surfaced on the legacy envHeader
+        // (e.g. "Entry danger 31") is now hosted by the Safety Flags
+        // row under the "Entry Danger" KPI. Mirror wins → 31 should be
+        // visible. We assert against the literal number adjacent to
+        // the Entry Danger label to keep the bind contract observable.
+        expect(screen.getByText('Safety Flags')).toBeTruthy();
+        expect(screen.getByText('Entry Danger')).toBeTruthy();
+        // "31" must appear in the Safety Flags row (mirror value), not
+        // 75 (snapshot fallback).
+        const matches31 = screen.queryAllByText(/31/);
+        expect(matches31.length).toBeGreaterThan(0);
     });
 });

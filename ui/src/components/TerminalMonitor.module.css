@@ -83,42 +83,18 @@
 .contentArea {
     flex: 1;
     min-width: 0;
-    padding: 14px;
+    padding: 0 14px 14px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
-.header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-bottom: 4px;
-}
-
-.exportBtn {
-    margin-left: auto;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 4px 12px;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-family: var(--mono, monospace);
-}
-
-.exportBtn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: #fff;
-}
+/* ── LayerHeader is the canonical chrome; the local `.header` (METRICS
+       title + symbol + tfBadge + ExportDataButton) was moved into the
+       LayerHeader trailing slot — see TerminalMonitor.svelte. The only
+       surviving local rules are `.symbol` and `.tfBadge`, which the
+       trailing snippet renders alongside the canonical header. ── */
 
 .cascadeAlert {
     display: flex;
@@ -170,19 +146,14 @@
     letter-spacing: 0.08em;
 }
 
-.title {
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.85);
-    font-family: var(--mono, monospace);
-}
+/* .title removed (v7.0-prod — LayerHeader owns the chrome). */
 
 .symbol {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     color: #22d3ee;
+    font-family: var(--mono, monospace);
+    letter-spacing: 0.05em;
 }
 
 .tfBadge {

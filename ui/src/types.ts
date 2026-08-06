@@ -678,6 +678,13 @@ export interface TimeframeTelemetry {
     showLinregSlope: boolean;
     showZscore: boolean;
     showLiqHeatmap: boolean;
+    /**
+     * v7.0-prod — leverage tiers (integer × in [1, 100]) the operator
+     * currently highlights on the liquidation heatmap overlay. Matching
+     * clusters amplify in intensity; non-matching dim. Per-TF so that
+     * micro may show one set while macro shows another.
+     */
+    heatmapLeverageTiers: number[];
     showVolumeProfile: boolean;
     showWilliamsR: boolean;
     showCci: boolean;

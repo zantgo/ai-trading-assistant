@@ -503,3 +503,60 @@ describe('LiquidationHeatmapPrimitive render path', () => {
         expect(fillRects.length).toBe(0);
     });
 });
+
+// ── v7.0-prod — leverage-tier highlight extension ──────────────────────
+
+import { clusterInHighlight } from './liquidationHeatmap';
+
+describe('clusterInHighlight (v7.0-prod — leverage-tier highlight)', () => {
+    it('returns true when the cluster\'s dominant_leverage matches a tier with ±0.5 epsilon', () => {
+        expect(
+            clusterInHighlight(
+                { dominant_leverage: 9.7 } as any,
+                [10]
+            )
+        ).toBe(true);
+    });
+
+    it('returns false when no tier matches within ±0.5', () => {
+        expect(
+            clusterInHighlight(
+                { dominant_leverage: 7 } as any,
+                [10]
+            )
+        ).toBe(false);
+    });
+
+    it('rejects out-of-range tiers (< 1, > 100, non-integer)', () => {
+        expect(
+            clusterInHighlight({ dominant_leverage: 5 } as any, [0])
+        ).toBe(false);
+        expect(
+            clusterInHighlight({ dominant_leverage: 5 } as any, [101])
+        ).toBe(false);
+        expect(
+            clusterInHighlight({ dominant_leverage: 5 } as any, [5.5])
+        ).toBe(false);
+    });
+
+    it('returns false for null tiers / null dominant_leverage', () => {
+        expect(
+            clusterInHighlight({ dominant_leverage: 10 } as any, null)
+        ).toBe(false);
+        expect(
+            clusterInHighlight({ dominant_leverage: 10 } as any, undefined)
+        ).toBe(false);
+        expect(
+            clusterInHighlight({ dominant_leverage: null } as any, [10])
+        ).toBe(false);
+        expect(
+            clusterInHighlight({ dominant_leverage: Number.NaN } as any, [10])
+        ).toBe(false);
+    });
+
+    it('multiple tiers: any match is enough (set semantics)', () => {
+        const cluster = { dominant_leverage: 25.2 } as any;
+        expect(clusterInHighlight(cluster, [10, 25, 50])).toBe(true);
+        expect(clusterInHighlight(cluster, [10, 50])).toBe(false);
+    });
+});

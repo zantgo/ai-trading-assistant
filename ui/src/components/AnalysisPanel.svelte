@@ -1,12 +1,16 @@
 <script lang="ts">
     import type { AnalysisMatrix, AlignmentMatrix, TimeframeTelemetry } from '../types';
+    import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { buildAnalysisTabExport } from '../lib/exportBuilders/analysisTab';
     import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './AnalysisPanel.module.css';
 
     const app = useAppStore();
+    let { wssState: _wssState }: { wssState?: WsState } = $props();
     const instance = $derived(app.activeInstance());
     const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
@@ -235,64 +239,39 @@
 
         return { raw: t, timeframe, score, regime, signalsCount };
     }
+
+    // L3 LayerHeader — single authoritative badge; the regime is
+    // suppressed from chips when it's redundant with the bias (e.g.
+    // bias='BULLISH' ∧ regime='TRENDING_BULL' is one fact, not two).
+    const headerSpec = $derived<LayerHeaderSpec>(buildL3AnalysisHeader(analysis));
 </script>
 
 <div class={styles.panel}>
-    <div class={styles.panelHeader}>
-        <h2 class={styles.title}>Market Analysis</h2>
-        <ExportDataButton onExport={buildExport} title="Copy all Analysis data as JSON" />
-    </div>
+    <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
+         (D9 — no text above any badge). Per-section empty states still
+         surface from within the body when a matrix hasn't loaded yet. -->
+    <LayerHeader spec={headerSpec}>
+        {#snippet trailing()}
+            <h2 class={styles.title}>Market Analysis</h2>
+            <ExportDataButton onExport={buildExport} title="Copy all Analysis data as JSON" />
+        {/snippet}
+    </LayerHeader>
 
-    {#if !analysis || !analysis.timeframes_considered}
-        <div class={styles.noData}>Awaiting market analysis data — all values will populate once cross-TF consensus forms</div>
-    {/if}
-
-    <!-- ── Header Metrics with Circular SVG Gauge ── -->
-    <div class={styles.section}>
-        <div class={styles.biasRow}>
-            <span class="{styles.biasBadge} {biasClass(analysis?.bias ?? '')}">
-                {analysis ? displayBias(analysis.bias) : '—'}
-            </span>
-            <div class={styles.confidenceMeter}>
-                <span class={styles.confLabel}>Confidence</span>
-                <div class={styles.svgGaugeWrap}>
-                    <svg viewBox="0 0 64 64" class={styles.radialSvg}>
-                        <circle cx="32" cy="32" r="26" class={styles.gaugeTrack} />
-                        <circle
-                            cx="32"
-                            cy="32"
-                            r="26"
-                            class="{styles.gaugeProgress} {confClass(analysis?.confidence ?? 0)}"
-                            stroke-dasharray="163.3"
-                            stroke-dashoffset={163.3 * (1 - (analysis?.confidence ?? 0))}
-                            transform="rotate(-90 32 32)"
-                        />
-                        <text x="32" y="37" class={styles.gaugeText}>
-                            {analysis ? (analysis.confidence * 100).toFixed(0) : '—'}%
-                        </text>
-                    </svg>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Regime Status ── -->
-    <div class={styles.section}>
-        <div class={styles.regimeRow}>
-            <span class={styles.sectionTitle}>Regime:</span>
-            <span class="{styles.regimeBadge} {regimeClass(analysis?.market_regime ?? '')}">
-                {analysis ? displayRegime(analysis.market_regime) : '—'}
-            </span>
-            <span>| Quality: <span class="{styles.qualityBadge} {qualityClass(analysis?.market_quality ?? '')}">{analysis?.market_quality ?? '—'}</span></span>
-        </div>
-    </div>
-
-    <!-- ── Signal Lean Hero ── -->
+    <!-- ── Signal Lean Hero (now lives below the canonical header — the
+            bias badge + regime badge + quality badge previously in the
+            header have all been absorbed into the LayerHeader) ── -->
     <div class={styles.section}>
         <div class={styles.signalLeanHeroLabel}>SIGNAL LEAN</div>
         <div class="{styles.signalLeanHero} {signalLean.tone === 'bull' ? styles.signalLeanBull : signalLean.tone === 'bear' ? styles.signalLeanBear : styles.signalLeanSplit}">
             <span class={styles.signalLeanHeroCall}>{signalLean.callHtml}</span>
             <span class={styles.signalLeanHeroMeta}>{signalLean.metaHtml}</span>
+            {#if signalLean.bullish + signalLean.bearish > 0}
+                {@const total = signalLean.bullish + signalLean.bearish}
+                <div class={styles.signalLeanBar}>
+                    <div class={styles.signalLeanBarBull} style="width: {(signalLean.bullish / total * 100).toFixed(1)}%"></div>
+                    <div class={styles.signalLeanBarBear} style="width: {(signalLean.bearish / total * 100).toFixed(1)}%"></div>
+                </div>
+            {/if}
         </div>
     </div>
 

@@ -28,6 +28,9 @@
         atrMultiplier: number; atrTargetRR: number;
         volumeAvgPeriod: number; rvolInstitutional: number; rvolClimax: number;
         analysisLimit: number;
+        /// v7.0-prod — see `WorkspaceSettings.svelte` for the same field
+        /// rationale. Default `[10]` matches `WorkspaceSettings.defaultTermDraft`.
+        heatmapLeverageTiers: number[];
     }
 
     function defaultTermDraft(): TermDraft {
@@ -50,6 +53,7 @@
             atrMultiplier: 2.0, atrTargetRR: 2.5,
             volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
             analysisLimit: 100,
+            heatmapLeverageTiers: [10],
         };
     }
 
@@ -73,6 +77,7 @@
             atrMultiplier: tf.atrMultiplierVal, atrTargetRR: tf.atrTargetRRVal,
             volumeAvgPeriod: tf.volumeAvgPeriodVal, rvolInstitutional: tf.rvolInstitutionalVal, rvolClimax: tf.rvolClimaxVal,
             analysisLimit: tf.analysisLimit,
+            heatmapLeverageTiers: tf.heatmapLeverageTiers ?? [10],
         };
     }
 

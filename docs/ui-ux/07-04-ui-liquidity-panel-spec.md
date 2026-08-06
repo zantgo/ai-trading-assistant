@@ -40,7 +40,7 @@ The component mounts only when an instance is selected (the Bottom Navbar is gat
 
 ## 2. Premium Dark Cockpit Color Tokens
 
-The panel follows the platform-wide **Premium Dark Cockpit** palette (see [07-02 §10](07-02-ui-dashboard-layout.md)). Component-local classes reference tokens defined in `ui/src/styles/brutalist-grid.module.css`; the cascade badge / signal-row states introduce four semantic colors:
+The panel follows the platform-wide **Premium Dark Cockpit** palette (see [07-02 §10](07-02-ui-dashboard-layout.md)). All semantic color meanings are defined in the canonical reference at [07-06-ui-color-conventions.md](07-06-ui-color-conventions.md). Component-local classes reference tokens defined in `ui/src/styles/brutalist-grid.module.css`; the cascade badge / signal-row states introduce four semantic colors:
 
 | Token / class | Value | Used for |
 |---|---|---|

@@ -82,7 +82,7 @@ export function pickInstanceLivePrice(pair: PricePickPairLike, nowMs: number): s
         const p = tf?.priceText;
         if (!isNumericPrice(p)) continue;
         const ts = timestampOf(tf?.latestSnapshot);
-        if (ts > fallbackTs) {
+        if (ts > fallbackTs || fallbackText === null) {
             fallbackTs = ts;
             fallbackText = p;
         }

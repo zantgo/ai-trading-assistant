@@ -116,8 +116,10 @@ Example:
 `ConnectionQualityPanel.svelte` (with companion `.module.css` and `.test.ts`) is wired into the dashboard under the **Data Infrastructure → Overview → Connectivity** sub-tab (see [`07-02-ui-dashboard-layout.md §5.3`](../ui-ux/07-02-ui-dashboard-layout.md)). It:
 - Polls `/api/connection-quality` every 30 seconds
 - Switches between 1h / 6h / 24h tabs
-- Color-codes the score (≥90 green, ≥75 lime, ≥50 amber, <50 red)
-- Color-codes uptime (≥99 green, ≥95 lime, <95 red)
+- Color-codes the score (≥90 blue, ≥75 lighter-blue, ≥50 amber, <50 grey)
+- Color-codes uptime (≥99 blue, ≥95 lighter-blue, <95 grey)
+
+Threshold colors conform to the canonical semantic conventions at [07-06-ui-color-conventions.md](../ui-ux/07-06-ui-color-conventions.md): Blue = connected/safe, Amber = risky, Grey = error. Green is reserved for bullish market direction; red is reserved for bearish market direction.
 - Shows: score, uptime, disconnect count, avg reconnect ms, total data loss, reconstructed candle count
 
 ## Testing

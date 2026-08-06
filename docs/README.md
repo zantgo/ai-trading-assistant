@@ -103,12 +103,13 @@ docs/
 │   ├── 06-00-consumer-onboarding.md                  ← single-page integrator orientation
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
 │   └── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
-├── ui-ux/                                            (07 — 5 files)
+├── ui-ux/                                            (07 — 6 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
 │   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
 │   ├── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
-│   └── 07-05-export-data-payload-schema.md           ← per-tab Export Data JSON schemas (v6.7)
+│   ├── 07-05-export-data-payload-schema.md           ← per-tab Export Data JSON schemas (v6.7)
+│   └── 07-06-ui-color-conventions.md                 ← canonical semantic color mapping (Red=bearish, Green=bullish, Amber=risky, Grey=error, Blue=safe)
 └── operations-and-compliance/                        (08 — 8 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
     ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
@@ -120,7 +121,7 @@ docs/
     └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
 ```
 
-Total: **150 markdown files** at v6.10.1 — 147 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 9 conceptual + 17 matrix + **40 engine** (8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 51 indicator + 13 signal + 3 integration + 4 UI + 8 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **15 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines.
+Total: **152 markdown files** at v6.10.1 — 149 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 9 conceptual + 17 matrix + **40 engine** (8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 51 indicator + 13 signal + 3 integration + 5 UI + 8 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **15 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines.
 
 ## The Five Engines
 

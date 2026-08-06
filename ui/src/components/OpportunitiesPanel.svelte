@@ -1,14 +1,17 @@
 <script lang="ts">
     import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import type { WsState } from '../lib/websocket.svelte';
     import { buildOpportunityTabExport } from '../lib/exportBuilders/opportunityTab';
     import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary } from '../lib/decisionRank';
 
     const app = useAppStore();
-    let { pairKey } = $props<{ pairKey: string }>();
+    let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
 
     const instance = $derived(app.instancesMap[pairKey]);
     const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
@@ -39,6 +42,25 @@
         opportunity,
         analysis,
     }));
+
+    // v7.0-prod: probability bars survive — they read the same rank as the
+    // L6 LayerHeader so the operator sees the three-arm split even when no
+    // opportunity matrix has loaded yet (the rank reduces to 33/33/33 in
+    // that case, which is exactly the contract expected by the empty state).
+    const runners = $derived.by((): { action: 'LONG' | 'SHORT' | 'HOLD'; prob: number }[] => {
+        const all = [
+            { action: 'LONG' as const, prob: rank.long.probability },
+            { action: 'SHORT' as const, prob: rank.short.probability },
+            { action: 'HOLD' as const, prob: rank.hold.probability },
+        ];
+        return all.filter((r) => r.action !== rank.top).sort((a, b) => b.prob - a.prob);
+    });
+
+    function rankBarClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
+        if (action === 'LONG') return styles.rankLong ?? '';
+        if (action === 'SHORT') return styles.rankShort ?? '';
+        return styles.rankHold ?? '';
+    }
     const setups = $derived(computeSymmetricSetups({
         opportunity,
         markPrice,
@@ -230,18 +252,41 @@
 
     const q = $derived(setupQuality(oppScore));
 
+    function fmtScore(n: number): string {
+        if (n >= 1) return n.toFixed(0);
+        if (n >= 0.1) return n.toFixed(1);
+        if (n >= 0.001) return n.toFixed(3);
+        if (n <= 0) return '0';
+        return n.toFixed(4);
+    }
+
+    // L4 LayerHeader — primary badge reads `primary_opportunity`; the
+    // meta chip rail reports Score + R:R + Horizon. The L3 bias can
+    // override the per-side RR direction when both sides are valid
+    // (`buildL4OpportunityHeader` handles the disambiguation).
+    const headerSpec = $derived<LayerHeaderSpec>(
+        buildL4OpportunityHeader(opportunity, analysis?.bias ?? null)
+    );
+
     // ── Lean (bullish / bearish / neutral) derived from the rank.
     // Reading from `rank.top` keeps the lean chip aligned with the verdict
-    // hero and the geometry of the Trade Setups cards below.
+    // hero and the geometry of the Trade Setups cards below. The header
+    // itself has absorbed the previous `PULLBACK + bullish-dominate`
+    // dual-badge block — `lean` here only powers the lean chip and the
+    // HOLD scenario note below.
     const lean = $derived.by((): { label: string; tone: 'bull' | 'bear' | 'neutral' } => {
         if (rank.top === 'LONG') return { label: 'Bullish setups dominate', tone: 'bull' };
         if (rank.top === 'SHORT') return { label: 'Bearish setups dominate', tone: 'bear' };
         return { label: 'Lean: neutral', tone: 'neutral' };
     });
 
-    function fmtPx(n: number | undefined | null): string {
+    function fmtPx(n: number | undefined | null, mp: number = 0): string {
         if (n == null || !isFinite(n) || n <= 0) return '—';
-        return n.toFixed(0);
+        if (mp >= 1000) return n.toFixed(0);
+        if (mp >= 1) return n.toFixed(2);
+        if (mp >= 0.01) return n.toFixed(4);
+        if (mp >= 0.0001) return n.toFixed(6);
+        return n.toFixed(8);
     }
     function fmtRr(n: number | undefined | null): string {
         if (n == null || !isFinite(n)) return '—';
@@ -268,7 +313,9 @@
         if (n == null || !isFinite(n) || n <= 0) return '—';
         if (mp >= 1000) return `$${n.toFixed(0)}`;
         if (mp >= 1) return `$${n.toFixed(2)}`;
-        return `$${n.toFixed(4)}`;
+        if (mp >= 0.01) return `$${n.toFixed(4)}`;
+        if (mp >= 0.0001) return `$${n.toFixed(6)}`;
+        return `$${n.toFixed(8)}`;
     }
     function rrCls(rr: number | null): string {
         if (rr == null) return styles.rrNone ?? '';
@@ -279,244 +326,253 @@
 </script>
 
 <div class={styles.panel}>
-    <div class={styles.panelHeader}>
-        <h2 class={styles.title}>Market Opportunity</h2>
-        <ExportDataButton onExport={buildExport} title="Copy all Opportunity data as JSON" />
+    <!-- L4 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
+    <LayerHeader spec={headerSpec}>
+        {#snippet trailing()}
+            <h2 class={styles.title}>Market Opportunity</h2>
+            <ExportDataButton onExport={buildExport} title="Copy all Opportunity data as JSON" />
+        {/snippet}
+    </LayerHeader>
+
+    <!-- Probability bars survive — but restyled as a chip rail (LONG/SHORT/HOLD
+         per-action percentages) so they read as an extension of the meta chip
+         vocabulary rather than as a second header. Probability chips live
+         OUTSIDE the empty-state guard so the operator always sees the
+         three-arm probability split, even when no opportunity matrix has
+         loaded yet. -->
+    <div class={styles.runnerRow}>
+        {#each runners as r (r.action)}
+            <div class="{styles.runnerCell} {rankBarClass(r.action)}">
+                <div class={styles.runnerBar} style="width: {r.prob.toFixed(1)}%"></div>
+                <span class={styles.runnerAction}>{r.action}</span>
+                <span class={styles.runnerPct}>{r.prob}%</span>
+            </div>
+        {/each}
     </div>
 
     <div class={styles.section}>
-        <div class={styles.topSetupLabel}>TOP SETUP</div>
-        <div class={styles.headerRow}>
-            <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">
-                {analysis ? oppLabel(analysis.opportunity_analysis) : '—'}
-            </span>
-            <span class="{styles.leanChip} {lean.tone === 'bull' ? styles.leanBull : lean.tone === 'bear' ? styles.leanBear : styles.leanNeutral}">
-                {lean.label}
-            </span>
-        </div>
-
-        <div class={styles.scoreRow}>
-            <span class={styles.scoreLabel}>Setup Score</span>
-            <div class={styles.scoreBar}>
-                <div class={styles.scoreFill}
-                     style="width: {oppScore.toFixed(1)}%; background: {scoreColor(oppScore)}"></div>
-            </div>
-            <span class={styles.scoreVal} style="color: {scoreColor(oppScore)}">{oppScore.toFixed(0)}</span>
-        </div>
-        <div style="margin-top: 6px;">
-            <span class="{styles.qualityBadge} {q.cls}">{q.label}</span>
-        </div>
-    </div>
-
-    <!-- ── Trade Setups (one card per qualifying profile) ─────────────────── -->
-    <!-- The Opportunities panel renders the full leaderboard. Every profile
-         whose preconditions are met gets its own ENTRY/TARGET/SL/R:R
-         bracket. Cards are sorted by viability (Actionable first), then
-         by score. Cards without an actionable direction (Neutral family
-         + Neutral bias, or geometry-inverted) still surface the
-         aggregated Neutral sentinel so the operator always sees a
-         number next to a trade. -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>
-            Trade Setups
-            <span class={styles.sectionMeta}>
-                {activeSetups.length === 0
-                    ? 'no qualifying setup yet'
-                    : `${activeSetups.length} candidate${activeSetups.length === 1 ? '' : 's'}`}
-            </span>
-        </div>
-        {#if rank.top === 'HOLD'}
-            <div class={styles.scenarioNote}>
-                <span class={styles.scenarioBadge}>HOLD / NO CLEAR</span>
-                <span>No directional call. The cards below show the L4 Neutral sentinel for each qualifying profile (entry = target = invalidation = close) — none are active.</span>
-            </div>
-        {/if}
-        {#if activeSetups.length === 0}
-            <div class={styles.noProfiles}>Awaiting qualifying profile (preconditions_met &gt; 0).</div>
-        {:else}
-            <div class={styles.setupList}>
-                {#each activeSetups as setup (setup.opportunity_type)}
-                    <div class="{styles.setupCard} {setup.viability === 'Actionable' && rank.top !== 'HOLD' ? styles.setupCardActive : styles.setupCardHypo} {!setup.geometry_consistent ? styles.setupCardInverted : ''} {setup.viability === 'DirectionalNeutral' ? styles.setupCardMuted : ''}">
-                        <div class="{styles.setupHeader} {setupHeaderClass(setup.side)}">
-                            <span class={styles.setupHeaderTitle}>{`${oppLabel(setup.opportunity_type)} · ${setup.side}`}</span>
-                            <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{setup.score.toFixed(0)}</span>
-                        </div>
-                        {#if setup.viability === 'Actionable' && setup.rankIdx === 0 && rank.top !== 'HOLD'}
-                            <div class={styles.setupBadgeTop}>TOP · ACTIONABLE</div>
-                        {:else if setup.viability === 'DirectionalNeutral'}
-                            <div class={styles.setupBadgeNeutral}>NEUTRAL · HOLD</div>
-                        {:else if setup.viability === 'GeometryInverted'}
-                            <div class={styles.setupBadgeInverted}>GEOMETRY INVERTED</div>
-                        {/if}
-                        <div class={styles.setupBody}>
-                            <div class={styles.setupRow}>
-                                <span class={styles.setupRowLabel}>ENTRY</span>
-                                <span class={styles.setupRowValue}>
-                                    {setup.entryMid > 0 ? fmtPxDecimal(setup.entryMid, markPrice) : '—'}
-                                </span>
-                            </div>
-                            <div class={styles.setupRow}>
-                                <span class={styles.setupRowLabel}>TP1</span>
-                                <span class={styles.setupRowValue}>{setup.tp1 > 0 ? fmtPxDecimal(setup.tp1, markPrice) : '—'}</span>
-                            </div>
-                            <div class={styles.setupRow}>
-                                <span class={styles.setupRowLabel}>SL</span>
-                                <span class="{styles.setupRowValue} {styles.setupRowStop}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
-                            </div>
-                            <div class={styles.setupRow}>
-                                <span class={styles.setupRowLabel}>R:R</span>
-                                <span class={styles.setupRowValue}>
-                                    {#if setup.rr != null}
-                                        <span class={rrCls(setup.rr)}>{setup.rr.toFixed(2)}</span>
-                                    {:else}
-                                        —
-                                    {/if}
-                                </span>
-                            </div>
-                            <div class={styles.setupRowMeta}>
-                                {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {setup.score.toFixed(0)}
-                            </div>
-                        </div>
-                    </div>
-                {/each}
-            </div>
-        {/if}
-        {#if noClearProfile}
-            <div class={styles.noClearStrip}>
-                <span class={styles.noClearBadge}>NO CLEAR OPPORTUNITY</span>
-                <span class={styles.noClearMeta}>{noClearProfile.preconditions_met}/{noClearProfile.preconditions_total} preconditions met · informational only</span>
-            </div>
-        {/if}
-    </div>
-
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>R:R (Internal)</div>
-        <div class={styles.zoneGrid}>
-            <div class={styles.zoneCard}>
-                <span class={styles.zoneLabel}>Expected R:R</span>
-                <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}>
-                    {rrInternalDisplay.value}
+            <div class={styles.topSetupLabel}>TOP SETUP</div>
+            <div class={styles.headerRow}>
+                <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">
+                    {analysis ? oppLabel(analysis.opportunity_analysis) : '—'}
+                </span>
+                <span class="{styles.leanChip} {lean.tone === 'bull' ? styles.leanBull : lean.tone === 'bear' ? styles.leanBear : styles.leanNeutral}">
+                    {lean.label}
                 </span>
             </div>
-            <div class={styles.zoneCard}>
-                <span class={styles.zoneLabel}>Horizon</span>
-                <span class={styles.zoneValue}>{opportunity?.time_horizon ?? '\u2014'}</span>
+
+            <div class={styles.scoreRow}>
+                <span class={styles.scoreLabel}>Setup Score</span>
+                <div class={styles.scoreBar}>
+                    <div class={styles.scoreFill}
+                         style="width: {oppScore.toFixed(1)}%; background: {scoreColor(oppScore)}"></div>
+                </div>
+                <span class={styles.scoreVal} style="color: {scoreColor(oppScore)}">{fmtScore(oppScore)}</span>
+            </div>
+            <div style="margin-top: 6px;">
+                <span class="{styles.qualityBadge} {q.cls}">{q.label}</span>
             </div>
         </div>
-    </div>
 
-    <!-- ── Invalidation note — always visible ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Invalidation Note</div>
-        <div class={styles.noteBox}>
-            {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
-        </div>
-    </div>
-
-    <!-- ── Evaluated profiles — always visible ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Evaluated Setups</div>
-        {#if opportunity?.profiles && opportunity.profiles.length > 0}
-            <!-- NoClearOpportunity is rendered separately above the
-                 Trade Setups list (muted placeholder strip). Filter it
-                 out of this list to avoid duplication and visual noise. -->
-            <div class={styles.profileList}>
-                {#each (opportunity.profiles ?? []).filter((p) => p.opportunity_type !== 'NoClearOpportunity') as profile (profile.opportunity_type)}
-                    <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
-                        <div class={styles.profileHeader}>
-                            <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
-                            <span class={styles.profileScore} style="color: {scoreColor(profile.score)}">{profile.score.toFixed(0)}</span>
-                        </div>
-                        <div class={styles.profilePreconditions}>
-                            <span class={styles.profilePreLabel}>Preconditions</span>
-                            <span class={styles.profilePreValue}>{profile.preconditions_met}/{profile.preconditions_total} met</span>
-                            <div class={styles.profilePreBar}>
-                                <div class={styles.profilePreFill}
-                                     style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
+        <!-- ── Trade Setups (one card per qualifying profile) ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>
+                Trade Setups
+                <span class={styles.sectionMeta}>
+                    {activeSetups.length === 0
+                        ? 'no qualifying setup yet'
+                        : `${activeSetups.length} candidate${activeSetups.length === 1 ? '' : 's'}`}
+                </span>
+            </div>
+            {#if rank.top === 'HOLD'}
+                <div class={styles.scenarioNote}>
+                    <span class={styles.scenarioBadge}>HOLD / NO CLEAR</span>
+                    <span>No directional call. The cards below show the L4 Neutral sentinel for each qualifying profile (entry = target = invalidation = close) — none are active.</span>
+                </div>
+            {/if}
+            {#if activeSetups.length === 0}
+                <div class={styles.noProfiles}>Awaiting qualifying profile (preconditions_met &gt; 0).</div>
+            {:else}
+                <div class={styles.setupList}>
+                    {#each activeSetups as setup (setup.opportunity_type)}
+                        <div class="{styles.setupCard} {setup.viability === 'Actionable' && rank.top !== 'HOLD' ? styles.setupCardActive : styles.setupCardHypo} {!setup.geometry_consistent ? styles.setupCardInverted : ''} {setup.viability === 'DirectionalNeutral' ? styles.setupCardMuted : ''}">
+                            <div class="{styles.setupHeader} {setupHeaderClass(setup.side)}">
+                                <span class={styles.setupHeaderTitle}>{`${oppLabel(setup.opportunity_type)} · ${setup.side}`}</span>
+                                <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{fmtScore(setup.score)}</span>
+                            </div>
+                            {#if setup.viability === 'Actionable' && setup.rankIdx === 0 && rank.top !== 'HOLD'}
+                                <div class={styles.setupBadgeTop}>TOP · ACTIONABLE</div>
+                            {:else if setup.viability === 'DirectionalNeutral'}
+                                <div class={styles.setupBadgeNeutral}>NEUTRAL · HOLD</div>
+                            {:else if setup.viability === 'GeometryInverted'}
+                                <div class={styles.setupBadgeInverted}>GEOMETRY INVERTED</div>
+                            {/if}
+                            <div class={styles.setupBody}>
+                                <div class={styles.setupRow}>
+                                    <span class={styles.setupRowLabel}>ENTRY</span>
+                                    <span class={styles.setupRowValue}>
+                                        {setup.entryMid > 0 ? fmtPxDecimal(setup.entryMid, markPrice) : '—'}
+                                    </span>
+                                </div>
+                                <div class={styles.setupRow}>
+                                    <span class={styles.setupRowLabel}>TP1</span>
+                                    <span class={styles.setupRowValue}>{setup.tp1 > 0 ? fmtPxDecimal(setup.tp1, markPrice) : '—'}</span>
+                                </div>
+                                <div class={styles.setupRow}>
+                                    <span class={styles.setupRowLabel}>SL</span>
+                                    <span class="{styles.setupRowValue} {styles.setupRowStop}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
+                                </div>
+                                <div class={styles.setupRow}>
+                                    <span class={styles.setupRowLabel}>R:R</span>
+                                    <span class={styles.setupRowValue}>
+                                        {#if setup.rr != null}
+                                            <span class={rrCls(setup.rr)}>{setup.rr.toFixed(2)}</span>
+                                        {:else}
+                                            —
+                                        {/if}
+                                    </span>
+                                </div>
+                                <div class={styles.setupRowMeta}>
+                                    {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {fmtScore(setup.score)}
+                                </div>
                             </div>
                         </div>
-                        {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
-                            <div class={styles.profileViability}>{profile.trade_viability}</div>
-                        {/if}
-                        {#if profile.notes}
-                            <div class={styles.profileNotes}>{profile.notes}</div>
-                        {/if}
-                    </div>
-                {/each}
-            </div>
-        {:else}
-            <div class={styles.noProfiles}>No setup profiles evaluated yet</div>
-        {/if}
-    </div>
-
-    <!-- ── Confluent Levels — single section spanning entries + targets ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Confluent Levels</div>
-        {#if (opportunity?.confluent_entry_levels?.length ?? 0) > 0 || (opportunity?.confluent_target_levels?.length ?? 0) > 0}
-            {#if (opportunity?.confluent_entry_levels?.length ?? 0) > 0}
-                <div class={styles.confluenceSubheader}>Entry</div>
-                {#each (opportunity?.confluent_entry_levels ?? []).slice(0, 4) as level}
-                    <div class={styles.confluenceRow}>
-                        <span class={styles.confluencePrice}>{level.price.toFixed(0)}</span>
-                        <div class={styles.confluenceSources}>
-                            {#each level.sources as src}
-                                <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
-                                    {fmtSource(src)}
-                                </span>
-                            {/each}
-                        </div>
-                        <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{level.strength.toFixed(0)}%</span>
-                    </div>
-                {/each}
+                    {/each}
+                </div>
             {/if}
-            {#if (opportunity?.confluent_target_levels?.length ?? 0) > 0}
-                <div class={styles.confluenceSubheader}>Target</div>
-                {#each (opportunity?.confluent_target_levels ?? []).slice(0, 4) as level}
-                    <div class={styles.confluenceRow}>
-                        <span class={styles.confluencePrice}>{level.price.toFixed(0)}</span>
-                        <div class={styles.confluenceSources}>
-                            {#each level.sources as src}
-                                <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
-                                    {fmtSource(src)}
-                                </span>
-                            {/each}
-                        </div>
-                        <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{level.strength.toFixed(0)}%</span>
-                    </div>
-                {/each}
+            {#if noClearProfile}
+                <div class={styles.noClearStrip}>
+                    <span class={styles.noClearBadge}>NO CLEAR OPPORTUNITY</span>
+                    <span class={styles.noClearMeta}>{noClearProfile.preconditions_met}/{noClearProfile.preconditions_total} preconditions met · informational only</span>
+                </div>
             {/if}
-        {:else}
-            <div class={styles.noConfluence}>No confluent levels</div>
-        {/if}
-    </div>
+        </div>
 
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Market Position</div>
-        <div class={styles.zoneGrid}>
-            <div class={styles.zoneCard}>
-                <span class={styles.zoneLabel}>Bias</span>
-                <span class={styles.zoneValue}>{analysis?.bias ?? '—'}</span>
-            </div>
-            <div class={styles.zoneCard}>
-                <span class={styles.zoneLabel}>Regime</span>
-                <span class={styles.zoneValue}>{analysis?.market_regime ?? '—'}</span>
-            </div>
-            <div class={styles.zoneCard}>
-                <span class={styles.zoneLabel}>Trend</span>
-                <span class={styles.zoneValue}>{analysis?.trend_assessment ?? '—'}</span>
-            </div>
-            <div class={styles.zoneCard}>
-                <span class={styles.zoneLabel}>Quality</span>
-                <span class={styles.zoneValue}>{analysis?.market_quality ?? '—'}</span>
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>R:R (Internal)</div>
+            <div class={styles.zoneGrid}>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Expected R:R</span>
+                    <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}>
+                        {rrInternalDisplay.value}
+                    </span>
+                </div>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Horizon</span>
+                    <span class={styles.zoneValue}>{opportunity?.time_horizon ?? '—'}</span>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Environment</div>
-        <div class={styles.infoRow}>
-            <span class={styles.infoBadge}>{analysis?.timeframes_considered ?? 0}/4 TFs considered</span>
-            <span class={styles.infoBadge}>Confidence: {analysis ? (analysis.confidence * 100).toFixed(0) : '—'}%</span>
+        <!-- ── Invalidation note ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Invalidation Note</div>
+            <div class={styles.noteBox}>
+                {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
+            </div>
         </div>
-    </div>
+
+        <!-- ── Evaluated profiles ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Evaluated Setups</div>
+            {#if opportunity?.profiles && opportunity.profiles.length > 0}
+                <div class={styles.profileList}>
+                    {#each (opportunity?.profiles ?? []).filter((p) => p.opportunity_type !== 'NoClearOpportunity') as profile (profile.opportunity_type)}
+                        <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
+                            <div class={styles.profileHeader}>
+                                <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
+                                <span class={styles.profileScore} style="color: {scoreColor(profile.score)}">{fmtScore(profile.score)}</span>
+                            </div>
+                            <div class={styles.profilePreconditions}>
+                                <span class={styles.profilePreLabel}>Preconditions</span>
+                                <span class={styles.profilePreValue}>{profile.preconditions_met}/{profile.preconditions_total} met</span>
+                                <div class={styles.profilePreBar}>
+                                    <div class={styles.profilePreFill}
+                                         style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
+                                </div>
+                            </div>
+                            {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
+                                <div class={styles.profileViability}>{profile.trade_viability}</div>
+                            {/if}
+                            {#if profile.notes}
+                                <div class={styles.profileNotes}>{profile.notes}</div>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            {:else}
+                <div class={styles.noProfiles}>No setup profiles evaluated yet</div>
+            {/if}
+        </div>
+
+        <!-- ── Confluent Levels ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Confluent Levels</div>
+            {#if (opportunity?.confluent_entry_levels?.length ?? 0) > 0 || (opportunity?.confluent_target_levels?.length ?? 0) > 0}
+                {#if (opportunity?.confluent_entry_levels?.length ?? 0) > 0}
+                    <div class={styles.confluenceSubheader}>Entry</div>
+                    {#each (opportunity?.confluent_entry_levels ?? []).slice(0, 4) as level}
+                        <div class={styles.confluenceRow}>
+                            <span class={styles.confluencePrice}>{fmtPx(level.price, markPrice)}</span>
+                            <div class={styles.confluenceSources}>
+                                {#each level.sources as src}
+                                    <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
+                                        {fmtSource(src)}
+                                    </span>
+                                {/each}
+                            </div>
+                            <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{fmtScore(level.strength)}%</span>
+                        </div>
+                    {/each}
+                {/if}
+                {#if (opportunity?.confluent_target_levels?.length ?? 0) > 0}
+                    <div class={styles.confluenceSubheader}>Target</div>
+                    {#each (opportunity?.confluent_target_levels ?? []).slice(0, 4) as level}
+                        <div class={styles.confluenceRow}>
+                            <span class={styles.confluencePrice}>{fmtPx(level.price, markPrice)}</span>
+                            <div class={styles.confluenceSources}>
+                                {#each level.sources as src}
+                                    <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
+                                        {fmtSource(src)}
+                                    </span>
+                                {/each}
+                            </div>
+                            <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{fmtScore(level.strength)}%</span>
+                        </div>
+                    {/each}
+                {/if}
+            {:else}
+                <div class={styles.noConfluence}>No confluent levels</div>
+            {/if}
+        </div>
+
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Market Position</div>
+            <div class={styles.zoneGrid}>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Bias</span>
+                    <span class={styles.zoneValue}>{analysis?.bias ?? '—'}</span>
+                </div>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Regime</span>
+                    <span class={styles.zoneValue}>{analysis?.market_regime ?? '—'}</span>
+                </div>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Trend</span>
+                    <span class={styles.zoneValue}>{analysis?.trend_assessment ?? '—'}</span>
+                </div>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Quality</span>
+                    <span class={styles.zoneValue}>{analysis?.market_quality ?? '—'}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Environment</div>
+            <div class={styles.infoRow}>
+                <span class={styles.infoBadge}>{analysis?.timeframes_considered ?? 0}/4 TFs considered</span>
+                <span class={styles.infoBadge}>Confidence: {analysis ? (analysis.confidence * 100).toFixed(0) : '—'}%</span>
+            </div>
+        </div>
 </div>

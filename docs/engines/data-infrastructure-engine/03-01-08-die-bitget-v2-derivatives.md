@@ -121,7 +121,7 @@ The dashboard distinguishes "feed hasn't arrived" from "feed says zero"
 |-----------------|------------------------------------------------------------------------|
 | `WAITING FEED ⏳` | Lifecycle reached Live but no value-map entry yet (feed pending). Amber. |
 | `SILENT ⚡`       | Value-map entry exists with raw ≈ 0, no signals, no state label.       |
-| `LIVE`           | Real reading. Green.                                                   |
+| `LIVE`           | Real reading. Blue.                                                   |
 
 `feed_state: FeedState::WaitingFeed` is stamped on the
 `IndicatorLifecycleStatus` by

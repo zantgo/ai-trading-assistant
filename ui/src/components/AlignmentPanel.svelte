@@ -1,14 +1,16 @@
 <script lang="ts">
     import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import type { WsState } from '../lib/websocket.svelte';
     import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
     import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL2AlignmentHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './AlignmentPanel.module.css';
 
     const app = useAppStore();
-    let { pairKey } = $props<{ pairKey: string }>();
-
+    let { pairKey, wssState }: { pairKey: string; wssState?: WsState } = $props();
     const instance = $derived(app.instancesMap[pairKey]);
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
@@ -126,36 +128,20 @@
     const conflictWarning = $derived(
         alignment && alignment.timeframes_present > 0 && alignment.trend_agreement_pct < 50
     );
+
+    const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment));
 </script>
 
 <div class={styles.panel}>
-    <div class={styles.panelHeader}>
-        <h2 class={styles.title}>Cross-Timeframe Alignment</h2>
-        <ExportDataButton onExport={buildExport} title="Copy all Alignment data as JSON" />
-    </div>
-
-    {#if !alignment || !alignment.timeframes_present}
-        <div class={styles.noDataBanner}>Multi-timeframe alignment forming — all values will populate once candles complete across all timeframes.</div>
-    {/if}
-
-    <!-- ── Hero section ── -->
-    <div class="{styles.hero} {alignment ? (alignment.mtf_overall_score > 5 ? styles.heroBull : alignment.mtf_overall_score < -5 ? styles.heroBear : styles.heroNeutral) : styles.heroNeutral}">
-        <div class={styles.heroScoreBlock}>
-            <span class="{styles.heroScore} {scoreClass(alignment?.mtf_overall_score ?? 0)}">
-                {alignment ? alignment.mtf_overall_score.toFixed(1) : '\u2014'}
-            </span>
-            <span class="{styles.heroLabel} {mLabelClass(alignment?.mtf_overall_label ?? '')}">
-                {alignment ? mLabel(alignment.mtf_overall_label) : 'AWAITING DATA'}
-            </span>
-        </div>
-        <div class={styles.heroMeta}>
-            <span class={styles.heroFlag}>{alignment?.timeframes_present ?? 0}/4 TFs</span>
-            <span class={styles.heroFlag}>{alignment?.signal_cross_tf_count ?? 0} cross-TF</span>
-            <span class="{styles.heroFlag} {conflictWarning ? styles.heroFlagWarn : ''}">
-                {alignment ? alignment.trend_agreement_pct.toFixed(0) : '\u2014'}% agree
-            </span>
-        </div>
-    </div>
+    <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
+         (D9 — no text above any badge). Per-section empty states still
+         surface from within the body when a matrix hasn't loaded yet. -->
+    <LayerHeader spec={headerSpec}>
+        {#snippet trailing()}
+            <h2 class={styles.title}>Cross-Timeframe Alignment</h2>
+            <ExportDataButton onExport={buildExport} title="Copy all Alignment data as JSON" />
+        {/snippet}
+    </LayerHeader>
 
     <!-- ── Alignment Breakdown — card grid ── -->
     <div class={styles.section}>

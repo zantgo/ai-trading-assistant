@@ -78,6 +78,22 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         const targetState = app.instancesMap[pairKey];
 
         function advancedIndicators(ind: Record<string, unknown>) {
+            // v7.0-prod — operator-selected integer × leverage tiers (each
+            // ∈ [1, 100]). The daemon echoes them back inside the
+            // indicator config so the UI never has to repopulate from
+            // scratch after a save. Defensive parse: anything malformed
+            // falls back to the D5 default `[10]`.
+            const rawTiers = ind.heatmap_leverage_tiers;
+            const tiers = Array.isArray(rawTiers)
+                ? Array.from(
+                    new Set(
+                        rawTiers.filter((t: unknown) =>
+                            typeof t === 'number' && Number.isInteger(t) && (t as number) >= 1 && (t as number) <= 100
+                        )
+                    )
+                ).sort((a, b) => (a as number) - (b as number))
+                : [10];
+
             return {
                 bbwpLookbackVal: (ind.bbwp_lookback as number) ?? 252,
                 bbwpPeriodVal: (ind.bbwp_period as number) ?? 20,
@@ -115,6 +131,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                 volumeAvgPeriodVal: (ind.volume_average_period as number) ?? 20,
                 rvolInstitutionalVal: (ind.rvol_threshold_institutional as number) ?? 1.5,
                 rvolClimaxVal: (ind.rvol_threshold_climax as number) ?? 3.0,
+                heatmapLeverageTiers: tiers,
             };
         }
 

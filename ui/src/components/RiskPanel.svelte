@@ -1,13 +1,16 @@
 <script lang="ts">
     import type { RiskMatrix, RiskDimension, RiskLevel, RiskState, LiquidationClusterMatrix, LiquidityFlow, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import type { WsState } from '../lib/websocket.svelte';
     import { buildRiskTabExport } from '../lib/exportBuilders/riskTab';
     import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL5RiskHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './RiskPanel.module.css';
 
     const app = useAppStore();
-    let { pairKey } = $props<{ pairKey: string }>();
+    let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
 
     const instance = $derived(app.instancesMap[pairKey]);
     const risk = $derived<RiskMatrix | null>(instance?.risk ?? null);
@@ -154,7 +157,12 @@
     });
 
     const headlineParts = $derived.by(() => {
-        if (!risk) return 'Risk assessment data forming — all dimensions will populate once indicators stabilize';
+        // v7.0-prod: the L5 trailing slot (LayerHeader `trailing` snippet)
+        // must NEVER carry helper copy that sits above the badge. When
+        // the matrix hasn't loaded yet we return a single identity token
+        // so the trailing slot reads as a title-only row, identical in
+        // weight to the other six layers.
+        if (!risk) return null;
         const c = dimCounts;
         const bits: string[] = [];
         if (c.extreme > 0) bits.push(`${c.extreme} extreme`);
@@ -195,22 +203,30 @@
 
     const ringRadius = 40;
     const ringCircumference = 2 * Math.PI * ringRadius;
+
+    // L5 LayerHeader — single authoritative badge (overall risk level);
+    // sublabel is the risk `state`. Score chip uses `riskDangerColor`
+    // (zero = green, see `chip({ zeroIsGood: true })`).
+    const headerSpec = $derived<LayerHeaderSpec>(buildL5RiskHeader(risk));
 </script>
 
 <div class={styles.panel}>
-    <header class={styles.head}>
-        <div class={styles.headTitleBlock}>
+    <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
+         (D9 — no text above any badge). Per-section empty states still
+         surface from within the body when a matrix hasn't loaded yet. -->
+    <LayerHeader spec={headerSpec}>
+        {#snippet trailing()}
             <h2 class={styles.title}>Risk Assessment</h2>
-            <div class={styles.headHeadline}>{headlineParts}</div>
-        </div>
-        <ExportDataButton onExport={buildExport} title="Copy all Risk data as JSON" />
-    </header>
+            {#if headlineParts}
+                <div class={styles.headHeadline}>{headlineParts}</div>
+            {/if}
+            <ExportDataButton onExport={buildExport} title="Copy all Risk data as JSON" />
+        {/snippet}
+    </LayerHeader>
 
-    {#if !risk}
-        <div class={styles.noDataBanner}>Risk assessment engine initializing — the dashboard skeleton shows all dimensions that will populate once market data stabilizes.</div>
-    {/if}
-
-    <!-- ── Hero: ring + info ── -->
+    <!-- ── Hero: ring + confidence (Level badge + State pill now live in
+            the canonical LayerHeader; the body keeps the ring + per-dim
+            confidence visualisation as the L5 supplement) ── -->
     <section class={styles.hero}>
         <div class={styles.ring}>
             <svg viewBox="0 0 96 96" class={styles.ringSvg}
@@ -229,16 +245,13 @@
             </div>
         </div>
         <div class={styles.heroInfo}>
-            <div class={styles.heroLevelRow}>
-                <span class="{styles.heroLevel} {risk ? labelClass(risk.overall_risk.level) : styles.labelNoData}">
-                    {risk ? risk.overall_risk.level.replace(/_/g, ' ').toUpperCase().replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'NO DATA'}
-                </span>
-                {#if topSeverity && risk && topSeverity !== risk.overall_risk.level}
+            {#if topSeverity && risk && topSeverity !== risk.overall_risk.level}
+                <div class={styles.heroPeakRow}>
                     <span class={styles.heroPeak}>
                         peak: <span class="{styles.heroPeakVal} {labelClass(topSeverity)}">{topSeverity}</span>
                     </span>
-                {/if}
-            </div>
+                </div>
+            {/if}
             <div class={styles.heroConf}>
                 <span class={styles.confLabel}>Confidence</span>
                 <div class={styles.confBar}>

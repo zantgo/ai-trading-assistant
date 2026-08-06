@@ -300,7 +300,7 @@ The Instances Sidebar slides out from the **right edge** when `isWorkspacePanelO
 | List | `styles.wsPanelList` | Empty-state messages or one row per instance. |
 | Empty state | `styles.wsPanelEmpty` | Shows "Loading instances…" or "No active instances. Create one above.". |
 | Row | `styles.wsPanelRow` | Semantic `<a>` tag with `href={buildEngineHash(...)}`. Click selects the instance via `app.enterInstance(pairKey)` and closes the drawer. |
-| Status dot | `styles.statusDot` + variant class | `running` (green) · `paused` (amber) · `stopped` (grey). |
+| Status dot | `styles.statusDot` + variant class | `running` (blue) · `paused` (amber) · `stopped` (grey). |
 | Pair | `styles.wsPanelPair` | `BTC/USDC` display. |
 | Price | `styles.wsPanelPrice` | `microTerm.priceText`. |
 | Change % | `styles.change` + variant | 24 h change % colored up/down/flat. |
@@ -439,9 +439,9 @@ The form is loaded once via `GET /api/config` on mount (`$effect`) and re-loaded
 
 ---
 
-## 9. TimeframeSettings Grid
+## 9. WorkspaceSettings Grid
 
-The instance-level settings page (`WorkspaceSettings` → `TimeframeSettings`) renders a responsive 4-column grid of timeframe cards, one card per timeframe (micro / fast / slow / macro).
+The instance-level settings page (`WorkspaceSettings.svelte`, mounted by `AppPageRouter` when `middleTab === 'settings'`) renders a responsive 4-column grid of timeframe cards, one card per timeframe (micro / fast / slow / macro).
 
 ### 9.1 Layout
 
@@ -498,11 +498,22 @@ Each input row is a label + numeric input pair (`flex; justify-content: space-be
 - **Status feedback:** `saveStatus` flows through `idle` → `saving` → `success` / `error`.
 - **On success:** the four `*Term` objects are mutated in-place via `applyTermToTelemetry(...)`; `latestSnapshot` is cleared so the next WS frame re-seeds the chart.
 
+### 9.5 v7.0-prod — Timeframe Selector + Leverage Tier Picker
+
+Two surgical upgrades landed alongside the v7.0-prod chrome refresh:
+
+1. **Left rail timeframes.** The `WorkspaceSettings` body switched from a 4-column grid of TF cards to a left-rail (`.tfShell-rail`, 180 px) + right-pane (`.tfShell-body`) layout, mirroring `TerminalMonitor`'s rail so the operator learns one selection pattern and uses it across the dashboard. The four rail buttons read **MTF · MICRO · FAST · SLOW · MACRO** top-down (MTF sits in the rail *only* when synthesised as a per-pair override; the micro/fast/slow/macro rail remains the canonical 4-TF editing surface).
+2. **Liquidation Heatmap leverage tiers card.** Each selected slot now hosts a `LiquidationHeatmapTierPicker` card — chips (`{tier}×`) with a per-chip remove, plus an integer stepper (`min=1`, `max=100`, integer-only — fractional inputs are rejected). The default seed is `[10]` (a single 10× chip). See `docs/operations-and-compliance/03-liq-heatmap-config.md` for the operator workflow and intensity-amplifier semantics (`clusterInHighlight`).
+
+Persisted per-TF as `tf.heatmapLeverageTiers: number[]` and round-tripped to the daemon config body as `heatmap_leverage_tiers` (one entry per slot inside `micro_term.indicators`, `fast_term.indicators`, …).
+
 ---
 
 ## 10. Visual Design — Premium Dark Cockpit
 
 The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.module.css`). It is intentionally NOT "brutalist" in the rough-architectural sense — it is a refined monochrome dark theme inspired by Apple's pro tool palette.
+
+> **Canonical color reference.** Every semantic color used in the platform (Red = bearish, Green = bullish, Amber = neutral/risky, Grey = error, Blue = connected/safe) is defined in [07-06-ui-color-conventions.md](07-06-ui-color-conventions.md). That document is the single authoritative source — any component referencing a color must resolve to the semantic categories defined there.
 
 | Token | Value | Used for |
 |-------|-------|----------|

@@ -846,10 +846,13 @@
         // `updateData` accepts partial inputs and merges against the
         // previous shape — passing `null` is intentional when no data
         // has arrived yet (the primitive suppresses rendering on null).
+        // v7.0-prod: also forward the per-TF operator-selected leverage
+        // tiers so matching clusters intensify (D5 default `[10]`).
         const cluster = tf?.cluster ?? historyCluster ?? null;
         const flow = tf?.liquidity ?? null;
         const ex = tf?.exchange ?? '';
-        liqHeatmapPrim.updateData({ cluster, flow, exchange: ex });
+        const highlightTiers = tf?.heatmapLeverageTiers ?? [10];
+        liqHeatmapPrim.updateData({ cluster, flow, exchange: ex, highlightTiers });
     });
 
     // SMC Fair Value Gap zones — toggle visibility + rolling zone list.

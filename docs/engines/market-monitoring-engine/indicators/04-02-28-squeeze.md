@@ -120,7 +120,7 @@ Squeeze Momentum Chart:
 | `#ff1744` Bright Red | Bearish Acceleration | Hold Short / Enter Short |
 | `#b71c1c` Dark Red | Bearish Deceleration | EXIT Short |
 
-> **Color convention.** The Squeeze mapping is consistent with the MACD convention in [04-02-17-macd.md §Visual Chart Annotation](../indicators/04-02-17-macd.md). The unified semantic is **bright = active threat, dark = exhausted**: directional expansion (acceleration) is the threat — bright color; directional contraction (deceleration) is the release — dark color. The inverse pairing (`BearishAcceleration → Dark Red`) would conflict with MACD's identically-themed color scheme.
+> **Color convention.** The Squeeze mapping is consistent with the MACD convention in [04-02-17-macd.md §Visual Chart Annotation](../indicators/04-02-17-macd.md). The unified semantic is **bright = active threat, dark = exhausted**: directional expansion (acceleration) is the threat — bright color; directional contraction (deceleration) is the release — dark color. The inverse pairing (`BearishAcceleration → Dark Red`) would conflict with MACD's identically-themed color scheme. All directional colors conform to the platform-wide semantic conventions at [07-06-ui-color-conventions.md](../../../ui-ux/07-06-ui-color-conventions.md): **Red = bearish** (market direction, never error), **Green = bullish** (market direction, never connected).
 
 ## Signals
 

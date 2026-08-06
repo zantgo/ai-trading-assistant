@@ -253,3 +253,58 @@
     text-transform: uppercase;
     align-self: flex-start;
 }
+
+/* ── Runner-ups (LONG/SHORT/HOLD probability chips) ── */
+.runnerRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.runnerCell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+    min-height: 32px;
+}
+.runnerBar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 6px;
+    opacity: 0.18;
+    transition: width 0.35s ease;
+    z-index: 0;
+}
+.runnerCell > :not(.runnerBar) {
+    position: relative;
+    z-index: 1;
+}
+.rankLong .runnerBar { background: #22c55e; }
+.rankShort .runnerBar { background: #ef4444; }
+.rankHold .runnerBar { background: #f59e0b; }
+.runnerAction {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+}
+.runnerPct {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--mono, monospace);
+}
+.rankLong  .runnerAction { color: #22c55e; }
+.rankLong  .runnerPct    { color: #22c55e; }
+.rankShort .runnerAction { color: #ef4444; }
+.rankShort .runnerPct    { color: #ef4444; }
+.rankHold  .runnerAction { color: #f59e0b; }
+.rankHold  .runnerPct    { color: #f59e0b; }

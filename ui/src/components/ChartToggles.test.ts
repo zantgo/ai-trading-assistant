@@ -88,6 +88,7 @@ function makeTf(slot: 'micro' | 'fast' | 'slow' | 'macro') {
         showLinregSlope: true,
         showZscore: true,
         showLiqHeatmap: false,
+        heatmapLeverageTiers: [10],
         showVolumeProfile: false,
     } as any;
 }

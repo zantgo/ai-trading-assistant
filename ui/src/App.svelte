@@ -132,7 +132,21 @@
         if (!resilientActivePair) return null;
         const snap = resilientActivePair.microTerm.latestSnapshot || resilientActivePair.fastTerm.latestSnapshot;
         if (!snap) return null;
-        const mid = parseFloat(String((snap as Record<string, unknown>).mid_price ?? ''));
+
+        const priceStr = pickInstanceLivePrice(
+            {
+                microTerm: resilientActivePair.microTerm,
+                fastTerm: resilientActivePair.fastTerm,
+                slowTerm: resilientActivePair.slowTerm,
+                macroTerm: resilientActivePair.macroTerm,
+            },
+            Date.now(),
+        );
+
+        const mid = priceStr !== '--' && priceStr !== ''
+            ? parseFloat(priceStr)
+            : parseFloat(String((snap as Record<string, unknown>).mid_price ?? ''));
+
         const prev = parseFloat(String((snap as Record<string, unknown>).prev_day_px ?? ''));
         if (!isFinite(mid) || !isFinite(prev) || prev === 0) return null;
         return ((mid - prev) / prev) * 100;

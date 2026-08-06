@@ -35,8 +35,8 @@ function createTimeframeTelemetry(
         showSupertrend: false, showKeltner: false, showDonchian: false,
         showIchimoku: false, showPsar: false, showStddevChan: false,
         showObv: false, showCmf: false, showMfi: false, showHv: false,
-        showAroon: false, showChoppiness: false, showLinregSlope: false, showZscore: false,
-        showLiqHeatmap: false, showVolumeProfile: false,
+        showAroon: false, showChoppiness: false,         showLinregSlope: false, showZscore: false,
+        showLiqHeatmap: false, heatmapLeverageTiers: [10], showVolumeProfile: false,
         showWilliamsR: false, showCci: false, showForceIdx: false,
         showFunding: false, showOpenInterest: false, showOiDelta: false,
         showOrderFlowDepth: false, showDerivativeRibbon: true,
@@ -203,6 +203,15 @@ export class AppStore {
     // in `GeneralDashboard` provides the fallback.
     private _overviewTimer: ReturnType<typeof setInterval> | null = null;
     private _overviewFetchInFlight = false;
+    /// Wall-clock timestamp (ms since epoch) of the most recent successful
+    /// `/api/overview` fetch. Drives the L7 `LayerHeader` status pill
+    /// (live when fresh, stale when older than 2× the polling interval).
+    /// `null` until the first successful response.
+    lastOverviewFetchMs = $state<number | null>(null);
+    /// Monotonic timestamp of the most recent `/api/overview` attempt
+    /// (success OR failure). Drives the L7 status pill's `error` state
+    /// (red) when the latest attempt failed. Cleared on next success.
+    lastOverviewErrorMs = $state<number | null>(null);
 
     async fetchOverview(): Promise<void> {
         if (this._overviewFetchInFlight) return;
@@ -211,11 +220,16 @@ export class AppStore {
             const res = await fetch('/api/overview', { headers: { Accept: 'application/json' } });
             if (res.ok) {
                 this.overviewMatrix = (await res.json()) as OverviewMatrix;
+                this.lastOverviewFetchMs = Date.now();
+                this.lastOverviewErrorMs = null;
+            } else {
+                this.lastOverviewErrorMs = Date.now();
             }
         } catch (_e) {
             // Tolerate transient network failures — keep the previous
-            // matrix in place. The dashboard renders the placeholder
-            // when `overviewMatrix` is null (e.g. before first fetch).
+            // matrix in place. Record the timestamp so the L7 status
+            // pill can transition to `error` for the operator.
+            this.lastOverviewErrorMs = Date.now();
         } finally {
             this._overviewFetchInFlight = false;
         }

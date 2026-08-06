@@ -5,6 +5,7 @@
     import { TIMEFRAME_OPTIONS } from '../types';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache } from '../lib/indicatorHistory';
+    import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -57,6 +58,9 @@
         atrMultiplier: number; atrTargetRR: number;
         volumeAvgPeriod: number; rvolInstitutional: number; rvolClimax: number;
         analysisLimit: number;
+        // v7.0-prod: per-TF liquidity heatmap leverage tier list
+        // (operator-edited integers in [1, 100], default [10]).
+        heatmapLeverageTiers: number[];
     }
 
     function defaultTermDraft(): TermDraft {
@@ -79,11 +83,14 @@
             atrMultiplier: 2.0, atrTargetRR: 2.5,
             volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
             analysisLimit: 100,
+            heatmapLeverageTiers: [10],
         };
     }
 
     function readTermFromTelemetry(tf: TimeframeTelemetry): TermDraft {
+        const base = defaultTermDraft();
         return {
+            ...base,
             durationSeconds: tf.barDurationSec,
             emaFast: tf.emaFastVal, emaMedium: tf.emaMediumVal, emaSlow: tf.emaSlowVal, emaLong: tf.emaLongVal,
             rsiPeriod: tf.rsiPeriodVal,
@@ -102,14 +109,18 @@
             atrMultiplier: tf.atrMultiplierVal, atrTargetRR: tf.atrTargetRRVal,
             volumeAvgPeriod: tf.volumeAvgPeriodVal, rvolInstitutional: tf.rvolInstitutionalVal, rvolClimax: tf.rvolClimaxVal,
             analysisLimit: tf.analysisLimit,
+            heatmapLeverageTiers: tf.heatmapLeverageTiers ?? [10],
         };
     }
 
     function applyTermToTelemetry(term: TermDraft, tf: TimeframeTelemetry) {
         applyTimeframeConfig(tf, term);
+        if (tf.heatmapLeverageTiers != null) {
+            tf.heatmapLeverageTiers = [...(term.heatmapLeverageTiers ?? [10])];
+        }
     }
 
-    function buildIndicators(term: TermDraft): Record<string, number> {
+    function buildIndicators(term: TermDraft): Record<string, number | number[]> {
         return {
             ema_fast: term.emaFast, ema_medium: term.emaMedium, ema_slow: term.emaSlow, ema_long: term.emaLong,
             rsi_period: term.rsiPeriod,
@@ -135,6 +146,8 @@
             atr_multiplier_coefficient: term.atrMultiplier, atr_target_rr_ratio: term.atrTargetRR,
             volume_average_period: term.volumeAvgPeriod,
             rvol_threshold_institutional: term.rvolInstitutional, rvol_threshold_climax: term.rvolClimax,
+            // v7.0-prod: leverage tiers are persistent config too.
+            heatmap_leverage_tiers: term.heatmapLeverageTiers,
         };
     }
 
@@ -150,6 +163,18 @@
         macro: defaultTermDraft(),
     });
 
+    // v7.0-prod (D5 default = 10×): left-rail selector + per-TF config pane.
+    type TfSlot = 'micro' | 'fast' | 'slow' | 'macro';
+    let selectedSlot = $state<TfSlot>('micro');
+
+    const slotOrder: TfSlot[] = ['micro', 'fast', 'slow', 'macro'];
+    const slotTitles: Record<TfSlot, string> = {
+        micro: 'Micro Term',
+        fast: 'Fast Term',
+        slow: 'Slow Term',
+        macro: 'Macro Term',
+    };
+
     function selectedOption(seconds: number): number {
         const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
         return found ? found.seconds : -1;
@@ -158,6 +183,14 @@
     function durationLabel(seconds: number): string {
         const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
         return found ? found.label : `${seconds}s`;
+    }
+
+    function liveTierForSlot(slot: TfSlot): TimeframeTelemetry | null {
+        if (!pair) return null;
+        if (slot === 'micro') return pair.microTerm;
+        if (slot === 'fast') return pair.fastTerm;
+        if (slot === 'slow') return pair.slowTerm;
+        return pair.macroTerm;
     }
 
     $effect(() => {
@@ -195,6 +228,14 @@
             showObv: vis.showObv, showCmf: vis.showCmf, showMfi: vis.showMfi, showHv: vis.showHv,
             showAroon: vis.showAroon, showChoppiness: vis.showChoppiness, showLinregSlope: vis.showLinregSlope, showZscore: vis.showZscore,
         });
+    }
+
+    function updateSlotLeverageTiers(slot: TfSlot, next: number[]) {
+        const cleaned = Array.from(new Set(next.filter((t) => Number.isInteger(t) && t >= 1 && t <= 100))).sort((a, b) => a - b);
+        if (slot === 'micro') tfDraft.micro.heatmapLeverageTiers = cleaned;
+        else if (slot === 'fast') tfDraft.fast.heatmapLeverageTiers = cleaned;
+        else if (slot === 'slow') tfDraft.slow.heatmapLeverageTiers = cleaned;
+        else tfDraft.macro.heatmapLeverageTiers = cleaned;
     }
 
     async function applySettings() {
@@ -293,7 +334,6 @@
 </script>
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
-    <!-- Timeframe Indicator Configuration -->
     {#snippet indicatorInputs(p: string, t: TermDraft)}
         <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaFast} /></div>
         <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Med')}>EMA Med</label><input id={fieldId(p, 'EMA Med')} type="number" bind:value={t.emaMedium} /></div>
@@ -348,82 +388,63 @@
         <div class={styles.tfInputRow}><label for={fieldId(p, 'Analysis Limit')}>Analysis Limit</label><input id={fieldId(p, 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={t.analysisLimit} /></div>
     {/snippet}
 
-    <div class={styles.tfCardsGrid}>
-        <div class={styles.tfCard}>
-            <h3 class={styles.tfCardTitle}>Micro Term</h3>
-            <div class={styles.tfRow}>
-                <select class={styles.tfSelect}
-                    value={selectedOption(tfDraft.micro.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.micro.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.micro.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class={styles.tfInputScroll}>
-                {@render indicatorInputs('micro', tfDraft.micro)}
-            </div>
-        </div>
-        <div class={styles.tfCard}>
-            <h3 class={styles.tfCardTitle}>Fast Term</h3>
-            <div class={styles.tfRow}>
-                <select class={styles.tfSelect}
-                    value={selectedOption(tfDraft.fast.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.fast.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.fast.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class={styles.tfInputScroll}>
-                {@render indicatorInputs('small', tfDraft.fast)}
-            </div>
-        </div>
-        <div class={styles.tfCard}>
-            <h3 class={styles.tfCardTitle}>Slow Term</h3>
-            <div class={styles.tfRow}>
-                <select class={styles.tfSelect}
-                    value={selectedOption(tfDraft.slow.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.slow.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.slow.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class={styles.tfInputScroll}>
-                {@render indicatorInputs('medium', tfDraft.slow)}
-            </div>
-        </div>
-        <div class={styles.tfCard}>
-            <h3 class={styles.tfCardTitle}>Macro Term</h3>
-            <div class={styles.tfRow}>
-                <select class={styles.tfSelect}
-                    value={selectedOption(tfDraft.macro.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.macro.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.macro.durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class={styles.tfInputScroll}>
-                {@render indicatorInputs('large', tfDraft.macro)}
-            </div>
-        </div>
-    </div>
+    <aside class={styles.tfShellRail}>
+        <h3 class={styles.tfShellRailTitle}>TIMEFRAMES</h3>
+        {#each slotOrder as slot (slot)}
+            <button
+                type="button"
+                class="{styles.tfShellRailItem} {selectedSlot === slot ? styles.active : ''}"
+                onclick={() => selectedSlot = slot}
+            >
+                <span class={styles.tfShellRailLabel}>{slotTitles[slot]}</span>
+                <span class={styles.tfShellRailSecs}>
+                    {durationLabel(tfDraft[slot].durationSeconds)}
+                </span>
+            </button>
+        {/each}
+    </aside>
 
-    <div style="margin-top: 16px;">
-        <button class={styles.applyWorkspaceBtn} disabled={saveStatus === 'saving'} onclick={applySettings}>
-            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Workspace Configuration'}
-        </button>
-    </div>
-    {#if identityError}
-        <div class={styles.identityError} role="alert">{identityError}</div>
-    {/if}
-    {#if saveStatus === 'error'}
-        <div class={styles.identityError} role="alert">Save failed. Check console.</div>
-    {/if}
+    <section class={styles.tfShellBody}>
+        <div class={styles.tfCard}>
+            <h3 class={styles.tfCardTitle}>{slotTitles[selectedSlot]}</h3>
+            <div class={styles.tfRow}>
+                <select class={styles.tfSelect}
+                    value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
+                    {#each TIMEFRAME_OPTIONS as opt}
+                        <option value={opt.seconds}>{opt.label}</option>
+                    {/each}
+                </select>
+            </div>
+            <div class={styles.tfInputScroll}>
+                {@render indicatorInputs(selectedSlot, tfDraft[selectedSlot])}
+            </div>
+        </div>
+
+        <div class={styles.tfCard}>
+            <h3 class={styles.tfCardTitle}>LIQUIDATION HEATMAP · {slotTitles[selectedSlot].toUpperCase()}</h3>
+            <p class={styles.tfCardHint}>
+                Highlight clusters whose <code>dominant_leverage</code> falls within ±0.5
+                of any selected integer × tier. Matching bands intensify, the rest dim.
+            </p>
+            <LiquidationHeatmapTierPicker
+                tiers={tfDraft[selectedSlot].heatmapLeverageTiers}
+                onChange={(next) => updateSlotLeverageTiers(selectedSlot, next)}
+            />
+        </div>
+
+        <!-- Integrated Save & Alert block nested inside the main content section -->
+        <div class={styles.applyRow}>
+            <button class={styles.applyWorkspaceBtn} disabled={saveStatus === 'saving'} onclick={applySettings}>
+                {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Workspace Configuration'}
+            </button>
+            {#if identityError}
+                <div class={styles.identityError} role="alert">{identityError}</div>
+            {/if}
+            {#if saveStatus === 'error'}
+                <div class={styles.identityError} role="alert">Save failed. Check console.</div>
+            {/if}
+        </div>
+    </section>
 </div>

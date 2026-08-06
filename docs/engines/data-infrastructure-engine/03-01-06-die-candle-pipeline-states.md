@@ -71,10 +71,10 @@ The state machine is **per-TF**, not per-instance. A reload of the micro pipelin
 |---|------|----|---------|--------------|
 | 1 | — | INITIALIZING | `TimeframePipeline::new()` | none |
 | 2 | INITIALIZING | LOADING | bootstrap returns (any result) | first shadow snapshot may be emitted |
-| 3 | LOADING | LIVE | `buffer.len() == candle_buffer.size` AND parent `ConnectionStatus = Connected` AND all 50 indicators ≥ `Live` (DCP-04, DCP-10, CB-12) | `candle_pipeline_state_events` row; UI badge flips green |
-| 4 | LOADING | FAILED | non-self-recoverable calculator panic (DCP-08) OR bootstrap elected cold-fail (DCP-06) | `candle_pipeline_state_events` row; UI shows red badge; reload required |
+| 3 | LOADING | LIVE | `buffer.len() == candle_buffer.size` AND parent `ConnectionStatus = Connected` AND all 50 indicators ≥ `Live` (DCP-04, DCP-10, CB-12) | `candle_pipeline_state_events` row; UI badge flips blue |
+| 4 | LOADING | FAILED | non-self-recoverable calculator panic (DCP-08) OR bootstrap elected cold-fail (DCP-06) | `candle_pipeline_state_events` row; UI shows grey badge; reload required |
 | 5 | LIVE | STALE | no completed candle for `stale_threshold_secs` (DCP-05) | `candle_pipeline_state_events` row; UI shows amber badge |
-| 6 | STALE | LIVE | next completed candle (live OR reconstructed, DCP-13) | `candle_pipeline_state_events` row; UI badge flips green |
+| 6 | STALE | LIVE | next completed candle (live OR reconstructed, DCP-13) | `candle_pipeline_state_events` row; UI badge flips blue |
 | 7 | any | FAILED | parent `ConnectionStatus = Failed` for > `FailedThreshold` (DCP-06, DCP-09) | `candle_pipeline_state_events` row; snapshot channel may lag |
 | 8 | FAILED | LOADING | `reload_timeframe` operator action (DCP-14) | full tear-down + rebuild per [08-08 §5](../../operations-and-compliance/08-08-candle-buffer-spec.md) |
 | 9 | LIVE / STALE / FAILED | LOADING | operator TF change (CB-11) | single-TF tear-down + rebuild |
@@ -140,7 +140,7 @@ ALTER TABLE market_snapshots ADD COLUMN indicator_lifecycle TEXT
 | Bootstrap returns empty Vec (≥1min TF, exchange had no history) | Pipeline → `LOADING` and stays `LOADING` until buffer fills (live candles count toward the cap); eventually `LIVE` |
 | Sub-minute bootstrap returns empty Vec (CB-05) | Pipeline → `LOADING` with 0 candles; same path as above |
 | Indicator self-recovers after `Failed` | Indicator → `Live`; if it was the only `Failed` indicator, pipeline transitions `FAILED → STALE` (not directly to `LIVE`) and then `STALE → LIVE` on the next completed candle (DCP-13) |
-| Operator reload during `LIVE` | Pipeline transitions `LIVE → LOADING` (DCP-09 transition row #9); UI shows amber/loading badges during the rebuild |
+| Operator reload during `LIVE` | Pipeline transitions `LIVE → LOADING` (DCP-09 transition row #9); UI shows amber loading badges during the rebuild |
 | Two indicators fail simultaneously | Pipeline → `FAILED`; both must self-recover before pipeline → `LIVE` (DCP-10 severity rule) |
 | `InstanceState = STOPPED` | Pipeline state is published on the most recent snapshot but the channel is paused (existing behavior); `STOPPED → RUNNING` does not reload pipelines |
 

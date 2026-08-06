@@ -143,7 +143,7 @@ factory. The primitive:
   `is_poc` / `is_value_area` / neither; overlaid stacked buy/sell bar
   with top half green (`BUY_COLOR = rgba(38,166,154,0.85)`) and bottom
   half red (`SELL_COLOR = rgba(239,83,80,0.85)`); POC bins get a bright
-  yellow border.
+  yellow border. Buy/sell colors follow the canonical semantic conventions at [07-06-ui-color-conventions.md](../../ui-ux/07-06-ui-color-conventions.md): Green = bullish (buying activity), Red = bearish (selling activity).
 - Labels: "POC" (yellow, right of POC), "VAH" / "VAL" (cyan, right of
   value-area bounds).
 

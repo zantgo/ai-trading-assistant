@@ -91,7 +91,7 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 **Reading the Recommendation tab.** The Recommendation Matrix (`AdvisoryMatrix` + `DecisionContext`) is delivered per Market Instance on the WebSocket envelope (`/ws`). Open a Market Instance, switch to the **Recommendation** tab, and you will see —
 
-- a single environment header (color-coded by `directional_guidance` family) listing `market_stance`, `strategy_environment`, `confidence_assessment` and the entry-danger band,
+- a single environment header (color-coded by `directional_guidance` family: Red = bearish, Green = bullish, Amber = neutral; see [07-06-ui-color-conventions.md](../ui-ux/07-06-ui-color-conventions.md)) listing `market_stance`, `strategy_environment`, `confidence_assessment` and the entry-danger band,
 - a top-call hero showing the rank argmax (LONG / SHORT / HOLD) with the runner-up probabilities,
 - a safety-flags row of 5 chips (Trade Readiness, Internal R:R, Risk-Adjusted R:R, Stop-Loss %, Confidence),
 - a **trade recommendations list** of up to 5 cards — one per qualifying `OpportunityMatrix.profiles` entry (`preconditions_met > 0`) — each tagged with its trade direction (LONG / SHORT) so the operator can pick,

@@ -27,9 +27,9 @@ In addition to the four semantic axes above, every indicator carries an **operat
 | State | Badge | Confidence behavior | Trigger |
 |-------|-------|---------------------|---------|
 | `Loading` | spinner + `Loading (bars_seen/bars_required)` | `bars_seen / bars_required` | Pipeline construction; bars_seen < bars_required |
-| `Live` | green dot + `Live` | normal calculator output | bars_seen ≥ bars_required AND parent pipeline LIVE AND last update succeeded |
+| `Live` | blue dot + `Live` | normal calculator output | bars_seen ≥ bars_required AND parent pipeline LIVE AND last update succeeded |
 | `Stale` | amber dot + `Stale (Xs)` | decays linearly from 1.0 to 0.0 across `2 × stale_threshold_secs` | `now - last_updated_at > stale_threshold_secs` |
-| `Failed` | red icon + tooltip with `last_error` | 0.0 | calculator panic OR double-stale escalation |
+| `Failed` | grey icon + tooltip with `last_error` | 0.0 | calculator panic OR double-stale escalation |
 
 The lifecycle is **uniform across all 50 indicators** — there is one state machine, applied via the registry metadata (`bars_required`) and the analyzer's `run_single` orchestrator. The dashboard's `IndicatorsView.svelte` renders a badge for every row so users can distinguish "missing data" from "neutral data" from "loading data" — the previous neutral-default workaround (rendering `--` / `UNKNOWN` / `tangled` / `equilibrium` / `OFF` for missing values) is **removed** in v6.5.
 

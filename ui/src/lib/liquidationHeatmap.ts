@@ -76,6 +76,34 @@ function clusterIntensity(cluster: LiquidationCluster, maxNotional: number): num
     return Math.min(1, (cluster.notional_usd / maxNotional) * (cluster.magnet_strength / 100));
 }
 
+/// v7.0-prod — leverage-tier highlight. A cluster's `dominant_leverage`
+/// matches an operator-selected integer tier (1..100, inclusive) when
+/// the integer-rounded value falls within ±0.5 of the wire-side float.
+/// The epsilon covers the Rust estimator's float rounding so e.g. a
+/// cluster whose dominant_leverage is 9.7 still lights up under the
+/// `10×` chip.
+export function clusterInHighlight(cluster: LiquidationCluster, tiers: number[] | null | undefined): boolean {
+    if (!Array.isArray(tiers) || tiers.length === 0) return false;
+    const dl = cluster.dominant_leverage;
+    if (dl == null || !Number.isFinite(dl)) return false;
+    return tiers.some((t) => Number.isInteger(t) && t >= 1 && t <= 100 && Math.abs(dl - t) < 0.5);
+}
+
+/// Boost the intensity of a cluster when it matches the highlight set;
+/// dim it when it doesn't. Bound so the inner ramp doesn't overshoot 1.
+function highlightAdjustedIntensity(baseIntensity: number, inHighlight: boolean): number {
+    if (!Number.isFinite(baseIntensity)) return 0;
+    if (baseIntensity < MIN_INTENSITY) return baseIntensity;
+    if (inHighlight) {
+        // Boost: emphasise the operator-selected tier by 40 % (readable
+        // but non-jarring). Clamp below 1 so the higher intensity bins of
+        // the colour ramp don't blow out into solid blocks.
+        return Math.min(1, baseIntensity * 1.4);
+    }
+    // Dim the rest so the operator's eye stays on the matching bands.
+    return baseIntensity * 0.6;
+}
+
 /// Renders a **layered** liquidation heatmap: real (observed) event
 /// bands drawn first at full saturation, then estimated cluster bands
 /// drawn underneath at reduced opacity. The dual layer is the
@@ -120,6 +148,11 @@ export interface LiquidationHeatmapInput {
      *  fires. The two supported exchanges are "Hyperliquid" and
      *  "Bitget"; any other exchange falls back to the caveat. */
     exchange: string;
+    /** v7.0-prod — operator-selected integer × tiers (each ∈ [1, 100])
+     *  the trader wants highlighted on the heatmap. Matching clusters
+     *  amplify in intensity; the rest dim. Empty array disables the
+     *  highlight (every cluster renders at base intensity). */
+    highlightTiers?: number[];
 }
 
 export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesAttachedParameter<Time, 'Candlestick'>> {
@@ -154,6 +187,7 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
             showReal: true,
             showHlCaveat: true,
             exchange: '',
+            highlightTiers: [10],
         };
 
         // Auto-detect the legacy "bare matrix" shape.
@@ -177,6 +211,7 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
             showReal: resolved.showReal ?? prev.showReal,
             showHlCaveat: resolved.showHlCaveat ?? prev.showHlCaveat,
             exchange: resolved.exchange ?? prev.exchange,
+            highlightTiers: resolved.highlightTiers ?? prev.highlightTiers ?? [10],
         };
         this._input = next;
         if (this._requestUpdate) {
@@ -363,15 +398,25 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
             // they read as background context rather than primary
             // signal. The trader reads them as "where the model thinks
             // liquidations are likely".
+            //
+            // v7.0-prod — leverage-tier highlight: clusters whose
+            // `dominant_leverage` matches one of the operator-selected
+            // `highlightTiers` integers have their intensity boosted
+            // (and their globalAlpha is bumped to 0.85 so they pop out
+            // from the surrounding estimated layer).
+            const highlightTiers = input.highlightTiers ?? [];
             if (hasEstimated) {
                 ctx.save();
-                ctx.globalAlpha = 0.45;
                 for (const cl of clusterArr) {
-                    const intensity = clusterIntensity(cl, maxClusterNotional);
-                    if (intensity < MIN_INTENSITY) {
+                    const baseIntensity = clusterIntensity(cl, maxClusterNotional);
+                    if (baseIntensity < MIN_INTENSITY) {
                         skippedIntensity++;
                         continue;
                     }
+                    const matched = clusterInHighlight(cl, highlightTiers);
+                    const intensity = matched
+                        ? Math.min(1, baseIntensity * 1.4)
+                        : baseIntensity * 0.6;
                     const priceLow = Math.min(cl.price_low, cl.price_high);
                     const priceHigh = Math.max(cl.price_low, cl.price_high);
                     if (priceLow <= 0 || priceHigh <= 0) continue;
@@ -385,6 +430,7 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
                     const startY = Math.min(yHigh, yLow);
                     const endY = Math.max(yHigh, yLow);
 
+                    ctx.globalAlpha = matched ? 0.85 : 0.45;
                     ctx.fillStyle = intensityColor(intensity);
                     let ry = Math.floor(startY / CELL_HEIGHT_PX) * CELL_HEIGHT_PX;
                     while (ry < endY && ry < bottomY) {

@@ -275,6 +275,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             atrMultiplier: 2.0,  atrTargetRR: 2.5,
             volumeAvgPeriod: 20,  rvolInstitutional: 1.5,  rvolClimax: 3.0,
             analysisLimit: 100,
+            heatmapLeverageTiers: [10],
         });
 
         // Config scalars must reflect the new values.

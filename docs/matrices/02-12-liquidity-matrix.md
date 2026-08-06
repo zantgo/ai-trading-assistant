@@ -122,7 +122,7 @@ The constants in the linear map (`+50` midpoint, `12.5` scaling) are fixed at th
 ### Consumer contract
 
 - **`RiskMatrix.cascade_risk` (L5)** consumes `cascade_intensity` directly as `score = max(score, flow.cascade_intensity)` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)). The discrete `cascade_state` adds a risk premium on top of the intensity (`+15` for `Detected`, `+30` for `Sustained`, `+0` for `Exhausted`).
-- **`LiquidityPanel`** displays `cascade_intensity` numerically (0..100) and color-codes it relative to the per-bar thresholds (green ≤ 30, amber ≤ 60, red > 60) for the operator's situational awareness (see [07-04-ui-liquidity-panel-spec.md Flow tab](../ui-ux/07-04-ui-liquidity-panel-spec.md)).
+- **`LiquidityPanel`** displays `cascade_intensity` numerically (0..100) and color-codes it relative to the per-bar thresholds (blue ≤ 30, amber ≤ 60, red > 60) for the operator's situational awareness (see [07-04-ui-liquidity-panel-spec.md Flow tab](../ui-ux/07-04-ui-liquidity-panel-spec.md)). Red = bearish cascade pressure, amber = moderate risk, blue = calm/safe (see canonical conventions at [07-06-ui-color-conventions.md](../ui-ux/07-06-ui-color-conventions.md)).
 
 ## 5.1 Frontend exposure
 

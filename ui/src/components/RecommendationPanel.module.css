@@ -140,7 +140,27 @@
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+    min-height: 32px;
 }
+.runnerBar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 6px;
+    opacity: 0.18;
+    transition: width 0.35s ease;
+    z-index: 0;
+}
+.runnerCell > :not(.runnerBar) {
+    position: relative;
+    z-index: 1;
+}
+.rankLong .runnerBar { background: #22c55e; }
+.rankShort .runnerBar { background: #ef4444; }
+.rankHold .runnerBar { background: #f59e0b; }
 .runnerAction {
     font-size: 10px;
     font-weight: 800;

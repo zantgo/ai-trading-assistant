@@ -1,16 +1,19 @@
 <script lang="ts">
     import type { AdvisoryMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
+    import type { WsState } from '../lib/websocket.svelte';
     import { buildRecommendationTabExport } from '../lib/exportBuilders/recommendationTab';
     import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
+    import LayerHeader from './LayerHeader.svelte';
+    import { buildL6DecisionHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
     import { computeDecisionRank, entryDangerLevel, selectProfileSide, profileZones, topSetupSummary } from '../lib/decisionRank';
     import { computeRiskReward, discountRiskReward, type RiskRewardDisplay } from '../lib/riskReward';
 
     const app = useAppStore();
-    let { pairKey } = $props<{ pairKey: string }>();
+    let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
 
     const instance = $derived(app.instancesMap[pairKey]);
     const advisory = $derived<AdvisoryMatrix | null>(instance?.advisory ?? null);
@@ -52,6 +55,15 @@
         ];
         return all.filter((r) => r.action !== rank.top).sort((a, b) => b.prob - a.prob);
     });
+
+    // L6 LayerHeader — single authoritative verdict (the operator's
+    // top-of-mind answer). The L3 bias is intentionally NOT consumed
+    // here so the header can never echo the L3 input.
+    const headerSpec = $derived<LayerHeaderSpec>(buildL6DecisionHeader({
+        rank,
+        decisionContext: decisionCtx,
+        advisory,
+    }));
 
     function buildExport() {
         return buildRecommendationTabExport({
@@ -175,54 +187,33 @@
         if (action === 'SHORT') return styles.rankShort ?? '';
         return styles.rankHold ?? '';
     }
+    function fmtPriceScale(n: number, mp: number): string {
+        if (mp >= 1000) return n.toFixed(0);
+        if (mp >= 1) return n.toFixed(2);
+        if (mp >= 0.01) return n.toFixed(4);
+        if (mp >= 0.0001) return n.toFixed(6);
+        return n.toFixed(8);
+    }
 </script>
 
 <div class={styles.panel}>
-    <div class={styles.panelHeader}>
-        <h2 class={styles.title}>Recommendation</h2>
-        <ExportDataButton onExport={buildExport} title="Copy all Recommendation data as JSON" />
-    </div>
+    <!-- v7.0-prod: the panel-level banner above the LayerHeader was removed
+         (D9 — no text above any badge). Per-section empty states still
+         surface from within the body when a matrix hasn't loaded yet. -->
+    <LayerHeader spec={headerSpec}>
+        {#snippet trailing()}
+            <h2 class={styles.title}>Recommendation</h2>
+            <ExportDataButton onExport={buildExport} title="Copy all Recommendation data as JSON" />
+        {/snippet}
+    </LayerHeader>
 
-    {#if !advisory && !opportunity}
-        <div class={styles.noData}>Awaiting recommendation data — values populate once L4–L6 synthesis has produced a viable profile.</div>
-    {/if}
-
-    <!-- ── Environment header — single card, color-coded per directional family -->
-    <div class="{styles.envHeader} {envHeaderClass((topSetup?.direction ?? 'neutral').toLowerCase() as 'long' | 'short' | 'neutral')}">
-        <div class={styles.envHeaderTop}>
-            <span class={styles.envBadge}>{sanitizeLabel(advisory?.directional_guidance ?? '')}</span>
-            <span class={styles.envBadge}>{sanitizeLabel(advisory?.market_stance ?? '')}</span>
-        </div>
-        <div class={styles.envHeaderMid}>
-            <span class={styles.envMetricLabel}>Strategy environment</span>
-            <span class={styles.envMetricVal}>{sanitizeLabel(advisory?.strategy_environment ?? '')}</span>
-        </div>
-        <div class={styles.envHeaderMid}>
-            <span class={styles.envMetricLabel}>Opportunity classification</span>
-            <span class={styles.envMetricVal}>{sanitizeLabel(advisory?.opportunity_classification ?? '')}</span>
-        </div>
-        <div class={styles.envHeaderFoot}>
-            <span class={styles.envConfidence}>Confidence {confidenceDisplay.toFixed(0)}%</span>
-            <span class={styles.envReadiness}>{rank.headline.state}</span>
-            <span class={styles.envEntryDanger}>Entry danger {dangerDisplay.toFixed(0)} ({dangerLevel})</span>
-        </div>
-    </div>
-
-    <!-- ── Direction-coded verdict hero (top: rank argmax) -->
-    <div class="{styles.verdict} {verdictClass(rank.top)}">
-        <div class={styles.verdictLabel}>TOP CALL</div>
-        <div class={styles.verdictRow}>
-            <div class={styles.verdictAction}>{rank.top}</div>
-            <div class={styles.verdictPct}>{rank.top_prob}%</div>
-        </div>
-        <div class={styles.verdictMeta}>
-            Confidence {rank.headline.confidence_pct}% · {rank.headline.state}
-        </div>
-    </div>
-
+    <!-- Probability bars survive — but restyled as a chip rail (LONG/SHORT/HOLD
+         per-action percentages) so they read as an extension of the meta chip
+         vocabulary rather than as a second header. -->
     <div class={styles.runnerRow}>
         {#each runners as r (r.action)}
             <div class="{styles.runnerCell} {rankBarClass(r.action)}">
+                <div class={styles.runnerBar} style="width: {r.prob.toFixed(1)}%"></div>
                 <span class={styles.runnerAction}>{r.action}</span>
                 <span class={styles.runnerPct}>{r.prob}%</span>
             </div>
@@ -268,7 +259,7 @@
                         <span class={styles.profileRecZoneLabel}>ENTRY</span>
                         <span class={styles.profileRecZoneValue}>
                             {topSetup.zones
-                                ? `$${topSetup.zones.entry.low.toFixed(0)}–$${topSetup.zones.entry.high.toFixed(0)}`
+                                ? `$${fmtPriceScale(topSetup.zones.entry.low, markPrice)}–$${fmtPriceScale(topSetup.zones.entry.high, markPrice)}`
                                 : '—'}
                         </span>
                     </div>
@@ -276,7 +267,7 @@
                         <span class={styles.profileRecZoneLabel}>TARGET</span>
                         <span class={styles.profileRecZoneValue}>
                             {topSetup.zones
-                                ? `$${topSetup.zones.target.low.toFixed(0)}–$${topSetup.zones.target.high.toFixed(0)}`
+                                ? `$${fmtPriceScale(topSetup.zones.target.low, markPrice)}–$${fmtPriceScale(topSetup.zones.target.high, markPrice)}`
                                 : '—'}
                         </span>
                     </div>
@@ -284,7 +275,7 @@
                         <span class={styles.profileRecZoneLabel}>SL</span>
                         <span class={styles.profileRecZoneValue}>
                             {topSetup.zones && topSetup.zones.invalidation > 0
-                                ? `$${topSetup.zones.invalidation.toFixed(0)}`
+                                ? `$${fmtPriceScale(topSetup.zones.invalidation, markPrice)}`
                                 : '—'}
                         </span>
                     </div>
@@ -346,13 +337,19 @@
             <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>Stop-Loss</span>
                 <span class={styles.kpiVal}>
-                    {stopLossPct > 0 ? `${(stopLossPct * 100).toFixed(2)}%` : '—'}
+                    {stopLossPct > 0 ? `${stopLossPct.toFixed(2)}%` : '—'}
                 </span>
             </div>
             <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>Confidence</span>
                 <span class={styles.kpiVal} style="color: {confidenceDisplay >= 60 ? '#22c55e' : confidenceDisplay >= 30 ? '#f59e0b' : '#ef4444'}">
                     {confidenceDisplay.toFixed(0)}%
+                </span>
+            </div>
+            <div class={styles.kpi}>
+                <span class={styles.kpiLabel}>Entry Danger</span>
+                <span class={styles.kpiVal} style="color: {dangerDisplay >= 60 ? '#ef4444' : dangerDisplay >= 30 ? '#f59e0b' : '#22c55e'}">
+                    {dangerDisplay.toFixed(0)} ({dangerLevel})
                 </span>
             </div>
         </div>
@@ -390,19 +387,19 @@
                 <div class={styles.card}>
                     <span class={styles.cardLabel}>Entry Zone — {rank.top}</span>
                     <span class={styles.cardValue}>
-                        {side.entry ? `${side.entry.low.toFixed(0)} – ${side.entry.high.toFixed(0)}` : '—'}
+                        {side.entry ? `$${fmtPriceScale(side.entry.low, markPrice)} – $${fmtPriceScale(side.entry.high, markPrice)}` : '—'}
                     </span>
                 </div>
                 <div class={styles.card}>
                     <span class={styles.cardLabel}>Target Zone — {rank.top}</span>
                     <span class={styles.cardValue}>
-                        {side.target ? `${side.target.low.toFixed(0)} – ${side.target.high.toFixed(0)}` : '—'}
+                        {side.target ? `$${fmtPriceScale(side.target.low, markPrice)} – $${fmtPriceScale(side.target.high, markPrice)}` : '—'}
                     </span>
                 </div>
                 <div class={styles.card}>
                     <span class={styles.cardLabel}>Invalidation — {rank.top}</span>
                     <span class={styles.cardValue}>
-                        {side.inval ? side.inval.toFixed(0) : '—'}
+                        {side.inval ? `$${fmtPriceScale(side.inval, markPrice)}` : '—'}
                     </span>
                 </div>
                 <div class={styles.card}>

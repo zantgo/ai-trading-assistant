@@ -153,6 +153,61 @@ export function formatRR(rr: number | null | undefined): string {
     return `1 : ${rr.toFixed(2)}`;
 }
 
+/// ───────────────────────────────────────────────────────────────────────
+/// v7.0-prod chrome update — direction-vocabulary palette.
+/// ───────────────────────────────────────────────────────────────────────
+///
+/// The top badge on every MME tab carries one strict colour vocabulary
+/// tied to TRADE DIRECTION so the operator's eye can scan 7 tabs in a
+/// row and instantly recognise "this timeframe is mostly bullish" or
+/// "this layer is mostly bearish" without reading the text:
+///
+///   • green   → long / bullish
+///   • red     → short / bearish
+///   • amber   → sideways / neutral / hold / wait / stand aside
+///   • gray    → disconnected / no data / unknown
+///
+/// Green and red are reserved exclusively for headline trade-direction.
+/// The live-status dot is BLUE in every state (see
+/// `LayerHeader.module.css :: .statusLive`). Numbers that aren't a
+/// direction (a score, an R:R, a risk magnitude) keep their own
+/// numeric-derived colour bands via `scoreColor` / `riskDangerColor`.
+export type DirectionMode = 'long' | 'short' | 'sideways' | 'nodata';
+
+export const DIRECTION_COLORS: Record<DirectionMode, {
+    /** Foreground hex used for the badge border + text. */
+    hex: string;
+    /** Background tint used inside the badge (rgba with low alpha). */
+    rgba: string;
+}> = {
+    long: {
+        hex: '#22c55e',
+        rgba: 'rgba(34, 197, 94, 0.10)',
+    },
+    short: {
+        hex: '#ef4444',
+        rgba: 'rgba(239, 68, 68, 0.10)',
+    },
+    sideways: {
+        hex: '#f59e0b',
+        rgba: 'rgba(245, 158, 11, 0.10)',
+    },
+    nodata: {
+        hex: 'rgba(255, 255, 255, 0.35)',
+        rgba: 'rgba(255, 255, 255, 0.04)',
+    },
+};
+
+/** Resolve a badge's foreground colour from a direction token. */
+export function directionColorFor(mode: DirectionMode): string {
+    return DIRECTION_COLORS[mode].hex;
+}
+
+/** Resolve a badge's background tint from a direction token. */
+export function directionBackgroundFor(mode: DirectionMode): string {
+    return DIRECTION_COLORS[mode].rgba;
+}
+
 /**
  * ASCII bar glyph (10 chars) for the regime distribution. The
  * dashboard uses a fixed-width bar so columns align across rows.
