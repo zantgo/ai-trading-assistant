@@ -2,10 +2,11 @@
     import { iRaw, formatTimeframeLabel } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
+    import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { createSignalMarkers, type SignalMarkerController } from '../lib/signalMarkers';
     import {
         fetchIndicatorHistoryOnce,
@@ -26,6 +27,7 @@
     let ro: ResizeObserver;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -60,6 +62,7 @@
     });
 
     onDestroy(() => {
+        obvCoalescer.destroy();
         ro?.disconnect();
         if (chart) { unregisterChart(chart); chart.remove(); }
     });
@@ -73,22 +76,26 @@
             if (obv.length > 0) {
                 obvSeries.setData(obv);
                 dataPoints = obv.length;
+                _lastHistoryTime = Number(obv[obv.length - 1].time);
             }
         });
         return () => { cancelled = true; };
     });
 
+    const obvCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfPlain) => {
+        const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
+        const v = iRaw((tfPlain.indicators ?? {}) as IndicatorMap, 'obv');
+        if (v != null) obvSeries.update({ time: timeSec as Time, value: v });
+        liveReceived = true;
+        markers?.push(timeSec, ((tfPlain.indicators ?? {}) as IndicatorMap)['obv']?.signals ?? []);
+    });
     $effect(() => {
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
         const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
-        const timeSec = snap.timestamp as number;
-        const v = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'obv');
-        if (v != null) obvSeries.update({ time: timeSec as Time, value: v });
-        liveReceived = true;
-        markers?.push(timeSec, ((tfVal.indicators ?? {}) as IndicatorMap)['obv']?.signals ?? []);
+        if (!tfVal.latestSnapshot) return;
+        obvCoalescer.effect();
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

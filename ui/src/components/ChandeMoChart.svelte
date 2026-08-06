@@ -6,6 +6,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { createSignalMarkers, type SignalMarkerController } from '../lib/signalMarkers';
     import {
         fetchIndicatorHistoryOnce,
@@ -26,6 +27,7 @@
     let ro: ResizeObserver;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -64,6 +66,7 @@
     });
 
     onDestroy(() => {
+        cmoCoalescer.destroy();
         ro?.disconnect();
         if (chart) { unregisterChart(chart); chart.remove(); }
     });
@@ -77,25 +80,29 @@
             if (cmo.length > 0) {
                 cmoSeries.setData(cmo);
                 dataPoints = cmo.length;
+                _lastHistoryTime = Number(cmo[cmo.length - 1].time);
             }
         });
         return () => { cancelled = true; };
     });
 
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
+    const cmoCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfPlain) => {
         const timeSec = snap.timestamp as number;
-        const m = (tfVal.indicators ?? {}) as IndicatorMap;
+        if (timeSec < _lastHistoryTime) return;
+        const m = (tfPlain.indicators ?? {}) as IndicatorMap;
         const cmo = iRaw(m, 'chandemo');
         if (cmo != null) {
             cmoSeries.update({ time: timeSec as Time, value: cmo });
             liveReceived = true;
         }
         markers?.push(timeSec, m['chandemo']?.signals ?? []);
+    });
+    $effect(() => {
+        const pairVal = app.instancesMap[pairKey];
+        if (!pairVal) return;
+        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
+        if (!tfVal.latestSnapshot) return;
+        cmoCoalescer.effect();
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

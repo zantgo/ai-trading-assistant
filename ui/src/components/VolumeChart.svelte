@@ -32,6 +32,7 @@
     let volumeSeries: ISeriesApi<'Histogram'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     function volumeColor(rvol: number, close: number, open: number): string {
         if (rvol >= 3.0) return '#e040fb';
@@ -113,6 +114,7 @@
             if (out.length > 0) {
                 volumeSeries.setData(out);
                 dataPoints = out.length;
+                _lastHistoryTime = Number(out[out.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -120,6 +122,7 @@
 
     const volumeCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         if (snap.open != null && snap.close != null) {
             const close = parseFloat(String(snap.close));
             const open = parseFloat(String(snap.open));

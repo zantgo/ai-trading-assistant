@@ -31,6 +31,7 @@
     let depthSeries: ISeriesApi<'Line'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -94,12 +95,14 @@
                 dataPoints = ofiPts.length;
             }
             if (depthPts.length > 0) depthSeries.setData(depthPts);
+            if (ofiPts.length > 0) _lastHistoryTime = ofiPts[ofiPts.length - 1].time as number;
         });
         return () => { cancelled = true; };
     });
 
     const ofiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const ofi = iRaw(m, 'order_flow_imbalance');
         const depth = iRaw(m, 'depth_bias');

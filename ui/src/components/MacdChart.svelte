@@ -33,6 +33,7 @@
     let zeroLine: IPriceLine | null = null;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -101,6 +102,7 @@
             if (line.length > 0) {
                 macdLineSeries.setData(line);
                 dataPoints = line.length;
+                _lastHistoryTime = Number(line[line.length - 1].time);
             }
             if (signal.length > 0) macdSigSeries.setData(signal);
             if (histArr.length > 0) {
@@ -124,6 +126,7 @@
     let prevMacdHist = 0;
     const macdCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const mLine = iSub(m, 'macd', 'line');
         const mSig = iSub(m, 'macd', 'signal');

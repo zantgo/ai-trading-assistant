@@ -32,6 +32,7 @@
     let atrRegime = $state('stable');
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -92,6 +93,7 @@
             if (points.length > 0) {
                 atrSeries.setData(points);
                 dataPoints = points.length;
+                _lastHistoryTime = Number(points[points.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -115,6 +117,7 @@
 
     const atrCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const val = iRaw(m, 'atr');
         if (val != null) {

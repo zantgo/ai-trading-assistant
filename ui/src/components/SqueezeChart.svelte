@@ -32,6 +32,7 @@
     let squeezeDotSeries: ISeriesApi<'Histogram'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -107,6 +108,7 @@
                 const dotData = mom.map((p) => ({ time: p.time, value: 0.1, color: '#4caf50' }));
                 squeezeDotSeries.setData(dotData);
                 dataPoints = mom.length;
+                _lastHistoryTime = Number(momData[momData.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -124,6 +126,7 @@
 
     const squeezeCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const momVal = iRaw(m, 'squeeze');
         if (momVal != null) {

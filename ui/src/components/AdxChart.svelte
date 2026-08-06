@@ -34,6 +34,7 @@
     let exhaustionLine: ReturnType<typeof adxSeries.createPriceLine> | null = null;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -106,6 +107,7 @@
             if (adxPts.length > 0) {
                 adxSeries.setData(adxPts);
                 dataPoints = adxPts.length;
+                _lastHistoryTime = Number(adxPts[adxPts.length - 1].time);
             }
             if (plusPts.length > 0) adxPlusSeries.setData(plusPts);
             if (minusPts.length > 0) adxMinusSeries.setData(minusPts);
@@ -122,6 +124,7 @@
 
     const adxCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const adxVal = iSub(m, 'adx', 'adx') ?? iRaw(m, 'adx');
         if (adxVal != null) {

@@ -31,6 +31,7 @@
     let prevVal = 0;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     function oiColor(cur: number, prev: number): string {
         if (cur > prev) return '#26a69a';
@@ -94,6 +95,7 @@
                     return { time: p.time, value: p.value, color: c };
                 });
                 oiSeries.setData(data);
+                _lastHistoryTime = data[data.length - 1].time as number;
                 prevVal = pts[pts.length - 1].value;
                 dataPoints = pts.length;
             }
@@ -103,6 +105,7 @@
 
     const oiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'open_interest');
         if (val != null) {
             oiSeries.update({ time: timeSec as Time, value: val, color: oiColor(val, prevVal) });

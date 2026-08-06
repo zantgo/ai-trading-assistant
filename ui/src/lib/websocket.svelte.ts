@@ -261,18 +261,37 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         }
         tf.indicators = merged;
     }
-    // Only overwrite the cached snapshot when the incoming frame actually
-    // carries matrix payload OR the slot has never received a snapshot
-    // yet. Shadow ticks (`broadcast_live_snapshot` in
-    // `crates/market-analyzer/src/analyzer/mod.rs`) intentionally zero
-    // out `alignment/analysis/risk/advisory/opportunity/decision_context`
-    // for throughput; without this guard a shadow frame would wipe the
-    // last completed-candle payload from any consumer still reading
-    // from `latestSnapshot` (e.g. `decision_context` in TradePlanStrip).
+    // Update latestSnapshot on every inbound frame so chart $effect
+    // blocks always re-fire. Shadow ticks (broadcast_live_snapshot in
+    // crates/market-analyzer) carry live price data but zero out the
+    // matrix payload (alignment/analysis/risk/advisory/opportunity/
+    // decision_context) for throughput. On shadow frames we carry
+    // forward the matrix fields from the previous snapshot so consumers
+    // (TradePlanStrip, RecommendationPanel, etc.) never see nulled-out
+    // matrix data. On completed-candles frames the full matrix payload
+    // overwrites everything. Without this, shadow ticks set the
+    // reference once then all subsequent shadow frames are blocked —
+    // the chart effect never re-fires and the chart freezes.
     const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis ||
         snapshot.risk || snapshot.advisory || snapshot.opportunity ||
         snapshot.decision_context);
     if (!tf.latestSnapshot || hasMatrixPayload) {
+        tf.latestSnapshot = snapshot;
+    } else {
+        // Shadow tick: directly mutate the fresh JSON-parsed snapshot to
+        // carry forward the matrix payload from the last completed-candle
+        // frame.  Using `{ ...snapshot }` spread would intermix proxy-
+        // wrapped references from `tf.latestSnapshot` into a new object —
+        // after repeated ticks Svelte 5 $state proxy layers accumulate
+        // and primitive fields like `timestamp` start resolving to
+        // reactive wrapper objects, which breaks Lightweight Charts
+        // `series.update({ time })`.
+        snapshot.alignment = tf.latestSnapshot.alignment;
+        snapshot.analysis = tf.latestSnapshot.analysis;
+        snapshot.risk = tf.latestSnapshot.risk;
+        snapshot.advisory = tf.latestSnapshot.advisory;
+        snapshot.opportunity = tf.latestSnapshot.opportunity;
+        snapshot.decision_context = tf.latestSnapshot.decision_context;
         tf.latestSnapshot = snapshot;
     }
     tf.isCompleted = snapshot.is_completed === true;

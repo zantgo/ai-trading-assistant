@@ -30,6 +30,7 @@
     let supertrendSeries: ISeriesApi<'Line'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -83,6 +84,7 @@
             if (pts.length > 0) {
                 supertrendSeries.setData(pts);
                 dataPoints = pts.length;
+                _lastHistoryTime = Number(pts[pts.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -90,6 +92,7 @@
 
     const supertrendCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const line = iSub(m, 'supertrend', 'line');
         const state = m['supertrend']?.state_label ?? '';

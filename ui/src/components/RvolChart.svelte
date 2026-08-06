@@ -30,6 +30,7 @@
     let rvolSeries: ISeriesApi<'Histogram'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     function rvolColor(v: number): string {
         if (v >= 3.0) return '#e040fb';
@@ -107,6 +108,7 @@
                 const data = points.map((p) => ({ time: p.time, value: p.value, color: rvolColor(p.value) }));
                 rvolSeries.setData(data);
                 dataPoints = points.length;
+                _lastHistoryTime = Number(points[points.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -114,6 +116,7 @@
 
     const rvolCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'rvol');
         if (val != null) {
             rvolSeries.update({ time: timeSec as Time, value: val, color: rvolColor(val) });

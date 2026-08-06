@@ -6,6 +6,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { createSignalMarkers, type SignalMarkerController } from '../lib/signalMarkers';
     import {
         fetchIndicatorHistoryOnce,
@@ -32,6 +33,7 @@
     let ro: ResizeObserver;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -71,6 +73,7 @@
     });
 
     onDestroy(() => {
+        stochCoalescer.destroy();
         ro?.disconnect();
         if (chart) { unregisterChart(chart); chart.remove(); }
     });
@@ -86,19 +89,16 @@
                 kSeries.setData(kPts);
                 dSeries.setData(dPts.length === kPts.length ? dPts : kPts);
                 dataPoints = kPts.length;
+                _lastHistoryTime = Number(kPts[kPts.length - 1].time);
             }
         });
         return () => { cancelled = true; };
     });
 
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
+    const stochCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfPlain) => {
         const timeSec = snap.timestamp as number;
-        const m = (tfVal.indicators ?? {}) as IndicatorMap;
+        if (timeSec < _lastHistoryTime) return;
+        const m = (tfPlain.indicators ?? {}) as IndicatorMap;
         const k = iSub(m, 'stochastic', 'k_line');
         const d = iSub(m, 'stochastic', 'd_line');
         if (k != null && d != null) {
@@ -107,6 +107,13 @@
             liveReceived = true;
         }
         markers?.push(timeSec, m['stochastic']?.signals ?? []);
+    });
+    $effect(() => {
+        const pairVal = app.instancesMap[pairKey];
+        if (!pairVal) return;
+        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
+        if (!tfVal.latestSnapshot) return;
+        stochCoalescer.effect();
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

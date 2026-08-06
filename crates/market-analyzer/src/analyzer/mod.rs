@@ -2012,7 +2012,16 @@ pub async fn run_single(
                         crate::market_context_synth::synthesize_market_context(&indicators);
 
                     let current_state = derive_pipeline_state(bar_count as usize, buffer_size);
-                    let pipeline_is_live = current_state == CandlePipelineState::Live;
+                    // Sub-minute TFs skip historical bootstrap and start cold (0 bars).
+                    // Requiring the full `buffer_size` (500) makes indicators unavailable
+                    // for ~2 h at 15 s candles. Use a reduced floor so completed snapshots
+                    // with full matrix payload start broadcasting after ~12.5 min (50 bars
+                    // at 15 s, 25 min at 30 s).
+                    let pipeline_is_live = if timeframe_secs < 60 {
+                        bar_count as usize >= (buffer_size / 10).max(50)
+                    } else {
+                        current_state == CandlePipelineState::Live
+                    };
 
                     let this_snapshot_for_synth = MarketSnapshot {
                         timeframe_slot: Some(slot),

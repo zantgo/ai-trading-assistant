@@ -30,6 +30,7 @@
     let cciSeries: ISeriesApi<'Line'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     const defaultPeriod = 20;
     let warmedBars = $state(0);
@@ -92,6 +93,7 @@
             if (pts.length > 0) {
                 cciSeries.setData(pts);
                 dataPoints = pts.length;
+                _lastHistoryTime = Number(pts[pts.length - 1].time);
                 hasReceivedFirst = true;
             }
         });
@@ -100,6 +102,7 @@
 
     const cciCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'cci');
         warmedBars += 1;
         if (val != null) {

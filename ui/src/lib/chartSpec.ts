@@ -93,11 +93,12 @@ export function resolveBootstrapBoundary(
 ): Array<{ time: Time; value: number }> | null {
     if (liveTime == null || liveValue == null) return null;
     if (history.length === 0) return null;
+    const liveTs = Number(liveTime);
+    if (!Number.isFinite(liveTs)) return null;
     const lastHist = history[history.length - 1];
     const lastHistTime = lastHist.time as unknown as number;
-    if (lastHistTime !== liveTime) return null;
-    // Replace the last entry with the live value.
-    return [...history.slice(0, -1), { time: liveTime as Time, value: liveValue }];
+    if (lastHistTime !== liveTs) return null;
+    return [...history.slice(0, -1), { time: liveTs as Time, value: liveValue }];
 }
 
 /// Build the canonical descriptive label for a chart from a spec. Used in

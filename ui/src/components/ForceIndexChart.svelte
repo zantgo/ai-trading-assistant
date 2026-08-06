@@ -31,6 +31,7 @@
     let prevVal = 0;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     function forceColor(cur: number, prev: number): string {
         const positive = cur >= 0;
@@ -101,6 +102,7 @@
                 forceSeries.setData(data);
                 prevVal = pts[pts.length - 1].value;
                 dataPoints = pts.length;
+                _lastHistoryTime = Number(pts[pts.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -108,6 +110,7 @@
 
     const forceCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'force_index');
         if (val != null) {
             forceSeries.update({ time: timeSec as Time, value: val, color: forceColor(val, prevVal) });

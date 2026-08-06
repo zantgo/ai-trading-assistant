@@ -6,6 +6,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
     import {
         fetchIndicatorHistoryOnce,
         pairsFromHistory,
@@ -25,6 +26,7 @@
     let ro: ResizeObserver;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -61,6 +63,7 @@
     });
 
     onDestroy(() => {
+        aroonCoalescer.destroy();
         ro?.disconnect();
         if (chart) { unregisterChart(chart); chart.remove(); }
     });
@@ -76,24 +79,28 @@
                 upSeries.setData(upPts);
                 downSeries.setData(downPts);
                 dataPoints = upPts.length;
+                _lastHistoryTime = Number(upPts[upPts.length - 1].time);
             }
         });
         return () => { cancelled = true; };
     });
 
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
+    const aroonCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfPlain) => {
         const timeSec = snap.timestamp as number;
-        const m = (tfVal.indicators ?? {}) as IndicatorMap;
+        if (timeSec < _lastHistoryTime) return;
+        const m = (tfPlain.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'aroon', 'up');
         const down = iSub(m, 'aroon', 'down');
         if (up != null) upSeries.update({ time: timeSec as Time, value: up });
         if (down != null) downSeries.update({ time: timeSec as Time, value: down });
         liveReceived = true;
+    });
+    $effect(() => {
+        const pairVal = app.instancesMap[pairKey];
+        if (!pairVal) return;
+        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
+        if (!tfVal.latestSnapshot) return;
+        aroonCoalescer.effect();
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

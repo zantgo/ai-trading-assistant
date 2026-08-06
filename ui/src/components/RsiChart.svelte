@@ -32,6 +32,7 @@
     let hist: IndicatorFlatHistory | null = null;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -93,6 +94,7 @@
             if (points.length > 0) {
                 rsiSeries.setData(points);
                 dataPoints = points.length;
+                _lastHistoryTime = Number(points[points.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -101,6 +103,7 @@
     let _lastUpdateTs = 0;
     const rsiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'rsi');
         if (val != null) {
             rsiSeries.update({ time: timeSec as Time, value: val });

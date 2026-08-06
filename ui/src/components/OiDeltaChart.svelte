@@ -30,6 +30,7 @@
     let oiDeltaSeries: ISeriesApi<'Histogram'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -87,6 +88,7 @@
                     color: p.value >= 0 ? '#26a69a' : '#ef5350',
                 }));
                 oiDeltaSeries.setData(data);
+                _lastHistoryTime = data[data.length - 1].time as number;
                 dataPoints = pts.length;
             }
         });
@@ -95,6 +97,7 @@
 
     const oiDeltaCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'oi_delta');
         if (val != null && val !== 0) {
             oiDeltaSeries.update({ time: timeSec as Time, value: val, color: val >= 0 ? '#26a69a' : '#ef5350' });

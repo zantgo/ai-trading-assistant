@@ -30,6 +30,7 @@
     let aoSeries: ISeriesApi<'Histogram'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     function aoColor(cur: number, prev: number): string {
         const positive = cur >= 0;
@@ -98,6 +99,7 @@
                     return { time: p.time, value: p.value, color: c };
                 });
                 aoSeries.setData(data);
+                _lastHistoryTime = data[data.length - 1].time as number;
                 dataPoints = pts.length;
             }
         });
@@ -107,6 +109,7 @@
     let prevVal = 0;
     const aoCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'awesome_oscillator');
         if (val != null) {
             aoSeries.update({ time: timeSec as Time, value: val, color: aoColor(val, prevVal) });

@@ -33,6 +33,7 @@
     let senkouBSeries: ISeriesApi<'Line'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -92,6 +93,7 @@
             if (t.length > 0) {
                 tenkanSeries.setData(t);
                 dataPoints = t.length;
+                _lastHistoryTime = Number(t[t.length - 1].time);
             }
             if (k.length > 0) kijunSeries.setData(k);
             if (sa.length > 0) senkouASeries.setData(sa);
@@ -102,6 +104,7 @@
 
     const ichiCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const t = iSub(m, 'ichimoku', 'tenkan');
         const k = iSub(m, 'ichimoku', 'kijun');

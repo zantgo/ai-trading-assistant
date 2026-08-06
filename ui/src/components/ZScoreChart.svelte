@@ -6,6 +6,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
     import {
         fetchIndicatorHistoryOnce,
         pairsFromHistory,
@@ -24,6 +25,7 @@
     let ro: ResizeObserver;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -60,6 +62,7 @@
     });
 
     onDestroy(() => {
+        zCoalescer.destroy();
         ro?.disconnect();
         if (chart) { unregisterChart(chart); chart.remove(); }
     });
@@ -73,21 +76,25 @@
             if (z.length > 0) {
                 series.setData(z);
                 dataPoints = z.length;
+                _lastHistoryTime = Number(z[z.length - 1].time);
             }
         });
         return () => { cancelled = true; };
     });
 
+    const zCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfPlain) => {
+        const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
+        const v = iRaw((tfPlain.indicators ?? {}) as IndicatorMap, 'zscore');
+        if (v != null) series.update({ time: timeSec as Time, value: v });
+        liveReceived = true;
+    });
     $effect(() => {
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
         const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
-        const timeSec = snap.timestamp as number;
-        const v = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'zscore');
-        if (v != null) series.update({ time: timeSec as Time, value: v });
-        liveReceived = true;
+        if (!tfVal.latestSnapshot) return;
+        zCoalescer.effect();
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

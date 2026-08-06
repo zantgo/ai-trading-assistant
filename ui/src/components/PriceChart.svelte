@@ -91,6 +91,7 @@
     let historyVolumeProfile: VolumeProfileSnapshot | null = $state(null);
 
     let _chartReady = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -312,6 +313,10 @@
             if (stdMid.length > 0 && stddevMiddleSeries) stddevMiddleSeries.setData(recent(stdMid));
             if (stdLo.length > 0 && stddevLowerSeries) stddevLowerSeries.setData(recent(stdLo));
             if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts));
+
+            if (recentCandles.length > 0) {
+                _lastHistoryTime = Number(recentCandles[recentCandles.length - 1].time);
+            }
 
             // v6.5: capture per-TF cluster + volume profile from
             // history (used as a fallback if the WS stream hasn't
@@ -639,7 +644,10 @@
 
     let _lastUpdateTs = 0;
     const candleCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
-        const timeSec = snap.timestamp as number;
+        const timeSec: number = typeof snap.timestamp === 'number'
+            ? snap.timestamp
+            : Number(snap.timestamp ?? 0);
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
 
         if (snap.close != null) {

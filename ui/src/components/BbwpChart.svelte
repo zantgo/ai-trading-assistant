@@ -30,6 +30,7 @@
     let bbwpSeries: ISeriesApi<'Histogram'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -107,6 +108,7 @@
                 }));
                 bbwpSeries.setData(data);
                 dataPoints = points.length;
+                _lastHistoryTime = Number(points[points.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -114,6 +116,7 @@
 
     const bbwpCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'bbwp');
         if (val != null) {
             bbwpSeries.update({

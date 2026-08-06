@@ -30,6 +30,7 @@
     let fundingSeries: ISeriesApi<'Line'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -86,6 +87,7 @@
             if (pts.length > 0) {
                 fundingSeries.setData(pts);
                 dataPoints = pts.length;
+                _lastHistoryTime = Number(pts[pts.length - 1].time);
             }
         });
         return () => { cancelled = true; };
@@ -93,6 +95,7 @@
 
     const fundingCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'funding_rate');
         if (val != null) {
             fundingSeries.update({ time: timeSec as Time, value: val });

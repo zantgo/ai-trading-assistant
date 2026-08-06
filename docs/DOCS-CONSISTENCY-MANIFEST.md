@@ -39,7 +39,7 @@ docs/
 └── operations-and-compliance/                      (8)   08-01 … 08-08
 ```
 
-**Total: 150 markdown files** = 147 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 147 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 146 spec files.
+**Total: 152 markdown files** = 149 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 149 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 148 spec files.
 Engine specs: 39 = 8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE.
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → v6.5 = 147 → v6.6 = 147 (Bitget V2 derivatives + UI feed-state) → v6.7 = 147 (per-tab 1:1 export payload) → **v6.8 = 150** (+00-ROADMAP, +07-05-export-data-payload-schema, +01-08 corrections) (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
 

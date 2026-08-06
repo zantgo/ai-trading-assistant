@@ -35,6 +35,7 @@
     let donchianLowerSeries: ISeriesApi<'Line'>;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+    let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
         chart = createChart(container, {
@@ -92,6 +93,7 @@
             if (mid.length > 0) {
                 donchianMiddleSeries.setData(mid);
                 dataPoints = mid.length;
+                _lastHistoryTime = Number(mid[mid.length - 1].time);
             }
             if (up.length > 0) donchianUpperSeries.setData(up);
             if (lo.length > 0) donchianLowerSeries.setData(lo);
@@ -101,6 +103,7 @@
 
     const donchianCoalescer = makeChartCoalescer(app, () => pairKey, () => slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
+        if (timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'donchian', 'upper');
         const mid = iSub(m, 'donchian', 'middle');
