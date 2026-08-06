@@ -168,7 +168,7 @@ export function buildFilterStateBlock(filters: {
  */
 export function fmtTimeHM(ts: number | null | undefined): string {
   if (!ts) return '—';
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 /**
