@@ -91,6 +91,7 @@
     let historyVolumeProfile: VolumeProfileSnapshot | null = $state(null);
 
     let _chartReady = $state(false);
+    let _bootstrapComplete = $state(false);
     let _lastHistoryTime = $state(-Infinity);
 
     onMount(() => {
@@ -192,7 +193,7 @@
     (async () => {
         try {
             const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
-            if (cancelled || !hist) return;
+            if (cancelled || !hist) { _bootstrapComplete = true; return; }
             const step = tf?.barDurationSec || 60;
 
             const seenTimes = new Set<number>();
@@ -324,8 +325,10 @@
             const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
             historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
             historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
+            _bootstrapComplete = true;
         } catch (err) {
             console.error("Error bootstrapping price chart history:", err);
+            _bootstrapComplete = true;
         }
     })();
     return () => { cancelled = true; };
@@ -647,7 +650,7 @@
         const timeSec: number = typeof snap.timestamp === 'number'
             ? snap.timestamp
             : Number(snap.timestamp ?? 0);
-        if (timeSec < _lastHistoryTime) return;
+        if (!_bootstrapComplete || !Number.isFinite(_lastHistoryTime) || timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
 
         if (snap.close != null) {

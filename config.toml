@@ -211,7 +211,7 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c955e22d9de210"
+id = "inst_18c95c81a044bd7d"
 symbol = "BTC-USDC"
 quote = "USDC"
 initial_capital_usd = 1000.0
@@ -308,7 +308,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.fast_term.candles]
-duration_seconds = 1
+duration_seconds = 3
 
 [workspace.instances.fast_term.indicators]
 ema_fast = 10
@@ -486,7 +486,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.macro_term.candles]
-duration_seconds = 5
+duration_seconds = 15
 
 [workspace.instances.macro_term.indicators]
 ema_fast = 10

@@ -73,19 +73,21 @@ impl DecisionContext {
     ) -> Self {
         let _ = (close, atr); // kept for API symmetry / future volatility-aware extensions
 
-        // v6.10 (Phase 6 / F2): 5-state Bias mapping from the (now unsigned)
-// confluence score in [0, 100]. Mirrors `analysis.rs::derive_analysis`
-// 5-state bucketing of `mtf_overall_score` at the canonical ±20/±40
-// boundaries: a `BULLISH` decision bias corresponds to a
-// `Bullish`/`StrongBullish` analysis bias for the same mtf_overall_score.
-let bias = if confluence_score > 40.0 {
-    "STRONG_BULLISH"
-} else if confluence_score > 20.0 {
-    "BULLISH"
-} else {
-    "NEUTRAL"
-}
-.to_string();
+        // Mirror `analysis.bias` exactly (5-state MarketBias family).
+        // The unsigned confluence_score cannot encode direction; the
+        // canonical source of directional bias is Analysis.bias.
+        let bias = analysis.bias.to_string();
+
+        // Score carries the directional sign from analysis.bias so the
+        // frontend `computeDecisionRank` can split probability between
+        // LONG (positive score) and SHORT (negative score) arms.
+        let signed_confluence = match analysis.bias {
+            crate::analysis::MarketBias::StrongBearish
+            | crate::analysis::MarketBias::Bearish => -confluence_score,
+            crate::analysis::MarketBias::Neutral => 0.0,
+            crate::analysis::MarketBias::Bullish
+            | crate::analysis::MarketBias::StrongBullish => confluence_score,
+        };
 
         // -- expected_reward_risk_ratio = active-side R:R × (1 − overall_risk/100)
         // The legacy matrix-level `expected_rr_internal` was removed in v6.9;
@@ -205,7 +207,7 @@ let bias = if confluence_score > 40.0 {
             .collect();
 
         Self {
-            score: confluence_score,
+            score: signed_confluence,
             bias,
             score_confidence,
             entry_danger,
@@ -273,14 +275,9 @@ mod tests {
     }
 
     #[test]
-    fn bearish_low_risk_yields_high_rr() {
+    fn bullish_bias_produces_positive_score() {
         let mut analysis = make_analysis_with_quality(QualityLevel::Good);
         analysis.bias = MarketBias::Bullish;
-        // risk = 20 → overall_risk.score = 20 → confidence_assessment = 0.82 * (1 - 0.2) * 100 = 65.6
-        // market_quality = Good + risk = 20 → stance = Constructive (per A5)
-        // bias = Bullish → directional non-neutral
-        // vol_risk = 20 → entry_guidance OK
-        // ⇒ Rule 2 fires ⇒ READY
         let risk = make_risk_with_overall(20.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -296,17 +293,109 @@ mod tests {
         };
         let ctx =
             DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "BULLISH");
+        assert!((ctx.score - 30.0).abs() < 1e-9);
         assert!((ctx.expected_reward_risk_ratio - 2.0).abs() < 1e-9);
         assert!((ctx.entry_danger.score - 20.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "READY");
     }
 
     #[test]
+    fn bearish_bias_produces_negative_score() {
+        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
+        analysis.bias = MarketBias::Bearish;
+        let risk = make_risk_with_overall(20.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::TrendContinuation,
+            opportunity_score: 70.0,
+            setup_quality: crate::analysis::SetupQuality::Prime,
+            profiles: vec![],
+            forecast_confidence: 0.7,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 2.0,
+            time_horizon: "SWING".to_string(),
+            ..Default::default()
+        };
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 50.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "BEARISH");
+        assert!((ctx.score - -50.0).abs() < 1e-9);
+        // active side is Bearish → reads short_expected_rr_internal
+        assert!((ctx.expected_reward_risk_ratio - (2.0 * 0.8)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn neutral_bias_produces_zero_score() {
+        let analysis = make_analysis_with_quality(QualityLevel::Good);
+        let risk = make_risk_with_overall(20.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 0.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.0,
+            long_expected_rr_internal: 0.0,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "NEUTRAL");
+        assert!((ctx.score - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn strong_bullish_mirrors_analysis_bias() {
+        let mut analysis = make_analysis_with_quality(QualityLevel::Excellent);
+        analysis.bias = MarketBias::StrongBullish;
+        let risk = make_risk_with_overall(10.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::TrendContinuation,
+            opportunity_score: 100.0,
+            setup_quality: crate::analysis::SetupQuality::Prime,
+            profiles: vec![],
+            forecast_confidence: 0.85,
+            long_expected_rr_internal: 3.0,
+            time_horizon: "SWING".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "STRONG_BULLISH");
+        assert!((ctx.score - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn strong_bearish_mirrors_analysis_bias() {
+        let mut analysis = make_analysis_with_quality(QualityLevel::Weak);
+        analysis.bias = MarketBias::StrongBearish;
+        let risk = make_risk_with_overall(10.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::Breakout,
+            opportunity_score: 80.0,
+            setup_quality: crate::analysis::SetupQuality::Strong,
+            profiles: vec![],
+            forecast_confidence: 0.8,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 1.8,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 65.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "STRONG_BEARISH");
+        assert!((ctx.score - -65.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn high_risk_blocks_at_70() {
         let mut analysis = make_analysis_with_quality(QualityLevel::Average);
         analysis.bias = MarketBias::Bullish;
-        // risk = 80 → overall_risk.score = 80 → confidence_assessment = 0.82 * (1 - 0.8) * 100 = 16.4
-        // confidence < 20 ⇒ Rule 1 ⇒ STAND_ASIDE
         let risk = make_risk_with_overall(80.0);
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
@@ -328,9 +417,6 @@ mod tests {
 
     #[test]
     fn dangerous_setup_blocks_at_70() {
-        // market_quality = Weak + risk = 85 ⇒ stance is Cautious (rule 2 in A5, not AVOID).
-        // confidence_assessment = 0.82 * (1 - 0.85) * 100 = 12.3 < 20
-        // ⇒ Rule 1 ⇒ STAND_ASIDE
         let analysis = make_analysis_with_quality(QualityLevel::Weak);
         let risk = make_risk_with_overall(85.0);
         let indicators = HashMap::new();
@@ -349,95 +435,6 @@ mod tests {
             DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
         assert!((ctx.entry_danger.score - 70.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
-    }
-
-    #[test]
-    fn confluence_score_unsigned_treated_as_unsigned() {
-        // v6.10 (Phase 6 / F1 + F2): confluence_score is now unsigned
-        // [0, 100]. A negative input is clamped to 0.0 and a >40 input
-        // maps to STRONG_BULLISH.
-        let analysis = make_analysis_with_quality(QualityLevel::Good);
-        let risk = make_risk_with_overall(20.0);
-        let indicators = HashMap::new();
-        let opp = crate::opportunity::OpportunityMatrix {
-            symbol: "BTC-USD".to_string(),
-            primary_opportunity: OpportunityType::Breakout,
-            opportunity_score: 100.0,
-            setup_quality: crate::analysis::SetupQuality::Prime,
-            profiles: vec![],
-            forecast_confidence: 0.85,
-            long_expected_rr_internal: 2.5,
-            time_horizon: "SWING".to_string(),
-            ..Default::default()
-        };
-        // A negative input clamps to 0.0 → NEUTRAL.
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, -50.0, &analysis, Some(&opp), &risk);
-        assert_eq!(ctx.bias, "NEUTRAL");
-        // The score is reported as the input value (negative allowed for
-        // backward compat in case some legacy caller passes signed values).
-        assert!((ctx.score - -50.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn confluence_score_strong_positive_unsigned_yields_strong_bullish() {
-        // Confluence 90 → STRONG_BULLISH (Phase 6 / F2 threshold > 40).
-        let analysis = make_analysis_with_quality(QualityLevel::Excellent);
-        let risk = make_risk_with_overall(10.0);
-        let indicators = HashMap::new();
-        let opp = crate::opportunity::OpportunityMatrix {
-            symbol: "BTC-USD".to_string(),
-            primary_opportunity: OpportunityType::TrendContinuation,
-            opportunity_score: 100.0,
-            setup_quality: crate::analysis::SetupQuality::Prime,
-            profiles: vec![],
-            forecast_confidence: 0.85,
-            long_expected_rr_internal: 3.0,
-            time_horizon: "SWING".to_string(),
-            ..Default::default()
-        };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
-        assert_eq!(ctx.bias, "STRONG_BULLISH");
-    }
-
-    #[test]
-    fn confluence_score_neutral_band_yields_neutral_bias() {
-        let analysis = make_analysis_with_quality(QualityLevel::Good);
-        let risk = make_risk_with_overall(20.0);
-        let indicators = HashMap::new();
-        let opp = crate::opportunity::OpportunityMatrix {
-            symbol: "BTC-USD".to_string(),
-            primary_opportunity: OpportunityType::NoClearOpportunity,
-            opportunity_score: 0.0,
-            setup_quality: crate::analysis::SetupQuality::None,
-            profiles: vec![],
-            forecast_confidence: 0.0,
-            long_expected_rr_internal: 0.0,
-            time_horizon: "INTRADAY".to_string(),
-            ..Default::default()
-        };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 0.0, &analysis, Some(&opp), &risk);
-        assert_eq!(ctx.bias, "NEUTRAL");
-        assert!((ctx.score - 0.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn confluence_score_strong_positive_yields_strong_bullish() {
-        let analysis = make_analysis_with_quality(QualityLevel::Excellent);
-        let risk = make_risk_with_overall(10.0);
-        let indicators = HashMap::new();
-        let opp = crate::opportunity::OpportunityMatrix {
-            symbol: "BTC-USD".to_string(),
-            primary_opportunity: OpportunityType::TrendContinuation,
-            opportunity_score: 100.0,
-            setup_quality: crate::analysis::SetupQuality::Prime,
-            profiles: vec![],
-            forecast_confidence: 0.85,
-            long_expected_rr_internal: 3.0,
-            time_horizon: "SWING".to_string(),
-            ..Default::default()
-        };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
-        assert_eq!(ctx.bias, "STRONG_BULLISH");
     }
 
     #[test]

@@ -102,17 +102,19 @@ function buildHeaderBlock(analysis: AnalysisMatrix | null): AnalysisHeaderBlock 
   };
 }
 
+function signalDirection(text: string): 'bullish' | 'bearish' | 'neutral' {
+  const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
+  if (dir === 'bullish') return 'bullish';
+  if (dir === 'bearish') return 'bearish';
+  return 'neutral';
+}
+
 function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBlock {
-  const supporting = (analysis?.supporting_signals ?? []).map((s) => ({
-    text: s,
-    type: 'bullish' as const,
-  }));
-  const contradicting = (analysis?.contradicting_signals ?? []).map((c) => ({
-    text: c,
-    type: 'bearish' as const,
-  }));
-  const bull = supporting.length;
-  const bear = contradicting.length;
+  const supporting = analysis?.supporting_signals ?? [];
+  const contradicting = analysis?.contradicting_signals ?? [];
+  const allTexts = [...supporting, ...contradicting];
+  const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
+  const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
   const total = bull + bear;
   let lean: AnalysisSignalsBlock['lean'];
   if (total === 0) {
@@ -125,8 +127,8 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
     lean = { label: `Split signals · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'split' };
   }
   return {
-    supporting: supporting.map((s) => decomposeSignal(s.text)),
-    contradicting: contradicting.map((c) => decomposeSignal(c.text)),
+    supporting: supporting.map((s) => decomposeSignal(s)),
+    contradicting: contradicting.map((c) => decomposeSignal(c)),
     lean,
   };
 }

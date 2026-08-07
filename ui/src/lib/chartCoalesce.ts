@@ -13,7 +13,18 @@ function deepUnwrap<T>(value: T): T {
     try {
         return JSON.parse(JSON.stringify(value)) as T;
     } catch {
-        return value;
+        if (Array.isArray(value)) {
+            return (value as unknown[]).map((v) => deepUnwrap(v)) as unknown as T;
+        }
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value as object)) {
+            try {
+                out[key] = deepUnwrap((value as Record<string, unknown>)[key]);
+            } catch {
+                out[key] = (value as Record<string, unknown>)[key];
+            }
+        }
+        return out as T;
     }
 }
 

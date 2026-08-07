@@ -228,8 +228,8 @@ pub fn warm_indicators_for_timeframe(
     symbol: &str,
     timeframe_secs: u64,
     slot: TimeframeSlot,
-    buffer_size: usize,
-    active_set: &crate::active_set::ActiveSet,
+     buffer_size: usize,
+    _active_set: &crate::active_set::ActiveSet,
 ) -> WarmedPipelineState {
     let active_indicators = tf_config.indicators.clone();
 

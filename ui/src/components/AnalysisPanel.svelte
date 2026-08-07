@@ -101,6 +101,13 @@
         return styles.sigNeutral;
     }
 
+    function signalDirection(text: string): 'bullish' | 'bearish' | 'neutral' {
+        const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
+        if (dir === 'bullish') return 'bullish';
+        if (dir === 'bearish') return 'bearish';
+        return 'neutral';
+    }
+
     function highlightKeywords(text: string): string {
         if (!text) return '\u2014';
         const keywords = /\b(TRANSITIONAL|DEVELOPING|WEAKENING|UNSTABLE|WEAK|STRONG|HEALTHY|EXHAUSTED|EXPANDING|COMPRESSED|NORMAL|EXTREME|INCREASING|STABLE|REVERSING|BROKEN|EXCEPTIONAL|BULLISH|BEARISH|NEUTRAL)\b/gi;
@@ -161,19 +168,19 @@
         return 4; // Default fallback rank for global/ambient signals
     }
 
-    // Unifies and sorts supporting + contradicting signals so slots always remain grouped sequentially
+    // Unifies and sorts supporting + contradicting signals so slots always remain grouped sequentially.
+    // Direction is parsed from the signal text (e.g. "MICRO (bearish): ...") rather than assumed
+    // from the bucket, because supporting_signals = agrees with bias, contradicting_signals = opposes bias.
     const sortedSignals = $derived.by(() => {
-        const supporting = (analysis?.supporting_signals ?? []).map(s => ({ text: s, type: 'bullish' as const }));
-        const contradicting = (analysis?.contradicting_signals ?? []).map(c => ({ text: c, type: 'bearish' as const }));
+        const supporting = (analysis?.supporting_signals ?? []).map(s => ({ text: s, type: signalDirection(s) }));
+        const contradicting = (analysis?.contradicting_signals ?? []).map(c => ({ text: c, type: signalDirection(c) }));
         const combined = [...supporting, ...contradicting];
         return combined.sort((a, b) => timeframeRank(a.text) - timeframeRank(b.text));
     });
 
     // ── Signal lean — the operator wants to see at-a-glance whether the
-    // supporting vs contradicting signals net bullish or bearish. Reading
-    // the categorical `analysis.bias` is insufficient (it can be NEUTRAL
-    // even when the signals disagree); instead we count the bucketed
-    // signals on each side.
+    // signals net bullish or bearish. Direction is parsed from each signal
+    // text rather than assumed from the supporting/contradicting bucket.
     const signalLean = $derived.by((): {
         label: string;
         bullish: number;
@@ -182,8 +189,9 @@
         callHtml: string;
         metaHtml: string;
     } => {
-        const bull = (analysis?.supporting_signals ?? []).length;
-        const bear = (analysis?.contradicting_signals ?? []).length;
+        const allTexts = [...(analysis?.supporting_signals ?? []), ...(analysis?.contradicting_signals ?? [])];
+        const bull = allTexts.filter(t => signalDirection(t) === 'bullish').length;
+        const bear = allTexts.filter(t => signalDirection(t) === 'bearish').length;
         const total = bull + bear;
         if (total === 0) return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split',
             callHtml: 'No signals', metaHtml: 'Waiting for cross-TF consensus' };
