@@ -313,11 +313,13 @@
             if (stdUp.length > 0 && stddevUpperSeries) stddevUpperSeries.setData(recent(stdUp));
             if (stdMid.length > 0 && stddevMiddleSeries) stddevMiddleSeries.setData(recent(stdMid));
             if (stdLo.length > 0 && stddevLowerSeries) stddevLowerSeries.setData(recent(stdLo));
-            if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts));
+            if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts.filter(p => p.value > 0)));
 
             if (recentCandles.length > 0) {
                 _lastHistoryTime = Number(recentCandles[recentCandles.length - 1].time);
             }
+
+            chart.timeScale().fitContent();
 
             // v6.5: capture per-TF cluster + volume profile from
             // history (used as a fallback if the WS stream hasn't
@@ -500,7 +502,7 @@
 
         for (const r of retracements) {
             const v = (vals as Record<string, number | undefined>)[r.key];
-            if (typeof v !== 'number' || !isFinite(v)) continue;
+            if (typeof v !== 'number' || !isFinite(v) || v <= 0) continue;
             fibLines.push(candleSeries.createPriceLine({
                 price: v,
                 color: r.gp ? '#ffd54f' : 'rgba(255, 213, 79, 0.55)',
@@ -513,7 +515,7 @@
 
         for (const e of extensions) {
             const v = (vals as Record<string, number | undefined>)[e.key];
-            if (typeof v !== 'number' || !isFinite(v)) continue;
+            if (typeof v !== 'number' || !isFinite(v) || v <= 0) continue;
             fibLines.push(candleSeries.createPriceLine({
                 price: v,
                 color: '#00e5ff',
@@ -547,9 +549,10 @@
             const sorted = [...clusters].sort((a, b) => (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0));
             for (const c of sorted) {
                 const mag = Math.max(0, Math.min(100, c.magnet_strength ?? 0));
-                const peakAlpha = 0.35 + (mag / 100) * 0.55; // 0.35 .. 0.90
+                const peakAlpha = 0.35 + (mag / 100) * 0.55;
                 const boundAlpha = peakAlpha * 0.45;
 
+                if (!isFinite(c.peak_price) || c.peak_price <= 0) continue;
                 liqLines.push(candleSeries.createPriceLine({
                     price: c.peak_price,
                     color: `rgba(${peakR},${peakG},${peakB},${peakAlpha.toFixed(2)})`,
@@ -590,7 +593,7 @@
     $effect(() => {
         const show = tf?.showPivotPoints ?? false;
         const vRaw = tf?.indicators?.['pivot_points']?.values?.['pivot'];
-        const v = typeof vRaw === 'number' && isFinite(vRaw) ? vRaw : null;
+        const v = typeof vRaw === 'number' && isFinite(vRaw) && vRaw > 0 ? vRaw : null;
         pivotLevelValue = show ? v : null;
         if (!candleSeries) return;
         if (pivotLine) { try { candleSeries.removePriceLine(pivotLine); } catch (_) {} pivotLine = null; }
@@ -610,7 +613,7 @@
         const show = tf?.showSupportResistance ?? false;
         const raw = tf?.indicators?.['support_resistance'];
         // The normalizer emits the strongest current SR level as `raw`.
-        const v = raw && Number.isFinite(raw.raw_value) ? raw.raw_value : null;
+        const v = raw && Number.isFinite(raw.raw_value) && raw.raw_value > 0 ? raw.raw_value : null;
         srLevelValue = show ? v : null;
         if (!candleSeries) return;
         if (srLine) { try { candleSeries.removePriceLine(srLine); } catch (_) {} srLine = null; }

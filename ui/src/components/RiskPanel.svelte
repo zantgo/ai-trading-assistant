@@ -255,7 +255,7 @@
             <div class={styles.heroConf}>
                 <span class={styles.confLabel}>Confidence</span>
                 <div class={styles.confBar}>
-                    <div class="{styles.confFill} {risk ? levelClass(risk.overall_risk.level) : ''}"
+                    <div class="{styles.confFill} {risk ? (risk.overall_risk.confidence >= 50 ? styles.confFillHigh : styles.confFillLow) : ''}"
                          style="width: {risk ? Math.min(risk.overall_risk.confidence, 100).toFixed(1) : '0'}%"></div>
                 </div>
                 <span class={styles.confVal}>{risk ? risk.overall_risk.confidence.toFixed(0) : '\u2014'}%</span>

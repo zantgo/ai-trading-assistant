@@ -28,7 +28,9 @@
 .heroConf { display: flex; align-items: center; gap: 8px; }
 .confLabel { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
 .confBar { flex: 1; height: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 3px; overflow: hidden; }
-.confFill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.confFill { height: 100%; border-radius: 3px; background: #475569; transition: width 0.3s; }
+.confFillLow { background: #f59e0b; }
+.confFillHigh { background: #3b82f6; }
 .confVal { font-size: 11px; font-weight: 700; color: #e2e8f0; width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
 .heroHint { font-size: 10px; color: #64748b; line-height: 1.45; margin: 0; }
 
