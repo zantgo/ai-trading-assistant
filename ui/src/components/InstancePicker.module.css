@@ -1,0 +1,164 @@
+/* ─── Instance Picker — inline workspace selector ────────────────────────
+   Mirrors the right-panel row design but lives inside the content area.
+   Uses the same design tokens as brutelist-grid.module.css.
+   ========================================================================== */
+
+.picker {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.02);
+    overflow: hidden;
+}
+
+.header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
+    flex-shrink: 0;
+}
+
+.title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    margin: 0 0 4px;
+    text-transform: uppercase;
+}
+
+.subtitle {
+    font-size: 11px;
+    font-weight: 500;
+    color: #64748b;
+}
+
+/* ─── Empty / loading state ────────────────────────────────────────────── */
+.empty,
+.loading {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim, rgba(245, 245, 247, 0.55));
+}
+
+.emptyIcon {
+    opacity: 0.18;
+    margin-bottom: 4px;
+}
+
+.emptyMsg {
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    line-height: 1.5;
+    max-width: 360px;
+}
+
+/* ─── Instance list ────────────────────────────────────────────────────── */
+.list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    height: 52px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
+    gap: 10px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    background: none;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    font-family: inherit;
+}
+
+.row:hover {
+    background-color: var(--hover, rgba(255, 255, 255, 0.04));
+}
+
+.row:last-child {
+    border-bottom: none;
+}
+
+.rowInfo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+/* ─── Status dot ───────────────────────────────────────────────────────── */
+.statusDot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.statusRunning {
+    background-color: #30d158;
+    box-shadow: 0 0 8px rgba(48, 209, 88, 0.6);
+}
+
+.statusPaused {
+    background-color: #ffd60a;
+}
+
+.statusStopped {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ─── Symbol + price ───────────────────────────────────────────────────── */
+.symbol {
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text, #f5f5f7);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.price {
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 10px;
+    color: var(--text-dim, rgba(245, 245, 247, 0.55));
+    margin-left: 4px;
+}
+
+/* ─── 24h change chip ──────────────────────────────────────────────────── */
+.change {
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 5px;
+    white-space: nowrap;
+}
+
+.changeUp {
+    color: #30d158;
+    background: rgba(48, 209, 88, 0.12);
+}
+
+.changeDown {
+    color: #ff453a;
+    background: rgba(255, 69, 58, 0.12);
+}
+
+.changeFlat {
+    color: var(--text-dim, rgba(245, 245, 247, 0.55));
+    background: rgba(255, 255, 255, 0.06);
+}

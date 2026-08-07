@@ -216,7 +216,7 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         seedPair('BTC-USDT');
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         // Title text survives as the trailing slot of the LayerHeader.
-        expect(screen.getByText('Recommendation')).toBeTruthy();
+        expect(screen.getAllByText('Recommendation').length).toBeGreaterThanOrEqual(1);
         // No competing badges from the legacy envHeader (NEUTRAL/CAUTIOUS).
         // The Directional Guidance + Market Stance merged pair is gone.
         expect(screen.queryByText(/Strategy environment/i)).toBeNull();

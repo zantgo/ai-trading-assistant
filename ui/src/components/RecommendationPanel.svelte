@@ -46,19 +46,38 @@
         analysis,
     }));
 
-    // ── Runner-ups (winner excluded, ranked descending) ───────────────────
-    const runners = $derived.by((): { action: 'LONG' | 'SHORT' | 'HOLD'; prob: number }[] => {
-        const all = [
-            { action: 'LONG' as const, prob: rank.long.probability },
-            { action: 'SHORT' as const, prob: rank.short.probability },
-            { action: 'HOLD' as const, prob: rank.hold.probability },
-        ];
-        return all.filter((r) => r.action !== rank.top).sort((a, b) => b.prob - a.prob);
-    });
+    // ── Unified net bias (single gauge replacing the two runner bars) ────
+    const longPct = $derived(rank.long.probability);
+    const shortPct = $derived(rank.short.probability);
+    const netBias = $derived(longPct - shortPct);
+    const netAbs = $derived(Math.abs(netBias));
+    const biasDirection = $derived<'LONG' | 'SHORT' | 'NEUTRAL'>(
+        netBias > 0 ? 'LONG' : netBias < 0 ? 'SHORT' : 'NEUTRAL',
+    );
 
-    // L6 LayerHeader — single authoritative verdict (the operator's
-    // top-of-mind answer). The L3 bias is intentionally NOT consumed
-    // here so the header can never echo the L3 input.
+    // SVG gauge: map netBias [-100, +100] to angle [π (left), 0 (right)]
+    // with π/2 (top center) = neutral.  SVG y is downward, so:
+    //   needleX = cx + r * cos(angle)
+    //   needleY = cy - r * sin(angle)
+    const cx = 100; const cy = 105; const r = 70;
+    const gaugeAngle = $derived(Math.PI - ((netBias + 100) / 200) * Math.PI);
+    const needleX = $derived(cx + r * Math.cos(gaugeAngle));
+    const needleY = $derived(cy - r * Math.sin(gaugeAngle));
+    const activeArcD = $derived(() => {
+        // Draw arc from top-center (π/2) to needle position
+        const midAngle = Math.PI / 2;
+        const sweep = gaugeAngle - midAngle;
+        const large = Math.abs(sweep) > Math.PI ? 1 : 0;
+        const sweepFlag = sweep > 0 ? 1 : 0;
+        const ex = cx + r * Math.cos(gaugeAngle);
+        const ey = cy - r * Math.sin(gaugeAngle);
+        return `M ${cx + r * Math.cos(midAngle)} ${cy - r * Math.sin(midAngle)} A ${r} ${r} 0 ${large} ${sweepFlag} ${ex} ${ey}`;
+    });
+    const arcColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : 'rgba(255,255,255,0.30)');
+    const netLabel = $derived(netBias === 0 ? '0%' : `${netBias > 0 ? '+' : ''}${netBias}%`);
+    const netColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : 'rgba(255,255,255,0.60)');
+
+    // ── L6 LayerHeader — single authoritative verdict ────────────────────
     const headerSpec = $derived<LayerHeaderSpec>(buildL6DecisionHeader({
         rank,
         decisionContext: decisionCtx,
@@ -177,16 +196,6 @@
         if (action === 'SHORT') return styles.verdictShort ?? '';
         return styles.verdictHold ?? '';
     }
-    function envHeaderClass(direction: 'long' | 'short' | 'neutral'): string {
-        if (direction === 'long') return styles.envHeaderLong ?? '';
-        if (direction === 'short') return styles.envHeaderShort ?? '';
-        return styles.envHeaderNeutral ?? '';
-    }
-    function rankBarClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
-        if (action === 'LONG') return styles.rankLong ?? '';
-        if (action === 'SHORT') return styles.rankShort ?? '';
-        return styles.rankHold ?? '';
-    }
     function fmtPriceScale(n: number, mp: number): string {
         if (mp >= 1000) return n.toFixed(0);
         if (mp >= 1) return n.toFixed(2);
@@ -207,17 +216,37 @@
         {/snippet}
     </LayerHeader>
 
-    <!-- Probability bars survive — but restyled as a chip rail (LONG/SHORT/HOLD
-         per-action percentages) so they read as an extension of the meta chip
-         vocabulary rather than as a second header. -->
-    <div class={styles.runnerRow}>
-        {#each runners as r (r.action)}
-            <div class="{styles.runnerCell} {rankBarClass(r.action)}">
-                <div class={styles.runnerBar} style="width: {r.prob.toFixed(1)}%"></div>
-                <span class={styles.runnerAction}>{r.action}</span>
-                <span class={styles.runnerPct}>{r.prob}%</span>
-            </div>
-        {/each}
+    <!-- Unified directional gauge — net bias from Long% − Short%,
+         shown as a semi-circular dial. Center = Neutral, right = Long (green),
+         left = Short (red). -->
+    <div class={styles.gaugeWrap}>
+        <svg viewBox="0 0 200 115" class={styles.gauge}>
+            <!-- Background arc: full semi-circle -->
+            <path d="M 30 105 A 70 70 0 0 1 170 105"
+                  stroke="rgba(255,255,255,0.08)" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <!-- Active bias arc: from top-center to needle -->
+            <path d={activeArcD()} stroke={arcColor} stroke-width="3" fill="none"
+                  stroke-linecap="round" opacity={netAbs > 0 ? 0.85 : 0}/>
+            <!-- Tick marks -->
+            {#each [-100, -50, 0, 50, 100] as tick}
+                {@const ta = Math.PI - ((tick + 100) / 200) * Math.PI}
+                {@const tix = cx + (r - 8) * Math.cos(ta)}
+                {@const tiy = cy - (r - 8) * Math.sin(ta)}
+                {@const tox = cx + r * Math.cos(ta)}
+                {@const toy = cy - r * Math.sin(ta)}
+                <line x1={tix} y1={tiy} x2={tox} y2={toy}
+                      stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+            {/each}
+            <!-- Needle -->
+            <line x1={cx} y1={cy + 4} x2={needleX} y2={needleY}
+                  stroke={netColor} stroke-width="2" stroke-linecap="round"/>
+            <circle cx={cx} cy={cy} r="4" fill={netColor}/>
+        </svg>
+        <div class={styles.gaugeLabels}>
+            <span class={styles.gaugeShort}>SHORT</span>
+            <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
+            <span class={styles.gaugeLong}>LONG</span>
+        </div>
     </div>
 
     <!-- ── Top Setup card (single highest-scored profile) ──────────────────── -->

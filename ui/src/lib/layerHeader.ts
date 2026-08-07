@@ -444,7 +444,7 @@ export function countActiveRiskDimensions(r: RiskMatrix | null | undefined): num
     return dims.filter((d) => !!d).length;
 }
 
-// L6 — Decision (never reads L3 bias). The badge is the operator's
+// L6 — Recommendation (never reads L3 bias). The badge is the operator's
 // authoritative verdict; L3 is only an input. When `rank.top === HOLD`
 // the chip rail reports N/A rather than 0.00 (mirrors the existing
 // Recommendation panel rule).
@@ -472,7 +472,7 @@ export function buildL6DecisionHeader(input: {
     const isHypothesis = label === 'HOLD' || label === 'STAND ASIDE';
 
     if (!rank || (!advisory && !decisionContext)) {
-        return { layerNumber: 6, layerName: 'Decision', badge: emptyBadge(), meta: [], status: 'loading' };
+        return { layerNumber: 6, layerName: 'Recommendation', badge: emptyBadge(), meta: [], status: 'loading' };
     }
 
     const meta: MetaChipSpec[] = [
@@ -486,7 +486,7 @@ export function buildL6DecisionHeader(input: {
     }
     return {
         layerNumber: 6,
-        layerName: 'Decision',
+        layerName: 'Recommendation',
         badge: {
             label,
             sublabel: readiness && readiness !== 'READY' ? prettifyEnum(readiness) : undefined,

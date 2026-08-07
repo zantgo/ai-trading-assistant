@@ -203,6 +203,7 @@ export class AppStore {
     // in `GeneralDashboard` provides the fallback.
     private _overviewTimer: ReturnType<typeof setInterval> | null = null;
     private _overviewFetchInFlight = false;
+    private _overviewPollTicks = 0;
     /// Wall-clock timestamp (ms since epoch) of the most recent successful
     /// `/api/overview` fetch. Drives the L7 `LayerHeader` status pill
     /// (live when fresh, stale when older than 2× the polling interval).
@@ -235,12 +236,31 @@ export class AppStore {
         }
     }
 
+    async reconcileInstances(): Promise<void> {
+        try {
+            const res = await fetch('/api/instances');
+            if (!res.ok) return;
+            const data = await res.json();
+            const instances: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
+            const liveKeys = new Set(instances.filter(i => i?.pair).map(i => i.pair!));
+            for (const key of Object.keys(this.instancesMap)) {
+                if (!liveKeys.has(key)) {
+                    this.removeInstance(key);
+                }
+            }
+        } catch (_) {}
+    }
+
     startOverviewPolling(intervalMs = 3000): void {
         if (this._overviewTimer != null) return;
         // Initial fetch — fire-and-forget to avoid blocking the caller.
         void this.fetchOverview();
         this._overviewTimer = setInterval(() => {
             void this.fetchOverview();
+            this._overviewPollTicks++;
+            if (this._overviewPollTicks % 10 === 0) {
+                void this.reconcileInstances();
+            }
         }, intervalMs);
     }
 

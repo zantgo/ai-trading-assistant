@@ -12,6 +12,7 @@
     import AnalysisPanel from '../AnalysisPanel.svelte';
     import RecommendationPanel from '../RecommendationPanel.svelte';
     import GeneralDashboard from '../GeneralDashboard.svelte';
+    import InstancePicker from '../InstancePicker.svelte';
     import GeneralSettings from '../GeneralSettings.svelte';
     import DataInfraDashboard from '../DataInfraDashboard.svelte';
     import PerformanceDashboard from '../PerformanceDashboard.svelte';
@@ -29,6 +30,11 @@
     }
 
     let { currentEngine, middleTab, selectedInstance, activePair, activeTab, wssMap }: Props = $props();
+
+    // Diagnostic: uncomment to confirm props remain reactive after the fix
+    // $inspect('router.middleTab', middleTab);
+    // $inspect('router.selectedInstance', selectedInstance);
+    // $inspect('router.activePair', activePair);
 
     // Per-symbol WS state, derived once per render. The instance tabs
     // (`TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`,
@@ -69,13 +75,18 @@
                     <RecommendationPanel pairKey={activeTab} wssState={activeWss} />
                 {/if}
             {:else}
-                <GeneralDashboard {wssMap} />
+                <InstancePicker />
             {/if}
         {:else if middleTab === 'overview'}
             <GeneralDashboard {wssMap} />
         {:else}
             {#if activePair}
                 <WorkspaceSettings pair={activePair} tabKey={activeTab} />
+            {:else}
+                <div class={styles.profileCard} style="padding:2rem">
+                    <h3>Settings</h3>
+                    <p class={styles.cardSub}>Select a workspace instance from the top-right panel to configure timeframes, indicators, and visual overlays.</p>
+                </div>
             {/if}
         {/if}
     {:else if currentEngine === 'performance'}

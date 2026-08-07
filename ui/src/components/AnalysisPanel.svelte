@@ -98,6 +98,8 @@
         const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
         if (dir === 'bullish') return styles.sigBullish;
         if (dir === 'bearish') return styles.sigBearish;
+        if (/\bBULLISH\b/i.test(text)) return styles.sigBullish;
+        if (/\bBEARISH\b/i.test(text)) return styles.sigBearish;
         return styles.sigNeutral;
     }
 
@@ -105,6 +107,8 @@
         const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
         if (dir === 'bullish') return 'bullish';
         if (dir === 'bearish') return 'bearish';
+        if (/\bBULLISH\b/i.test(text)) return 'bullish';
+        if (/\bBEARISH\b/i.test(text)) return 'bearish';
         return 'neutral';
     }
 

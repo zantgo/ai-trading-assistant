@@ -89,29 +89,49 @@
     /// return it for up to 2 s, after which we accept the gap and
     /// surface the placeholder so the user knows something is off.
     const GRACE_WINDOW_MS = 2000;
-    // Plain (non-reactive) cache. The derived below is the only writer
-    // AND the only reader; the helper below ensures both halves stay
-    // pure. Plain writes do NOT go through Svelte's `set()` and
-    // therefore do NOT trigger `state_unsafe_mutation` from inside a
-    // `$derived` (which a `$state` wrapper would).
+    // Plain (non-reactive) cache. Updated by the companion `$effect`
+    // below so that NO write occurs inside a `$derived.by` context.
+    // Writes inside `$derived.by` — even to plain variables — can
+    // trigger `state_unsafe_mutation` in Svelte 5 when combined with
+    // concurrent WebSocket-driven `$state` mutations, freezing the
+    // entire reactive graph (Bug: overview-tab reactivity freeze).
     let lastGoodPair: PairCacheEntry | null = null;
 
+    /// Pure derivation — never writes to state. The cache update is
+    /// handled by the companion `$effect` below.
     const resilientActivePair = $derived.by(() => {
-        const { result, nextCache } = applyResilientCache(
+        return applyResilientCache(
+            activePair,
+            app.selectedInstance,
+            lastGoodPair,
+            GRACE_WINDOW_MS,
+            Date.now(),
+        ).result;
+    });
+
+    /// Mirrors the cache-update side-effect that was previously embedded
+    /// inside the `resilientActivePair` derivation. The `$effect` fires
+    /// after the derivation has settled; `lastGoodPair` is a plain
+    /// variable, so writing it here does NOT create a feedback loop.
+    $effect(() => {
+        const { nextCache } = applyResilientCache(
             activePair,
             app.selectedInstance,
             lastGoodPair,
             GRACE_WINDOW_MS,
             Date.now(),
         );
-        // `lastGoodPair` is a plain variable — assigning to it from
-        // inside this derived is safe. Svelte tracks the derived's
-        // dependencies via the reads of `activePair` and
-        // `app.selectedInstance` only, so the write here does not
-        // create a feedback loop.
-        lastGoodPair = nextCache;
-        return result;
+        if (nextCache !== lastGoodPair) {
+            untrack(() => { lastGoodPair = nextCache; });
+        }
     });
+    // Diagnostic: uncomment to trace tab navigation through the reactive graph
+    // $inspect('App.middleTab', app.middleTab);
+    // $inspect('App.currentEngine', app.currentEngine);
+    // $inspect('App.selectedInstance', app.selectedInstance);
+    // $inspect('App.activeEngineTab', app.activeEngineTab);
+    // $inspect('activePair', activePair);
+    // $inspect('resilientActivePair', resilientActivePair);
     const isHome = $derived(app.currentEngine === 'profile');
     const topLabel = $derived(isHome ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
 
@@ -224,6 +244,9 @@
             app.activeEngineTab = 'instance';
             const p = app.instancesMap[instance];
             if (p) p.currentView = (view as CurrentView) ?? 'terminal';
+        } else {
+            const shouldClear = e !== 'market_monitor' || middleTab === 'overview';
+            if (shouldClear) app.exitInstance();
         }
         // `tick()` is a microtask boundary — by the time it resolves
         // the state→URL `$effect` has already observed the new state
@@ -266,6 +289,12 @@
             const { firstSymbol } = applyConfigToStore(app, config);
             if (firstSymbol) app.activeTab = app.pairKeyFor(firstSymbol);
             await syncInstanceIdsFromList(app);
+            for (const key of Object.keys(app.instancesMap)) {
+                if (!app.instancesMap[key].instanceId) {
+                    app.removeInstance(key);
+                }
+            }
+            await app.reconcileInstances();
             configReady = true;
             for (const sym of Object.keys(app.instancesMap)) {
                 connectWsForInstance(app, wssMap, sym);

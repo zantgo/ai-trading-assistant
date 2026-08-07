@@ -43,18 +43,17 @@
     let { wssMap }: Props = $props();
 
     const app = useAppStore();
-    const totalCount = $derived(Object.keys(app.instancesMap).length);
+    const totalCount = $derived(Object.values(app.instancesMap).filter(i => i.instanceId).length);
 
     // L7 LayerHeader — sourced from the system-wide Overview Matrix. The
     // status pill mirrors the L7 fetch state (live/stale/error) so
     // the operator can see at a glance whether the synthesis is fresh.
-    const now = $derived(Date.now());
     const headerSpec = $derived<LayerHeaderSpec>(buildL7OverviewHeader(
         app.overviewMatrix,
         {
             lastSuccessMs: app.lastOverviewFetchMs,
             lastErrorMs: app.lastOverviewErrorMs,
-            now,
+            now: Date.now(),
             pollIntervalMs: 3000,
         },
     ));

@@ -472,10 +472,8 @@ describe('computeDecisionRank — degenerate-rank guard', () => {
     // When the three arms end up within 35% of each other, fall back to HOLD.
     it('collapses to HOLD when no arm carries a pre-normalization edge', () => {
         // Score 0, neutral bias, neutral guidance, neutral stance, WATCH
-        // readiness. There is no edge for any direction; HOLD wins
-        // because the math gives a 75 / 0 / 0 raw split (driven entirely
-        // by the WATCH gate term and entry_danger) → renormalises to
-        // 100 / 0 / 0 → guard fires → top = HOLD.
+        // readiness. There is no directional edge; HOLD wins. The 2% floor on
+        // long/short reflects the non-zero entry_danger signal (not absolutely neutral).
         const rank = computeDecisionRank({
             advisory: makeAdvisory({
                 directional_guidance: 'Neutral',
@@ -495,10 +493,11 @@ describe('computeDecisionRank — degenerate-rank guard', () => {
         expect(rank.top).toBe('HOLD');
         // long + short + hold sum to 100 (renormalised)
         expect(rank.long.probability + rank.short.probability + rank.hold.probability).toBe(100);
-        // With score=0, only HOLD accumulates mass; long and short must be 0
-        expect(rank.long.probability).toBe(0);
-        expect(rank.short.probability).toBe(0);
-        expect(rank.hold.probability).toBe(100);
+        // With score=0, HOLD dominates; long and short receive the 2% sensitivity floor
+        // because entry_danger produced a non-zero signal (the market isn't absolutely neutral).
+        expect(rank.long.probability).toBeGreaterThanOrEqual(2);
+        expect(rank.short.probability).toBeGreaterThanOrEqual(2);
+        expect(rank.hold.probability).toBeLessThanOrEqual(96);
     });
 
     // When score=20 (mildly bullish) but neutral guidance, all arms stay near

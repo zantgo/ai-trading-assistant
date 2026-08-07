@@ -124,60 +124,50 @@
 .verdictHold  .verdictAction,
 .verdictHold  .verdictPct    { color: #f59e0b; }
 
-/* ── Runner-ups (winner excluded, dispersion at a glance) ─────────────── */
-.runnerRow {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 14px;
+/* ── Unified net-bias gauge (semi-circular dial) ── */
+.gaugeWrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 12px;
+    padding: 0 8px;
 }
-.runnerCell {
+.gauge {
+    width: 100%;
+    max-width: 220px;
+    display: block;
+}
+.gaugeLabels {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
-    position: relative;
-    overflow: hidden;
-    min-height: 32px;
+    width: 100%;
+    max-width: 220px;
+    padding: 0 8px;
 }
-.runnerBar {
-    position: absolute;
-    left: 0;
-    top: 0;
-    height: 100%;
-    border-radius: 6px;
-    opacity: 0.18;
-    transition: width 0.35s ease;
-    z-index: 0;
-}
-.runnerCell > :not(.runnerBar) {
-    position: relative;
-    z-index: 1;
-}
-.rankLong .runnerBar { background: #22c55e; }
-.rankShort .runnerBar { background: #ef4444; }
-.rankHold .runnerBar { background: #f59e0b; }
-.runnerAction {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.10em;
+.gaugeShort {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    color: #ef4444;
 }
-.runnerPct {
-    font-size: 13px;
+.gaugeLong {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #22c55e;
+}
+.gaugeNet {
+    font-size: 14px;
     font-weight: 700;
     font-family: var(--mono, monospace);
 }
-.rankLong  .runnerAction { color: #22c55e; }
-.rankLong  .runnerPct    { color: #22c55e; }
-.rankShort .runnerAction { color: #ef4444; }
-.rankShort .runnerPct    { color: #ef4444; }
-.rankHold  .runnerAction { color: #f59e0b; }
-.rankHold  .runnerPct    { color: #f59e0b; }
+.gaugeNetLong  { color: #22c55e; }
+.gaugeNetShort { color: #ef4444; }
+.gaugeNetNeutral { color: rgba(255, 255, 255, 0.50); }
 
 /* ── Why (top-3 rationale list) ───────────────────────────────────────── */
 .why {

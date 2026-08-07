@@ -106,6 +106,8 @@ function signalDirection(text: string): 'bullish' | 'bearish' | 'neutral' {
   const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
   if (dir === 'bullish') return 'bullish';
   if (dir === 'bearish') return 'bearish';
+  if (/\bBULLISH\b/i.test(text)) return 'bullish';
+  if (/\bBEARISH\b/i.test(text)) return 'bearish';
   return 'neutral';
 }
 

@@ -43,23 +43,51 @@
         analysis,
     }));
 
-    // v7.0-prod: probability bars survive — they read the same rank as the
-    // L6 LayerHeader so the operator sees the three-arm split even when no
-    // opportunity matrix has loaded yet (the rank reduces to 33/33/33 in
-    // that case, which is exactly the contract expected by the empty state).
-    const runners = $derived.by((): { action: 'LONG' | 'SHORT' | 'HOLD'; prob: number }[] => {
-        const all = [
-            { action: 'LONG' as const, prob: rank.long.probability },
-            { action: 'SHORT' as const, prob: rank.short.probability },
-            { action: 'HOLD' as const, prob: rank.hold.probability },
+    // Directional bias bars — aggregate of all qualifying L4 opportunity
+    // profiles resolved by direction (LONG → Bullish, SHORT → Bearish).
+    // This is genuinely L4 data: "how strong are the bullish vs bearish
+    // setups right now?" Different from the Recommendation panel's
+    // decision-rank bars which additionally fold in risk, R:R,
+    // entry_danger, and a separate HOLD arm from L6 synthesis.
+    const directionBars = $derived.by((): { label: 'Bullish' | 'Bearish'; pct: number; color: string }[] => {
+        const profiles = opportunity?.profiles ?? [];
+        const qualifying = profiles.filter(
+            (p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity',
+        );
+        const macroBias = analysis?.bias ?? null;
+
+        let bullishScore = 0;
+        let bearishScore = 0;
+        for (const p of qualifying) {
+            const side = selectProfileSide(p, macroBias);
+            if (side === 'LONG') bullishScore += p.score;
+            else if (side === 'SHORT') bearishScore += p.score;
+        }
+
+        const total = bullishScore + bearishScore;
+        if (total <= 0) {
+            return [
+                { label: 'Bullish', pct: 50, color: '#22c55e' },
+                { label: 'Bearish', pct: 50, color: '#ef4444' },
+            ];
+        }
+
+        const MIN_PCT = 2;
+        let bullPct = Math.max(MIN_PCT, Math.round((bullishScore / total) * 100));
+        let bearPct = Math.max(MIN_PCT, Math.round((bearishScore / total) * 100));
+        const reSum = bullPct + bearPct;
+        bullPct = Math.round((bullPct / reSum) * 100);
+        bearPct = 100 - bullPct;
+
+        return [
+            { label: 'Bullish', pct: bullPct, color: '#22c55e' },
+            { label: 'Bearish', pct: bearPct, color: '#ef4444' },
         ];
-        return all.filter((r) => r.action !== rank.top).sort((a, b) => b.prob - a.prob);
     });
 
-    function rankBarClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
-        if (action === 'LONG') return styles.rankLong ?? '';
-        if (action === 'SHORT') return styles.rankShort ?? '';
-        return styles.rankHold ?? '';
+    function directionBarClass(label: 'Bullish' | 'Bearish'): string {
+        if (label === 'Bullish') return styles.dirBarBull ?? '';
+        return styles.dirBarBear ?? '';
     }
     const setups = $derived(computeSymmetricSetups({
         opportunity,
@@ -334,18 +362,14 @@
         {/snippet}
     </LayerHeader>
 
-    <!-- Probability bars survive — but restyled as a chip rail (LONG/SHORT/HOLD
-         per-action percentages) so they read as an extension of the meta chip
-         vocabulary rather than as a second header. Probability chips live
-         OUTSIDE the empty-state guard so the operator always sees the
-         three-arm probability split, even when no opportunity matrix has
-         loaded yet. -->
-    <div class={styles.runnerRow}>
-        {#each runners as r (r.action)}
-            <div class="{styles.runnerCell} {rankBarClass(r.action)}">
-                <div class={styles.runnerBar} style="width: {r.prob.toFixed(1)}%"></div>
-                <span class={styles.runnerAction}>{r.action}</span>
-                <span class={styles.runnerPct}>{r.prob}%</span>
+    <!-- Directional bias bars — raw market direction (Bullish/Bearish split).
+         Distinct from the Recommendation panel's LONG/SHORT/HOLD decision bars. -->
+    <div class={styles.dirBarRow}>
+        {#each directionBars as b (b.label)}
+            <div class="{styles.dirBarCell} {directionBarClass(b.label)}">
+                <div class={styles.dirBarFill} style="width: {b.pct.toFixed(1)}%"></div>
+                <span class={styles.dirBarLabel}>{b.label}</span>
+                <span class={styles.dirBarPct}>{b.pct}%</span>
             </div>
         {/each}
     </div>

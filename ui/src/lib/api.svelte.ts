@@ -211,6 +211,16 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         }
     }
 
+    const declaredKeys = new Set(symbols.map(s => {
+        const base = s.includes(':') ? s.split(':')[1] : s;
+        return app.pairKeyFor(base);
+    }));
+    for (const key of Object.keys(app.instancesMap)) {
+        if (!declaredKeys.has(key)) {
+            app.removeInstance(key);
+        }
+    }
+
     const firstSymbol = symbols.length > 0
         ? (symbols[0].includes(':') ? symbols[0].split(':')[1] : symbols[0])
         : '';

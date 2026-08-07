@@ -50,6 +50,7 @@
     const rows = $derived.by((): Row[] => {
         const out: Row[] = [];
         for (const [key, inst] of Object.entries(app.instancesMap)) {
+            if (!inst.instanceId) continue;
             const opp = inst.opportunity;
             const adv = inst.advisory;
             const analysis = inst.analysis;

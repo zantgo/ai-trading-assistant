@@ -139,18 +139,30 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     hold = clamp(0, 100, hold);
 
     // ── 3. Renormalize to sum to 100 (largest absorbs rounding residual) ──
+    let hadSignal = false;
     const sum = long + short + hold;
     if (sum <= 0) {
         long = 34;
         short = 33;
         hold = 33;
     } else {
+        hadSignal = true;
         const l = Math.round((long / sum) * 100);
         const sh = Math.round((short / sum) * 100);
         const h = 100 - l - sh;
         long = l;
         short = sh;
         hold = h;
+    }
+    if (hadSignal) {
+        const MIN_PCT = 2;
+        long = Math.max(long, MIN_PCT);
+        short = Math.max(short, MIN_PCT);
+        hold = Math.max(hold, MIN_PCT);
+        const reSum = long + short + hold;
+        long = Math.round((long / reSum) * 100);
+        short = Math.round((short / reSum) * 100);
+        hold = 100 - long - short;
     }
 
     // ── 4. Top action ─────────────────────────────────────────────────────

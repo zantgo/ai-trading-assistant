@@ -193,6 +193,7 @@ function seedPair(symbol: string, overrides: Partial<InstanceState> = {}) {
     const key = `${symbol}-USDT`;
     if (!app.instancesMap[key]) app.initInstance(symbol);
     const entry = app.instancesMap[key];
+    entry.instanceId = entry.instanceId || `inst_test_${symbol}`;
     Object.assign(entry, makeInstance(symbol, overrides));
     return entry;
 }
