@@ -91,16 +91,52 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     const supportingSignals = analysis?.supporting_signals ?? [];
     const contradictingSignals = analysis?.contradicting_signals ?? [];
 
+    // GEOMETRIC OFFSET: If the macro trend is neutral (score=0), inspect the top-scored
+    // latent setup using the top-level opportunity matrix zones as a fallback.
+    let directionalOffset = 0;
+    if (score === 0 && opportunity) {
+        const profiles = opportunity.profiles ?? [];
+        const qualifying = profiles.filter(
+            (p) => p.preconditions_met >= 0 && p.opportunity_type !== 'NoClearOpportunity'
+        );
+        if (qualifying.length > 0) {
+            const topProfile = [...qualifying].sort((a, b) => b.score - a.score)[0];
+
+            const hasLong = opportunity.long_entry_zone && opportunity.long_entry_zone.low > 0;
+            const hasShort = opportunity.short_entry_zone && opportunity.short_entry_zone.low > 0;
+
+            let resolvedSide: 'LONG' | 'SHORT' | 'NEUTRAL' = 'NEUTRAL';
+            if (hasLong && !hasShort) {
+                resolvedSide = 'LONG';
+            } else if (hasShort && !hasLong) {
+                resolvedSide = 'SHORT';
+            } else if (hasLong && hasShort) {
+                const longRr = opportunity.long_expected_rr_internal ?? 0;
+                const shortRr = opportunity.short_expected_rr_internal ?? 0;
+                resolvedSide = longRr >= shortRr ? 'LONG' : 'SHORT';
+            }
+
+            if (resolvedSide === 'LONG') {
+                directionalOffset = topProfile.score * 0.15;
+            } else if (resolvedSide === 'SHORT') {
+                directionalOffset = -topProfile.score * 0.15;
+            }
+        }
+    }
+
+    const effectiveScore = score !== 0 ? score : directionalOffset;
+    const effectiveConfidence = scoreConfidence || 0.5;
+
     // ── 1. Raw signal scores (each ∈ [0, 100]) ─────────────────────────────
     // bias × score-derivation: positive score → long, negative → short,
     // HOLD absorbs entries that the gate should close (entry_danger high,
     // STAND_ASIDE readiness).
-    const baseLong = clamp(0, 100, Math.max(0, score) * scoreConfidence);
-    const baseShort = clamp(0, 100, Math.max(0, -score) * scoreConfidence);
+    const baseLong = clamp(0, 100, Math.max(0, effectiveScore) * effectiveConfidence);
+    const baseShort = clamp(0, 100, Math.max(0, -effectiveScore) * effectiveConfidence);
     const baseHold = clamp(
         0,
         100,
-        (entryDanger / 100) * 50 + (readiness === 'WATCH' || readiness === 'STAND_ASIDE' ? 50 : 0),
+        (entryDanger / 100) * 50,
     );
 
     // ── 2. Bias / guidance / stance modulation ─────────────────────────────

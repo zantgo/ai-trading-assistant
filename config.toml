@@ -211,9 +211,9 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c9a748e9ae3905"
-symbol = "ZBT-USDT"
-quote = "USDT"
+id = "inst_18c9af862842c7d8"
+symbol = "BTC-USDC"
+quote = "USDC"
 initial_capital_usd = 1000.0
 status = "running"
 operational_mode = "advisory"
@@ -583,15 +583,15 @@ max_opposite_exit_signals = 5
 [workspace.instances.custom_pipelines]
 
 [[workspace.instances]]
-id = "inst_18c9a756b177ebbb"
-symbol = "TUT-USDT"
-quote = "USDT"
+id = "inst_18c9af9f213191cd"
+symbol = "ETH-USDC"
+quote = "USDC"
 initial_capital_usd = 1000.0
 status = "running"
 operational_mode = "advisory"
 
 [workspace.instances.micro_term.candles]
-duration_seconds = 3
+duration_seconds = 60
 
 [workspace.instances.micro_term.indicators]
 ema_fast = 10
@@ -680,7 +680,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.fast_term.candles]
-duration_seconds = 5
+duration_seconds = 180
 
 [workspace.instances.fast_term.indicators]
 ema_fast = 10
@@ -769,7 +769,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.slow_term.candles]
-duration_seconds = 15
+duration_seconds = 300
 
 [workspace.instances.slow_term.indicators]
 ema_fast = 10
@@ -858,7 +858,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.macro_term.candles]
-duration_seconds = 30
+duration_seconds = 900
 
 [workspace.instances.macro_term.indicators]
 ema_fast = 10

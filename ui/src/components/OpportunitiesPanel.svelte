@@ -52,14 +52,30 @@
     const directionBars = $derived.by((): { label: 'Bullish' | 'Bearish'; pct: number; color: string }[] => {
         const profiles = opportunity?.profiles ?? [];
         const qualifying = profiles.filter(
-            (p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity',
+            (p) => p.preconditions_met >= 0 && p.opportunity_type !== 'NoClearOpportunity',
         );
         const macroBias = analysis?.bias ?? null;
 
         let bullishScore = 0;
         let bearishScore = 0;
         for (const p of qualifying) {
-            const side = selectProfileSide(p, macroBias);
+            let side = selectProfileSide(p, macroBias);
+
+            if (side === 'NEUTRAL' && opportunity) {
+                const hasLongMatrix = opportunity.long_entry_zone && opportunity.long_entry_zone.low > 0;
+                const hasShortMatrix = opportunity.short_entry_zone && opportunity.short_entry_zone.low > 0;
+
+                if (hasLongMatrix && !hasShortMatrix) {
+                    side = 'LONG';
+                } else if (hasShortMatrix && !hasLongMatrix) {
+                    side = 'SHORT';
+                } else if (hasLongMatrix && hasShortMatrix) {
+                    const longRr = opportunity.long_expected_rr_internal ?? 0;
+                    const shortRr = opportunity.short_expected_rr_internal ?? 0;
+                    side = longRr >= shortRr ? 'LONG' : 'SHORT';
+                }
+            }
+
             if (side === 'LONG') bullishScore += p.score;
             else if (side === 'SHORT') bearishScore += p.score;
         }
