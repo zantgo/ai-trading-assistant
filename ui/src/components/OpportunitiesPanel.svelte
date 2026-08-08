@@ -9,6 +9,7 @@
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary } from '../lib/decisionRank';
+import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunityBars';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -43,67 +44,15 @@
         analysis,
     }));
 
-    // Directional bias bars — aggregate of all qualifying L4 opportunity
-    // profiles resolved by direction (LONG → Bullish, SHORT → Bearish).
-    // This is genuinely L4 data: "how strong are the bullish vs bearish
-    // setups right now?" Different from the Recommendation panel's
-    // decision-rank bars which additionally fold in risk, R:R,
-    // entry_danger, and a separate HOLD arm from L6 synthesis.
-    const directionBars = $derived.by((): { label: 'Bullish' | 'Bearish'; pct: number; color: string }[] => {
-        const profiles = opportunity?.profiles ?? [];
-        const qualifying = profiles.filter(
-            (p) => p.preconditions_met >= 0 && p.opportunity_type !== 'NoClearOpportunity',
-        );
-        const macroBias = analysis?.bias ?? null;
+    // Directional conviction bars — normalized from the top-level opportunity
+    // matrix R:R values and capped by opportunity_score so the remaining
+    // uncertainty remains visible as a Hold / Uncertain band.
+    const directionBars = $derived.by((): DirectionalBars => computeOpportunityBars(opportunity));
 
-        let bullishScore = 0;
-        let bearishScore = 0;
-        for (const p of qualifying) {
-            let side = selectProfileSide(p, macroBias);
-
-            if (side === 'NEUTRAL' && opportunity) {
-                const hasLongMatrix = opportunity.long_entry_zone && opportunity.long_entry_zone.low > 0;
-                const hasShortMatrix = opportunity.short_entry_zone && opportunity.short_entry_zone.low > 0;
-
-                if (hasLongMatrix && !hasShortMatrix) {
-                    side = 'LONG';
-                } else if (hasShortMatrix && !hasLongMatrix) {
-                    side = 'SHORT';
-                } else if (hasLongMatrix && hasShortMatrix) {
-                    const longRr = opportunity.long_expected_rr_internal ?? 0;
-                    const shortRr = opportunity.short_expected_rr_internal ?? 0;
-                    side = longRr >= shortRr ? 'LONG' : 'SHORT';
-                }
-            }
-
-            if (side === 'LONG') bullishScore += p.score;
-            else if (side === 'SHORT') bearishScore += p.score;
-        }
-
-        const total = bullishScore + bearishScore;
-        if (total <= 0) {
-            return [
-                { label: 'Bullish', pct: 50, color: '#22c55e' },
-                { label: 'Bearish', pct: 50, color: '#ef4444' },
-            ];
-        }
-
-        const MIN_PCT = 2;
-        let bullPct = Math.max(MIN_PCT, Math.round((bullishScore / total) * 100));
-        let bearPct = Math.max(MIN_PCT, Math.round((bearishScore / total) * 100));
-        const reSum = bullPct + bearPct;
-        bullPct = Math.round((bullPct / reSum) * 100);
-        bearPct = 100 - bullPct;
-
-        return [
-            { label: 'Bullish', pct: bullPct, color: '#22c55e' },
-            { label: 'Bearish', pct: bearPct, color: '#ef4444' },
-        ];
-    });
-
-    function directionBarClass(label: 'Bullish' | 'Bearish'): string {
+    function directionBarClass(label: 'Bullish' | 'Bearish' | 'Hold'): string {
         if (label === 'Bullish') return styles.dirBarBull ?? '';
-        return styles.dirBarBear ?? '';
+        if (label === 'Bearish') return styles.dirBarBear ?? '';
+        return styles.dirBarHold ?? '';
     }
     const setups = $derived(computeSymmetricSetups({
         opportunity,
@@ -378,16 +327,26 @@
         {/snippet}
     </LayerHeader>
 
-    <!-- Directional bias bars — raw market direction (Bullish/Bearish split).
-         Distinct from the Recommendation panel's LONG/SHORT/HOLD decision bars. -->
+    <!-- Directional conviction bars — normalized from the top-level opportunity
+         matrix R:R values and capped by opportunity_score. -->
     <div class={styles.dirBarRow}>
-        {#each directionBars as b (b.label)}
-            <div class="{styles.dirBarCell} {directionBarClass(b.label)}">
-                <div class={styles.dirBarFill} style="width: {b.pct.toFixed(1)}%"></div>
-                <span class={styles.dirBarLabel}>{b.label}</span>
-                <span class={styles.dirBarPct}>{b.pct}%</span>
+        <div class="{styles.dirBarCell} {directionBarClass('Bullish')}">
+            <div class={styles.dirBarFill} style="width: {directionBars.bullish.toFixed(1)}%"></div>
+            <span class={styles.dirBarLabel}>Bullish</span>
+            <span class={styles.dirBarPct}>{directionBars.bullish}%</span>
+        </div>
+        <div class="{styles.dirBarCell} {directionBarClass('Bearish')}">
+            <div class={styles.dirBarFill} style="width: {directionBars.bearish.toFixed(1)}%"></div>
+            <span class={styles.dirBarLabel}>Bearish</span>
+            <span class={styles.dirBarPct}>{directionBars.bearish}%</span>
+        </div>
+        {#if directionBars.hold > 5}
+            <div class="{styles.dirBarCell} {directionBarClass('Hold')}">
+                <div class={styles.dirBarFill} style="width: {directionBars.hold.toFixed(1)}%"></div>
+                <span class={styles.dirBarLabel}>Hold / Uncertain</span>
+                <span class={styles.dirBarPct}>{directionBars.hold}%</span>
             </div>
-        {/each}
+        {/if}
     </div>
 
     <div class={styles.section}>

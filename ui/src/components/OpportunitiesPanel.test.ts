@@ -209,6 +209,66 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         expect(screen.getByText('TOP · ACTIONABLE')).toBeTruthy();
     });
 
+    it('renders directional conviction bars with a visible Hold / Uncertain portion', () => {
+        const opp = makeOpportunity() as any;
+        opp.profiles = [
+            {
+                opportunity_type: 'TrendContinuation',
+                score: 54,
+                preconditions_met: 3,
+                preconditions_total: 3,
+                notes: 'Single bullish setup',
+                direction_family: 'TrendRiding',
+                long_entry_zone: { low: 63000, high: 63200 },
+                long_target_zone: { low: 65000, high: 65500 },
+                long_invalidation_level: 62400,
+                long_expected_rr_internal: 1.5,
+                short_entry_zone: null,
+                short_target_zone: null,
+                short_invalidation_level: null,
+                short_expected_rr_internal: null,
+                trade_viability: 'Actionable',
+            },
+        ];
+        opp.long_entry_zone = { low: 63000, high: 63200 };
+        opp.short_entry_zone = null;
+        opp.short_target_zone = null;
+        opp.short_invalidation_level = null;
+        opp.short_expected_rr_internal = 0;
+        opp.long_expected_rr_internal = 1.5;
+        opp.opportunity_score = 78;
+
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        const bullishCell = screen.getAllByText('Bullish')[0].closest('div');
+        const bearishCell = screen.getAllByText('Bearish')[0].closest('div');
+        const bullishFill = bullishCell?.querySelector('div');
+        const bearishFill = bearishCell?.querySelector('div');
+
+        expect(screen.getByText('Hold / Uncertain')).toBeTruthy();
+        expect(bullishFill?.getAttribute('style')).toMatch(/width: 7[0-9]%/);
+        expect(bearishFill?.getAttribute('style')).toContain('width: 1%');
+    });
+
+    it('renders 100% Hold when no qualifying setups exist', () => {
+        const opp = makeOpportunity() as any;
+        opp.profiles = [];
+        opp.primary_opportunity = 'NoClearOpportunity';
+        opp.opportunity_score = 0;
+        opp.setup_quality = 'None';
+        opp.long_expected_rr_internal = 0;
+        opp.short_expected_rr_internal = 0;
+
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        expect(screen.getByText('Hold / Uncertain')).toBeTruthy();
+        const holdCell = screen.getByText('Hold / Uncertain').closest('div');
+        const holdFill = holdCell?.querySelector('div');
+        expect(holdFill?.getAttribute('style')).toContain('width: 100%');
+    });
+
     it('reads ENTRY mid from the per-profile long_entry_zone (not aggregated)', () => {
         seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
