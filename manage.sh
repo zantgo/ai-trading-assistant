@@ -131,7 +131,10 @@ stop_instance() {
         PORT_PID=$(lsof -t -i:3000 || true)
         if [ -n "$PORT_PID" ]; then
             echo "🛑 Found engine running on port 3000 (PID: $PORT_PID). Stopping..."
-            kill "$PORT_PID"
+            # `lsof -t` may return multiple PIDs separated by newlines; expand them so
+            # `kill` receives each PID as a separate argument instead of a single
+            # newline-containing string which `kill` would reject.
+            kill $PORT_PID
             echo "✅ Engine stopped."
         else
             echo "ℹ️  No running instances detected."

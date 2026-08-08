@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '../state.svelte';
+import { applyConfigToStore } from '../lib/api.svelte';
 
 describe('TEST-UI: Global State Runes', () => {
     let app: ReturnType<typeof useAppStore>;
@@ -44,6 +45,31 @@ describe('TEST-UI: Global State Runes', () => {
         expect(app.instancesMap['BTC-USDT'].symbol).toBe('BTC');
         expect(app.instancesMap['BTC-USDT'].exchange).toBe('Hyperliquid');
         expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('--');
+    });
+
+    it('should preserve full unified symbol config entries when session currency differs', () => {
+        const originalCurrency = app.sessionCurrency;
+        for (const key of Object.keys(app.instancesMap)) {
+            app.removeInstance(key);
+        }
+        app.sessionCurrency = 'USDC';
+
+        const result = applyConfigToStore(app, {
+            api_key_configured: true,
+            symbols: ['BTC-USDT'],
+            instances: {},
+            candles: { duration_seconds: 60, analysis_limit: 100 },
+            indicators: {},
+            indicator_registry: [],
+        } as any);
+
+        expect(result.firstPairKey).toBe('BTC-USDT');
+        expect(app.instancesMap['BTC-USDT']).toBeDefined();
+        expect(app.instancesMap['BTC-USDT'].symbol).toBe('BTC-USDT');
+        expect(app.instancesMap['BTC-USDC']).toBeUndefined();
+
+        app.removeInstance('BTC-USDT');
+        app.sessionCurrency = originalCurrency;
     });
 
     it('should route snapshot data by exchange key to correct pair', () => {

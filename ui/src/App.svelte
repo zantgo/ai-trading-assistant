@@ -293,8 +293,8 @@
     async function fetchConfig() {
         try {
             const config = await fetchConfigFromServer();
-            const { firstSymbol } = applyConfigToStore(app, config);
-            if (firstSymbol) app.activeTab = app.pairKeyFor(firstSymbol);
+            const { firstPairKey } = applyConfigToStore(app, config);
+            if (firstPairKey) app.activeTab = firstPairKey;
             await syncInstanceIdsFromList(app);
             for (const key of Object.keys(app.instancesMap)) {
                 if (!app.instancesMap[key].instanceId) {

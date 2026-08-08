@@ -52,7 +52,15 @@ export async function saveIntervalsConfigCall(slowSecs: number, normalSecs: numb
 // ─── Config application logic ──────────────────────────────────────────────
 
 export interface ApplyConfigResult {
-    firstSymbol: string;
+    firstPairKey: string;
+}
+
+function declaredSymbol(rawSymbol: string): string {
+    return rawSymbol.includes(':') ? rawSymbol.split(':')[1] : rawSymbol;
+}
+
+function pairKeyFromDeclaredSymbol(app: AppStore, symbol: string): string {
+    return symbol.includes('-') ? symbol : app.pairKeyFor(symbol);
 }
 
 /** Applies config from the server to the AppStore. Returns data needed for component-local state. */
@@ -67,11 +75,11 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     const symbols: string[] = (config.symbols as string[]) || ['BTC'];
 
     for (const item of symbols) {
-        const baseSymbol = item.includes(':') ? item.split(':')[1] : item;
-        const pairKey = app.pairKeyFor(baseSymbol);
+        const declared = declaredSymbol(item);
+        const pairKey = pairKeyFromDeclaredSymbol(app, declared);
         const existing = !!app.instancesMap[pairKey];
         if (!existing) {
-            app.initInstance(baseSymbol);
+            app.initInstance(declared);
         }
 
         const specific = pairConfigs[pairKey];
@@ -212,8 +220,8 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     }
 
     const declaredKeys = new Set(symbols.map(s => {
-        const base = s.includes(':') ? s.split(':')[1] : s;
-        return app.pairKeyFor(base);
+        const declared = declaredSymbol(s);
+        return pairKeyFromDeclaredSymbol(app, declared);
     }));
     for (const key of Object.keys(app.instancesMap)) {
         if (!declaredKeys.has(key)) {
@@ -221,11 +229,10 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         }
     }
 
-    const firstSymbol = symbols.length > 0
-        ? (symbols[0].includes(':') ? symbols[0].split(':')[1] : symbols[0])
-        : '';
+    const firstDeclared = symbols.length > 0 ? declaredSymbol(symbols[0]) : '';
+    const firstPairKey = firstDeclared ? pairKeyFromDeclaredSymbol(app, firstDeclared) : '';
 
-    return { firstSymbol };
+    return { firstPairKey };
 }
 
 // ─── Apply settings API ────────────────────────────────────────────────────

@@ -399,8 +399,8 @@ export class AppStore {
 
     // ─── Quote-asset abstraction ─────────────────────────────────────
     get quote(): string { return this.sessionCurrency || 'USDT'; }
-    pairKeyFor(symbol: string): string { return `${symbol}-${this.quote}`; }
-    pairDisplayFor(symbol: string): string { return `${symbol}/${this.quote}`; }
+    pairKeyFor(symbol: string): string { return symbol.includes('-') ? symbol : `${symbol}-${this.quote}`; }
+    pairDisplayFor(symbol: string): string { return symbol.includes('-') ? symbol.replace('-', '/') : `${symbol}/${this.quote}`; }
 
     initInstance(symbol: string, _exchange?: string, instanceId?: string) {
         const key = this.pairKeyFor(symbol);
