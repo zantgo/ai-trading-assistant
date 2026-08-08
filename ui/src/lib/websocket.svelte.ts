@@ -305,7 +305,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         tf.context = snapshot.context;
     }
 
-    const mid = num(snapshot.mid_price);
+    const mid = num(snapshot.mid_price) ?? num(snapshot.close) ?? num(snapshot.mark_price);
     if (mid != null) tf.priceText = mid.toFixed(getDecimalCount(mid));
     const vol = num(snapshot.volume);
     if (vol != null) tf.volText = vol.toFixed(2);

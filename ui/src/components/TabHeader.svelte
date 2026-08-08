@@ -30,8 +30,9 @@
             return;
         }
 
-        app.initInstance(symbol);
-        app.activeTab = app.pairKeyFor(symbol);
+        const pairKey = app.pairKeyFor(symbol);
+        app.initInstance(symbol, undefined, result.instanceId);
+        app.enterInstance(pairKey);
         newPairInput = '';
         showAddInput = false;
     }

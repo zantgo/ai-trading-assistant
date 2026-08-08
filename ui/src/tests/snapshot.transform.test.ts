@@ -100,6 +100,36 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(iRaw(m, 'rvol')).toBe(1.25);
     });
 
+    it('falls back to close and mark_price when mid_price is absent', () => {
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_secs: 60,
+            is_completed: true,
+            close: '65010.25',
+            mark_price: '65012.50',
+            indicators: {
+                rsi: { raw_value: 50.0, normalized: 0.0, state_label: 'NEUTRAL' },
+            },
+        }), 'BTC-USDT');
+
+        expect(tf.priceText).toBe('65010.3');
+
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_secs: 60,
+            is_completed: true,
+            close: null,
+            mark_price: '65012.50',
+            indicators: {
+                rsi: { raw_value: 50.0, normalized: 0.0, state_label: 'NEUTRAL' },
+            },
+        }), 'BTC-USDT');
+
+        expect(tf.priceText).toBe('65012.5');
+    });
+
     it('renders the backend state_label verbatim (no client re-derivation)', () => {
         const tf = app.instancesMap['BTC-USDT'].microTerm;
         applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');

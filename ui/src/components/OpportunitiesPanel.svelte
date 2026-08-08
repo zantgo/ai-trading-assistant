@@ -46,14 +46,16 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
 
     // Directional conviction bars — normalized from the top-level opportunity
     // matrix R:R values and capped by opportunity_score so the remaining
-    // uncertainty remains visible as a Hold / Uncertain band.
+    // uncertainty remains visible as a Hold buffer.
     const directionBars = $derived.by((): DirectionalBars => computeOpportunityBars(opportunity));
+    const sortedBars = $derived.by(() => [
+        { id: 'bullish', label: 'BULLISH', value: directionBars.bullish, cls: 'bullish' },
+        { id: 'bearish', label: 'BEARISH', value: directionBars.bearish, cls: 'bearish' },
+        { id: 'hold', label: 'HOLD', value: directionBars.hold, cls: 'hold' },
+    ]
+        .filter((b) => b.value > 0)
+        .sort((a, b) => b.value - a.value));
 
-    function directionBarClass(label: 'Bullish' | 'Bearish' | 'Hold'): string {
-        if (label === 'Bullish') return styles.dirBarBull ?? '';
-        if (label === 'Bearish') return styles.dirBarBear ?? '';
-        return styles.dirBarHold ?? '';
-    }
     const setups = $derived(computeSymmetricSetups({
         opportunity,
         markPrice,
@@ -330,23 +332,13 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     <!-- Directional conviction bars — normalized from the top-level opportunity
          matrix R:R values and capped by opportunity_score. -->
     <div class={styles.dirBarRow}>
-        <div class="{styles.dirBarCell} {directionBarClass('Bullish')}">
-            <div class={styles.dirBarFill} style="width: {directionBars.bullish.toFixed(1)}%"></div>
-            <span class={styles.dirBarLabel}>Bullish</span>
-            <span class={styles.dirBarPct}>{directionBars.bullish}%</span>
-        </div>
-        <div class="{styles.dirBarCell} {directionBarClass('Bearish')}">
-            <div class={styles.dirBarFill} style="width: {directionBars.bearish.toFixed(1)}%"></div>
-            <span class={styles.dirBarLabel}>Bearish</span>
-            <span class={styles.dirBarPct}>{directionBars.bearish}%</span>
-        </div>
-        {#if directionBars.hold > 5}
-            <div class="{styles.dirBarCell} {directionBarClass('Hold')}">
-                <div class={styles.dirBarFill} style="width: {directionBars.hold.toFixed(1)}%"></div>
-                <span class={styles.dirBarLabel}>Hold / Uncertain</span>
-                <span class={styles.dirBarPct}>{directionBars.hold}%</span>
+        {#each sortedBars as bar (bar.id)}
+            <div class={styles.dirBarCell}>
+                <div class="{styles.dirBarFill} {styles[bar.cls]}" style="width: {bar.value.toFixed(1)}%"></div>
+                <span class={styles.dirBarLabel}>{bar.label}</span>
+                <span class={styles.dirBarPct}>{bar.value}%</span>
             </div>
-        {/if}
+        {/each}
     </div>
 
     <div class={styles.section}>

@@ -209,7 +209,7 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         expect(screen.getByText('TOP · ACTIONABLE')).toBeTruthy();
     });
 
-    it('renders directional conviction bars with a visible Hold / Uncertain portion', () => {
+    it('renders directional conviction bars with a visible Hold portion', () => {
         const opp = makeOpportunity() as any;
         opp.profiles = [
             {
@@ -241,12 +241,12 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
 
-        const bullishCell = screen.getAllByText('Bullish')[0].closest('div');
-        const bearishCell = screen.getAllByText('Bearish')[0].closest('div');
+        const bullishCell = screen.getAllByText('BULLISH')[0].closest('div');
+        const bearishCell = screen.getAllByText('BEARISH')[0].closest('div');
         const bullishFill = bullishCell?.querySelector('div');
         const bearishFill = bearishCell?.querySelector('div');
 
-        expect(screen.getByText('Hold / Uncertain')).toBeTruthy();
+        expect(screen.getByText('HOLD')).toBeTruthy();
         expect(bullishFill?.getAttribute('style')).toMatch(/width: 7[0-9]%/);
         expect(bearishFill?.getAttribute('style')).toContain('width: 1%');
     });
@@ -263,8 +263,8 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
 
-        expect(screen.getByText('Hold / Uncertain')).toBeTruthy();
-        const holdCell = screen.getByText('Hold / Uncertain').closest('div');
+        expect(screen.getByText('HOLD')).toBeTruthy();
+        const holdCell = screen.getByText('HOLD').closest('div');
         const holdFill = holdCell?.querySelector('div');
         expect(holdFill?.getAttribute('style')).toContain('width: 100%');
     });

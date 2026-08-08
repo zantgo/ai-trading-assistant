@@ -290,7 +290,10 @@
 }
 .dirBarBull .dirBarFill { background: #22c55e; }
 .dirBarBear .dirBarFill { background: #ef4444; }
-.dirBarHold .dirBarFill { background: #f59e0b; }
+.dirBarFill.bullish { background: #22c55e; }
+.dirBarFill.bearish { background: #ef4444; }
+.dirBarFill.hold { background: rgba(245, 158, 11, 0.35); }
+.hold { color: #f59e0b; }
 .dirBarLabel {
     font-size: 10px;
     font-weight: 800;
@@ -302,8 +305,6 @@
     font-weight: 700;
     font-family: var(--mono, monospace);
 }
-.dirBarHold .dirBarLabel { color: #f59e0b; }
-.dirBarHold .dirBarPct   { color: #f59e0b; }
 .dirBarBull .dirBarLabel { color: #22c55e; }
 .dirBarBull .dirBarPct   { color: #22c55e; }
 .dirBarBear .dirBarLabel { color: #ef4444; }

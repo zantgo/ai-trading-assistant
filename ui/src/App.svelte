@@ -38,6 +38,7 @@
     // ─────────────────────────────────────────────────────────────────
 
     let configReady = $state(false);
+    let pendingSessionConfigRefresh = $state(false);
     let isSidebarOpen = $state(false);
     let isWorkspacePanelOpen = $state(false);
     let showQuitDialog = $state(false);
@@ -282,6 +283,12 @@
         }
     });
 
+    $effect(() => {
+        if (!pendingSessionConfigRefresh || !app.sessionActive) return;
+        pendingSessionConfigRefresh = false;
+        void fetchConfig();
+    });
+
     // ─── Config & lifecycle ────────────────────────────────────────────
     async function fetchConfig() {
         try {
@@ -305,6 +312,9 @@
     onMount(async () => {
         await app.fetchSessionStatus();
         await fetchConfig();
+        if (!app.sessionActive) {
+            pendingSessionConfigRefresh = true;
+        }
         // Start the L7 OverviewMatrix polling loop. The GeneralDashboard
         // depends on `app.overviewMatrix` for the system-wide Roll-up
         // cards (risk_distribution, asset_ranking, regime_distribution,
