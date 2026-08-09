@@ -106,12 +106,16 @@ fn build_realistic_snapshot() -> MarketSnapshot {
 
     let decision = DecisionContext {
         score: 45.0,
-        bias: "BULLISH".into(),
+        bias: "Bullish".into(),
         score_confidence: 0.68,
         entry_danger: core_domain::risk::RiskDimension::from_score(35.0),
         expected_reward_risk_ratio: 2.1,
         trade_readiness: "WATCH".into(),
         contributing_indicators: vec!["rsi".into(), "macd".into(), "adx".into()],
+        long_probability: 0.0,
+        short_probability: 0.0,
+        hold_probability: 0.0,
+        net_bias_pct: 0.0,
     };
 
     MarketSnapshot {

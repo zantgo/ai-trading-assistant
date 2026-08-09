@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.11 (2026-08-08) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -43,6 +43,8 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; the prior L4/Decision and Position Matrix spellings were unified to the canonical `invalidation_level` in v2.1 — retired names recorded in `docs/CHANGELOG.md`.)* |
 | `long_expected_rr_internal` | `f64` | Per-direction R:R for a long setup, derived from `long_target_zone`, `long_entry_zone`, and `long_invalidation_level`. The active side is resolved by `analysis.bias`; the legacy matrix-level `expected_rr_internal` was removed in v6.9. |
 | `short_expected_rr_internal` | `f64` | Per-direction R:R for a short setup, derived from `short_target_zone`, `short_entry_zone`, and `short_invalidation_level`. |
+| `long_geometry_consistent` | `bool` | Server-side flag for the matrix-level LONG bracket (`true` when the §2.2.2 invariants hold). |
+| `short_geometry_consistent` | `bool` | Server-side flag for the matrix-level SHORT bracket. |
 | `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION`. The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
 
 #### 2.1.1 PriceRange
@@ -83,6 +85,8 @@ The cadence is implemented as a debounced scheduler on the L6 Decision Layer (se
 | `short_invalidation_level` | `f64 \| null` | SHORT-side invalidation (price above which the short thesis is invalidated). |
 | `long_expected_rr_internal` | `f64 \| null` | Per-side R:R derived from the per-profile zones (faithful sign-aware R:R; never the legacy `2.5` mask). |
 | `short_expected_rr_internal` | `f64 \| null` | Same, for the SHORT side. |
+| `long_geometry_consistent` | `bool` | Server-side flag: `true` when the LONG bracket satisfies the §2.2.2 invariants (`invalidation_level < entry_zone.low` AND `target_zone.low > entry_zone.high`). Defaults to `false` when zones are absent or geometry is inverted. |
+| `short_geometry_consistent` | `bool` | Server-side flag for the SHORT bracket. |
 
 #### 2.2.1 DirectionFamily
 
@@ -102,6 +106,22 @@ For every populated per-side zone the L4 producer enforces the same per-side inv
 - `SHORT`: `invalidation_level > entry_zone.high` AND `target_zone.high < entry_zone.low`.
 
 If the confluent pick violates the invariant, the L4 producer falls back to the directional ATR-only bracket; if even the ATR fallback can't satisfy the invariant (e.g. fresh symbol with no historical candles), the profile emits `null` for every zone and the consumer falls back to the aggregated `long_* / short_*` fields.
+
+The server-side `long_geometry_consistent` / `short_geometry_consistent` flags are computed from the same per-side `compute_side_rr_v2()` status that the `trade_viability` badge uses. The frontend prefers these flags over local re-computation.
+
+**Geometry examples (correct):**
+
+| Side | Entry zone | Target zone | Invalidation | Valid? |
+|------|-----------|-------------|--------------|--------|
+| LONG | $62,000–$62,500 (below close) | $64,000–$65,000 (above entry) | $61,500 (< entry.low) | Yes |
+| SHORT | $66,000–$66,500 (above close) | $62,000–$63,000 (below entry) | $67,000 (> entry.high) | Yes |
+
+**Geometry examples (inverted):**
+
+| Side | Entry zone | Target zone | Problem |
+|------|-----------|-------------|---------|
+| SHORT | $62,000–$62,500 (below close) | $64,000–$65,000 (above close) | Entry below target — would require price to rise for profit |
+| LONG | $66,000–$66,500 (above close) | $62,000–$63,000 (below close) | Entry above target — would require price to fall for profit |
 
 ### 2.3 Cross-panel consistency contract
 

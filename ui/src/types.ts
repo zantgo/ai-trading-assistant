@@ -490,8 +490,8 @@ export interface AdvisoryMatrix {
 export interface DecisionContext {
     /** Confluence score in [-100, +100]. */
     score: number;
-    /** Directional bias: "BULLISH" | "BEARISH" | "NEUTRAL". */
-    bias: string;
+    /** Directional bias (same PascalCase as AnalysisMatrix.bias). */
+    bias: MarketBias;
     /** Confidence in [0.0, 1.0]. */
     confidence: number;
     /** Score-band confidence in [0.0, 1.0]. */
@@ -510,6 +510,14 @@ export interface DecisionContext {
     trade_readiness: string;
     /** Indicators that contributed to the decision. */
     contributing_indicators: string[];
+    /** Long-side normalized probability (0–100, integer). Source of truth for the "X% long" display. */
+    long_probability?: number;
+    /** Short-side normalized probability (0–100, integer). */
+    short_probability?: number;
+    /** Hold (no-position) normalized probability (0–100, integer). */
+    hold_probability?: number;
+    /** Net directional bias (long − short) in percentage points, range [-100, +100]. */
+    net_bias_pct?: number;
 }
 
 // ── Overview Matrix (global market synthesis — 9 components) ──
@@ -1178,6 +1186,10 @@ export interface OpportunityProfile {
     short_expected_rr_internal: number | null;
     /** Trade viability classification. `null` on legacy payloads. */
     trade_viability: TradeViability | null;
+    /** Server-side geometry-consistency for the LONG side. */
+    long_geometry_consistent?: boolean;
+    /** Server-side geometry-consistency for the SHORT side. */
+    short_geometry_consistent?: boolean;
 }
 
 export interface OpportunityMatrix {
@@ -1206,4 +1218,8 @@ export interface OpportunityMatrix {
     confluent_entry_levels: ConfluentLevel[];
     confluent_target_levels: ConfluentLevel[];
     confluent_invalidation_levels: ConfluentLevel[];
+    /** Server-side geometry-consistency for the LONG side at matrix level. */
+    long_geometry_consistent?: boolean;
+    /** Server-side geometry-consistency for the SHORT side at matrix level. */
+    short_geometry_consistent?: boolean;
 }

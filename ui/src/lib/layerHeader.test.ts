@@ -172,7 +172,7 @@ function riskMatrixStub(overall: RiskDimension): RiskMatrix {
 function decisionCtxStub(overrides: Partial<DecisionContext> = {}): DecisionContext {
     return {
         score: 30,
-        bias: 'BULLISH',
+        bias: 'Bullish',
         confidence: 0.7,
         score_confidence: 0.7,
         entry_danger: riskStub({ score: 30 }),
@@ -474,7 +474,7 @@ describe('buildL5RiskHeader (L5)', () => {
 
 describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
     it('LONG verdict renders LONG badge in green', () => {
-        const decision = decisionCtxStub({ score: 75, bias: 'BULLISH', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
+        const decision = decisionCtxStub({ score: 75, bias: 'Bullish', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
         const advisory = advisoryStub({ directional_guidance: 'Long', market_stance: 'Constructive' });
         const rank = { top: 'LONG' as const, headline: { state: 'READY' as const, confidence_pct: 80 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
@@ -494,7 +494,7 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
     it('L3 AnalysisPanel.bias is NOT consumed (regression: L3 leak fix)', () => {
         // Seed rank resolves to HOLD. Even if analysis.bias = Bullish,
         // the L6 badge never reads the L3 input.
-        const decision = decisionCtxStub({ score: 0, bias: 'NEUTRAL', trade_readiness: 'FORMING', expected_reward_risk_ratio: 0 });
+        const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'FORMING', expected_reward_risk_ratio: 0 });
         const advisory = advisoryStub({ directional_guidance: 'Neutral', market_stance: 'Neutral' });
         const rank = { top: 'HOLD' as const, headline: { state: 'FORMING' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
@@ -507,7 +507,7 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
     });
 
     it('HOLD/STAND_ASIDE renders the R:R chip as "N/A" (no misleading 0.00)', () => {
-        const decision = decisionCtxStub({ score: 0, bias: 'NEUTRAL', trade_readiness: 'WATCH', expected_reward_risk_ratio: 0 });
+        const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 0 });
         const advisory = advisoryStub({ directional_guidance: 'Neutral' });
         const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
@@ -684,14 +684,14 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
     });
 
     it('L6 (LONG → green)', () => {
-        const decision = decisionCtxStub({ score: 75, bias: 'BULLISH', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
+        const decision = decisionCtxStub({ score: 75, bias: 'Bullish', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
         const advisory = advisoryStub({ directional_guidance: 'Long', market_stance: 'Constructive' });
         const rank = { top: 'LONG' as const, headline: { state: 'READY' as const, confidence_pct: 80 } };
         assertVocabulary(buildL6DecisionHeader({ rank, decisionContext: decision, advisory }));
     });
 
     it('L6 (SHORT → red)', () => {
-        const decision = decisionCtxStub({ score: -75, bias: 'BEARISH', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
+        const decision = decisionCtxStub({ score: -75, bias: 'Bearish', trade_readiness: 'READY', expected_reward_risk_ratio: 2.0 });
         const advisory = advisoryStub({ directional_guidance: 'Short', market_stance: 'Cautious' });
         const rank = { top: 'SHORT' as const, headline: { state: 'READY' as const, confidence_pct: 80 } };
         assertVocabulary(buildL6DecisionHeader({ rank, decisionContext: decision, advisory }));

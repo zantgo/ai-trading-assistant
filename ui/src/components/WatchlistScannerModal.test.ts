@@ -46,7 +46,7 @@ function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
 function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
     return {
         score: 75,
-        bias: 'BULLISH',
+        bias: 'Bullish',
         confidence: 0.7,
         score_confidence: 0.7,
         entry_danger: 25,

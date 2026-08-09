@@ -111,7 +111,7 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
         const macroBias = analysis?.bias ?? null;
         const out: ActiveSetup[] = [];
         qualifying.forEach((p, idx) => {
-            const s = profileSummary(p, opportunity, analysis);
+            const s = profileSummary(p, opportunity, analysis, decisionContext);
             // Even when zones are null we still emit a card — the
             // operator sees the viability tag and the missing-zone
             // indicator (we render `—` for empty zones).

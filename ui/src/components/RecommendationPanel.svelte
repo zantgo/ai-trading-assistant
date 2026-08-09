@@ -171,7 +171,7 @@
     // aggregated primary bracket so even Neutral-family profiles
     // surface a usable price level. R:R prefers the wire's per-side
     // `expected_rr_internal` over the geometric computation.
-    const topSetup = $derived(topSetupSummary(opportunity, analysis));
+    const topSetup = $derived(topSetupSummary(opportunity, analysis, decisionCtx));
     const hasNoClearSetup = $derived(
         topSetup === null
             && !!opportunity

@@ -268,6 +268,16 @@ pub struct OpportunityProfile {
     /// payloads — UI should treat `None` as `NoClear`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trade_viability: Option<TradeViability>,
+    /// Server-side geometry-consistency flag for the LONG side. `true` when
+    /// `long_invalidation_level < long_entry_zone.low` AND
+    /// `long_target_zone.low > long_entry_zone.high` (L4 invariant).
+    /// Computed from the same per-side R:R check the `trade_viability`
+    /// badge uses. Defaults to `false` (no zones).
+    #[serde(default)]
+    pub long_geometry_consistent: bool,
+    /// Server-side geometry-consistency flag for the SHORT side.
+    #[serde(default)]
+    pub short_geometry_consistent: bool,
     /// Internal-only scoring factors (raw blend, precondition ratio).
     /// NEVER serialised on the wire — operators don't see these. Kept in
     /// the Rust struct for telemetry consumers that read profiles

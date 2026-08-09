@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.11 (2026-08-08) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -60,6 +60,10 @@ The Decision Matrix is realized by two complementary structures:
 | `bias` | `MarketBias` (5-state) | `STRONG_BULLISH` / `BULLISH` / `NEUTRAL` / `BEARISH` / `STRONG_BEARISH`. **Same 5-state vocabulary as `Analysis.bias`** — no 3-state collapse is applied. |
 | `score_confidence` | `f64` | `[0, 1]` derived from `|score| / 100`. *(Renamed from `confidence` in the institutional redesign; see [02-00b-confidence-hierarchy.md](02-00b-confidence-hierarchy.md).)* |
 | `contributing_indicators` | `string[]` | Indicators driving the decision. |
+| `long_probability` | `f64` | **Canonical source of truth.** Long-side normalized probability (0–100, integer). Sums to 100 with `short_probability` + `hold_probability`. Computed server-side from the signed confluence score modulated by directional guidance, market stance, and R:R — see §2.4 for the derivation formula. |
+| `short_probability` | `f64` | Short-side normalized probability (0–100, integer). |
+| `hold_probability` | `f64` | Hold (no-position) normalized probability (0–100, integer). |
+| `net_bias_pct` | `f64` | Net directional bias in percentage points (`long − short`), range `[−100, +100]`. Positive = net long-leaning, negative = net short-leaning. |
 
 ### 2.3 `confluence_score` formula (canonical)
 
@@ -74,6 +78,32 @@ decision_context.score = 0.50 · alignment.tradability_dim
 where `alignment.tradability_dim` is dimension 9 of the [Alignment Matrix](../matrices/02-01-alignment-matrix.md) (renamed from "Opportunity" in the institutional redesign because L4 owns opportunity concepts; this dimension measures cross-TF agreement on tradability), `analysis.market_quality_score` is the L3 quality score in `[0, 100]`, and `opportunity.opportunity_score` is the L4 score in `[0, 100]`. Weights sum to 1.00.
 
 The canonical worked example below (§6) recomputes under this formula.
+
+### 2.4 `long/short/hold_probability` derivation (canonical)
+
+The three percentage fields (`long_probability`, `short_probability`, `hold_probability`) together with `net_bias_pct` form the **server-side source of truth** for directional probability. They are computed from the same inputs using the same 5-step algorithm the frontend previously ran locally (`ui/src/lib/decisionRank.ts`). When present in the wire, the frontend consumes them directly; when absent (legacy payloads), the frontend falls back to local computation.
+
+**Algorithm.** The five steps are run in `DecisionContext::compute()` (`crates/core-domain/src/decision_context.rs`):
+
+1. **Raw signal scores** (`∈ [0, 100]`):
+   ```
+   base_long  = clamp(0, 100, max(0, effective_score) × effective_confidence)
+   base_short = clamp(0, 100, max(0, −effective_score) × effective_confidence)
+   base_hold  = clamp(0, 100, (entry_danger / 100) × 50)
+   ```
+   `effective_score` is the signed confluence score (from the bias sign + `confluence_score` magnitude). When the score is zero (Neutral bias), a geometric offset is applied: the top-scored qualifying opportunity profile's score is multiplied by `±0.15` depending on which direction has more zone support. `effective_confidence` = `max(score_confidence, 0.5)`.
+
+2. **Directional modulation.** The `directional_guidance` (re-derived from `Analysis.bias` × `Risk.overall_risk` using the canonical §3.1 table) amplifies its own side by `1.2×` and attenuates the opposite side by `0.5×`. Neutral guidance has no effect.
+
+3. **Stance modulation.** `market_stance` (re-derived from `MarketQuality` × `overall_risk` using the canonical §3.2 table):
+   - `AGGRESSIVE` or `CONSTRUCTIVE`: amplify the guided side by `1.15×`.
+   - `AVOID`: halve both directional sides (`0.5×`) and amplify hold by `1.5×`.
+
+4. **R:R modulation.** When `expected_reward_risk_ratio < 1.0`, the guided side is penalized by `0.6×`.
+
+5. **Renormalization & floor.** The three modulated values are renormalized so `long + short + hold = 100`, then a 2% minimum floor is applied before a final renormalization round. This prevents degenerate `100/0/0` distributions and guarantees every side has at least a 2% display presence.
+
+The computation above is **identical on the backend and the frontend fallback** — the two paths share the same formulas, same inputs, and same modulation tables. The backend version additionally uses the exact `MarketStance`/`DirectionalGuidance` derivation tables from `compute_advisory()` (rather than the advisory wire fields) so the percentages are self-consistent within the `DecisionContext` envelope.
 
 ---
 
@@ -301,7 +331,11 @@ The Decision Matrix carries the structural invalidation and target context used 
     "score": 97.0,
     "bias": "STRONG_BULLISH",
     "score_confidence": 0.97,
-    "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"]
+    "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"],
+    "long_probability": 67.0,
+    "short_probability": 5.0,
+    "hold_probability": 28.0,
+    "net_bias_pct": 62.0
   }
 }
 ```

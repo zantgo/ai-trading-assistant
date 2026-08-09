@@ -60,7 +60,7 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
     // top-scored profile surfaces the · TOP marker.
     entry.decisionContext = {
         score: 75,
-        bias: 'BULLISH',
+        bias: 'Bullish',
         confidence: 0.85,
         score_confidence: 0.85,
         entry_danger: { score: 20, level: 'Low', state: 'Stable', confidence: 80, evidence: [] },
@@ -331,7 +331,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         } as unknown as AnalysisMatrix;
         entry.decisionContext = {
             score: 75,
-            bias: 'BULLISH',
+            bias: 'Bullish',
             confidence: 0.85,
             score_confidence: 0.85,
             entry_danger: { score: 20, level: 'Low', state: 'Stable', confidence: 80, evidence: [] },
@@ -489,7 +489,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
         entry.decisionContext = {
             ...entry.decisionContext!,
             score: 0,
-            bias: 'NEUTRAL',
+            bias: 'Neutral',
             score_confidence: 0,
             expected_reward_risk_ratio: 0,
             trade_readiness: 'WATCH',
@@ -544,7 +544,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
         entry.decisionContext = {
             ...entry.decisionContext!,
             score: 0,
-            bias: 'NEUTRAL',
+            bias: 'Neutral',
             score_confidence: 0,
             expected_reward_risk_ratio: 0,
             trade_readiness: 'WATCH',

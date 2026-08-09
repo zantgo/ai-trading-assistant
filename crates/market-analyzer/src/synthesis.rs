@@ -696,6 +696,49 @@ fn derive_side_zones(
         entry_zone.high + atr * 0.5
     };
 
+    // ── Geometry invariant assertions ────────────────────────────────
+    // These debug-only checks prevent silent geometry violations from
+    // reaching the frontend. In release builds the values are still
+    // clamped by the logic above; these are the safety net.
+    #[cfg(debug_assertions)]
+    {
+        if bias_long {
+            // LONG: entry below close, target above close, inval below entry.
+            debug_assert!(
+                entry_zone.high <= close + atr * 0.01,
+                "derive_side_zones (LONG): entry_zone.high {:.2} > close {:.2} + epsilon — entry straddles or sits above close",
+                entry_zone.high, close
+            );
+            debug_assert!(
+                target_zone.low >= entry_zone.high,
+                "derive_side_zones (LONG): target_zone.low {:.2} < entry_zone.high {:.2} — target below entry",
+                target_zone.low, entry_zone.high
+            );
+            debug_assert!(
+                invalidation_level < entry_zone.low,
+                "derive_side_zones (LONG): invalidation_level {:.2} >= entry_zone.low {:.2} — SL at or above entry",
+                invalidation_level, entry_zone.low
+            );
+        } else {
+            // SHORT: entry above close, target below close, inval above entry.
+            debug_assert!(
+                entry_zone.low >= close,
+                "derive_side_zones (SHORT): entry_zone.low {:.2} < close {:.2} — entry sits below close",
+                entry_zone.low, close
+            );
+            debug_assert!(
+                target_zone.high <= entry_zone.low,
+                "derive_side_zones (SHORT): target_zone.high {:.2} > entry_zone.low {:.2} — target above entry",
+                target_zone.high, entry_zone.low
+            );
+            debug_assert!(
+                invalidation_level > entry_zone.high,
+                "derive_side_zones (SHORT): invalidation_level {:.2} <= entry_zone.high {:.2} — SL at or below entry",
+                invalidation_level, entry_zone.high
+            );
+        }
+    }
+
     (
         entry_zone,
         target_zone,
@@ -995,6 +1038,9 @@ fn compute_opportunity(
     let long_expected_rr_internal = rr_value(&long_rr_status);
     let short_expected_rr_internal = rr_value(&short_rr_status);
 
+    let long_geometry_consistent = rr_is_ok(&long_rr_status);
+    let short_geometry_consistent = rr_is_ok(&short_rr_status);
+
     // Legacy scalar fields mirror the active side so PME/TAE consumers that
     // read `entry_zone` / `target_zone` / `invalidation_level` see unchanged
     // numbers. The Opportunities tab reads the per-direction siblings
@@ -1152,6 +1198,8 @@ fn compute_opportunity(
             preconditions_total: *total,
             notes: notes.clone(),
             direction_family: Some(profile_family),
+            long_geometry_consistent: pf_long_ez.is_some() && long_geometry_consistent,
+            short_geometry_consistent: pf_short_ez.is_some() && short_geometry_consistent,
             long_entry_zone: pf_long_ez,
             long_target_zone: pf_long_tz,
             long_invalidation_level: pf_long_inv,
@@ -1205,6 +1253,8 @@ fn compute_opportunity(
         confluent_target_levels: confluent_target,
         confluent_invalidation_levels: confluent_inval,
         direction_family: matrix_direction_family,
+        long_geometry_consistent,
+        short_geometry_consistent,
     })
 }
 

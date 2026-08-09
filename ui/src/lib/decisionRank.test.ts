@@ -60,7 +60,7 @@ function makeDanger(score: number, overrides: Partial<DecisionContext['entry_dan
 function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
     return {
         score: 0,
-        bias: 'NEUTRAL',
+        bias: 'Neutral',
         confidence: 0,
         score_confidence: 0,
         entry_danger: makeDanger(50),
@@ -139,7 +139,7 @@ describe('computeDecisionRank', () => {
             advisory: makeAdvisory({ directional_guidance: 'Long', market_stance: 'Constructive' }),
             decisionContext: makeDecisionContext({
                 score: 65,
-                bias: 'BULLISH',
+                bias: 'Bullish',
                 score_confidence: 0.85,
                 entry_danger: makeDanger(75),
                 expected_reward_risk_ratio: 1.6,
@@ -161,7 +161,7 @@ describe('computeDecisionRank', () => {
             advisory: makeAdvisory({ directional_guidance: 'StrongLong', market_stance: 'Aggressive' }),
             decisionContext: makeDecisionContext({
                 score: 85,
-                bias: 'BULLISH',
+                bias: 'Bullish',
                 score_confidence: 0.95,
                 entry_danger: makeDanger(20),
                 expected_reward_risk_ratio: 2.8,
@@ -184,7 +184,7 @@ describe('computeDecisionRank', () => {
             advisory: makeAdvisory({ directional_guidance: 'StrongShort', market_stance: 'Aggressive' }),
             decisionContext: makeDecisionContext({
                 score: -85,
-                bias: 'BEARISH',
+                bias: 'Bearish',
                 score_confidence: 0.95,
                 entry_danger: makeDanger(20),
                 expected_reward_risk_ratio: 2.8,
@@ -238,7 +238,7 @@ describe('computeDecisionRank', () => {
             ...base,
             decisionContext: makeDecisionContext({
                 score: 80,
-                bias: 'BULLISH',
+                bias: 'Bullish',
                 score_confidence: 0.9,
                 entry_danger: makeDanger(30),
                 expected_reward_risk_ratio: 0.6,
@@ -249,7 +249,7 @@ describe('computeDecisionRank', () => {
             ...base,
             decisionContext: makeDecisionContext({
                 score: 80,
-                bias: 'BULLISH',
+                bias: 'Bullish',
                 score_confidence: 0.9,
                 entry_danger: makeDanger(30),
                 expected_reward_risk_ratio: 2.5,
@@ -481,7 +481,7 @@ describe('computeDecisionRank — degenerate-rank guard', () => {
             }),
             decisionContext: makeDecisionContext({
                 score: 0,
-                bias: 'NEUTRAL',
+                bias: 'Neutral',
                 score_confidence: 0,
                 entry_danger: makeDanger(50),
                 expected_reward_risk_ratio: 1.0,
@@ -516,7 +516,7 @@ describe('computeDecisionRank — degenerate-rank guard', () => {
             }),
             decisionContext: makeDecisionContext({
                 score: 33,
-                bias: 'NEUTRAL',
+                bias: 'Neutral',
                 score_confidence: 0.5,
                 entry_danger: makeDanger(30),
                 expected_reward_risk_ratio: 1.5,

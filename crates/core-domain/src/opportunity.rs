@@ -129,4 +129,14 @@ pub struct OpportunityMatrix {
     /// determine the per-card direction arrow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction_family: Option<crate::analysis::DirectionFamily>,
+    /// Server-side geometry-consistency flag for the LONG side at matrix
+    /// level. `true` when the aggregated bracket satisfies the L4 invariant:
+    /// `long_invalidation_level < long_entry_zone.low` AND
+    /// `long_target_zone.low > long_entry_zone.high`.
+    #[serde(default)]
+    pub long_geometry_consistent: bool,
+    /// Server-side geometry-consistency flag for the SHORT side at matrix
+    /// level.
+    #[serde(default)]
+    pub short_geometry_consistent: bool,
 }

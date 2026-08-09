@@ -476,7 +476,7 @@ export function buildL6DecisionHeader(input: {
     }
 
     const meta: MetaChipSpec[] = [
-        chip('Confidence', confidence, confidence, scoreColor),
+        chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
         isHypothesis
             ? chip('R:R', 'N/A', null, null)
             : chip('R:R', rr > 0 ? `1:${rr.toFixed(2)}` : null, rr, rrColor),

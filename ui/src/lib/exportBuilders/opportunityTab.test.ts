@@ -118,7 +118,7 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
 function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
   return {
     score: 50,
-    bias: 'BULLISH',
+    bias: 'Bullish',
     confidence: 0.7,
     score_confidence: 0.7,
     entry_danger: { score: 30, level: 'Low', state: 'Stable', confidence: 0.7, evidence: [] },

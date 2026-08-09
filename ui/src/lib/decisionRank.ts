@@ -69,7 +69,7 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     // Defaults — empty / pre-warmup state.
     const score = decisionContext?.score ?? 0;
     const scoreConfidence = decisionContext?.score_confidence ?? 0;
-    const bias = decisionContext?.bias ?? 'NEUTRAL';
+    const bias = decisionContext?.bias ?? 'Neutral';
     // `decisionContext.entry_danger` is now a RiskDimension-shaped object
     // (matches the wire and the Rust struct). Defensively extract the
     // scalar — handle the legacy bare-number shape that older snapshots
@@ -91,114 +91,130 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     const supportingSignals = analysis?.supporting_signals ?? [];
     const contradictingSignals = analysis?.contradicting_signals ?? [];
 
-    // GEOMETRIC OFFSET: If the macro trend is neutral (score=0), inspect the top-scored
-    // latent setup using the top-level opportunity matrix zones as a fallback.
-    let directionalOffset = 0;
-    if (score === 0 && opportunity) {
-        const profiles = opportunity.profiles ?? [];
-        const qualifying = profiles.filter(
-            (p) => p.preconditions_met >= 0 && p.opportunity_type !== 'NoClearOpportunity'
-        );
-        if (qualifying.length > 0) {
-            const topProfile = [...qualifying].sort((a, b) => b.score - a.score)[0];
+    // ── Probabilities: use backend as source of truth when available ────
+    // The Rust `DecisionContext::compute()` now publishes `long_probability`,
+    // `short_probability`, `hold_probability`, and `net_bias_pct` — canonical
+    // percentage values that match the algorithm replicated below. When the
+    // backend fields are present (server-side v6.11+), consume them directly
+    // and skip the local re-computation.
+    let long: number;
+    let short: number;
+    let hold: number;
 
-            const hasLong = opportunity.long_entry_zone && opportunity.long_entry_zone.low > 0;
-            const hasShort = opportunity.short_entry_zone && opportunity.short_entry_zone.low > 0;
+    const hasBackendProbs =
+        decisionContext?.long_probability != null &&
+        decisionContext?.short_probability != null &&
+        decisionContext?.hold_probability != null;
 
-            let resolvedSide: 'LONG' | 'SHORT' | 'NEUTRAL' = 'NEUTRAL';
-            if (hasLong && !hasShort) {
-                resolvedSide = 'LONG';
-            } else if (hasShort && !hasLong) {
-                resolvedSide = 'SHORT';
-            } else if (hasLong && hasShort) {
-                const longRr = opportunity.long_expected_rr_internal ?? 0;
-                const shortRr = opportunity.short_expected_rr_internal ?? 0;
-                resolvedSide = longRr >= shortRr ? 'LONG' : 'SHORT';
-            }
+    if (hasBackendProbs) {
+        long = decisionContext!.long_probability!;
+        short = decisionContext!.short_probability!;
+        hold = decisionContext!.hold_probability!;
+    } else {
+        // ── Fallback: local computation (identical to the Rust backend) ───
 
-            if (resolvedSide === 'LONG') {
-                directionalOffset = topProfile.score * 0.15;
-            } else if (resolvedSide === 'SHORT') {
-                directionalOffset = -topProfile.score * 0.15;
+        // GEOMETRIC OFFSET: If the macro trend is neutral (score=0), inspect the top-scored
+        // latent setup using the top-level opportunity matrix zones as a fallback.
+        let directionalOffset = 0;
+        if (score === 0 && opportunity) {
+            const profiles = opportunity.profiles ?? [];
+            const qualifying = profiles.filter(
+                (p) => p.preconditions_met >= 0 && p.opportunity_type !== 'NoClearOpportunity'
+            );
+            if (qualifying.length > 0) {
+                const topProfile = [...qualifying].sort((a, b) => b.score - a.score)[0];
+
+                const hasLong = opportunity.long_entry_zone && opportunity.long_entry_zone.low > 0;
+                const hasShort = opportunity.short_entry_zone && opportunity.short_entry_zone.low > 0;
+
+                let resolvedSide: 'LONG' | 'SHORT' | 'NEUTRAL' = 'NEUTRAL';
+                if (hasLong && !hasShort) {
+                    resolvedSide = 'LONG';
+                } else if (hasShort && !hasLong) {
+                    resolvedSide = 'SHORT';
+                } else if (hasLong && hasShort) {
+                    const longRr = opportunity.long_expected_rr_internal ?? 0;
+                    const shortRr = opportunity.short_expected_rr_internal ?? 0;
+                    resolvedSide = longRr >= shortRr ? 'LONG' : 'SHORT';
+                }
+
+                if (resolvedSide === 'LONG') {
+                    directionalOffset = topProfile.score * 0.15;
+                } else if (resolvedSide === 'SHORT') {
+                    directionalOffset = -topProfile.score * 0.15;
+                }
             }
         }
-    }
 
-    const effectiveScore = score !== 0 ? score : directionalOffset;
-    const effectiveConfidence = scoreConfidence || 0.5;
+        const effectiveScore = score !== 0 ? score : directionalOffset;
+        const effectiveConfidence = scoreConfidence || 0.5;
 
-    // ── 1. Raw signal scores (each ∈ [0, 100]) ─────────────────────────────
-    // bias × score-derivation: positive score → long, negative → short,
-    // HOLD absorbs entries that the gate should close (entry_danger high,
-    // STAND_ASIDE readiness).
-    const baseLong = clamp(0, 100, Math.max(0, effectiveScore) * effectiveConfidence);
-    const baseShort = clamp(0, 100, Math.max(0, -effectiveScore) * effectiveConfidence);
-    const baseHold = clamp(
-        0,
-        100,
-        (entryDanger / 100) * 50,
-    );
+        // ── 1. Raw signal scores (each ∈ [0, 100]) ─────────────────────────────
+        const baseLong = clamp(0, 100, Math.max(0, effectiveScore) * effectiveConfidence);
+        const baseShort = clamp(0, 100, Math.max(0, -effectiveScore) * effectiveConfidence);
+        const baseHold = clamp(0, 100, (entryDanger / 100) * 50);
 
-    // ── 2. Bias / guidance / stance modulation ─────────────────────────────
-    let long = baseLong;
-    let short = baseShort;
-    let hold = baseHold;
+        // ── 2. Bias / guidance / stance modulation ─────────────────────────────
+        long = baseLong;
+        short = baseShort;
+        hold = baseHold;
 
-    const g = guidance.toLowerCase();
-    const s = stance.toLowerCase();
+        const g = guidance.toLowerCase();
+        const s = stance.toLowerCase();
 
-    if (g.includes('long')) {
-        long *= 1.2;
-        short *= 0.5;
-    } else if (g.includes('short')) {
-        short *= 1.2;
-        long *= 0.5;
-    }
+        if (g.includes('long')) {
+            long *= 1.2;
+            short *= 0.5;
+        } else if (g.includes('short')) {
+            short *= 1.2;
+            long *= 0.5;
+        }
 
-    if (s === 'aggressive' || s === 'constructive') {
-        if (g.includes('long')) long *= 1.15;
-        else if (g.includes('short')) short *= 1.15;
-    }
-    if (s === 'avoid') {
-        long *= 0.5;
-        short *= 0.5;
-        hold *= 1.5;
-    }
+        if (s === 'aggressive' || s === 'constructive') {
+            if (g.includes('long')) long *= 1.15;
+            else if (g.includes('short')) short *= 1.15;
+        }
+        if (s === 'avoid') {
+            long *= 0.5;
+            short *= 0.5;
+            hold *= 1.5;
+        }
 
-    if (expectedRr < 1.0) {
-        if (g.includes('long')) long *= 0.6;
-        else if (g.includes('short')) short *= 0.6;
-    }
+        if (expectedRr < 1.0) {
+            if (g.includes('long')) long *= 0.6;
+            else if (g.includes('short')) short *= 0.6;
+        }
 
-    long = clamp(0, 100, long);
-    short = clamp(0, 100, short);
-    hold = clamp(0, 100, hold);
+        long = clamp(0, 100, long);
+        short = clamp(0, 100, short);
+        hold = clamp(0, 100, hold);
 
-    // ── 3. Renormalize to sum to 100 (largest absorbs rounding residual) ──
-    let hadSignal = false;
-    const sum = long + short + hold;
-    if (sum <= 0) {
-        long = 34;
-        short = 33;
-        hold = 33;
-    } else {
-        hadSignal = true;
-        const l = Math.round((long / sum) * 100);
-        const sh = Math.round((short / sum) * 100);
-        const h = 100 - l - sh;
-        long = l;
-        short = sh;
-        hold = h;
-    }
-    if (hadSignal) {
-        const MIN_PCT = 2;
-        long = Math.max(long, MIN_PCT);
-        short = Math.max(short, MIN_PCT);
-        hold = Math.max(hold, MIN_PCT);
-        const reSum = long + short + hold;
-        long = Math.round((long / reSum) * 100);
-        short = Math.round((short / reSum) * 100);
-        hold = 100 - long - short;
+        // ── 3. Renormalize to sum to 100 (largest absorbs rounding residual) ──
+        let hadSignal = false;
+        const sum = long + short + hold;
+        if (sum <= 0) {
+            long = 34;
+            short = 33;
+            hold = 33;
+        } else {
+            hadSignal = true;
+            const l = Math.round((long / sum) * 100);
+            const sh = Math.round((short / sum) * 100);
+            const h = 100 - l - sh;
+            long = l;
+            short = sh;
+            hold = h;
+        }
+        if (hadSignal) {
+            const MIN_PCT = 2;
+            long = Math.max(long, MIN_PCT);
+            short = Math.max(short, MIN_PCT);
+            hold = Math.max(hold, MIN_PCT);
+            const reSum = long + short + hold;
+            long = Math.round((long / reSum) * 100);
+            short = Math.round((short / reSum) * 100);
+            hold = 100 - long - short;
+        }
     }
 
     // ── 4. Top action ─────────────────────────────────────────────────────
@@ -549,7 +565,10 @@ export function profileZones(
     const entryMid = (entry.low + entry.high) / 2;
     const reward = side === 'LONG' ? target.low - entryMid : entryMid - target.high;
     const risk = side === 'LONG' ? entryMid - inv : inv - entryMid;
-    const geometry_consistent = reward > 0 && risk > 0;
+    // Prefer server-side geometry flag when present; fall back to local check.
+    const serverConsistent =
+        side === 'LONG' ? profile.long_geometry_consistent : profile.short_geometry_consistent;
+    const geometry_consistent = serverConsistent ?? (reward > 0 && risk > 0);
     const rr = geometry_consistent ? Math.round((reward / risk) * 100) / 100 : null;
     return { side, entry, target, invalidation: inv, rr, geometry_consistent };
 }
@@ -571,6 +590,13 @@ export function aggregateZones(
     if (!entry || !target || entry.low <= 0 || entry.high <= 0 || !inv || inv <= 0) {
         return null;
     }
+    // Prefer server-side matrix-level geometry flag when present.
+    const serverConsistent =
+        side === 'LONG' ? opportunity.long_geometry_consistent : opportunity.short_geometry_consistent;
+    const entryMid = (entry.low + entry.high) / 2;
+    const reward = side === 'LONG' ? target.low - entryMid : entryMid - target.high;
+    const risk = side === 'LONG' ? entryMid - inv : inv - entryMid;
+    const geometry_consistent = serverConsistent ?? (reward > 0 && risk > 0);
     return profileZones(
         {
             opportunity_type: '__aggregate__',
@@ -583,10 +609,12 @@ export function aggregateZones(
             long_target_zone: target,
             long_invalidation_level: inv,
             long_expected_rr_internal: null,
+            long_geometry_consistent: serverConsistent,
             short_entry_zone: entry,
             short_target_zone: target,
             short_invalidation_level: inv,
             short_expected_rr_internal: null,
+            short_geometry_consistent: serverConsistent,
             trade_viability: null,
         } as OpportunityProfile,
         side,
@@ -625,6 +653,7 @@ export interface TopSetupSummary {
 export function topSetupSummary(
     opportunity: OpportunityMatrix | null | undefined,
     analysis: AnalysisMatrix | null | undefined,
+    decisionContext?: DecisionContext | null,
 ): TopSetupSummary | null {
     if (!opportunity) return null;
     const profiles = opportunity.profiles ?? [];
@@ -641,7 +670,15 @@ export function topSetupSummary(
     // Try per-profile zones first; fall back to aggregated.
     let zones = side === 'NEUTRAL' ? null : profileZones(top, side);
     if (!zones) {
-        const fallbackSide = side === 'NEUTRAL' ? 'LONG' : side;
+        // When no directional resolution, prefer the gauge direction
+        // over a blind LONG default. This fixes the inversion bug where
+        // a SHORT gauge (-14%) showed LONG entry/target geometry.
+        // Uses net_bias_pct (not score) because the score is signed_confluence
+        // which is 0 for Neutral bias, while net_bias_pct reflects the
+        // geometric offset + modulation that drives the actual gauge.
+        const fallbackSide = side === 'NEUTRAL'
+            ? (decisionContext?.net_bias_pct ?? 0) < 0 ? 'SHORT' : 'LONG'
+            : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
     // Per-side R:R from the wire (canonical), fall back to the
@@ -681,6 +718,7 @@ export function profileSummary(
     profile: OpportunityProfile | null | undefined,
     opportunity: OpportunityMatrix | null | undefined,
     analysis: AnalysisMatrix | null | undefined,
+    decisionContext?: DecisionContext | null,
 ): {
     side: 'LONG' | 'SHORT' | 'NEUTRAL';
     zones: ProfileZones | null;
@@ -694,7 +732,12 @@ export function profileSummary(
     const side = selectProfileSide(profile, macroBias);
     let zones = side === 'NEUTRAL' ? null : profileZones(profile, side);
     if (!zones) {
-        const fallbackSide = side === 'NEUTRAL' ? 'LONG' : side;
+        // When no directional resolution, prefer the gauge direction
+        // over a blind LONG default (same fix as topSetupSummary).
+        // Uses net_bias_pct (not score) — see topSetupSummary for rationale.
+        const fallbackSide = side === 'NEUTRAL'
+            ? (decisionContext?.net_bias_pct ?? 0) < 0 ? 'SHORT' : 'LONG'
+            : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
     const wireRr =
@@ -714,14 +757,9 @@ function buildRationale(r: RationaleInputs): string[] {
     const out: string[] = [];
 
     // 1. Bias + score
-    // Use `r.bias` literally to keep the prose aligned with the wire's
-    // `decision_context.bias` (NEUTRAL/BULLISH/BEARISH). The math (see
-    // score sign in `computeDecisionRank`) can produce a directional
-    // call even when bias is NEUTRAL — call that out so the operator
-    // understands why the hero disagrees with the bias string.
     const driverSuffix =
-        r.bias === 'NEUTRAL' && r.top !== 'HOLD'
-            ? ` (math-driven by confluence score ${r.score.toFixed(0)}; wire bias reads NEUTRAL)`
+        r.bias === 'Neutral' && r.top !== 'HOLD'
+            ? ` (math-driven by confluence score ${r.score.toFixed(0)}; wire bias reads Neutral)`
             : '';
     out.push(
         `${r.bias} bias, confluence score ${r.score.toFixed(0)} (L2 tradability_dim + L3 quality + L4 opportunity)${driverSuffix}`,
@@ -732,13 +770,23 @@ function buildRationale(r: RationaleInputs): string[] {
         `Setup: ${r.setupType} (L4 score ${Math.round(r.oppScore)}, ${r.setupQuality})`,
     );
 
-    // 3. Trade readiness gate — narrative now matches the actual gate
-    // logic. Only `entry_danger ≥ 70` truly caps scores; the FORMING /
-    // WATCH / READY states are downstream of `expected_reward_risk_ratio`.
+    // 3. Trade readiness gate — reports the actual reason, not a
+    // hardcoded threshold. STAND_ASIDE can be triggered by
+    // entry_danger ≥ 70 OR confidence_assessment < 20.
     if (r.readiness === 'STAND_ASIDE') {
-        out.push(
-            `Trade readiness = STAND_ASIDE because entry_danger ${r.entryDanger.toFixed(0)} (${entryDangerLevel(r.entryDanger)}) ≥ 70`,
-        );
+        if (r.entryDanger >= 70) {
+            out.push(
+                `Trade readiness = STAND_ASIDE because entry_danger ${r.entryDanger.toFixed(0)} (${entryDangerLevel(r.entryDanger)}) ≥ 70`,
+            );
+        } else if (r.confidence < 20) {
+            out.push(
+                `Trade readiness = STAND_ASIDE because confidence_assessment ${r.confidence.toFixed(0)} < 20`,
+            );
+        } else {
+            out.push(
+                `Trade readiness = STAND_ASIDE (entry_danger ${r.entryDanger.toFixed(0)}, confidence ${r.confidence.toFixed(0)}%)`,
+            );
+        }
     } else if (r.readiness === 'FORMING' && r.expectedRr < 1.0) {
         out.push(
             `Trade readiness = FORMING — risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) capped the directional score`,
