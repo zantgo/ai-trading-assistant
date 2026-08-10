@@ -48,7 +48,18 @@ pub async fn serve_history(
                     limit as u32,
                 )
                 .await;
-                let mut db_snaps: Vec<core_domain::models::MarketSnapshot> = db_candles
+                let source_candles = if db_candles.is_empty() {
+                    database_storage::derive_sub_minute_candles(
+                        &state.pool,
+                        &pair_key,
+                        tf_secs,
+                        limit as u32,
+                    )
+                    .await
+                } else {
+                    db_candles
+                };
+                let mut db_snaps: Vec<core_domain::models::MarketSnapshot> = source_candles
                     .into_iter()
                     .rev()
                     .map(|c| core_domain::models::MarketSnapshot {
@@ -98,13 +109,6 @@ pub async fn serve_history(
             }
 
             let empty_set: BTreeSet<String> = BTreeSet::new();
-            let mut indicators: HashMap<String, HistoricalIndicatorArrays> = keys
-                .iter()
-                .map(|k| {
-                    let vk = value_keys.get(k).unwrap_or(&empty_set);
-                    (k.clone(), HistoricalIndicatorArrays::with_value_keys(vk))
-                })
-                .collect();
 
             let mut times: Vec<u64> = Vec::with_capacity(count);
             let mut candle_list: Vec<HistoryCandle> = Vec::with_capacity(count);
@@ -112,15 +116,11 @@ pub async fn serve_history(
 
             for snap in snap_hist.iter() {
                 times.push(snap.timestamp);
-
-                for key in keys.iter() {
-                    let arrays = indicators.get_mut(key).expect("key initialized");
-                    match snap.indicators.get(key) {
-                        Some(v) => arrays.push_value(v),
-                        None => arrays.push_none(),
-                    }
-                }
-
+                price_list.push(
+                    snap.close
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "0".to_string()),
+                );
                 candle_list.push(HistoryCandle {
                     time: snap.timestamp * 1000,
                     open: snap
@@ -141,11 +141,70 @@ pub async fn serve_history(
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "0".to_string()),
                 });
-                price_list.push(
-                    snap.close
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "0".to_string()),
-                );
+            }
+
+            // ── Gap-fill: insert flat Doji candles for any missing
+            // intervals between consecutive snapshots so the chart
+            // renders a continuous time axis.  Capped at 60 fill bars
+            // per gap to avoid flooding the response with centuries of
+            // epoch-0→now gaps on cold sub-minute starts.
+            if times.len() >= 2 {
+                let mut filled_times: Vec<u64> = Vec::with_capacity(times.len() + 60);
+                let mut filled_candles: Vec<HistoryCandle> = Vec::with_capacity(candle_list.len() + 60);
+                let mut filled_prices: Vec<String> = Vec::with_capacity(price_list.len() + 60);
+
+                for i in 0..times.len() {
+                    filled_times.push(times[i]);
+                    filled_candles.push(candle_list[i].clone());
+                    filled_prices.push(price_list[i].clone());
+
+                    if i + 1 < times.len() {
+                        let curr = times[i];
+                        let next = times[i + 1];
+                        let step = tf_secs.max(1);
+                        let gap = next.saturating_sub(curr);
+                        let missing = (gap.saturating_sub(step)) / step;
+                        let fill_n = missing.min(60);
+                        let last_close = price_list[i].clone();
+                        for j in 1..=fill_n {
+                            let t = curr + j * step;
+                            let t_ms = t * 1000;
+                            filled_times.push(t);
+                            filled_candles.push(HistoryCandle {
+                                time: t_ms,
+                                open: last_close.clone(),
+                                high: last_close.clone(),
+                                low: last_close.clone(),
+                                close: last_close.clone(),
+                                volume: "0".to_string(),
+                            });
+                            filled_prices.push(last_close.clone());
+                        }
+                    }
+                }
+                times = filled_times;
+                candle_list = filled_candles;
+                price_list = filled_prices;
+            }
+
+            // Rebuild the indicator arrays aligned to the (now possibly
+            // gap-filled) snap_hist. Only real snapshots contribute
+            // indicator values; gap-fill entries have no indicator data.
+            let mut indicators: HashMap<String, HistoricalIndicatorArrays> = keys
+                .iter()
+                .map(|k| {
+                    let vk = value_keys.get(k).unwrap_or(&empty_set);
+                    (k.clone(), HistoricalIndicatorArrays::with_value_keys(vk))
+                })
+                .collect();
+            for snap in snap_hist.iter() {
+                for key in keys.iter() {
+                    let arrays = indicators.get_mut(key).expect("key initialized");
+                    match snap.indicators.get(key) {
+                        Some(v) => arrays.push_value(v),
+                        None => arrays.push_none(),
+                    }
+                }
             }
 
             let indicator_history = IndicatorHistoryArrays {

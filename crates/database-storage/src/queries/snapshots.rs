@@ -538,3 +538,54 @@ pub async fn query_closest_close_price(
         }
     }
 }
+
+pub async fn derive_sub_minute_candles(
+    pool: &SqlitePool,
+    symbol: &str,
+    target_timeframe_secs: u64,
+    limit: u32,
+) -> Vec<NormalizedCandle> {
+    let source_timeframe_secs: u64 = 60;
+    if target_timeframe_secs >= source_timeframe_secs || target_timeframe_secs == 0 {
+        return Vec::new();
+    }
+
+    let factor = source_timeframe_secs / target_timeframe_secs;
+    if factor == 0 {
+        return Vec::new();
+    }
+
+    let source_limit = std::cmp::max((limit as u64 / factor).max(1) as u32, 1);
+    let source_candles = query_recent_candles(pool, symbol, source_timeframe_secs, source_limit).await;
+    if source_candles.is_empty() {
+        return Vec::new();
+    }
+
+    let mut derived: Vec<NormalizedCandle> = Vec::with_capacity(source_candles.len() * factor as usize);
+    let vol_divisor = rust_decimal::Decimal::from(factor);
+
+    for source in &source_candles {
+        for i in 0..factor {
+            let start_ms = source.start_time_ms + (i as u64 * target_timeframe_secs * 1000);
+            derived.push(NormalizedCandle {
+                exchange: source.exchange,
+                symbol: symbol.to_string(),
+                start_time_ms: start_ms,
+                duration_ms: target_timeframe_secs * 1000,
+                open: source.close,
+                high: source.close,
+                low: source.close,
+                close: source.close,
+                volume: source.volume / vol_divisor,
+                trades_count: 1,
+                reconstructed: Some(core_domain::normalized::ReconstructionMethod::Synthetic),
+            });
+        }
+    }
+
+    if derived.len() > limit as usize {
+        derived = derived.split_off(derived.len() - limit as usize);
+    }
+
+    derived
+}

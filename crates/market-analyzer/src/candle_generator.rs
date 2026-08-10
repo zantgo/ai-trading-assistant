@@ -60,6 +60,22 @@ impl CandleGenerator {
         now_ms.saturating_sub(self.last_received_ms) > grace_period_ms
     }
 
+    pub fn is_past_interval(&self, now_ms: u64) -> bool {
+        if self.current_candle.is_none() {
+            return false;
+        }
+        now_ms >= self.current_start_ms + self.duration_ms
+    }
+
+    /// Force-close the current candle and return it. Unlike `force_close`,
+    /// this also returns the `current_start_ms` so the caller knows the
+    /// interval boundary just closed and can compute how many intervals
+    /// were skipped since then.
+    pub fn force_close_with_ts(&mut self) -> (Option<NormalizedCandle>, u64) {
+        let ts = self.current_start_ms;
+        (self.force_close(), ts)
+    }
+
     pub fn force_close(&mut self) -> Option<NormalizedCandle> {
         let completed = self.current_candle.take()?;
         self.current_start_ms = 0;

@@ -102,10 +102,7 @@ async fn collect_candles(
     //    on the DB's last candle + 1 interval (gap fill), and for cold DBs
     //    we anchor on the full lookback window.
     let rest_candles = if secs < 60 {
-        // HFP-03 sub-minute: short-circuit at the trait-caller level. We
-        // still attempt the DB read above because callers may want the
-        // persisted history to seed the live buffer if any exists.
-        Vec::new()
+        database_storage::derive_sub_minute_candles(&pool, &internal_symbol, secs, limit as u32).await
     } else {
         match policy.fetch(request).await {
             Ok(c) => c,

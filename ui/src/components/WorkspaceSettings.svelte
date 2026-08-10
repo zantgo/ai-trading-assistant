@@ -4,7 +4,7 @@
     import type { InstanceState, PositionScalingConfig, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
-    import { clearHistoryCache } from '../lib/indicatorHistory';
+    import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
     import styles from './WorkspaceSettings.module.css';
 
@@ -310,6 +310,7 @@
                 // Drop the cached `/api/history?…&timeframe_secs=<old>` so the
                 // next PriceChart mount refetches for the new timeframe_secs.
                 clearHistoryCache();
+                clearCandleCache();
                 saveStatus = 'success';
                 setTimeout(() => { saveStatus = 'idle'; }, 2000);
             } else {

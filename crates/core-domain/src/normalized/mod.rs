@@ -172,6 +172,11 @@ pub enum ReconstructionMethod {
     LinearInterpolation,
     /// Reconstruction was attempted but no source data was available.
     Unavailable,
+    /// Clock-driven heartbeat Doji candle — no trade occurred during
+    /// this interval; O=H=L=C=previous close. Emitted by the stale-check
+    /// path for sub-minute timeframes to keep the chart time-series
+    /// continuous when volume drops to zero.
+    Synthetic,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

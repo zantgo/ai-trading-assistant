@@ -30,6 +30,7 @@ function makePair(symbol: string, priceText = '50000.00'): InstanceState {
         currentView: 'terminal',
         alignment: null, analysis: null, risk: null, advisory: null,
         decisionContext: null, opportunity: null,
+        lastMatrixTimestamp: -Infinity, lastCompletedClose: null,
         automationEnabled: false, automationIntervalMode: 'interval',
         automationIntervalValue: 900, automationIntervalUnit: 'seconds',
         priceLineMode: false, slowIntervalSecs: 900, normalIntervalSecs: 300,

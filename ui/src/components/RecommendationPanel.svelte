@@ -30,7 +30,17 @@
     );
     const opportunity = $derived<OpportunityMatrix | null>(instance?.opportunity ?? null);
     const analysis = $derived(instance?.analysis ?? null);
-    const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
+    const markPrice = $derived.by(() => {
+        // Use the last completed-candle close (set once per candle close
+        // by the WebSocket handler) instead of the live micro shadow
+        // tick's priceText. Trade-plan geometry (entry/target/invalidation)
+        // must stay in sync with the pair-level matrices, both of which
+        // only update on completed candles. Micro shadow fallback exists
+        // only for the brief warmup window before any slot has closed.
+        const completedClose = parseFloat(instance?.lastCompletedClose ?? '');
+        if (Number.isFinite(completedClose) && completedClose > 0) return completedClose;
+        return parseFloat(instance?.microTerm?.priceText ?? '0') || 0;
+    });
     const timestamp = $derived<number | null>(
         snapshot && typeof (snapshot as any).timestamp === 'number'
             ? (snapshot as any).timestamp

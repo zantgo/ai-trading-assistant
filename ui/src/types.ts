@@ -796,6 +796,18 @@ export interface InstanceState {
      *  rather than read from `microTerm.latestSnapshot` (which gets
      *  overwritten by shadow ticks). */
     opportunity: OpportunityMatrix | null;
+    /// Last candle-close timestamp (epoch seconds) whose WS frame was
+    /// accepted for the pair-level matrix fields below. Used by the
+    /// WebSocket handler as a monotonicity guard so the four slot streams
+    /// can't race-write the shared `alignment` / `analysis` / `risk` /
+    /// `advisory` / `decisionContext` / `opportunity` fields with stale
+    /// or out-of-order payloads. `-Infinity` means "no frame accepted yet".
+    lastMatrixTimestamp: number;
+    /// Last closed-candle close price across any slot that produced a
+    /// completed frame. Powers geometry consumers (OpportunitiesPanel,
+    /// RecommendationPanel) that need a stable mark price which doesn't
+    /// flicker on shadow ticks. `null` until the first completed frame.
+    lastCompletedClose: string | null;
     automationEnabled: boolean;
     automationIntervalMode: string;
     automationIntervalValue: number;
@@ -855,9 +867,9 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
     { label: '5 min', seconds: 300 },
     { label: '15 min', seconds: 900 },
     { label: '30 min', seconds: 1800 },
-    { label: '1 h', seconds: 3600 },
-    { label: '4 h', seconds: 14400 },
-    { label: '12 h', seconds: 43200 },
+    { label: '1 hrs', seconds: 3600 },
+    { label: '4 hrs', seconds: 14400 },
+    { label: '12 hrs', seconds: 43200 },
     { label: '1 day', seconds: 86400 },
 ];
 

@@ -1087,7 +1087,25 @@ pub async fn run_single(
             LoopAction::Shutdown => break,
             LoopAction::StaleCheck => {
                 let now_ms = core_domain::LatencyTracker::now_ms();
-                if candle_gen.is_stale(now_ms, grace_period_ms) {
+                // Close the current candle if:
+                //   a) No trade arrived within the grace-period window (existing
+                //      behavior — catches genuine feed stalls), OR
+                //   b) The wall clock has advanced past this candle's natural
+                //      interval boundary (new: ensures sub-minute TFs close on
+                //      a strict cadence even when trades keep flowing within
+                //      the same bucket).
+                let needs_close = candle_gen.is_stale(now_ms, grace_period_ms)
+                    // Clock-driven boundary close: for sub-minute TFs the
+                    // stale check fires on a sub-second cadence (500 ms for
+                    // 1 s, 1500 ms for 3 s, 2500 ms for 5 s, 7500 ms for
+                    // 15 s) and can catch the interval boundary within one
+                    // tick.  For >=60 s TFs the trade-tick boundary
+                    // detection is already accurate and the stale-check
+                    // cadence (30 s for 60 s, 90 s for 180 s) is too coarse
+                    // to pin down the boundary precisely.
+                    || (timeframe_secs < 60 && candle_gen.is_past_interval(now_ms));
+
+                if needs_close {
                     if let Some(forced) = candle_gen.force_close() {
                         let mid = if shadow_bid > Decimal::ZERO && shadow_ask > Decimal::ZERO {
                             (shadow_bid + shadow_ask) / Decimal::from(2)
@@ -1107,6 +1125,7 @@ pub async fn run_single(
                             trades_count: forced.trades_count,
                             reconstructed: forced.reconstructed,
                         };
+                        bar_count = bar_count.saturating_add(1);
                         broadcast_live_snapshot(
                             &broadcast_tx,
                             &symbol,
@@ -1147,7 +1166,51 @@ pub async fn run_single(
                             bar_count,
                                                         derive_pipeline_state(bar_count as usize, buffer_size),
                             &active_set,
+                            true,
                         );
+                        last_completed_start_ms = Some(forced.start_time_ms);
+
+                        // ── Doji heartbeat: fill any intervals between this
+                        // candle's end and `now_ms` with flat doji candles
+                        // (O=H=L=C=close from the just-closed bar).  This
+                        // keeps the sub-minute chart continuous when volume
+                        // drops to zero for several intervals.  The fill is
+                        // capped so a single tick never floods the broadcast
+                        // channel — follow-up ticks catch the next batch.
+                        let mut fill_cursor = forced.start_time_ms + duration_ms;
+                        let max_fill = now_ms.saturating_sub(fill_cursor) / duration_ms;
+                        let fill_n = max_fill.min(
+                            // At most 3 missing bars per stale-check tick so
+                            // the broadcast channel stays uncongested.  The
+                            // next tick picks up where this one left off.
+                            3,
+                        );
+                        for _ in 0..fill_n {
+                            let doji = core_domain::normalized::NormalizedCandle {
+                                exchange: forced.exchange,
+                                symbol: forced.symbol.clone(),
+                                start_time_ms: fill_cursor,
+                                duration_ms,
+                                open: mid,
+                                high: mid,
+                                low: mid,
+                                close: mid,
+                                volume: Decimal::ZERO,
+                                trades_count: 0,
+                                reconstructed: Some(
+                                    core_domain::normalized::ReconstructionMethod::Synthetic,
+                                ),
+                            };
+                            let gap_snap = build_gapfill_snapshot(
+                                &doji,
+                                &symbol,
+                                timeframe_secs,
+                                slot,
+                            );
+                            let _ = broadcast_tx.send(gap_snap);
+                            last_completed_start_ms = Some(fill_cursor);
+                            fill_cursor += duration_ms;
+                        }
                     }
                 }
                 continue;
@@ -1358,6 +1421,13 @@ pub async fn run_single(
                 if let Some(completed) = completed_opt {
                     last_completed_start_ms = Some(completed.start_time_ms);
                     reliability.increment_candles(1).await;
+                    println!(
+                        "[CANDLE CLOSE] slot={:?} tf={}s pair={} {}",
+                        slot,
+                        timeframe_secs,
+                        pair_key,
+                        serde_json::to_string(&completed).unwrap_or_else(|e| format!("serialize_error:{}", e))
+                    );
 
                     let is_valid = completed.assert_validity().is_ok();
 
@@ -2315,9 +2385,27 @@ pub async fn run_single(
                             .saturating_sub(completed.start_time_ms),
                     );
 
-                    if pipeline_is_live {
-                        let _ = broadcast_tx.send(completed_snapshot.clone());
+                    // Always broadcast completed candle snapshots so the
+                    // chart time-series stays continuous from the first bar.
+                    // The matrix payload (alignment/analysis/risk/advisory/
+                    // opportunity/decision_context) is still gated on
+                    // pipeline_is_live but the OHLCV candle, liquidity,
+                    // cluster, volume_profile, and indicators land on every
+                    // frame so sub-minute TFs (1s/3s/5s/15s) populate the
+                    // chart immediately rather than stalling for 50 bars
+                    // (~50 s at 1 s TF).
+                    let mut broadcast_snapshot = completed_snapshot.clone();
+                    if !pipeline_is_live {
+                        broadcast_snapshot.alignment = None;
+                        broadcast_snapshot.analysis = None;
+                        broadcast_snapshot.risk = None;
+                        broadcast_snapshot.advisory = None;
+                        broadcast_snapshot.opportunity = None;
+                        broadcast_snapshot.decision_context = None;
+                        broadcast_snapshot.statistical_context = None;
+                        broadcast_snapshot.context = None;
                     }
+                    let _ = broadcast_tx.send(broadcast_snapshot);
 
                     // Publish the completed snapshot as the latest for this TF.
                     {
@@ -2434,6 +2522,7 @@ pub async fn run_single(
                             bar_count,
                                                         derive_pipeline_state(bar_count as usize, buffer_size),
                             &active_set,
+                            false,
                         );
                     }
                 }
@@ -2524,6 +2613,7 @@ pub async fn run_single(
                             bar_count,
                                                         derive_pipeline_state(bar_count as usize, buffer_size),
                             &active_set,
+                            false,
                         );
                     }
                 }
@@ -3031,6 +3121,11 @@ fn broadcast_live_snapshot(
     // v6.10 (Phase 5 / E1): active_set passed for disabled-indicator filtering
     // (CA-06). Disabled indicators become absent from the indicator map.
     active_set: &crate::active_set::ActiveSet,
+    // Whether the snapshot represents a completed (closed) candle.  Shadow
+    // ticks always carry `false`; stale-check force-close and gap-fill paths
+    // pass `true` so the frontend can correctly distinguish live from
+    // completed candles.
+    is_completed: bool,
 ) {
     let close_f = candle.close.to_f64().unwrap_or(0.0);
 
@@ -3179,7 +3274,7 @@ fn broadcast_live_snapshot(
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
         symbol: symbol.to_string(),
-        is_completed: Some(false),
+        is_completed: Some(is_completed),
         mid_price: candle.close,
         bid_price,
         ask_price,

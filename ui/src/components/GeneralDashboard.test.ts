@@ -172,6 +172,8 @@ function makeInstance(symbol: string, overrides: Partial<InstanceState> = {}): I
         advisory: makeAdvisory(),
         decisionContext: makeDecisionContext(),
         opportunity: makeOpportunity(),
+        lastMatrixTimestamp: -Infinity,
+        lastCompletedClose: null,
         automationEnabled: false,
         automationIntervalMode: 'interval',
         automationIntervalValue: 900,

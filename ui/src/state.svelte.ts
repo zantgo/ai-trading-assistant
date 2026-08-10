@@ -79,6 +79,8 @@ function createInstanceState(symbol: string): InstanceState {
         advisory: null,
         decisionContext: null,
         opportunity: null,
+        lastMatrixTimestamp: -Infinity,
+        lastCompletedClose: null,
         automationEnabled: false,
         automationIntervalMode: 'interval',
         automationIntervalValue: 900,

@@ -78,6 +78,72 @@ export function clearHistoryCache(): void {
     cache.clear();
 }
 
+export function purgeCacheForKey(pairKey: string, timeframe: number): void {
+    cache.delete(`${pairKey}@${timeframe}`);
+}
+
+// ── Processed candle cache ────────────────────────────────────────────
+// Per (pairKey, timeframe) cache of the final OHLCV array fed to
+// lightweight-charts. This survives component unmount/remount so
+// timeframe switches and back/forward navigation don't wipe the chart —
+// the bootstrap paints from cache immediately while the async history
+// fetch refreshes in the background.
+
+export type CandleOHLCV = { time: Time; open: number; high: number; low: number; close: number };
+
+const candleCache = new Map<string, CandleOHLCV[]>();
+
+export function getCachedCandles(pairKey: string, timeframe: number): CandleOHLCV[] | null {
+    return candleCache.get(`${pairKey}@${timeframe}`) ?? null;
+}
+
+export function setCachedCandles(pairKey: string, timeframe: number, candles: CandleOHLCV[]): void {
+    if (candles.length > 0) candleCache.set(`${pairKey}@${timeframe}`, candles);
+}
+
+export function clearCandleCache(): void {
+    candleCache.clear();
+}
+
+// ── Gap-fill utility ──────────────────────────────────────────────────
+// Lightweight Charts renders on a continuous time axis — any missing
+// interval between two consecutive candle timestamps becomes a
+// proportional pixel gap.  This function scans a sorted candle array and
+// inserts flat Doji candles (O=H=L=C=prev close) for missing intervals
+// so the chart remains visually continuous even when the backend hasn't
+// yet accumulated every bar (e.g. cold sub-minute start, DB fallback
+// with sparse rows).
+
+export function fillTimeGaps(
+    candles: CandleOHLCV[],
+    expectedStepSec: number,
+    maxFill: number = 300,
+): CandleOHLCV[] {
+    if (candles.length < 2) return candles;
+    const filled: CandleOHLCV[] = [];
+    for (let i = 0; i < candles.length; i++) {
+        filled.push(candles[i]);
+        if (i + 1 < candles.length) {
+            const nextTime = Number(candles[i + 1].time);
+            const currTime = Number(candles[i].time);
+            const gap = nextTime - currTime;
+            const missing = Math.floor(gap / expectedStepSec) - 1;
+            const fillCount = Math.min(missing, maxFill);
+            const close = candles[i].close;
+            for (let j = 1; j <= fillCount; j++) {
+                filled.push({
+                    time: (currTime + j * expectedStepSec) as Time,
+                    open: close,
+                    high: close,
+                    low: close,
+                    close,
+                });
+            }
+        }
+    }
+    return filled;
+}
+
 interface RawHistoryIndicator {
     raw?: Array<number | null>;
     normalized?: Array<number | null>;

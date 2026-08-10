@@ -28,7 +28,18 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
         (instance?.decisionContext ?? (snap as any)?.decision_context ?? null) as DecisionContext | null,
     );
     const advisory = $derived<AdvisoryMatrix | null>(instance?.advisory ?? null);
-    const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
+    const markPrice = $derived.by(() => {
+        // Use the last completed-candle close (set once per candle close
+        // by the WebSocket handler) instead of the live micro shadow
+        // tick's priceText. Geometry that depends on markPrice
+        // (entry_zone, target_zone, invalidation_level) must stay in
+        // sync with the pair-level matrices, both of which only update
+        // on completed candles. The micro shadow fallback exists only for
+        // the brief warmup window before any slot has closed.
+        const completedClose = parseFloat(instance?.lastCompletedClose ?? '');
+        if (Number.isFinite(completedClose) && completedClose > 0) return completedClose;
+        return parseFloat(instance?.microTerm?.priceText ?? '0') || 0;
+    });
     const timestamp = $derived<number | null>(
         snap && typeof (snap as any).timestamp === 'number'
             ? (snap as any).timestamp

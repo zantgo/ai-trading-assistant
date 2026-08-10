@@ -342,40 +342,79 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     }
     const pair = app.instancesMap[symbol];
     if (pair) {
-        if (snapshot.alignment && typeof snapshot.alignment === 'object') {
-            pair.alignment = snapshot.alignment;
-        }
-        if (snapshot.analysis && typeof snapshot.analysis === 'object') {
-            pair.analysis = snapshot.analysis;
-        }
-        if (snapshot.risk && typeof snapshot.risk === 'object') {
-            pair.risk = snapshot.risk;
-        }
-        if (snapshot.advisory && typeof snapshot.advisory === 'object') {
-            pair.advisory = snapshot.advisory;
-        }
-        // Decision-context (L6) carries `trade_readiness`, the L4.75 gate
-        // the Watchlist Scanner polls for. Mirror the existing
-        // alignment/analysis/risk/advisory extraction so downstream
-        // consumers (including the scanner's `waitForAdvisory`) can read
-        // it from the pair-level store rather than trawling every TF's
-        // `latestSnapshot`. The scanner polls regardless of TF — the
-        // trade_readiness value is identical across the 4 WS streams once
-        // the macro context has settled, so the "first arrival wins"
-        // behavior is correct.
-        if (snapshot.decision_context && typeof snapshot.decision_context === 'object') {
-            pair.decisionContext = snapshot.decision_context;
-        }
-        // Opportunity matrix (L4) — entry/target/invalidation zones for
-        // both sides, R:R, time horizon, confluent levels, evaluated
-        // profiles. Only completed-candle frames carry this payload;
-        // shadow ticks hard-code it to `None` for performance. Mirroring
-        // here means `OpportunitiesPanel`, `TradePlanStrip` and
-        // `RecommendationPanel` can read from `pair.opportunity` directly
-        // instead of trawling `microTerm.latestSnapshot.opportunity`
-        // (which the unconditional assignment above used to wipe).
-        if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {
-            pair.opportunity = snapshot.opportunity;
+        // ── Pair-level matrix guard ──
+        // All four slot WebSocket streams (micro/fast/slow/macro) deliver
+        // independently timed completed-candle frames. Each stream
+        // carries forward its own last-completed matrices onto every
+        // shadow tick, so without this guard every slot races to
+        // overwrite `pair.alignment` / `pair.analysis` / `pair.risk` /
+        // `pair.advisory` / `pair.decisionContext` / `pair.opportunity`
+        // at up to 4 Hz per stream, causing panel flicker at the
+        // micro-candle cadence.
+        //
+        // The guard accepts a frame only when:
+        //   (a) it is a completed-candle frame, AND
+        //   (b) its `timestamp` is strictly newer than the last accepted
+        //       frame's timestamp.
+        //
+        // The monotonicity check naturally enforces "one update per
+        // completed-candle close" across all slots — whichever slot
+        // closes first wins, and slower-slot frames with newer
+        // timestamps overwrite. Shadow frames are silently rejected
+        // because `is_completed !== true`.
+        const frameTs = num((snapshot as Record<string, unknown>).timestamp);
+        const isCompleted = (snapshot as Record<string, unknown>).is_completed === true;
+        const acceptMatrixFrame =
+            isCompleted &&
+            frameTs != null &&
+            frameTs > pair.lastMatrixTimestamp;
+
+        if (acceptMatrixFrame) {
+            pair.lastMatrixTimestamp = frameTs;
+            if (snapshot.alignment && typeof snapshot.alignment === 'object') {
+                pair.alignment = snapshot.alignment;
+            }
+            if (snapshot.analysis && typeof snapshot.analysis === 'object') {
+                pair.analysis = snapshot.analysis;
+            }
+            if (snapshot.risk && typeof snapshot.risk === 'object') {
+                pair.risk = snapshot.risk;
+            }
+            if (snapshot.advisory && typeof snapshot.advisory === 'object') {
+                pair.advisory = snapshot.advisory;
+            }
+            // Decision-context (L6) carries `trade_readiness`, the L4.75 gate
+            // the Watchlist Scanner polls for. Mirror the existing
+            // alignment/analysis/risk/advisory extraction so downstream
+            // consumers (including the scanner's `waitForAdvisory`) can read
+            // it from the pair-level store rather than trawling every TF's
+            // `latestSnapshot`. The scanner polls regardless of TF — once
+            // the macro context has settled, the value is identical across
+            // the 4 WS streams, so the monotonicity guard above is the
+            // correct arbiter (no longer "first arrival wins").
+            if (snapshot.decision_context && typeof snapshot.decision_context === 'object') {
+                pair.decisionContext = snapshot.decision_context;
+            }
+            // Opportunity matrix (L4) — entry/target/invalidation zones for
+            // both sides, R:R, time horizon, confluent levels, evaluated
+            // profiles. Only completed-candle frames carry this payload;
+            // shadow ticks hard-code it to `None` for performance. Mirroring
+            // here means `OpportunitiesPanel`, `TradePlanStrip` and
+            // `RecommendationPanel` can read from `pair.opportunity` directly
+            // instead of trawling `microTerm.latestSnapshot.opportunity`
+            // (which the unconditional assignment above used to wipe).
+            if (snapshot.opportunity && typeof snapshot.opportunity === 'object') {
+                pair.opportunity = snapshot.opportunity;
+            }
+
+            // Track the last completed-candle close so opportunity/recommendation
+            // geometry can use a stable markPrice instead of the micro shadow
+            // tick's flickering priceText. This keeps setup geometry in sync
+            // with the matrices, both updating only on completed candles.
+            const completedClose = num(snapshot.close);
+            if (completedClose != null) {
+                pair.lastCompletedClose = completedClose.toString();
+            }
         }
     }
     } catch (_) {}

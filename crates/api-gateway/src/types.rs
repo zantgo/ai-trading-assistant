@@ -458,7 +458,7 @@ fn divergence_from_signals(parent: Option<&NormalizedIndicatorValue>) -> Option<
     Some(format!("{}_{}", status, direction))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HistoryCandle {
     pub time: u64,
     pub open: String,

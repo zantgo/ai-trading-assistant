@@ -3,7 +3,7 @@
     import type { InstanceState, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
-    import { clearHistoryCache } from '../lib/indicatorHistory';
+    import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import styles from './TimeframeSettings.module.css';
 
     let { pair, tabKey, onApplied }: { pair: InstanceState; tabKey: string; onApplied?: () => void } = $props();
@@ -199,6 +199,7 @@
                 // Drop the cached `/api/history?…&timeframe_secs=<old>` so the
                 // next PriceChart mount refetches for the new timeframe_secs.
                 clearHistoryCache();
+                clearCandleCache();
                 onApplied?.();
                 saveStatus = 'success';
                 setTimeout(() => { saveStatus = 'idle'; pair.currentView = 'terminal'; }, 800);

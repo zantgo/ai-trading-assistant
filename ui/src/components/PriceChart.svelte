@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { emaStackState, vwapBias, iSub, iRaw } from '../lib/telemetry';
+    import { emaStackState, vwapBias, iSub, iRaw, getPriceFormat } from '../lib/telemetry';
     import type { IndicatorMap, LiquidationClusterMatrix, VolumeProfileSnapshot } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
@@ -10,6 +10,11 @@
         fetchIndicatorHistoryOnce,
         pairsFromHistory,
         alignedSeriesFromHistory,
+        getCachedCandles,
+        setCachedCandles,
+        fillTimeGaps,
+        purgeCacheForKey,
+        type CandleOHLCV,
     } from '../lib/indicatorHistory';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
     import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
@@ -24,11 +29,13 @@
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
 
     /// Number of recent candles + overlay data points seeded at bootstrap.
-    /// Bump this to see more history; drop it for faster first paint.
-    /// All price overlays (EMA, Bollinger, VWAP, Supertrend, Donchian,
-    /// Ichimoku, Keltner, Hull MA, StdDev, PSAR) share the same window so
-    /// the candle chart and its indicator lines stay aligned.
+    /// Scales with timeframe so micro charts load a manageable window and
+    /// longer-term charts retain adequate history. All price overlays (EMA,
+    /// Bollinger, VWAP, Supertrend, Donchian, Ichimoku, Keltner, Hull MA,
+    /// StdDev, PSAR) share the same window so the candle chart and its
+    /// indicator lines stay aligned.
     const PRICE_CHART_SEED_COUNT = 1000;
+    function seedCountFor(tfSecs: number) { return tfSecs <= 5 ? 300 : tfSecs <= 30 ? 600 : PRICE_CHART_SEED_COUNT; }
     const pair = $derived(app.instancesMap[pairKey]);
     // Slot identity is positional; never re-derive from duration.
     const tf = $derived(
@@ -93,6 +100,7 @@
     let _chartReady = $state(false);
     let _bootstrapComplete = $state(false);
     let _lastHistoryTime = $state(-Infinity);
+    let _lastBarSpacing = 0;
 
     onMount(() => {
         chart = createChart(container, {
@@ -155,8 +163,19 @@
         // candle series so the markers follow candle time/price alignment.
         smcMarkers = createSmcMarkers(candleSeries);
 
+        const tfDuration = tf?.barDurationSec ?? 60;
+        const tfBarSpacing = tfDuration <= 5 ? 14 : tfDuration <= 30 ? 10 : 6;
         chart.priceScale('right').applyOptions({ alignLabels: true });
-        chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
+        chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: tfBarSpacing });
+
+        // Re-apply `barSpacing` whenever the resolved timeframe changes.
+        // The onMount snapshot may have been computed against an undefined
+        // `tf` (which falls back to 60s/6px and renders sub-minute candles
+        // as thin ~4 px dashes). This effect re-applies the correct density
+        // for sub-minute TFs as soon as the instance telemetry resolves,
+        // and also covers tab switches where the new slot's barDuration
+        // differs from the old one's.
+        _lastBarSpacing = tfBarSpacing;
 
         registerChart(chart, container);
 
@@ -189,10 +208,32 @@
     // the data shows up — unlike the legacy `onMount` IIFE which
     // would race-condition and never re-fire.
     if (!timeframe) return;
-    let cancelled = false;
-    (async () => {
-        try {
-            const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
+
+    // Immediate cache hit: paint from the persistent candle cache
+    // before the async history fetch completes so the chart never
+    // flashes white on timeframe-switch or back/forward navigation.
+    const cached = getCachedCandles(pairKey, timeframe);
+    if (cached && cached.length > 0 && candleSeries) {
+        const cachedStep = tf?.barDurationSec || 60;
+        const filledCache = fillTimeGaps(cached, cachedStep);
+        const visibleCap = Math.min(filledCache.length, seedCountFor(timeframe));
+        const recentCache = filledCache.slice(-visibleCap);
+        candleSeries.setData(recentCache);
+        priceLineSeries.setData(
+            recentCache.map((c) => ({ time: c.time, value: c.close }))
+        );
+        _lastHistoryTime = Number(cached[cached.length - 1].time);
+        chart.timeScale().setVisibleRange({
+            from: (Math.max(Number(recentCache[0]?.time ?? 0) - timeframe, 0)) as Time,
+            to: (Number(recentCache[recentCache.length - 1]?.time ?? timeframe) + timeframe) as Time,
+        });
+    }
+
+     let cancelled = false;
+     purgeCacheForKey(pairKey, timeframe);
+     (async () => {
+         try {
+             const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
             if (cancelled || !hist) { _bootstrapComplete = true; return; }
             const step = tf?.barDurationSec || 60;
 
@@ -225,14 +266,23 @@
             }
 
             historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
-            const visibleCap = Math.min(historicalCandles.length, PRICE_CHART_SEED_COUNT);
+            // Gap-fill: insert flat Doji candles for any missing intervals
+            // so the continuous-time chart axis never shows empty gaps.
+            const gapFilled = fillTimeGaps(historicalCandles, step);
+            // Persist the processed candle array so the next component mount
+            // (timeframe switch / back-forward nav) paints instantly.
+            setCachedCandles(pairKey, timeframe, gapFilled);
+            const visibleCap = Math.min(gapFilled.length, seedCountFor(timeframe));
             const recent = <T extends { time: Time; value: number }>(arr: T[]) => arr.slice(-visibleCap);
-            const recentCandles = historicalCandles.slice(-visibleCap);
-            if (recentCandles.length > 0) {
+            const recentCandles = gapFilled.slice(-visibleCap);
+            if (recentCandles.length > 0 && candleSeries && priceLineSeries) {
                 candleSeries.setData(recentCandles);
                 priceLineSeries.setData(
                     recentCandles.map((c) => ({ time: c.time, value: c.close }))
                 );
+                candleSeries.applyOptions({
+                    priceFormat: getPriceFormat(recentCandles[recentCandles.length - 1]?.close),
+                });
             }
 
             // Pull all historical indicator series in one shot via
@@ -319,7 +369,24 @@
                 _lastHistoryTime = Number(recentCandles[recentCandles.length - 1].time);
             }
 
-            chart.timeScale().fitContent();
+            // Stable logical range anchored to the last candle so gap-fill
+            // Doji candles render at consistent barSpacing instead of being
+            // compressed by fitContent().  The viewport shows the most recent
+            // window; the user can scroll left for older data.
+            //
+            // `setVisibleRange` (NOT `setVisibleLogicalRange`) is used here
+            // because lightweight-charts@5.x's `setVisibleLogicalRange`
+            // requires bar indices (0..dataLength-1), not epoch timestamps.
+            // Passing epoch seconds to it produced a degenerate view that
+            // collapsed sub-minute candle bodies into a pinned band.
+            if (recentCandles.length > 0) {
+                const lastTimeSec = Number(recentCandles[recentCandles.length - 1].time);
+                const visibleSecs = timeframe <= 5 ? 180 : timeframe <= 30 ? 600 : 3600;
+                chart.timeScale().setVisibleRange({
+                    from: (lastTimeSec - visibleSecs) as Time,
+                    to: (lastTimeSec + Math.floor(visibleSecs * 0.1)) as Time,
+                });
+            }
 
             // v6.5: capture per-TF cluster + volume profile from
             // history (used as a fallback if the WS stream hasn't
@@ -334,6 +401,30 @@
         }
     })();
     return () => { cancelled = true; };
+    });
+
+    // ── Bar-spacing re-application ──
+    // Sub-minute TFs need wider barSpacing (14 px for ≤5 s, 10 px for
+    // ≤30 s) than above-minute TFs (6 px). The onMount snapshot captures
+    // `tf` at component-creation time, but `tf` is `$derived` from
+    // `app.instancesMap[pairKey]?.microTerm` etc. — if the instance
+    // telemetry hasn't resolved yet (slow daemon start, fresh pair
+    // activation), `tf` is undefined, the snapshot falls back to 60 s,
+    // and the chart is locked at 6 px. That makes sub-minute candles
+    // render as ~4 px dashes. This effect re-applies the correct density
+    // once the chart is ready AND the timeframe resolves, AND on every
+    // subsequent timeframe change (tab switch between e.g. 1 s micro and
+    // 15 s macro).
+    $effect(() => {
+        void _chartReady;
+        void timeframe;
+        if (!_chartReady) return;
+        if (!chart) return;
+        const wanted = timeframe <= 5 ? 14 : timeframe <= 30 ? 10 : 6;
+        if (wanted !== _lastBarSpacing) {
+            _lastBarSpacing = wanted;
+            chart.timeScale().applyOptions({ barSpacing: wanted });
+        }
     });
 
     onDestroy(() => {
@@ -653,7 +744,8 @@
         const timeSec: number = typeof snap.timestamp === 'number'
             ? snap.timestamp
             : Number(snap.timestamp ?? 0);
-        if (!_bootstrapComplete || !Number.isFinite(_lastHistoryTime) || timeSec < _lastHistoryTime) return;
+        if (!_bootstrapComplete) return;
+        if (_lastHistoryTime > 0 && timeSec < _lastHistoryTime) return;
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
 
         if (snap.close != null) {
