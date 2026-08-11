@@ -37,9 +37,21 @@ pub async fn serve_history(
         Some(pair) => {
             let mut snap_hist = pair.snapshot_history_vec_for_secs(tf_secs).await;
             // Sub-minute TFs: when the in-memory snapshot_history is empty
-            // (fresh pipeline after a timeframe-switch rebuild), fall back
-            // to the DB so the chart has OHLCV history on first mount.
-            // Indicators are omitted — the live WS stream fills them in.
+            // (e.g. fresh daemon startup, no completed candles yet), fall back
+            // to the DB so the chart has OHLCV history on first mount — but
+            // only when there are real persisted rows for the requested TF.
+            //
+            // Previously this branch also called `derive_sub_minute_candles`
+            // when the DB was empty, synthesising flat-close candles from the
+            // next-larger TF (typically 60s). Those synthetic candles carried
+            // identical O=H=L=C=minute_close, which rendered as a horizontal
+            // line spanning the entire minute. The chart couldn't distinguish
+            // them from real sub-minute data, so the user saw a misleading
+            // "line of about 1 minute" on every cold start.
+            //
+            // The derivation is gone: if neither in-memory nor DB has rows
+            // for the sub-minute TF, the chart gets an empty historical
+            // payload and the live WS stream fills it in within seconds.
             if snap_hist.is_empty() && tf_secs < 60 {
                 let db_candles = database_storage::query_recent_candles(
                     &state.pool,
@@ -48,38 +60,29 @@ pub async fn serve_history(
                     limit as u32,
                 )
                 .await;
-                let source_candles = if db_candles.is_empty() {
-                    database_storage::derive_sub_minute_candles(
-                        &state.pool,
-                        &pair_key,
-                        tf_secs,
-                        limit as u32,
-                    )
-                    .await
-                } else {
-                    db_candles
-                };
-                let mut db_snaps: Vec<core_domain::models::MarketSnapshot> = source_candles
-                    .into_iter()
-                    .rev()
-                    .map(|c| core_domain::models::MarketSnapshot {
-                        symbol: pair_key.clone(),
-                        timeframe_secs: tf_secs,
-                        timestamp: c.start_time_ms / 1000,
-                        open: Some(c.open),
-                        high: Some(c.high),
-                        low: Some(c.low),
-                        close: Some(c.close),
-                        volume: Some(c.volume),
-                        mid_price: c.close,
-                        bid_price: Decimal::ZERO,
-                        ask_price: Decimal::ZERO,
-                        exchange: Some(c.exchange),
-                        is_completed: Some(true),
-                        ..Default::default()
-                    })
-                    .collect();
-                snap_hist.append(&mut db_snaps);
+                if !db_candles.is_empty() {
+                    let mut db_snaps: Vec<core_domain::models::MarketSnapshot> = db_candles
+                        .into_iter()
+                        .rev()
+                        .map(|c| core_domain::models::MarketSnapshot {
+                            symbol: pair_key.clone(),
+                            timeframe_secs: tf_secs,
+                            timestamp: c.start_time_ms / 1000,
+                            open: Some(c.open),
+                            high: Some(c.high),
+                            low: Some(c.low),
+                            close: Some(c.close),
+                            volume: Some(c.volume),
+                            mid_price: c.close,
+                            bid_price: Decimal::ZERO,
+                            ask_price: Decimal::ZERO,
+                            exchange: Some(c.exchange),
+                            is_completed: Some(true),
+                            ..Default::default()
+                        })
+                        .collect();
+                    snap_hist.append(&mut db_snaps);
+                }
             }
             snap_hist.truncate(limit);
             // Drop leading snapshots with no close so the first bar the UI sees
@@ -140,6 +143,7 @@ pub async fn serve_history(
                         .volume
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "0".to_string()),
+                    reconstructed: None,
                 });
             }
 
@@ -177,6 +181,12 @@ pub async fn serve_history(
                                 low: last_close.clone(),
                                 close: last_close.clone(),
                                 volume: "0".to_string(),
+                                // Gap-fill Dojis are also synthetic;
+                                // never let the frontend cache them as
+                                // if they were real historical data.
+                                reconstructed: Some(
+                                    core_domain::normalized::ReconstructionMethod::Synthetic,
+                                ),
                             });
                             filled_prices.push(last_close.clone());
                         }

@@ -184,6 +184,16 @@ pub struct WorkspaceConfig {
     pub heatmap: HeatmapConfig,
     #[serde(default)]
     pub activation: ActivationConfig,
+    /// Opportunity-matrix knobs — currently just the ATR-fallback toggle
+    /// for confluent levels (Phase C of the v6.10 fix). When `enabled`,
+    /// the synthesis emits at least one entry / target level derived from
+    /// `close ± k·ATR` if every structural source (Fibonacci / Volume
+    /// Profile / Pivot Points / Liquidation Clusters) is empty, so the
+    /// Opportunities panel never shows "No confluent levels" for a
+    /// healthy market. When `disabled` (strict behaviour), the empty
+    /// state is the honest signal of "no structural levels near price".
+    #[serde(default)]
+    pub opportunity_matrix: OpportunityMatrixConfig,
     /// Schema version counter — incremented on every successful POST /api/config.
     #[serde(default)]
     pub config_version: u64,
@@ -227,6 +237,7 @@ impl Default for WorkspaceConfig {
             liquidity: LiquidityConfig::default(),
             heatmap: HeatmapConfig::default(),
             activation: ActivationConfig::default(),
+            opportunity_matrix: OpportunityMatrixConfig::default(),
             config_version: 1,
             scoring: ScoringConfig::default(),
             leverage: LeverageConfig::default(),

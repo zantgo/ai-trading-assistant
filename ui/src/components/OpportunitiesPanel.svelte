@@ -58,13 +58,18 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     // Directional conviction bars — normalized from the top-level opportunity
     // matrix R:R values and capped by opportunity_score so the remaining
     // uncertainty remains visible as a Hold buffer.
+    //
+    // All three bars (BULLISH/BEARISH/HOLD) are ALWAYS rendered, even at
+    // 0%. The previous behaviour filtered out zero-value bars which hid
+    // the dominant-HOLD case (the chart showed only a single HOLD=100%
+    // bar and operators couldn't see that bullish/bearish were genuinely
+    // zero). Showing all three explicitly communicates the full split.
     const directionBars = $derived.by((): DirectionalBars => computeOpportunityBars(opportunity));
     const sortedBars = $derived.by(() => [
         { id: 'bullish', label: 'BULLISH', value: directionBars.bullish, cls: 'bullish' },
         { id: 'bearish', label: 'BEARISH', value: directionBars.bearish, cls: 'bearish' },
         { id: 'hold', label: 'HOLD', value: directionBars.hold, cls: 'hold' },
     ]
-        .filter((b) => b.value > 0)
         .sort((a, b) => b.value - a.value));
 
     const setups = $derived(computeSymmetricSetups({

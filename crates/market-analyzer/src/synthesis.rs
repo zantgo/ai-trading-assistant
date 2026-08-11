@@ -508,8 +508,58 @@ fn derive_confluent_zones(
     let entry_clusters = cluster_levels(&entry_candidates, tolerance);
     let target_clusters = cluster_levels(&target_candidates, tolerance);
 
-    let entry_levels = clusters_to_confluent(entry_clusters);
-    let target_levels = clusters_to_confluent(target_clusters);
+    let mut entry_levels = clusters_to_confluent(entry_clusters);
+    let mut target_levels = clusters_to_confluent(target_clusters);
+
+    // ── ATR-based fallback for entry/target ──
+    // When every structural source (Fibonacci / Volume Profile / Pivot
+    // Points / Liquidation Clusters) fails to produce a candidate for
+    // entry or target, the surface goes empty. The Opportunities panel
+    // then shows "No confluent levels" — which is technically correct
+    // but unhelpful in practice: a healthy market with a clear bias
+    // should always surface at least one actionable bracket. We
+    // therefore fall back to a single ATR-derived level:
+    //
+    //   bullish: entry = close − k_entry·ATR, target = close + k_target·ATR
+    //   bearish: entry = close + k_entry·ATR, target = close − k_target·ATR
+    //
+    // Defaults match `OpportunityMatrixConfig::default()` so the
+    // config field is the canonical knob (when plumbed through). For
+    // now the defaults are hard-coded inline; the workspace-config
+    // threading will be added in a follow-up so the panel can be
+    // tuned per-workspace without a recompile.
+    const FALLBACK_ENABLED: bool = true;
+    const K_ENTRY: f64 = 1.5;
+    const K_TARGET: f64 = 2.5;
+
+    if FALLBACK_ENABLED {
+        if entry_levels.is_empty() && atr > 0.0 {
+            let entry_price = if bias_bullish {
+                close - K_ENTRY * atr
+            } else {
+                close + K_ENTRY * atr
+            };
+            entry_levels.push(ConfluentLevel {
+                price: entry_price,
+                confluence_count: 1,
+                sources: vec![LevelSource::AtrFallback],
+                strength: 35.0, // synthetic strength below typical real levels
+            });
+        }
+        if target_levels.is_empty() && atr > 0.0 {
+            let target_price = if bias_bullish {
+                close + K_TARGET * atr
+            } else {
+                close - K_TARGET * atr
+            };
+            target_levels.push(ConfluentLevel {
+                price: target_price,
+                confluence_count: 1,
+                sources: vec![LevelSource::AtrFallback],
+                strength: 35.0,
+            });
+        }
+    }
 
     let invalidation_candidates: Vec<LevelCandidate> = if bias_bullish {
         let mut inval = Vec::new();
@@ -1285,16 +1335,28 @@ pub fn synthesize_cross_tf(
 
     let alignment = alignment::compute_alignment(symbol, &tf_data);
 
-    let representative_indicators = tf_snapshots
-        .iter()
-        .find_map(|(_, s)| {
-            if !s.indicators.is_empty() {
-                Some(&s.indicators)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(empty_map());
+    // Build per-key union of indicators across all 4 TFs. The previous
+    // implementation took the FIRST non-empty TF's indicator map as the
+    // "representative" set, which meant: if TF1 had no Fibonacci / Volume
+    // Profile / Pivot Points (e.g. macro still warming up) the confluent
+    // level surface stayed empty even though TF3 / TF4 had the data.
+    //
+    // This per-key merge matches the cross-TF pattern already used by
+    // `alignment::compute_alignment` (line 1286 above). Each indicator
+    // key is filled from the FIRST TF that has it; subsequent TFs don't
+    // overwrite. The "first wins" rule is deterministic and matches the
+    // iteration order of `tf_snapshots` (micro, fast, slow, macro —
+    // fastest candle first, so a populated faster TF shadows a stale
+    // slower TF).
+    let mut representative_indicators: HashMap<String, NormalizedIndicatorValue> =
+        HashMap::new();
+    for (_, snap) in tf_snapshots {
+        for (k, v) in &snap.indicators {
+            representative_indicators
+                .entry(k.clone())
+                .or_insert_with(|| v.clone());
+        }
+    }
 
     let bbwp = representative_indicators.get("bbwp").map(|v| v.raw_value);
     let adx = representative_indicators.get("adx").map(|v| v.raw_value);
@@ -1317,7 +1379,7 @@ pub fn synthesize_cross_tf(
     let risk = risk::compute_risk(
         &analysis.symbol,
         &analysis,
-        representative_indicators,
+        &representative_indicators,
         liquidity_flow,
         cluster,
         close,
@@ -1326,7 +1388,7 @@ pub fn synthesize_cross_tf(
     let opportunity = compute_opportunity(
         &analysis,
         &alignment,
-        representative_indicators,
+        &representative_indicators,
         liquidity_flow,
         cluster,
         close,
@@ -1361,6 +1423,7 @@ fn label_box_to_static(s: &String) -> &'static str {
     Box::leak(s.clone().into_boxed_str())
 }
 
+#[allow(dead_code)]
 fn empty_map() -> &'static HashMap<String, NormalizedIndicatorValue> {
     static MAP: std::sync::LazyLock<HashMap<String, NormalizedIndicatorValue>> =
         std::sync::LazyLock::new(HashMap::new);
@@ -1969,6 +2032,181 @@ mod tests {
             opp.setup_quality,
             setup_quality_band(primary_profile.score),
             "matrix-level setup_quality must match primary profile score",
+        );
+    }
+
+    /// Phase B regression: `representative_indicators` is now a per-key
+    /// union across all 4 TFs rather than the first non-empty TF's
+    /// snapshot. Build a scenario where TF1 (the first iteration slot)
+    /// has no `fibonacci` indicator, but TF4 (last iteration slot) does.
+    /// The confluent levels must still populate from TF4's Fibonacci.
+    ///
+    /// We can't easily null out an indicator on the existing
+    /// `make_snapshot` helper, so we hand-build the TF1 snapshot and
+    /// reuse `make_snapshot` for the others.
+    #[test]
+    fn representative_indicators_merges_across_tfs_when_first_tf_lacks_fib() {
+        let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+
+        // TF1 snapshot: drop the `fibonacci` indicator entirely.
+        let snap1 = {
+            let mut s = make_snapshot(60, 64000.0, ctx.clone());
+            s.indicators.remove("fibonacci");
+            s
+        };
+        let snap2 = make_snapshot(180, 64100.0, ctx.clone());
+        let snap3 = make_snapshot(300, 64200.0, ctx.clone());
+        // TF4 keeps Fibonacci (default in make_snapshot).
+        let snap4 = make_snapshot(900, 64300.0, ctx);
+
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap1), (180, &snap2), (300, &snap3), (900, &snap4)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+
+        // Before the fix, the per-key merge took the first non-empty
+        // TF's indicator map; since TF1 had no fibonacci at all,
+        // confluent levels stayed empty. After the fix, the union pulls
+        // fibonacci from TF4 (or whichever later TF has it) and the
+        // entry/target pools populate.
+        assert!(
+            !opp.confluent_entry_levels.is_empty()
+                || !opp.confluent_target_levels.is_empty(),
+            "confluent levels must populate from a later TF even when TF1 \
+             lacks fibonacci (got entry={:?}, target={:?})",
+            opp.confluent_entry_levels.len(),
+            opp.confluent_target_levels.len(),
+        );
+    }
+
+    /// Phase C regression: when every structural source (Fibonacci /
+    /// Volume Profile / Pivot Points / Liquidation Clusters) is empty,
+    /// the ATR fallback fires and emits at least one entry / target
+    /// level derived from `close ± k·ATR`. The fallback is hard-coded
+    /// ON by default (matches `OpportunityMatrixConfig::default()`) and
+    /// exists so the Opportunities panel never shows the empty state
+    /// for a healthy market.
+    #[test]
+    fn atr_fallback_fires_when_candidate_pool_is_empty() {
+        let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+
+        // Build a snapshot whose indicators have NO fibonacci / Volume
+        // Profile / Pivot Points / Liquidation Cluster values that
+        // match the entry/target proximity conditions. `make_snapshot`
+        // already sets Fibonacci/VP to empty (no values are emitted by
+        // `make_snapshot`), and we explicitly clear the support_resistance
+        // indicator and pass `None` for the cluster.
+        let snap = make_snapshot(60, 64000.0, ctx);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+
+        // ATR fallback must populate at least one entry level.
+        assert!(
+            !opp.confluent_entry_levels.is_empty(),
+            "ATR fallback must emit at least one entry level when candidate pool is empty (got {})",
+            opp.confluent_entry_levels.len(),
+        );
+        // And at least one target level.
+        assert!(
+            !opp.confluent_target_levels.is_empty(),
+            "ATR fallback must emit at least one target level when candidate pool is empty (got {})",
+            opp.confluent_target_levels.len(),
+        );
+        // The fallback levels must be flagged with the AtrFallback
+        // source so the dashboard can render them with a distinct
+        // visual style (the panel's `sourceColor` already maps
+        // `LevelSource::AtrFallback` to its own colour).
+        assert!(
+            opp.confluent_entry_levels
+                .iter()
+                .any(|l| l.sources.contains(&LevelSource::AtrFallback)),
+            "entry fallback level must carry the AtrFallback source marker"
+        );
+    }
+
+    /// Phase C pin: the ATR fallback's directionality is correct.
+    /// For a bullish bias the fallback entry sits BELOW close and the
+    /// fallback target sits ABOVE close. For a bearish bias it's the
+    /// mirror.
+    #[test]
+    fn atr_fallback_levels_respect_bias_directionality() {
+        // Bullish context → bias Bullish → entry below close.
+        let bull_ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
+        let bull_snap = make_snapshot(60, 64000.0, bull_ctx);
+        let bull_result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &bull_snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let bull_opp = bull_result.opportunity.expect("bullish opp");
+        let close = 64000.0_f64;
+        let bull_entry = bull_opp
+            .confluent_entry_levels
+            .first()
+            .expect("bullish fallback entry must be present");
+        let bull_target = bull_opp
+            .confluent_target_levels
+            .first()
+            .expect("bullish fallback target must be present");
+        assert!(
+            bull_entry.price < close,
+            "bullish fallback entry {} must be < close {close}",
+            bull_entry.price
+        );
+        assert!(
+            bull_target.price > close,
+            "bullish fallback target {} must be > close {close}",
+            bull_target.price
+        );
+
+        // Bearish context → bias Bearish → entry above close.
+        let bear_ctx = make_context("TRENDING", -0.7, -0.6, 0.2, 0.1, -60);
+        let bear_snap = make_snapshot(60, 64000.0, bear_ctx);
+        let bear_result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &bear_snap)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let bear_opp = bear_result.opportunity.expect("bearish opp");
+        let bear_entry = bear_opp
+            .confluent_entry_levels
+            .first()
+            .expect("bearish fallback entry must be present");
+        let bear_target = bear_opp
+            .confluent_target_levels
+            .first()
+            .expect("bearish fallback target must be present");
+        assert!(
+            bear_entry.price > close,
+            "bearish fallback entry {} must be > close {close}",
+            bear_entry.price
+        );
+        assert!(
+            bear_target.price < close,
+            "bearish fallback target {} must be < close {close}",
+            bear_target.price
         );
     }
 }

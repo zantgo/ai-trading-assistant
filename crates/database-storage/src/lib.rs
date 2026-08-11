@@ -31,7 +31,7 @@ pub use queries::profiles::{
     risk_profile_update, risk_profiles_list, DecisionProfile, ProfileIndicator, RiskProfile,
 };
 pub use queries::snapshots::{
-    derive_sub_minute_candles, insert_snapshot_internal, query_atr_snapshots,
+    insert_snapshot_internal, query_atr_snapshots,
     query_closest_close_price, query_indicator_snapshots, query_latest_snapshot,
     query_recent_candles, IndicatorSnapshotRow,
 };

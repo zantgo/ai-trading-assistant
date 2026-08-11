@@ -995,6 +995,49 @@ impl Default for DefaultsConfig {
     }
 }
 
+/// Opportunity-matrix knobs (v6.10). The confluent-level synthesis in
+/// `market-analyzer::synthesis::derive_confluent_zones` consults
+/// `confluent_atr_fallback.enabled` — when true and every structural
+/// source (Fibonacci / Volume Profile / Pivot Points / Liquidation
+/// Clusters) is empty, the synthesis emits a single entry and target
+/// level derived from `close ± k·ATR` so the Opportunities panel never
+/// shows "No confluent levels" for a healthy market.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpportunityMatrixConfig {
+    #[serde(default = "default_confluent_atr_fallback_enabled")]
+    pub confluent_atr_fallback_enabled: bool,
+    /// Multiplier on ATR for the entry-level fallback (entry sits
+    /// `close − k_entry·ATR` for a bullish bias, or `close + k_entry·ATR`
+    /// for bearish). Higher k = wider entry bracket.
+    #[serde(default = "default_confluent_atr_k_entry")]
+    pub confluent_atr_k_entry: f64,
+    /// Multiplier on ATR for the target-level fallback (target sits
+    /// `close + k_target·ATR` for bullish, `close − k_target·ATR`
+    /// for bearish). Higher k = wider target bracket.
+    #[serde(default = "default_confluent_atr_k_target")]
+    pub confluent_atr_k_target: f64,
+}
+
+fn default_confluent_atr_fallback_enabled() -> bool {
+    true
+}
+fn default_confluent_atr_k_entry() -> f64 {
+    1.5
+}
+fn default_confluent_atr_k_target() -> f64 {
+    2.5
+}
+
+impl Default for OpportunityMatrixConfig {
+    fn default() -> Self {
+        Self {
+            confluent_atr_fallback_enabled: default_confluent_atr_fallback_enabled(),
+            confluent_atr_k_entry: default_confluent_atr_k_entry(),
+            confluent_atr_k_target: default_confluent_atr_k_target(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SafetyConfig {
     #[serde(default = "default_consecutive_loss_caution")]

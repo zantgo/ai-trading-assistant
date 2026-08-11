@@ -20,10 +20,91 @@ use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle};
 use core_domain::volume_profile::VolumeProfileSnapshot;
 
-/// Maximum number of candles/snapshots retained in live memory buffers.
-/// Bootstrap fetches up to `analysis_limit` (default 500); live buffers grow
-/// naturally up to this hard cap before eviction.
+/// **API contract cap** for both `pipeline.history` (raw candle deque)
+/// and `pipeline.snapshot_history` (MarketSnapshot deque). Deliberately
+/// a single constant rather than a per-TF configuration so the
+/// `/api/history` endpoint can guarantee the same 1000-candle response
+/// across all configured timeframes and both supported exchanges
+/// (Hyperliquid + Bitget). It is the rolling live-runtime cap (oldest
+/// entries are dropped on each new candle close). The warmup also trims
+/// to this constant so a freshly bootstrapped engine starts at the cap
+/// rather than carrying an oversized seed.
+///
+/// # Pin tests
+/// `crates/market-analyzer/tests/hist_buffer_cap_uniformity.rs` and the
+/// inline `#[cfg(test)]` tests below guard this constant. Any change to
+/// the value must update those tests deliberately (the `/api/history`
+/// response contract assumes 1000).
 pub const HIST_BUFFER_MAX: usize = 1000;
+
+/// Trim a `Vec<T>` to the rolling cap, dropping the oldest entries. Pure
+/// helper so the cap behaviour is testable in isolation — the full
+/// warmup iterates 50+ indicators per candle and is too expensive for a
+/// tight regression test. Behaviour is uniform across all TFs and both
+/// exchanges: the function has no per-TF / per-exchange branching.
+fn trim_snapshot_history_to_cap<T: Clone>(mut snapshot_history: Vec<T>) -> Vec<T> {
+    if snapshot_history.len() > HIST_BUFFER_MAX {
+        snapshot_history = snapshot_history
+            [snapshot_history.len() - HIST_BUFFER_MAX..]
+            .to_vec();
+    }
+    snapshot_history
+}
+
+#[cfg(test)]
+mod cap_trim_tests {
+    //! Pin tests for the `HIST_BUFFER_MAX` trim behaviour. The full
+    //! warmup exercises 50+ indicators per candle and runs >60s for the
+    //! full regression matrix; these unit tests on the pure helper run
+    //! in milliseconds and prove the cap invariant holds uniformly.
+    use super::{trim_snapshot_history_to_cap, HIST_BUFFER_MAX};
+
+    #[test]
+    fn trim_drops_oldest_when_over_cap() {
+        let v: Vec<usize> = (0..HIST_BUFFER_MAX + 500).collect();
+        assert_eq!(v.len(), HIST_BUFFER_MAX + 500);
+        let trimmed = trim_snapshot_history_to_cap(v);
+        assert_eq!(trimmed.len(), HIST_BUFFER_MAX);
+        // The oldest entries are dropped — we keep [500..1500].
+        assert_eq!(trimmed.first(), Some(&500));
+        assert_eq!(trimmed.last(), Some(&(HIST_BUFFER_MAX + 500 - 1)));
+    }
+
+    #[test]
+    fn trim_is_noop_at_or_below_cap() {
+        // Empty
+        let v: Vec<usize> = Vec::new();
+        assert!(trim_snapshot_history_to_cap(v).is_empty());
+
+        // Exactly cap
+        let v: Vec<usize> = (0..HIST_BUFFER_MAX).collect();
+        let trimmed = trim_snapshot_history_to_cap(v);
+        assert_eq!(trimmed.len(), HIST_BUFFER_MAX);
+
+        // One below cap
+        let v: Vec<usize> = (0..HIST_BUFFER_MAX - 1).collect();
+        let trimmed = trim_snapshot_history_to_cap(v);
+        assert_eq!(trimmed.len(), HIST_BUFFER_MAX - 1);
+    }
+
+    #[test]
+    fn trim_is_uniform_across_tf_durations_and_exchanges() {
+        // The trim helper is pure: same input length → same output
+        // length, regardless of T or any TF/exchange metadata. We assert
+        // this by trimming Vecs of varied sizes (covering the 1s/3s/5s/
+        // 15s/60s/180s/300s/900s candle-cadence scenarios) and verifying
+        // the cap is applied identically.
+        for &n in &[1010usize, 1500, 5000, 100_000] {
+            let v: Vec<usize> = (0..n).collect();
+            let trimmed = trim_snapshot_history_to_cap(v);
+            assert_eq!(
+                trimmed.len(),
+                HIST_BUFFER_MAX.min(n),
+                "trim must cap to HIST_BUFFER_MAX={HIST_BUFFER_MAX} for n={n}"
+            );
+        }
+    }
+}
 
 /// Hard cap on the per-pipeline OI history replay length. The live
 /// `oi_history: VecDeque<f64>` used for `OI Delta` and the rolling-1h
@@ -615,15 +696,7 @@ pub fn warm_indicators_for_timeframe(
         candles
     };
 
-    // Trim snapshot_history to match the rolling live-runtime cap
-    // (`HIST_BUFFER_MAX = 1000`). Capping at `analysis_limit` here would
-    // discard the bulk of the non-sub-minute seed and break `/api/history`'s
-    // 1000-candle contract for freshly-bootstrapped engines.
-    if snapshot_history.len() > crate::analyzer::warm::HIST_BUFFER_MAX {
-        snapshot_history = snapshot_history
-            [snapshot_history.len() - crate::analyzer::warm::HIST_BUFFER_MAX..]
-            .to_vec();
-    }
+    snapshot_history = trim_snapshot_history_to_cap(snapshot_history);
 
     // Clone once so we can both move `snapshot_history` into the struct
     // literal AND borrow it for the derivatives warmup.

@@ -26,6 +26,12 @@ export interface IndicatorFlatHistory {
     values: Record<string, Array<number | null>>;
     candleTimes: number[];
     candles: { open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] };
+    /// Per-candle `reconstructed` provenance (SCREAMING_SNAKE_CASE enum
+    /// string or `undefined`). Parallel to `candleTimes`/`candles` —
+    /// `candleReconstructed[i]` describes `candles.open[i]`. The chart
+    /// uses this to filter synthetic gap-fill Dojis out of the
+    /// persistent candle cache (see `setCachedCandles`).
+    candleReconstructed?: Array<string | undefined>;
     prices?: string[];
     clusters?: Record<string, unknown>;
     volumeProfiles?: Record<string, unknown>;
@@ -89,7 +95,19 @@ export function purgeCacheForKey(pairKey: string, timeframe: number): void {
 // the bootstrap paints from cache immediately while the async history
 // fetch refreshes in the background.
 
-export type CandleOHLCV = { time: Time; open: number; high: number; low: number; close: number };
+/// Cached candle shape. `reconstructed` is the SCREAMING_SNAKE_CASE
+/// backend enum string (e.g. `SYNTHETIC`) or `undefined` for real candles.
+/// `PriceChart.svelte` filters out any candle with a truthy `reconstructed`
+/// before painting and caching so synthetic gap-fill Dojis never poison
+/// the persistent candle cache.
+export type CandleOHLCV = {
+    time: Time;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    reconstructed?: string;
+};
 
 const candleCache = new Map<string, CandleOHLCV[]>();
 
@@ -98,7 +116,11 @@ export function getCachedCandles(pairKey: string, timeframe: number): CandleOHLC
 }
 
 export function setCachedCandles(pairKey: string, timeframe: number, candles: CandleOHLCV[]): void {
-    if (candles.length > 0) candleCache.set(`${pairKey}@${timeframe}`, candles);
+    // Defence in depth: never cache synthetic candles even if the caller
+    // forgot to filter. The backend may serve a future reconstruction path
+    // that we don't yet know about; this guard keeps the cache pure.
+    const real = candles.filter((c) => !c.reconstructed);
+    if (real.length > 0) candleCache.set(`${pairKey}@${timeframe}`, real);
 }
 
 export function clearCandleCache(): void {
@@ -163,6 +185,15 @@ interface RawHistoryCandle {
     low: string;
     close: string;
     volume: string;
+    /// Reconstruction provenance from the backend
+    /// (`core_domain::normalized::ReconstructionMethod`). SCREAMING_SNAKE_CASE
+    /// when present: `EXCHANGE_HISTORICAL`, `EXPONENTIAL_MOVING_AVERAGE`,
+    /// `LINEAR_INTERPOLATION`, `UNAVAILABLE`, `SYNTHETIC`. Absent for
+    /// real, persisted OHLCV candles. The chart-side `normalizeHistory`
+    /// uses this flag to drop synthetic gap-fill Dojis out of the
+    /// persistent candle cache so the chart never paints a flat-line
+    /// "ghost" from minute-close interpolation.
+    reconstructed?: string | null;
 }
 
 interface RawResponse {
@@ -208,6 +239,7 @@ function normalizeHistory(raw: RawResponse): IndicatorFlatHistory {
     // dedicated fields so callers don't have to mix-and-match.
     const candleRows = raw.candles ?? [];
     const candleTimes: number[] = [];
+    const candleReconstructed: Array<string | undefined> = [];
     const candles = { open: [] as number[], high: [] as number[], low: [] as number[], close: [] as number[], volume: [] as number[] };
     for (const c of candleRows) {
         if (!c || c.time == null) continue;
@@ -217,6 +249,9 @@ function normalizeHistory(raw: RawResponse): IndicatorFlatHistory {
         candles.low.push(parseFloat(c.low) || 0);
         candles.close.push(parseFloat(c.close) || 0);
         candles.volume.push(parseFloat(c.volume) || 0);
+        candleReconstructed.push(
+            c.reconstructed && typeof c.reconstructed === 'string' ? c.reconstructed : undefined
+        );
     }
 
     return {
@@ -224,6 +259,7 @@ function normalizeHistory(raw: RawResponse): IndicatorFlatHistory {
         values,
         candleTimes,
         candles,
+        candleReconstructed,
         prices: raw.prices ?? undefined,
         clusters: raw.clusters ?? undefined,
         volumeProfiles: raw.volume_profiles ?? undefined,

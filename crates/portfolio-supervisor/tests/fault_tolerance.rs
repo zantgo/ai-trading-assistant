@@ -49,6 +49,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             liquidity: Default::default(),
             heatmap: Default::default(),
             activation: Default::default(),
+            opportunity_matrix: Default::default(),
             config_version: 1,
             instances: Vec::new(),
             execution_policies: Vec::new(),

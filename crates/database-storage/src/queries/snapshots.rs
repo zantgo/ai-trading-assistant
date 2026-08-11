@@ -539,6 +539,23 @@ pub async fn query_closest_close_price(
     }
 }
 
+/// Synthesise flat-close sub-minute candles from the next-larger TF's
+/// persisted rows. **Deprecated**: as of v6.10 the bootstrap warmup no
+/// longer calls this helper (see `bootstrap.rs::collect_candles`) because
+/// the resulting flat `O=H=L=C=minute_close` candles populated
+/// `pipeline.snapshot_history` and rendered on the chart as a continuous
+/// horizontal line spanning each minute bucket — the v6.9 "line of about
+/// 1 minute" regression. Sub-minute TFs now start cold and accumulate
+/// real OHLCV from live WS frames. The function is kept for any future
+/// offline backfill / replay use that explicitly wants interpolated
+/// scaffolding; suppress the dead-code lint until a caller wires it up.
+#[deprecated(
+    since = "6.10.0",
+    note = "sub-minute bootstrap now skips warmup entirely; flat synthetic candles were \
+            causing the 'line of about 1 minute' chart render artefact. \
+            Use live WS frames or a different interpolation strategy if you need seed data."
+)]
+#[allow(dead_code)]
 pub async fn derive_sub_minute_candles(
     pool: &SqlitePool,
     symbol: &str,

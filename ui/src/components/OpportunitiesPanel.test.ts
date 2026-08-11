@@ -269,6 +269,44 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         expect(holdFill?.getAttribute('style')).toContain('width: 100%');
     });
 
+    /// Regression: all three directional bars (BULLISH / BEARISH / HOLD)
+    /// are ALWAYS rendered, even when one or more are at 0%. Previously
+    /// zero-value bars were filtered out, which hid the dominant-HOLD
+    /// case behind a single HOLD=100% bar. The user couldn't see that
+    /// bullish and bearish were also genuinely zero. Now all three
+    /// render explicitly with their actual split.
+    it('renders all three directional bars even when bullish/bearish are zero', () => {
+        const opp = makeOpportunity() as any;
+        opp.profiles = [];
+        opp.primary_opportunity = 'NoClearOpportunity';
+        opp.opportunity_score = 0;
+        opp.setup_quality = 'None';
+        opp.long_expected_rr_internal = 0;
+        opp.short_expected_rr_internal = 0;
+
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        // All three labels must be present regardless of value.
+        expect(screen.getByText('BULLISH')).toBeTruthy();
+        expect(screen.getByText('BEARISH')).toBeTruthy();
+        expect(screen.getByText('HOLD')).toBeTruthy();
+
+        // BULLISH bar is rendered with width 0% (the browser normalises
+        // `0.0%` to `0%`).
+        const bullishCell = screen.getByText('BULLISH').closest('div');
+        const bullishFill = bullishCell?.querySelector('div');
+        expect(bullishFill?.getAttribute('style')).toContain('width: 0%');
+        // BEARISH bar likewise.
+        const bearishCell = screen.getByText('BEARISH').closest('div');
+        const bearishFill = bearishCell?.querySelector('div');
+        expect(bearishFill?.getAttribute('style')).toContain('width: 0%');
+        // HOLD is full width.
+        const holdCell = screen.getByText('HOLD').closest('div');
+        const holdFill = holdCell?.querySelector('div');
+        expect(holdFill?.getAttribute('style')).toContain('width: 100%');
+    });
+
     it('reads ENTRY mid from the per-profile long_entry_zone (not aggregated)', () => {
         seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });

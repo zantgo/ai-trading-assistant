@@ -1219,6 +1219,12 @@ pub async fn run_single(
         };
 
         {
+            // Rolling live-runtime cap. The same `HIST_BUFFER_MAX = 1000`
+            // is applied to all 4 TF slots and both supported exchanges
+            // (Hyperliquid + Bitget) — the pipeline is exchange-agnostic.
+            // See `crates/market-analyzer/tests/hist_buffer_cap_uniformity.rs`
+            // for the regression pins and `crates/market-analyzer/src/analyzer/warm.rs`
+            // for the matching warmup-side trim.
             let mut hist = history.write().await;
             while hist.len() > HIST_BUFFER_MAX {
                 hist.pop_front();
@@ -1407,11 +1413,38 @@ pub async fn run_single(
                                     timeframe_secs,
                                     slot,
                                 );
-                                let _ = telemetry_tx
-                                    .send(database_storage::TelemetryMsg::InsertSnapshot(
-                                        gap_snapshot.clone(),
-                                    ))
-                                    .await;
+                                // Gap-fills are transient WS scaffolding, not real
+                                // OHLCV data: the reconstructor emits flat
+                                // `O=H=L=C=close` candles (see
+                                // `network_adapters::adapters::reconstruction::CandleReconstructor::reconstruct_ema`
+                                // / `reconstruct_interpolation`). Persisting them
+                                // to `market_snapshots` causes two downstream
+                                // problems:
+                                //
+                                // 1. The DB schema doesn't carry a
+                                //    `reconstructed` column, so
+                                //    `query_recent_candles` returns gap-fills
+                                //    with `reconstructed = None` and the API
+                                //    serves them to the chart as if they were
+                                //    real candles. On the next daemon restart the
+                                //    chart paints these flat Dojis as the entire
+                                //    historical view — the "no bodies after tab
+                                //    switch" regression.
+                                //
+                                // 2. Any downstream consumer that queries the DB
+                                //    for historical analysis (backtests, PnL
+                                //    attribution, etc.) sees EMA-projected
+                                //    synthetic candles mixed with real trade
+                                //    data, polluting the dataset.
+                                //
+                                // The chart still receives these candles live
+                                // via `broadcast_tx.send` below — the WS stream
+                                // remains continuous. They just don't pollute
+                                // the historical store. The next daemon restart
+                                // fetches only real candles from the DB, so the
+                                // chart paints real OHLCV (with bodies when
+                                // trades occurred in the interval) and the live
+                                // WS fills in within seconds of restart.
                                 let _ = broadcast_tx.send(gap_snapshot);
                             }
                         }
@@ -3677,6 +3710,121 @@ mod lifecycle_tests {
             rsi.state,
             IndicatorLifecycleState::Live,
             "rsi with updates_on_shadow=true and a real reading must be Live via the standard branch",
+        );
+    }
+}
+
+#[cfg(test)]
+mod gap_fill_snapshot_tests {
+    //! Pin tests for `build_gapfill_snapshot`. The reconstructed-candle
+    //! path (sub-minute "missing bar recovery" via
+    //! `CandleReconstructor::reconstruct`) and the stale-check Doji path
+    //! both call this helper. The tests pin the gap-fill markers so a
+    //! future change that drops them doesn't silently re-introduce the
+    //! "no bodies after tab switch" chart regression.
+    //!
+    //! As of v6.10 (Phase 2 of the chart-rendering fix) the gap-fill
+    //! snapshot is broadcast over WS but **not persisted to the DB** —
+    //! see the inline comment at the gap-fill call sites
+    //! (`mod.rs:1410-1445`) for the rationale. These tests pin the
+    //! shape of the WS payload that consumers still receive.
+
+    use super::build_gapfill_snapshot;
+    use core_domain::models::{CandleQualityEnvelope, TimeframeSlot};
+    use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
+    use rust_decimal::Decimal;
+
+    fn sample_gap_fill_candle() -> NormalizedCandle {
+        NormalizedCandle {
+            exchange: Exchange::Hyperliquid,
+            symbol: "BTC-USDC".to_string(),
+            start_time_ms: 1_786_329_600_000,
+            duration_ms: 3_000,
+            open: Decimal::from_f64_retain(65000.0).unwrap(),
+            high: Decimal::from_f64_retain(65000.0).unwrap(),
+            low: Decimal::from_f64_retain(65000.0).unwrap(),
+            close: Decimal::from_f64_retain(65000.0).unwrap(),
+            volume: Decimal::ZERO,
+            trades_count: 0,
+            reconstructed: Some(ReconstructionMethod::ExponentialMovingAverage),
+        }
+    }
+
+    #[test]
+    fn gap_fill_market_snapshot_is_marked_is_gap_filled_true() {
+        // The chart / downstream consumers rely on `is_gap_filled: true`
+        // to distinguish a reconstruction scaffolding candle from a real
+        // trade-derived one. Without this marker the chart can't tell
+        // apart a genuine "stable price" candle (O=H=L=C, real trades at
+        // one price) from a synthetic gap-fill (O=H=L=C=EMA, no trades).
+        let snap = build_gapfill_snapshot(
+            &sample_gap_fill_candle(),
+            "BTC-USDC",
+            3,
+            TimeframeSlot::Fast,
+        );
+
+        let envelope: &CandleQualityEnvelope = snap
+            .quality_envelope
+            .as_ref()
+            .expect("gap-fill snapshot must carry a quality envelope");
+        assert!(
+            envelope.is_gap_filled,
+            "gap-fill MarketSnapshot must have quality_envelope.is_gap_filled = true"
+        );
+    }
+
+    #[test]
+    fn gap_fill_market_snapshot_carries_completed_marker() {
+        // Gap-fills are synthetic but the chart treats them as completed
+        // (they replace an absent real candle). They must therefore
+        // carry `is_completed: Some(true)` so the WS consumer doesn't
+        // hold them as in-progress shadow ticks.
+        let snap = build_gapfill_snapshot(
+            &sample_gap_fill_candle(),
+            "BTC-USDC",
+            3,
+            TimeframeSlot::Fast,
+        );
+        assert_eq!(
+            snap.is_completed,
+            Some(true),
+            "gap-fill snapshot must be marked is_completed: Some(true)"
+        );
+    }
+
+    #[test]
+    fn gap_fill_market_snapshot_has_flat_ohlc_and_zero_volume() {
+        // Pin the data shape that the reconstructor produces — flat
+        // OHLC + zero volume + zero trades_count. These properties are
+        // what would make the candle look like a horizontal line on the
+        // chart if it ever leaked into the persistent store (which is
+        // exactly what the Phase 2 fix prevents by skipping DB
+        // persistence for gap-fills).
+        let candle = sample_gap_fill_candle();
+        assert_eq!(candle.open, candle.close);
+        assert_eq!(candle.high, candle.low);
+        assert_eq!(candle.volume, Decimal::ZERO);
+        assert_eq!(candle.trades_count, 0);
+        assert_eq!(
+            candle.reconstructed,
+            Some(ReconstructionMethod::ExponentialMovingAverage)
+        );
+
+        let snap = build_gapfill_snapshot(&candle, "BTC-USDC", 3, TimeframeSlot::Fast);
+        assert_eq!(snap.open, Some(candle.open));
+        assert_eq!(snap.high, Some(candle.high));
+        assert_eq!(snap.low, Some(candle.low));
+        assert_eq!(snap.close, Some(candle.close));
+        assert_eq!(snap.volume, Some(Decimal::ZERO));
+        assert_eq!(
+            snap.timeframe_slot,
+            Some(TimeframeSlot::Fast),
+            "snapshot must carry its slot for the chart's slot guard"
+        );
+        assert_eq!(
+            snap.timeframe_secs, 3,
+            "snapshot must carry its TF seconds for the chart's TF guard"
         );
     }
 }

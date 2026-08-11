@@ -352,3 +352,166 @@ async fn history_endpoint_returns_empty_on_unknown_pair() {
     .await
     .expect("unknown-pair test timed out");
 }
+
+/// Regression: when a sub-minute TF has no in-memory snapshot_history AND no
+/// DB rows, the endpoint must return an empty candle array — it must NOT
+/// synthesise flat-close candles from the next-larger TF (this was the
+/// "line of about 1 minute" rendering bug). The chart's live WS stream
+/// fills in real candles within seconds anyway.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_endpoint_returns_empty_candles_on_cold_sub_minute_start() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        // Empty in-memory snapshot_history, empty DB (no rows inserted).
+        let (_router, state) = build_router_with_snapshots(1, vec![]).await;
+        let addr = serve_for(state.clone()).await;
+        let client = reqwest::Client::new();
+
+        let res = client
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=1&limit=200"
+            ))
+            .send()
+            .await
+            .expect("history request");
+        assert!(res.status().is_success());
+
+        let body: serde_json::Value = res.json().await.expect("json");
+        let candles = body
+            .get("candles")
+            .and_then(|v| v.as_array())
+            .expect("candles array");
+        let prices = body
+            .get("prices")
+            .and_then(|v| v.as_array())
+            .expect("prices array");
+
+        // The historical payload must be empty — no synthetic flat-line
+        // candles synthesised from any other TF.
+        assert_eq!(
+            candles.len(),
+            0,
+            "expected zero candles on cold sub-minute start, got {candles:?}"
+        );
+        assert_eq!(
+            prices.len(),
+            0,
+            "expected zero prices on cold sub-minute start, got {prices:?}"
+        );
+    })
+    .await
+    .expect("cold sub-minute start test timed out");
+}
+
+/// Regression for a 3s sub-minute TF: same as the 1s case but exercises a
+/// different factor. Without the fix, the server would synthesise 20
+/// identical OHLC candles per minute (3s × 20 = 60s) from the 60s source,
+/// producing exactly the "line of about 1 minute" render artefact.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_endpoint_returns_empty_candles_on_cold_3s_start() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let (_router, state) = build_router_with_snapshots(3, vec![]).await;
+        let addr = serve_for(state.clone()).await;
+        let client = reqwest::Client::new();
+
+        let res = client
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=3&limit=200"
+            ))
+            .send()
+            .await
+            .expect("history request");
+        assert!(res.status().is_success());
+
+        let body: serde_json::Value = res.json().await.expect("json");
+        let candles = body
+            .get("candles")
+            .and_then(|v| v.as_array())
+            .expect("candles array");
+
+        assert_eq!(
+            candles.len(),
+            0,
+            "expected zero candles on cold 3s start (no synthetic 60s-derived flat lines), got {candles:?}"
+        );
+    })
+    .await
+    .expect("cold 3s start test timed out");
+}
+
+/// Regression: gap-fill Doji candles inserted between real snapshots to
+/// keep the chart time-axis continuous must be tagged with `reconstructed`
+/// so the frontend can filter them out of the persistent candle cache —
+/// they're not real OHLCV data, just visual scaffolding. Real (in-memory)
+/// snapshots must NOT carry the flag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_endpoint_marks_gap_fill_dojis_as_synthetic() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        // Two snapshots 60 seconds apart on a 5s TF — the gap-fill logic
+        // must insert 12 Doji entries (60 / 5 - 1 = 11) into the response.
+        let (_router, state) = build_router_with_snapshots(
+            5,
+            vec![
+                make_snapshot(5, 1_718_000_000, 65000.0),
+                make_snapshot(5, 1_718_000_060, 65010.0),
+            ],
+        )
+        .await;
+        let addr = serve_for(state.clone()).await;
+        let client = reqwest::Client::new();
+
+        let res = client
+            .get(format!(
+                "http://{addr}/api/history?symbol={PAIR_KEY}&timeframe_secs=5&limit=100"
+            ))
+            .send()
+            .await
+            .expect("history request");
+        assert!(res.status().is_success());
+
+        let body: serde_json::Value = res.json().await.expect("json");
+        let candles = body
+            .get("candles")
+            .and_then(|v| v.as_array())
+            .expect("candles array")
+            .clone();
+
+        // 2 real snapshots + 11 gap-fill Doji entries = 13 candles.
+        assert_eq!(
+            candles.len(),
+            13,
+            "expected 2 real + 11 gap-fill candles, got {candles:?}"
+        );
+
+        // First and last candles are the real snapshots — no reconstructed flag.
+        let first = &candles[0];
+        let last = &candles[candles.len() - 1];
+        assert!(
+            first.get("reconstructed").is_none(),
+            "first real candle must NOT have reconstructed flag, got {first:?}"
+        );
+        assert!(
+            last.get("reconstructed").is_none(),
+            "last real candle must NOT have reconstructed flag, got {last:?}"
+        );
+
+        // Every middle entry is a gap-fill Doji — must be SYNTHETIC.
+        let mut synthetic_count = 0;
+        for candle in &candles[1..candles.len() - 1] {
+            let r = candle
+                .get("reconstructed")
+                .and_then(|v| v.as_str())
+                .expect("middle gap-fill candles must have reconstructed flag");
+            assert_eq!(
+                r, "SYNTHETIC",
+                "gap-fill Doji must be tagged SYNTHETIC, got {r}"
+            );
+            synthetic_count += 1;
+        }
+        assert_eq!(
+            synthetic_count, 11,
+            "expected 11 gap-fill Doji entries"
+        );
+    })
+    .await
+    .expect("gap-fill synthetic tagging test timed out");
+}

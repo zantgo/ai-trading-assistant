@@ -238,7 +238,7 @@
             const step = tf?.barDurationSec || 60;
 
             const seenTimes = new Set<number>();
-            const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
+            const historicalCandles: CandleOHLCV[] = [];
             for (let i = 0; i < hist.candleTimes.length; i++) {
                 const t = hist.candleTimes[i];
                 const o = hist.candles.open[i];
@@ -248,12 +248,29 @@
                 if (t == null || o == null || h == null || l == null || c == null) continue;
                 if (seenTimes.has(t)) continue;
                 seenTimes.add(t);
-                historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c });
+                // Carry the per-candle `reconstructed` provenance from
+                // the backend so the chart can filter synthetic gap-fill
+                // Dojis out of the persistent candle cache. Without this
+                // guard, a SYNTHETIC candle can sit in the cache across
+                // navigation and re-paint as a misleading flat-line
+                // "ghost" (the v6.9 "line of about 1 minute" bug).
+                const r = hist.candleReconstructed?.[i];
+                historicalCandles.push({
+                    time: t as Time,
+                    open: o,
+                    high: h,
+                    low: l,
+                    close: c,
+                    reconstructed: r && typeof r === 'string' ? r : undefined,
+                });
             }
 
             // Fallback for endpoints that ship only `prices[]` and
             // no structured candles — synthesise a flat line of OHLC
-            // so the user sees at least a price track.
+            // so the user sees at least a price track. These synthesised
+            // entries are explicitly tagged as such so the cache filter
+            // keeps them out of the persistent store (same defence as
+            // the response path above).
             if (historicalCandles.length === 0 && hist.prices && hist.prices.length > 0) {
                 const now = Math.floor(Date.now() / 1000);
                 for (let i = 0; i < hist.prices.length; i++) {
@@ -261,20 +278,38 @@
                     const t = (now - (hist.prices.length - i) * step) as number;
                     if (seenTimes.has(t)) continue;
                     seenTimes.add(t);
-                    historicalCandles.push({ time: t as Time, open: val, high: val, low: val, close: val });
+                    historicalCandles.push({
+                        time: t as Time,
+                        open: val,
+                        high: val,
+                        low: val,
+                        close: val,
+                        reconstructed: 'PRICE_FALLBACK',
+                    });
                 }
             }
 
             historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
             // Gap-fill: insert flat Doji candles for any missing intervals
             // so the continuous-time chart axis never shows empty gaps.
+            // The Dojis added here carry no `reconstructed` flag, so the
+            // final filter below treats them as real chart scaffolding.
             const gapFilled = fillTimeGaps(historicalCandles, step);
+            // Final synthetic filter — drop any candle the backend marked
+            // as reconstructed (SYNTHETIC gap-fill Dojis, future
+            // reconstruction paths). `fillTimeGaps` Dojis above have no
+            // flag and survive the filter, which is correct: they
+            // represent *real* time gaps in the live data, not
+            // interpolation artifacts.
+            const paintCandles = gapFilled.filter((c) => !c.reconstructed);
             // Persist the processed candle array so the next component mount
-            // (timeframe switch / back-forward nav) paints instantly.
-            setCachedCandles(pairKey, timeframe, gapFilled);
-            const visibleCap = Math.min(gapFilled.length, seedCountFor(timeframe));
+            // (timeframe switch / back-forward nav) paints instantly. The
+            // `setCachedCandles` helper also runs a defence-in-depth filter,
+            // so a stray reconstructed candle can never poison the cache.
+            setCachedCandles(pairKey, timeframe, paintCandles);
+            const visibleCap = Math.min(paintCandles.length, seedCountFor(timeframe));
             const recent = <T extends { time: Time; value: number }>(arr: T[]) => arr.slice(-visibleCap);
-            const recentCandles = gapFilled.slice(-visibleCap);
+            const recentCandles = paintCandles.slice(-visibleCap);
             if (recentCandles.length > 0 && candleSeries && priceLineSeries) {
                 candleSeries.setData(recentCandles);
                 priceLineSeries.setData(
