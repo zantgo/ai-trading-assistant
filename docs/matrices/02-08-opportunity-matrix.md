@@ -102,8 +102,10 @@ The mapping is total over all eight `OpportunityType` values. The frontend's `se
 
 For every populated per-side zone the L4 producer enforces the same per-side invariants the aggregated `OpportunityMatrix.long_* / short_*` fields use:
 
-- `LONG`: `invalidation_level < entry_zone.low` AND `target_zone.low > entry_zone.high`.
-- `SHORT`: `invalidation_level > entry_zone.high` AND `target_zone.high < entry_zone.low`.
+- `LONG`: `invalidation_level < entry_zone.low` AND `target_zone.low > entry_zone.high` AND `target_zone.low > 0` AND `target_zone.high > 0` AND `entry_zone.low > 0`.
+- `SHORT`: `invalidation_level > entry_zone.high` AND `target_zone.high < entry_zone.low` AND `target_zone.low > 0` AND `target_zone.high > 0` AND `entry_zone.low > 0`.
+
+The non-positive bound invariant (`low > 0`, `high > 0` for entry and target) was added in v6.10.x after observing `short_target_zone.low = 0` on BTC-USDT (Bitget) 2026-08-11: the `pivot_points` indicator emits `s1=s2=s3=r1=r2=r3=pivot=0.0` with `state_label: PIVOT_UNAVAILABLE` when its window has not yet filled, and the previous SHORT-target candidate filter (`v < close`) accepted those zeros — every `0 < close` is true. Those zero candidates propagated into `short_target_zone.low`, which the frontend surfaced verbatim as `$0–$X`. The Rust producer now (1) filters `v > 0.0` on every target-candidate push in `collect_candidate_levels` and (2) pins `short_target_zone.low` to a positive floor (`close − atr · 1.5`) in `derive_side_zones` as a defensive backstop. The frontend's `aggregateZones` also rejects zones with `target.low <= 0` as a third layer of defence.
 
 If the confluent pick violates the invariant, the L4 producer falls back to the directional ATR-only bracket; if even the ATR fallback can't satisfy the invariant (e.g. fresh symbol with no historical candles), the profile emits `null` for every zone and the consumer falls back to the aggregated `long_* / short_*` fields.
 

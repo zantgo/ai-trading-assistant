@@ -189,7 +189,7 @@ fn collect_candidate_levels(
             if let Some(m) = fib {
                 for key in &["ext_1272", "ext_1618", "ext_2000", "ext_2618"] {
                     if let Some(&v) = m.get(*key) {
-                        if v > close {
+                        if v > 0.0 && v > close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::Fibonacci,
@@ -202,7 +202,7 @@ fn collect_candidate_levels(
             if let Some(m) = vp {
                 for key in &["vah"] {
                     if let Some(&v) = m.get(*key) {
-                        if v > close {
+                        if v > 0.0 && v > close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::VolumeProfile,
@@ -213,7 +213,7 @@ fn collect_candidate_levels(
                 }
                 for key in &["lvn_0", "lvn_1", "lvn_2"] {
                     if let Some(&v) = m.get(*key) {
-                        if v > close {
+                        if v > 0.0 && v > close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::VolumeProfile,
@@ -226,7 +226,7 @@ fn collect_candidate_levels(
             if let Some(m) = pp {
                 for key in &["r1", "r2", "r3"] {
                     if let Some(&v) = m.get(*key) {
-                        if v > close {
+                        if v > 0.0 && v > close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::PivotPoints,
@@ -239,7 +239,7 @@ fn collect_candidate_levels(
             if let Some(c) = cluster {
                 for lc in &c.long_clusters {
                     let p = (lc.price_low + lc.price_high) / 2.0;
-                    if p > close {
+                    if p > 0.0 && p > close {
                         candidates.push(LevelCandidate {
                             price: p,
                             source: LevelSource::LiquidityCluster,
@@ -253,7 +253,7 @@ fn collect_candidate_levels(
             if let Some(m) = fib {
                 for key in &["ext_1272", "ext_1618", "ext_2000", "ext_2618"] {
                     if let Some(&v) = m.get(*key) {
-                        if v < close {
+                        if v > 0.0 && v < close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::Fibonacci,
@@ -266,7 +266,7 @@ fn collect_candidate_levels(
             if let Some(m) = vp {
                 for key in &["val"] {
                     if let Some(&v) = m.get(*key) {
-                        if v < close {
+                        if v > 0.0 && v < close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::VolumeProfile,
@@ -277,7 +277,7 @@ fn collect_candidate_levels(
                 }
                 for key in &["lvn_0", "lvn_1", "lvn_2"] {
                     if let Some(&v) = m.get(*key) {
-                        if v < close {
+                        if v > 0.0 && v < close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::VolumeProfile,
@@ -290,7 +290,7 @@ fn collect_candidate_levels(
             if let Some(m) = pp {
                 for key in &["s1", "s2", "s3"] {
                     if let Some(&v) = m.get(*key) {
-                        if v < close {
+                        if v > 0.0 && v < close {
                             candidates.push(LevelCandidate {
                                 price: v,
                                 source: LevelSource::PivotPoints,
@@ -303,7 +303,7 @@ fn collect_candidate_levels(
             if let Some(c) = cluster {
                 for lc in &c.short_clusters {
                     let p = (lc.price_low + lc.price_high) / 2.0;
-                    if p < close {
+                    if p > 0.0 && p < close {
                         candidates.push(LevelCandidate {
                             price: p,
                             source: LevelSource::LiquidityCluster,
@@ -691,11 +691,25 @@ fn derive_side_zones(
             // LONG: low must be above close; widen high further above.
             let low = raw_low.max(close + atr * 0.1);
             let high = raw_high.max(low);
+            // Defensive upper floor: never publish `high ≤ 0` even if every
+            // candidate somehow carried a non-positive price (the
+            // `collect_candidate_levels` `v > 0.0` filter normally blocks
+            // this, but the floor protects against any future source that
+            // bypasses that filter).
+            let high = high.max(close + atr * 1.5);
             (low, high)
         } else {
             // SHORT: high must be below close; widen low further below.
             let high = raw_high.min(close - atr * 0.1);
             let low = raw_low.min(high);
+            // Defensive lower floor: a non-positive candidate (e.g. a
+            // `PIVOT_UNAVAILABLE` pivot_points series with s1=s2=s3=0.0)
+            // would otherwise drag `raw_low` to 0 and the published
+            // `short_target_zone.low` becomes 0, which the frontend
+            // surfaces verbatim as `$0–$X` (Bug A, observed BTC-USDT
+            // 2026-08-11). Pin low to `close − atr · 1.5` (mirrors the
+            // ATR-fallback lower bound at line ~712 below).
+            let low = low.max((close - atr * 1.5).max(0.0)).min(high);
             (low, high)
         };
         core_domain::opportunity::PriceRange { low, high }
@@ -1715,6 +1729,111 @@ mod tests {
         assert!(opp.short_target_zone.high >= opp.short_target_zone.low);
         assert!(opp.long_invalidation_level > 0.0);
         assert!(opp.short_invalidation_level > 0.0);
+        // v6.10.x: regression-locking invariants — target zones must never
+        // publish a non-positive bound (Bug A: pivot_points series with
+        // s1=s2=s3=0 leaked through as target candidates and dragged
+        // `short_target_zone.low` to 0).
+        assert!(
+            opp.long_target_zone.low > 0.0,
+            "long_target_zone.low must be > 0 (was {})",
+            opp.long_target_zone.low
+        );
+        assert!(
+            opp.long_target_zone.high > 0.0,
+            "long_target_zone.high must be > 0 (was {})",
+            opp.long_target_zone.high
+        );
+        assert!(
+            opp.short_target_zone.low > 0.0,
+            "short_target_zone.low must be > 0 (was {})",
+            opp.short_target_zone.low
+        );
+        assert!(
+            opp.short_target_zone.high > 0.0,
+            "short_target_zone.high must be > 0 (was {})",
+            opp.short_target_zone.high
+        );
+    }
+
+    /// Regression for Bug A — observed on BTC-USDT (Bitget) 2026-08-11.
+    /// The `pivot_points` indicator emits `s1=s2=s3=r1=r2=r3=pivot=0.0`
+    /// with state_label `PIVOT_UNAVAILABLE` when its window has not yet
+    /// accumulated enough bars. The previous SHORT-target candidate
+    /// filter (`v < close`) accepted those zeros — every `0 < close` is
+    /// true — and they propagated into `short_target_zone.low = 0`,
+    /// which the frontend surfaced verbatim as `$0–$X`. This test
+    /// reproduces the offending snapshot shape and asserts the
+    /// `short_target_zone.low > 0` invariant holds.
+    #[test]
+    fn target_zone_rejects_zero_candidates_when_pivot_unavailable() {
+        let ctx = make_context("RANGE", 0.0, 0.0, 0.2, 0.1, 0);
+        let mut snap60 = make_snapshot(60, 63604.0, ctx.clone());
+        // Inject the exact buggy shape observed in production: a
+        // `pivot_points` entry whose sub-keys are all 0.0 with the
+        // `PIVOT_UNAVAILABLE` label.
+        let mut pp_vals = std::collections::HashMap::new();
+        for k in ["pivot", "r1", "r2", "r3", "s1", "s2", "s3"] {
+            pp_vals.insert(k.to_string(), 0.0_f64);
+        }
+        snap60.indicators.insert(
+            "pivot_points".into(),
+            core_domain::indicator_dtos::NormalizedIndicatorValue {
+                raw_value: 0.0,
+                normalized: 0.0,
+                state_label: "PIVOT_UNAVAILABLE".into(),
+                values: Some(pp_vals),
+                signals: vec![],
+                confidence: 0.0,
+            },
+        );
+        // And a volume_profile with `val = 0` (another observed shape
+        // when the profile window hasn't filled).
+        let mut vp_vals = std::collections::HashMap::new();
+        vp_vals.insert("poc".to_string(), 0.0_f64);
+        vp_vals.insert("vah".to_string(), 0.0_f64);
+        vp_vals.insert("val".to_string(), 0.0_f64);
+        vp_vals.insert("total_volume".to_string(), 0.0_f64);
+        snap60.indicators.insert(
+            "volume_profile".into(),
+            core_domain::indicator_dtos::NormalizedIndicatorValue {
+                raw_value: 0.0,
+                normalized: 0.0,
+                state_label: "VP_UNAVAILABLE".into(),
+                values: Some(vp_vals),
+                signals: vec![],
+                confidence: 0.0,
+            },
+        );
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap60)],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = result.opportunity.expect("opportunity must be emitted");
+        assert!(
+            opp.short_target_zone.low > 0.0,
+            "short_target_zone.low must be > 0 when zero-valued pivot/volume candidates are injected (was {})",
+            opp.short_target_zone.low
+        );
+        assert!(
+            opp.short_target_zone.high > 0.0,
+            "short_target_zone.high must be > 0 (was {})",
+            opp.short_target_zone.high
+        );
+        assert!(
+            opp.long_target_zone.low > 0.0,
+            "long_target_zone.low must be > 0 (was {})",
+            opp.long_target_zone.low
+        );
+        assert!(
+            opp.long_target_zone.high > 0.0,
+            "long_target_zone.high must be > 0 (was {})",
+            opp.long_target_zone.high
+        );
     }
 
     #[test]

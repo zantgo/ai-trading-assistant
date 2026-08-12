@@ -587,7 +587,20 @@ export function aggregateZones(
     const entry = side === 'LONG' ? opportunity.long_entry_zone : opportunity.short_entry_zone;
     const target = side === 'LONG' ? opportunity.long_target_zone : opportunity.short_target_zone;
     const inv = side === 'LONG' ? opportunity.long_invalidation_level : opportunity.short_invalidation_level;
-    if (!entry || !target || entry.low <= 0 || entry.high <= 0 || !inv || inv <= 0) {
+    // v6.10.x (Bug A guard): reject zones where any bound is non-positive.
+    // The Rust backend now enforces this invariant on the wire
+    // (`crates/market-analyzer/src/synthesis.rs` `derive_side_zones`
+    // floors + `collect_candidate_levels` filters `v > 0.0` on every
+    // push). The frontend guards here are a second layer of defence:
+    // if a stale snapshot from an older build sneaks through, or a
+    // future indicator source bypasses the Rust filter, the panel
+    // degrades to `—` instead of surfacing `$0–$X`.
+    if (
+        !entry || !target
+        || entry.low <= 0 || entry.high <= 0
+        || target.low <= 0 || target.high <= 0
+        || !inv || inv <= 0
+    ) {
         return null;
     }
     // Prefer server-side matrix-level geometry flag when present.
@@ -681,15 +694,25 @@ export function topSetupSummary(
             : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
-    // Per-side R:R from the wire (canonical), fall back to the
-    // geometric R:R derived from the zones.
+    // Per-side R:R from the wire (canonical). When the wire value is
+    // missing or 0, fall back to the geometric R:R derived from the
+    // entry/target/SL zones so the operator always sees the actual
+    // ratio — even when the producer's `long_geometry_consistent`
+    // is false or `0.0` was emitted as the wire-contract "no R:R"
+    // signal. Note that long and short move in OPPOSITE directions,
+    // so a SHORT setup's `target.low > entry.high` is geometrically
+    // inverted for SHORT but perfectly valid — never treat that as
+    // a producer error. The wire's `0.0` is the only signal we
+    // override; the geometric check at `profileZones` / `aggregateZones`
+    // (where reward and risk must both be positive) still gates truly
+    // degenerate brackets.
     const wireRr =
         side === 'LONG'
             ? top.long_expected_rr_internal
             : side === 'SHORT'
               ? top.short_expected_rr_internal
-              : 0;
-    const rr = (wireRr && wireRr > 0)
+              : null;
+    const rr = wireRr != null && wireRr > 0
         ? Math.round(wireRr * 100) / 100
         : zones?.rr ?? null;
     // Viability — wire-side default to `NoClear` when missing.
@@ -745,8 +768,8 @@ export function profileSummary(
             ? profile.long_expected_rr_internal
             : side === 'SHORT'
               ? profile.short_expected_rr_internal
-              : 0;
-    const rr = (wireRr && wireRr > 0)
+              : null;
+    const rr = wireRr != null && wireRr > 0
         ? Math.round(wireRr * 100) / 100
         : zones?.rr ?? null;
     const viability = (profile.trade_viability ?? 'NoClear') as 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';

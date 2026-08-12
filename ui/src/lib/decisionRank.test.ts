@@ -730,6 +730,53 @@ describe('aggregateZones', () => {
         });
         expect(aggregateZones(opp, 'LONG')).toBeNull();
     });
+
+    // v6.10.x — regression for Bug A observed on BTC-USDT (Bitget)
+    // 2026-08-11. The Rust producer emitted `short_target_zone.low = 0`
+    // because the `pivot_points` indicator (in `PIVOT_UNAVAILABLE` state)
+    // returned `s1=s2=s3=0.0` and the previous candidate filter (`v <
+    // close`) accepted those zeros. The frontend must now reject any
+    // zone whose `target.low <= 0` and fall back to `—` rather than
+    // surface `$0–$X`. The Rust side now floors `short_target_zone.low`
+    // and filters `v > 0.0` on every push; this test locks the
+    // frontend defensive layer in case a stale snapshot sneaks through.
+    it('returns null when long_target_zone.low is 0 (Bug A guard)', () => {
+        const opp = makeOpportunity({
+            long_target_zone: { low: 0, high: 65000 },
+        });
+        expect(aggregateZones(opp, 'LONG')).toBeNull();
+    });
+
+    it('returns null when short_target_zone.low is 0 (Bug A guard)', () => {
+        const opp = makeOpportunity({
+            short_target_zone: { low: 0, high: 63000 },
+        });
+        expect(aggregateZones(opp, 'SHORT')).toBeNull();
+    });
+
+    it('returns null when long_target_zone.high is 0 (Bug A guard)', () => {
+        const opp = makeOpportunity({
+            long_target_zone: { low: 64500, high: 0 },
+        });
+        expect(aggregateZones(opp, 'LONG')).toBeNull();
+    });
+
+    it('returns null when short_target_zone.high is 0 (Bug A guard)', () => {
+        const opp = makeOpportunity({
+            short_target_zone: { low: 62500, high: 0 },
+        });
+        expect(aggregateZones(opp, 'SHORT')).toBeNull();
+    });
+
+    it('returns valid zones when all bounds are positive (sanity check)', () => {
+        const z = aggregateZones(makeOpportunity(), 'LONG');
+        expect(z).not.toBeNull();
+        expect(z!.target.low).toBeGreaterThan(0);
+        expect(z!.target.high).toBeGreaterThan(0);
+        expect(z!.entry.low).toBeGreaterThan(0);
+        expect(z!.entry.high).toBeGreaterThan(0);
+        expect(z!.invalidation).toBeGreaterThan(0);
+    });
 });
 
 describe('topSetupSummary', () => {
@@ -841,13 +888,62 @@ describe('topSetupSummary', () => {
         expect(t!.rr).toBeCloseTo(3.7, 1);
     });
 
-    it('falls back to zones.rr when wire R:R is zero', () => {
+    it('falls back to geometric R:R when wire is 0 but zones are present', () => {
+        // Operator-facing guarantee: when entry/target/SL exist as
+        // distinct positive numbers, R:R must always be computed from
+        // those numbers even if the wire's `*_expected_rr_internal` is
+        // 0. Long and short move in OPPOSITE directions, so the wire's
+        // 0.0 is treated as "side not configured" rather than as a
+        // geometry error. The geometric value uses the producer's
+        // entry/target/invalidation triangle as displayed.
         const opp = makeOpportunity({ long_expected_rr_internal: 0 });
         const t = topSetupSummary(opp, makeAnalysis('Bullish'));
         expect(t).not.toBeNull();
-        // Geometric R:R from zones (63100 mid, 66000-63100=2900 reward,
-        // 63100-62400=700 risk) = 2900/700 ≈ 4.14.
+        expect(t!.zones).not.toBeNull();
+        // LONG bracket: entry mid = (63000+63200)/2 = 63100,
+        // target.low = 66000, invalid = 62400 → reward 2900, risk 700
+        // → R:R ≈ 4.14
         expect(t!.rr).toBeCloseTo(4.14, 1);
+    });
+
+    it('returns geometric R:R for Neutral-family top profile when zones are present', () => {
+        // Mirrors the SOL MeanReversion / BTC Breakout scenario: the
+        // top profile has direction_family 'Neutral' so neither
+        // long_expected_rr_internal nor short_expected_rr_internal is
+        // active. The aggregate fallback resolves to LONG (per
+        // net_bias_pct > 0) and produces a real R:R — the operator
+        // must see the actual ratio, not "N/A".
+        const opp = makeOpportunity({
+            direction_family: 'Neutral',
+            long_expected_rr_internal: 0,
+            short_expected_rr_internal: 0,
+            trade_viability: 'DirectionalNeutral',
+        });
+        opp.profiles[0].opportunity_type = 'MeanReversion';
+        const t = topSetupSummary(opp, makeAnalysis('Neutral'), { net_bias_pct: 10 } as any);
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('NEUTRAL');
+        expect(t!.viability).toBe('DirectionalNeutral');
+        // LONG aggregate fallback: entry mid 63100, target.low 66000,
+        // invalid 62400 → R:R ≈ 4.14
+        expect(t!.rr).toBeCloseTo(4.14, 1);
+    });
+
+    it('returns null R:R when the geometric triangle is truly degenerate', () => {
+        // Both reward AND risk are non-positive: no meaningful bracket.
+        // entry above target AND invalid above entry — neither LONG nor
+        // SHORT has a positive reward/risk pair. This is a real
+        // calculation failure (not a wire 0.0) and stays N/A.
+        const opp = makeOpportunity({
+            long_entry_zone: { low: 66000, high: 66500 },
+            long_target_zone: { low: 63000, high: 63200 },
+            long_invalidation_level: 67000,
+            long_geometry_consistent: false,
+            long_expected_rr_internal: 0,
+        });
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.rr).toBeNull();
     });
 
     it('returns null when no qualifying profile exists', () => {

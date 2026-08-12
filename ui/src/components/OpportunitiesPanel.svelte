@@ -394,7 +394,7 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
             {#if rank.top === 'HOLD'}
                 <div class={styles.scenarioNote}>
                     <span class={styles.scenarioBadge}>HOLD / NO CLEAR</span>
-                    <span>No directional call. The cards below show the L4 Neutral sentinel for each qualifying profile (entry = target = invalidation = close) — none are active.</span>
+                    <span>No directional call. The cards below show each qualifying profile's aggregated bracket — when geometry is inverted (entry/target/SL on the wrong side of close, or zero-bound contamination), R:R reads N/A and the bracket is non-actionable. None are active.</span>
                 </div>
             {/if}
             {#if activeSetups.length === 0}

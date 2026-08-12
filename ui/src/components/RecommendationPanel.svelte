@@ -74,18 +74,29 @@
     const needleX = $derived(cx + r * Math.cos(gaugeAngle));
     const needleY = $derived(cy - r * Math.sin(gaugeAngle));
     const activeArcD = $derived(() => {
-        // Draw arc from top-center (π/2) to needle position
+        // Draw arc from top-center (π/2) to needle position. The arc must
+        // be a geometrically congruent segment of the Dome curve — same
+        // radius (r=70), same curvature, bulging OUTWARD (away from the
+        // circle center at (cx, cy)). The sweepFlag picks which of SVG's
+        // four possible arcs is rendered:
+        //   - sweep > 0 (SHORT bias): sweepFlag = 0 → counterclockwise
+        //     from top-center, bulges UP-LEFT along the Dome.
+        //   - sweep < 0 (LONG bias): sweepFlag = 1 → clockwise from
+        //     top-center, bulges UP-RIGHT along the Dome.
+        // Flipping these (the previous "sweep > 0 ? 1 : 0") forced SVG
+        // onto the OTHER circle (center above the chord) and made the
+        // active arc bulge inward — the inverse of the Dome.
         const midAngle = Math.PI / 2;
         const sweep = gaugeAngle - midAngle;
         const large = Math.abs(sweep) > Math.PI ? 1 : 0;
-        const sweepFlag = sweep > 0 ? 1 : 0;
+        const sweepFlag = sweep > 0 ? 0 : 1;
         const ex = cx + r * Math.cos(gaugeAngle);
         const ey = cy - r * Math.sin(gaugeAngle);
         return `M ${cx + r * Math.cos(midAngle)} ${cy - r * Math.sin(midAngle)} A ${r} ${r} 0 ${large} ${sweepFlag} ${ex} ${ey}`;
     });
     const arcColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : 'rgba(255,255,255,0.30)');
     const netLabel = $derived(netBias === 0 ? '0%' : `${netBias > 0 ? '+' : ''}${netBias}%`);
-    const netColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : 'rgba(255,255,255,0.60)');
+    const netColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : '#f59e0b');
 
     // ── L6 LayerHeader — single authoritative verdict ────────────────────
     const headerSpec = $derived<LayerHeaderSpec>(buildL6DecisionHeader({
@@ -206,6 +217,11 @@
         if (action === 'SHORT') return styles.verdictShort ?? '';
         return styles.verdictHold ?? '';
     }
+    function rrColorCls(rr: number): string {
+        if (rr >= 2.0) return styles.rrGood ?? '';
+        if (rr >= 1.0) return styles.rrFair ?? '';
+        return styles.rrPoor ?? '';
+    }
     function fmtPriceScale(n: number, mp: number): string {
         if (mp >= 1000) return n.toFixed(0);
         if (mp >= 1) return n.toFixed(2);
@@ -229,33 +245,32 @@
     <!-- Unified directional gauge — net bias from Long% − Short%,
          shown as a semi-circular dial. Center = Neutral, right = Long (green),
          left = Short (red). -->
-    <div class={styles.gaugeWrap}>
-        <svg viewBox="0 0 200 115" class={styles.gauge}>
-            <!-- Background arc: full semi-circle -->
-            <path d="M 30 105 A 70 70 0 0 1 170 105"
-                  stroke="rgba(255,255,255,0.08)" stroke-width="3" fill="none" stroke-linecap="round"/>
-            <!-- Active bias arc: from top-center to needle -->
-            <path d={activeArcD()} stroke={arcColor} stroke-width="3" fill="none"
-                  stroke-linecap="round" opacity={netAbs > 0 ? 0.85 : 0}/>
-            <!-- Tick marks -->
-            {#each [-100, -50, 0, 50, 100] as tick}
-                {@const ta = Math.PI - ((tick + 100) / 200) * Math.PI}
-                {@const tix = cx + (r - 8) * Math.cos(ta)}
-                {@const tiy = cy - (r - 8) * Math.sin(ta)}
-                {@const tox = cx + r * Math.cos(ta)}
-                {@const toy = cy - r * Math.sin(ta)}
-                <line x1={tix} y1={tiy} x2={tox} y2={toy}
-                      stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
-            {/each}
-            <!-- Needle -->
-            <line x1={cx} y1={cy + 4} x2={needleX} y2={needleY}
-                  stroke={netColor} stroke-width="2" stroke-linecap="round"/>
-            <circle cx={cx} cy={cy} r="4" fill={netColor}/>
-        </svg>
-        <div class={styles.gaugeLabels}>
-            <span class={styles.gaugeShort}>SHORT</span>
-            <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
-            <span class={styles.gaugeLong}>LONG</span>
+    <div class={styles.gaugeCard}>
+        <div class={styles.gaugeWrap}>
+            <svg viewBox="0 0 200 115" class={styles.gauge}>
+                <!-- Background arc: full semi-circle -->
+                <path d="M 30 105 A 70 70 0 0 1 170 105"
+                      stroke="rgba(255,255,255,0.08)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                <!-- Active bias arc: from top-center to needle. The arc itself is
+                     the needle indicator — a geometrically congruent
+                     segment of the Dome curve, bulging outward along
+                     the Dome's curvature. -->
+                <path d={activeArcD()} stroke={arcColor} stroke-width="4.5" fill="none"
+                      stroke-linecap="round" opacity={netAbs > 0 ? 0.95 : 0}/>
+                <!-- Needle: thin straight line from pivot to the active
+                     arc's terminus. Always visible — at non-neutral
+                     biases it carries the bias color (green/red); at
+                     neutral it carries the amber "no lean" color and
+                     renders as a vertical line straight up. -->
+                <line x1={cx} y1={cy + 4} x2={needleX} y2={needleY}
+                      stroke={netColor} stroke-width="2" stroke-linecap="round"
+                      opacity="0.95"/>
+            </svg>
+            <div class={styles.gaugeLabels}>
+                <span class="{styles.gaugeShort} {biasDirection !== 'SHORT' ? styles.dim : ''}">SHORT</span>
+                <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
+                <span class="{styles.gaugeLong} {biasDirection !== 'LONG' ? styles.dim : ''}">LONG</span>
+            </div>
         </div>
     </div>
 
@@ -284,6 +299,8 @@
                     <div class={styles.profileCardBadgeNeutral}>HOLD · NO DIRECTIONAL EDGE</div>
                 {:else if topSetup.viability === 'GeometryInverted'}
                     <div class={styles.profileCardBadgeInverted}>GEOMETRY INVERTED</div>
+                {:else if topSetup.viability === 'NoClear'}
+                    <div class={styles.profileCardBadgeNoClear}>NO CLEAR SETUP</div>
                 {/if}
                 <div class={styles.profileCardPre}>
                     <span class={styles.profileCardPreLabel}>Preconditions</span>
@@ -306,7 +323,9 @@
                         <span class={styles.profileRecZoneLabel}>TARGET</span>
                         <span class={styles.profileRecZoneValue}>
                             {topSetup.zones
-                                ? `$${fmtPriceScale(topSetup.zones.target.low, markPrice)}–$${fmtPriceScale(topSetup.zones.target.high, markPrice)}`
+                                ? (topSetup.zones.target.low > 0
+                                    ? `$${fmtPriceScale(topSetup.zones.target.low, markPrice)}–$${fmtPriceScale(topSetup.zones.target.high, markPrice)}`
+                                    : `$${fmtPriceScale(topSetup.zones.target.high, markPrice)}`)
                                 : '—'}
                         </span>
                     </div>
@@ -321,22 +340,23 @@
                     <div class={styles.profileRecZone}>
                         <span class={styles.profileRecZoneLabel}>R:R</span>
                         <span class={styles.profileRecZoneValue}>
-                            {(() => {
-                                const z = topSetup.zones;
-                                if (z && z.entry && z.target && z.invalidation) {
-                                    const disp = computeRiskReward(z.entry, z.target, z.invalidation, z.side, markPrice);
-                                    return disp.display;
-                                }
-                                return topSetup.rr != null ? `R:R ${topSetup.rr.toFixed(2)}` : '—';
-                            })()}
+                            {#if topSetup.rr != null}
+                                <span class={rrColorCls(topSetup.rr)}>
+                                    {(() => {
+                                        const z = topSetup.zones;
+                                        if (z && z.entry && z.target && z.invalidation) {
+                                            const disp = computeRiskReward(z.entry, z.target, z.invalidation, z.side, markPrice);
+                                            return disp.display;
+                                        }
+                                        return `R:R ${topSetup.rr.toFixed(2)}`;
+                                    })()}
+                                </span>
+                            {:else}
+                                <span class={styles.rrNa}>R:R N/A</span>
+                            {/if}
                         </span>
                     </div>
                 </div>
-                {#if topSetup.zones && !topSetup.zones.geometry_consistent}
-                    <div class={styles.profileRecNote}>
-                        ⚠ entry/target layout inverted — falling back to aggregated Neutral sentinel.
-                    </div>
-                {/if}
                 {#if topSetup.rationale && topSetup.rationale !== `${topSetup.opportunity_type}: preconditions ${topSetup.preconditions_met}/${topSetup.preconditions_total}`}
                     <div class={styles.profileCardNotes}>{topSetup.rationale}</div>
                 {/if}

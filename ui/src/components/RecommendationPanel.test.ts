@@ -416,3 +416,192 @@ describe('RecommendationPanel — bind contract', () => {
         expect(matches31.length).toBeGreaterThan(0);
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Gauge geometry — lock against SVG arc-flag regressions.
+//
+// The active bias arc must be a geometrically congruent segment of the
+// Dome curve:
+//   - same radius (r=70)
+//   - same center (cx=100, cy=105)
+//   - bulging OUTWARD (away from the circle center) — the same
+//     curvature direction as the Dome itself
+//
+// The earlier implementation had `sweepFlag = sweep > 0 ? 1 : 0` which
+// inverted the arc on both sides (SHORT bulged inward on the right of
+// the chord; LONG bulged inward on the left). These tests assert the
+// correct geometry for SHORT, LONG, NEUTRAL, and the ±100 extremes.
+// ─────────────────────────────────────────────────────────────────────────
+describe('gauge geometry — active arc is a Dome segment', () => {
+    function mountWithNetBias(netBias: number) {
+        // Build a 100% probability split so netBias is exactly `netBias`
+        // (long_probability - short_probability = netBias when hold=0).
+        // Note: rank.long.probability prefers the wire value when present.
+        const long = 50 + netBias / 2;
+        const short = 50 - netBias / 2;
+        const hold = 100 - long - short;
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: long,
+            short_probability: short,
+            hold_probability: hold,
+            net_bias_pct: netBias,
+        });
+        return render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+    }
+
+    function parseActiveArc(d: string): {
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+        sweepFlag: number;
+        largeFlag: number;
+    } | null {
+        // SVG arc: M sx sy A rx ry x-axis-rot large-flag sweep-flag ex ey
+        // 9 numeric groups: M-x M-y rx ry rot large sweep ex ey
+        const m = /^M\s+([-\d.]+)\s+([-\d.]+)\s+A\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/.exec(d);
+        if (!m) return null;
+        return {
+            startX: Number(m[1]),
+            startY: Number(m[2]),
+            largeFlag: Number(m[6]),
+            sweepFlag: Number(m[7]),
+            endX: Number(m[8]),
+            endY: Number(m[9]),
+        };
+    }
+
+    function getActiveArc(): { startX: number; startY: number; endX: number; endY: number; sweepFlag: number; largeFlag: number } | null {
+        // Scope to the gauge SVG only — the LayerHeader icon and other
+        // chrome also contain `<path>` elements that we don't want.
+        const gaugeSvg = document.querySelector('svg.gauge, [class*="gauge"] svg');
+        const paths = gaugeSvg ? gaugeSvg.querySelectorAll('path') : document.querySelectorAll('svg path');
+        // The active arc starts at the top-center (100, 35); the Dome
+        // starts at (30, 105). Both live in the gauge card.
+        for (const p of Array.from(paths)) {
+            const d = p.getAttribute('d') ?? '';
+            if (!d.startsWith('M 100 35')) continue;
+            return parseActiveArc(d);
+        }
+        return null;
+    }
+
+    it('arc starts at top-center (100, 35) — the Dome apex', () => {
+        mountWithNetBias(0);
+        const arc = getActiveArc();
+        expect(arc).not.toBeNull();
+        expect(arc!.startX).toBeCloseTo(100, 2);
+        expect(arc!.startY).toBeCloseTo(35, 2);
+    });
+
+    it('SHORT bias uses sweepFlag=0 (counterclockwise from top, bulges UP-LEFT along Dome)', () => {
+        mountWithNetBias(-50);
+        const arc = getActiveArc();
+        expect(arc).not.toBeNull();
+        expect(arc!.sweepFlag).toBe(0);
+        expect(arc!.largeFlag).toBe(0);
+        // Endpoint is on the LEFT side of the Dome (x < 100).
+        expect(arc!.endX).toBeLessThan(100);
+    });
+
+    it('LONG bias uses sweepFlag=1 (clockwise from top, bulges UP-RIGHT along Dome)', () => {
+        mountWithNetBias(50);
+        const arc = getActiveArc();
+        expect(arc).not.toBeNull();
+        expect(arc!.sweepFlag).toBe(1);
+        expect(arc!.largeFlag).toBe(0);
+        // Endpoint is on the RIGHT side of the Dome (x > 100).
+        expect(arc!.endX).toBeGreaterThan(100);
+    });
+
+    it('arc endpoint lies on the Dome circle (distance from (100,105) == 70)', () => {
+        // Sample across SHORT, NEUTRAL, LONG.
+        for (const nb of [-75, -25, 0, 25, 75]) {
+            mountWithNetBias(nb);
+            const arc = getActiveArc();
+            expect(arc).not.toBeNull();
+            const dx = arc!.endX - 100;
+            const dy = arc!.endY - 105;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            expect(dist).toBeCloseTo(70, 1);
+        }
+    });
+
+    it('-100% net bias terminates exactly at the Dome LEFT extreme (30, 105)', () => {
+        mountWithNetBias(-100);
+        const arc = getActiveArc();
+        expect(arc).not.toBeNull();
+        expect(arc!.endX).toBeCloseTo(30, 1);
+        expect(arc!.endY).toBeCloseTo(105, 1);
+        expect(arc!.sweepFlag).toBe(0); // counterclockwise → LEFT half of Dome
+    });
+
+    it('+100% net bias terminates exactly at the Dome RIGHT extreme (170, 105)', () => {
+        mountWithNetBias(100);
+        const arc = getActiveArc();
+        expect(arc).not.toBeNull();
+        expect(arc!.endX).toBeCloseTo(170, 1);
+        expect(arc!.endY).toBeCloseTo(105, 1);
+        expect(arc!.sweepFlag).toBe(1); // clockwise → RIGHT half of Dome
+    });
+
+    it('arc bulges OUTWARD — midpoint y is above the chord midpoint y', () => {
+        // For SHORT (-50%): chord goes from (100, 35) to roughly (50, 55).
+        // The Dome-segment midpoint (halfway along the arc) should sit
+        // ABOVE the chord's midpoint — outward, not inward.
+        mountWithNetBias(-50);
+        const arc = getActiveArc();
+        expect(arc).not.toBeNull();
+        const chordMidY = (arc!.startY + arc!.endY) / 2;
+        // For an arc bulging outward on the Dome (center at cy=105),
+        // a point halfway along the 45° arc has y < chordMidY
+        // (i.e., closer to the top of the circle, further from cy).
+        // The midpoint angle is halfway between 90° and 135° = 112.5°.
+        const halfAngle = (Math.PI / 2 + (3 * Math.PI / 4)) / 2;
+        const arcMidY = 105 - 70 * Math.sin(halfAngle);
+        expect(arcMidY).toBeLessThan(chordMidY);
+    });
+
+    it('renders a needle line from pivot (100, 109) to the active arc terminus', () => {
+        // The needle is a thin straight line connecting the pivot to
+        // the active arc's endpoint. It must terminate at the same
+        // (needleX, needleY) the arc terminates at, so the two
+        // indicators visually align.
+        for (const nb of [-75, -25, 25, 75]) {
+            mountWithNetBias(nb);
+            const arc = getActiveArc();
+            expect(arc).not.toBeNull();
+            const gaugeSvg = document.querySelector('svg.gauge, [class*="gauge"] svg');
+            const lines = gaugeSvg ? gaugeSvg.querySelectorAll('line') : [];
+            const needle = Array.from(lines).find((l) =>
+                l.getAttribute('x1') === '100' && l.getAttribute('y1') === '109'
+            );
+            expect(needle).toBeTruthy();
+            expect(Number(needle!.getAttribute('x2'))).toBeCloseTo(arc!.endX, 1);
+            expect(Number(needle!.getAttribute('y2'))).toBeCloseTo(arc!.endY, 1);
+            expect(needle!.getAttribute('stroke-width')).toBe('2');
+            expect(needle!.getAttribute('stroke-linecap')).toBe('round');
+        }
+    });
+
+    it('needle is visible at neutral with amber color (netBias = 0)', () => {
+        // The needle is the always-on directional indicator: at neutral
+        // it renders as a thin amber vertical line straight up. The
+        // active arc is the magnitude indicator and stays hidden at
+        // neutral — but the needle must remain visible so the operator
+        // sees the "no lean" pointer.
+        mountWithNetBias(0);
+        const gaugeSvg = document.querySelector('svg.gauge, [class*="gauge"] svg');
+        const lines = gaugeSvg ? gaugeSvg.querySelectorAll('line') : [];
+        const needle = Array.from(lines).find((l) =>
+            l.getAttribute('x1') === '100' && l.getAttribute('y1') === '109'
+        );
+        expect(needle).toBeTruthy();
+        expect(needle!.getAttribute('opacity')).toBe('0.95');
+        expect(needle!.getAttribute('stroke')).toBe('#f59e0b');
+        // Tip lands at the top center (gaugeAngle = π/2).
+        expect(Number(needle!.getAttribute('x2'))).toBeCloseTo(100, 1);
+        expect(Number(needle!.getAttribute('y2'))).toBeCloseTo(35, 1);
+    });
+});

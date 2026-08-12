@@ -107,10 +107,10 @@
 .setupRowRr { font-size: 9px; color: rgba(255,255,255,0.55); }
 .setupRowMeta { font-size: 9px; color: rgba(255,255,255,0.45); padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.06); margin-top: 2px; }
 .sectionMeta { float: right; font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.45); letter-spacing: 0.04em; }
-.green { background: #22c55e; }
-.amber { background: #f59e0b; }
-.red   { background: #ef4444; }
-.rrNone { color: #94a3b8; }
+.green { color: #22c55e; font-weight: 700; }
+.amber { color: #f59e0b; font-weight: 700; }
+.red   { color: #ef4444; font-weight: 700; }
+.rrNone { color: rgba(255, 255, 255, 0.50); }
 
 /* ── HOLD / No Clear Setup scenario note ── */
 .scenarioNote {

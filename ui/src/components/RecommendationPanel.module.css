@@ -125,17 +125,22 @@
 .verdictHold  .verdictPct    { color: #f59e0b; }
 
 /* ── Unified net-bias gauge (semi-circular dial) ── */
+.gaugeCard {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 14px 12px 10px;
+    margin-bottom: 12px;
+}
 .gaugeWrap {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
-    margin-bottom: 12px;
-    padding: 0 8px;
+    gap: 4px;
 }
 .gauge {
     width: 100%;
-    max-width: 220px;
+    max-width: 240px;
     display: block;
 }
 .gaugeLabels {
@@ -143,31 +148,35 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    max-width: 220px;
-    padding: 0 8px;
+    max-width: 240px;
+    padding: 0 4px;
+    margin-top: 2px;
+}
+.gaugeShort,
+.gaugeLong {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
 }
 .gaugeShort {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     color: #ef4444;
 }
 .gaugeLong {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     color: #22c55e;
 }
+.dim {
+    color: rgba(255, 255, 255, 0.35) !important;
+}
 .gaugeNet {
-    font-size: 14px;
+    font-size: 18px;
     font-weight: 700;
     font-family: var(--mono, monospace);
+    letter-spacing: 0.02em;
 }
-.gaugeNetLong  { color: #22c55e; }
-.gaugeNetShort { color: #ef4444; }
-.gaugeNetNeutral { color: rgba(255, 255, 255, 0.50); }
+.gaugeNetLong    { color: #22c55e; }
+.gaugeNetShort   { color: #ef4444; }
+.gaugeNetNeutral { color: #f59e0b; }
 
 /* ── Why (top-3 rationale list) ───────────────────────────────────────── */
 .why {
@@ -476,3 +485,22 @@
     text-transform: uppercase;
     align-self: flex-start;
 }
+.profileCardBadgeNoClear {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    margin: 6px 8px 0;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.55);
+    text-transform: uppercase;
+    align-self: flex-start;
+}
+.rrNa {
+    color: rgba(255, 255, 255, 0.50);
+    font-weight: 500;
+}
+.rrGood { color: #22c55e; font-weight: 700; }
+.rrFair { color: #f59e0b; font-weight: 700; }
+.rrPoor { color: #ef4444; font-weight: 700; }
