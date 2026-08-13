@@ -7,6 +7,7 @@
 //! Layer: L7 in the architecture (Overview).
 
 use crate::advisory::{AdvisoryMatrix, DirectionalGuidance, StrategyEnvironment};
+use crate::alignment::AlignmentMatrix;
 use crate::risk::{RiskDimension, RiskLevel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -80,6 +81,15 @@ pub struct AssetRank {
     pub confidence: f64,
     pub regime: String,
     pub risk_level: String,
+    /// `AlignmentMatrix.mtf_overall_score` for this symbol ∈ [-100, 100].
+    /// `0.0` when no alignment is available for the symbol.
+    #[serde(default)]
+    pub mtf_score: f64,
+    /// `AlignmentMatrix.mtf_overall_label` for this symbol
+    /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
+    /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`).
+    #[serde(default)]
+    pub mtf_label: String,
 }
 
 /// Risk distribution summary.
@@ -116,6 +126,28 @@ pub struct OverviewMatrix {
     /// True when fewer than 4 of 12 SignalKinds are enabled.
     #[serde(default)]
     pub low_coverage: bool,
+    /// Count of assets per `AlignmentMatrix.mtf_overall_label`
+    /// (`STRONG_BULL_MTF`, `WEAK_BULL_MTF`, `NEUTRAL_MTF`,
+    /// `WEAK_BEAR_MTF`, `STRONG_BEAR_MTF`, `NO_DATA`). `u32` because
+    /// an asset can satisfy at most one label. Mirrors the existing
+    /// `opportunity_distribution` shape — both are per-type counts,
+    /// not partitions, so an asset counts toward exactly one entry.
+    #[serde(default)]
+    pub alignment_distribution: HashMap<String, u32>,
+    /// Mean of all per-symbol `AlignmentMatrix.mtf_overall_score` ∈
+    /// `[-100, 100]`. Cross-timeframe counterpart to `breadth_pct`
+    /// (which is cross-symbol). `0.0` when no alignments are
+    /// available.
+    #[serde(default)]
+    pub alignment_consensus_index: f64,
+    /// Mean of all per-symbol
+    /// `AlignmentMatrix.trend_agreement_pct` ∈ `[0, 100]`. Answers
+    /// "how well do timeframes within each symbol agree?". Distinct
+    /// from `market_synchronization` (which is cross-symbol,
+    /// derived from `breadth_pct`). `0.0` when no alignments are
+    /// available.
+    #[serde(default)]
+    pub multi_tf_agreement_pct: f64,
     pub global_summary: String,
     pub instance_count: u32,
     pub active_symbols: Vec<String>,
@@ -141,6 +173,9 @@ impl OverviewMatrix {
             systemic_risk_score: 0.0,
             breadth_pct: 0.0,
             low_coverage: false,
+            alignment_distribution: HashMap::new(),
+            alignment_consensus_index: 0.0,
+            multi_tf_agreement_pct: 0.0,
             global_summary: "No active instances — no market data available.".into(),
             instance_count: 0,
             active_symbols: Vec::new(),
@@ -157,10 +192,17 @@ pub struct InstanceMeta {
     pub is_active: bool,
 }
 
-/// Compute the Overview Matrix from all Advisory Matrices and instance metadata.
+/// Compute the Overview Matrix from all Advisory Matrices, instance
+/// metadata, and per-symbol Alignment Matrices. The Alignment
+/// Matrices are optional (empty slice is permitted); when omitted,
+/// the three new aggregate fields (`alignment_distribution`,
+/// `alignment_consensus_index`, `multi_tf_agreement_pct`) default to
+/// neutral / empty values while the existing breadth / sync / health
+/// aggregates remain populated from the advisories.
 pub fn compute_overview(
     advisories: &[AdvisoryMatrix],
     instances: &[InstanceMeta],
+    alignments: &[AlignmentMatrix],
 ) -> OverviewMatrix {
     if advisories.is_empty() && instances.iter().all(|i| !i.is_active) {
         return OverviewMatrix::empty();
@@ -168,6 +210,11 @@ pub fn compute_overview(
 
     let active_instances: Vec<&InstanceMeta> = instances.iter().filter(|i| i.is_active).collect();
     let instance_count = active_instances.len() as u32;
+
+    // Per-symbol alignment lookup. Built once so the per-asset
+    // AssetRank enrichment below is O(n) rather than O(n²).
+    let alignments_by_symbol: HashMap<&str, &AlignmentMatrix> =
+        alignments.iter().map(|a| (a.symbol.as_str(), a)).collect();
 
     let mut symbols_set: std::collections::HashSet<String> = std::collections::HashSet::new();
     for inst in &active_instances {
@@ -278,6 +325,16 @@ pub fn compute_overview(
             } else {
                 "HIGH"
             };
+            // Mirror the per-symbol AlignmentMatrix onto the
+            // AssetRank so REST / export consumers can show
+            // multi-timeframe alignment per asset without a second
+            // fetch. When no alignment is available for this symbol
+            // (cold start, transient snapshot gap, or symbol not in
+            // the alignment slice), default to neutral values.
+            let (mtf_score, mtf_label) = match alignments_by_symbol.get(a.symbol.as_str()) {
+                Some(aln) => (aln.mtf_overall_score, aln.mtf_overall_label.clone()),
+                None => (0.0, "NO_DATA".to_string()),
+            };
             AssetRank {
                 symbol: a.symbol.clone(),
                 score,
@@ -285,6 +342,8 @@ pub fn compute_overview(
                 confidence: a.confidence_assessment,
                 regime: format!("{:?}", a.strategy_environment),
                 risk_level: risk_level.to_string(),
+                mtf_score,
+                mtf_label,
             }
         })
         .collect();
@@ -429,6 +488,30 @@ pub fn compute_overview(
         ..RiskDimension::default()
     };
 
+    // ── Alignment aggregation ─────────────────────────────────
+    // `alignment_distribution` — count of assets per
+    // `mtf_overall_label`. Mirrors `opportunity_distribution` shape
+    // (HashMap<String, u32>); unlike `regime_distribution` (which is
+    // a partition that sums to 1.0), an asset satisfies exactly
+    // one label, so this is a count, not a fraction.
+    let mut alignment_distribution: HashMap<String, u32> = HashMap::new();
+    let mut alignment_score_sum = 0.0_f64;
+    let mut trend_agreement_sum = 0.0_f64;
+    let alignment_count = alignments.len();
+    for aln in alignments {
+        *alignment_distribution
+            .entry(aln.mtf_overall_label.clone())
+            .or_insert(0) += 1;
+        alignment_score_sum += aln.mtf_overall_score;
+        trend_agreement_sum += aln.trend_agreement_pct;
+    }
+    let (alignment_consensus_index, multi_tf_agreement_pct) = if alignment_count > 0 {
+        let n = alignment_count as f64;
+        (alignment_score_sum / n, trend_agreement_sum / n)
+    } else {
+        (0.0, 0.0)
+    };
+
     let summary = format!(
         "{} active instances across {} symbols. Global bias: {} with {} market breadth. Risk environment: {}.",
         instance_count,
@@ -472,6 +555,9 @@ pub fn compute_overview(
         global_summary: summary,
         instance_count,
         active_symbols,
+        alignment_distribution,
+        alignment_consensus_index,
+        multi_tf_agreement_pct,
     }
 }
 
@@ -481,7 +567,7 @@ mod tests {
 
     #[test]
     fn empty_returns_default() {
-        let o = compute_overview(&[], &[]);
+        let o = compute_overview(&[], &[], &[]);
         // Empty input → OverviewMatrix::empty() early-return path.
         // The empty OverviewMatrix declares GlobalBias::Neutral as its
         // canonical default; the live `compute_overview` path now
@@ -491,6 +577,10 @@ mod tests {
         assert!(matches!(o.global_market_bias, GlobalBias::Neutral));
         assert_eq!(o.instance_count, 0);
         assert_eq!(o.systemic_risk_score, 0.0);
+        // New aggregate alignment fields default to neutral values.
+        assert!(o.alignment_distribution.is_empty());
+        assert_eq!(o.alignment_consensus_index, 0.0);
+        assert_eq!(o.multi_tf_agreement_pct, 0.0);
     }
 
     #[test]
@@ -506,7 +596,7 @@ mod tests {
                 ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
             })
             .collect();
-        let o = compute_overview(&advs, &[]);
+        let o = compute_overview(&advs, &[], &[]);
         assert!(matches!(o.global_market_bias, GlobalBias::Mixed));
     }
 
@@ -524,10 +614,143 @@ mod tests {
             timeframe_label: "slow300".into(),
             is_active: true,
         }];
-        let o = compute_overview(&[adv], &instances);
+        let o = compute_overview(&[adv], &instances, &[]);
         assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
         assert_eq!(o.instance_count, 1);
         assert!(!o.regime_distribution.is_empty());
         assert!(!o.opportunity_distribution.is_empty());
+    }
+
+    // ── Alignment aggregation tests ───────────────────────────
+
+    fn make_alignment(symbol: &str, mtf_score: f64, label: &str, agreement: f64) -> AlignmentMatrix {
+        AlignmentMatrix {
+            symbol: symbol.into(),
+            timeframes_present: 4,
+            dimensions: Vec::new(),
+            mtf_trend_alignment: mtf_score / 100.0,
+            mtf_momentum_alignment: mtf_score / 100.0,
+            mtf_volume_alignment: 0.0,
+            mtf_volatility_alignment: 0.0,
+            mtf_overall_score: mtf_score,
+            mtf_overall_label: label.into(),
+            timeframe_alignments: Vec::new(),
+            signal_cross_tf_count: 0,
+            trend_agreement_pct: agreement,
+        }
+    }
+
+    #[test]
+    fn alignment_distribution_counts_per_label() {
+        let advs: Vec<AdvisoryMatrix> = (0..4)
+            .map(|i| AdvisoryMatrix {
+                symbol: format!("X-USD{}", i),
+                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
+            })
+            .collect();
+        let alignments = vec![
+            make_alignment("X-USD0", 80.0, "STRONG_BULL_MTF", 90.0),
+            make_alignment("X-USD1", 30.0, "WEAK_BULL_MTF", 70.0),
+            make_alignment("X-USD2", 0.0, "NEUTRAL_MTF", 50.0),
+            make_alignment("X-USD3", -60.0, "STRONG_BEAR_MTF", 85.0),
+        ];
+        let o = compute_overview(&advs, &[], &alignments);
+        assert_eq!(o.alignment_distribution.get("STRONG_BULL_MTF"), Some(&1));
+        assert_eq!(o.alignment_distribution.get("WEAK_BULL_MTF"), Some(&1));
+        assert_eq!(o.alignment_distribution.get("NEUTRAL_MTF"), Some(&1));
+        assert_eq!(o.alignment_distribution.get("STRONG_BEAR_MTF"), Some(&1));
+        assert_eq!(o.alignment_distribution.get("WEAK_BEAR_MTF"), None);
+        assert_eq!(o.alignment_distribution.get("NO_DATA"), None);
+        assert_eq!(o.alignment_distribution.values().sum::<u32>(), 4);
+    }
+
+    #[test]
+    fn alignment_consensus_index_is_mean_of_scores() {
+        let advs: Vec<AdvisoryMatrix> = (0..3)
+            .map(|i| AdvisoryMatrix {
+                symbol: format!("X-USD{}", i),
+                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
+            })
+            .collect();
+        let alignments = vec![
+            make_alignment("X-USD0", 50.0, "WEAK_BULL_MTF", 60.0),
+            make_alignment("X-USD1", 0.0, "NEUTRAL_MTF", 50.0),
+            make_alignment("X-USD2", -50.0, "WEAK_BEAR_MTF", 40.0),
+        ];
+        let o = compute_overview(&advs, &[], &alignments);
+        // (50 + 0 + -50) / 3 = 0.0
+        assert!((o.alignment_consensus_index - 0.0).abs() < 1e-9);
+        // (60 + 50 + 40) / 3 = 50.0
+        assert!((o.multi_tf_agreement_pct - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn asset_rank_mirrors_alignment_when_present() {
+        let adv = AdvisoryMatrix {
+            symbol: "BTC-USD".into(),
+            directional_guidance: DirectionalGuidance::Long,
+            confidence_assessment: 75.0,
+            ..AdvisoryMatrix::empty("BTC-USD")
+        };
+        let instances = vec![InstanceMeta {
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 300,
+            timeframe_label: "slow300".into(),
+            is_active: true,
+        }];
+        let alignment = make_alignment("BTC-USD", 65.5, "STRONG_BULL_MTF", 80.0);
+        let o = compute_overview(&[adv], &instances, &[alignment]);
+        assert_eq!(o.asset_ranking.len(), 1);
+        assert_eq!(o.asset_ranking[0].symbol, "BTC-USD");
+        assert!((o.asset_ranking[0].mtf_score - 65.5).abs() < 1e-9);
+        assert_eq!(o.asset_ranking[0].mtf_label, "STRONG_BULL_MTF");
+    }
+
+    #[test]
+    fn asset_rank_defaults_when_alignment_missing() {
+        // Symbol present in advisories but absent from alignments —
+        // must default to neutral without breaking the rest of the
+        // aggregation.
+        let adv = AdvisoryMatrix {
+            symbol: "BTC-USD".into(),
+            directional_guidance: DirectionalGuidance::Long,
+            confidence_assessment: 75.0,
+            ..AdvisoryMatrix::empty("BTC-USD")
+        };
+        let instances = vec![InstanceMeta {
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 300,
+            timeframe_label: "slow300".into(),
+            is_active: true,
+        }];
+        let o = compute_overview(&[adv], &instances, &[]);
+        assert_eq!(o.asset_ranking.len(), 1);
+        assert_eq!(o.asset_ranking[0].mtf_score, 0.0);
+        assert_eq!(o.asset_ranking[0].mtf_label, "NO_DATA");
+        // Aggregate alignment fields still default to neutral.
+        assert!(o.alignment_distribution.is_empty());
+        assert_eq!(o.alignment_consensus_index, 0.0);
+        assert_eq!(o.multi_tf_agreement_pct, 0.0);
+    }
+
+    #[test]
+    fn empty_alignments_yield_neutral_aggregates_without_breaking_advisories() {
+        // Advisories present but no alignments — the breadth / bias /
+        // sync / risk aggregates must still populate correctly; the
+        // alignment aggregates must default to neutral without
+        // propagating NaN.
+        let advs: Vec<AdvisoryMatrix> = (0..3)
+            .map(|i| AdvisoryMatrix {
+                symbol: format!("X-USD{}", i),
+                directional_guidance: DirectionalGuidance::Long,
+                confidence_assessment: 80.0,
+                ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
+            })
+            .collect();
+        let o = compute_overview(&advs, &[], &[]);
+        assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
+        assert_eq!(o.alignment_distribution.len(), 0);
+        assert_eq!(o.alignment_consensus_index, 0.0);
+        assert_eq!(o.multi_tf_agreement_pct, 0.0);
     }
 }

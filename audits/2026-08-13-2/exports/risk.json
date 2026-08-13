@@ -1,0 +1,66 @@
+{
+  "source_tab": "risk",
+  "meta": {
+    "datetime_utc": "2026-08-13T13:51:44.488Z",
+    "exchange": "Hyperliquid",
+    "pair": "ETH-USDC",
+    "timeframe_secs": 60,
+    "current_price": 1890.9,
+    "prev_day_price": 1900.8,
+    "price_change": -0.5208333333333262,
+    "price_change_direction": "down",
+    "timestamp": 1786629060,
+    "is_completed": false
+  },
+  "header": {
+    "layer_name": "Risk",
+    "badge": {"label": "Moderate", "sublabel": "Stable", "tone": "warn"},
+    "chips": [
+      {"label": "Score", "value": 53.87},
+      {"label": "Dimensions", "value": "8/8"}
+    ],
+    "status": "live"
+  },
+  "hero": {
+    "overall_score": 54,
+    "overall_level": "Moderate",
+    "overall_state": "Stable",
+    "overall_confidence": 42,
+    "top_severity": "Extreme",
+    "hint": "Lower is safer. State modifiers adjust each dimension's contribution but not the headline score."
+  },
+  "summary_counts": {
+    "very_low": {"label": "Very Low", "count": 0},
+    "low": {"label": "Low", "count": 2},
+    "moderate": {"label": "Moderate", "count": 2},
+    "high": {"label": "High", "count": 2},
+    "extreme": {"label": "Extreme", "count": 2}
+  },
+  "dimensions": [
+    {"name": "Signal Risk", "key": "signal_risk", "weight": 0.1, "weight_pct": 10, "score": 85, "not_active": false, "level": "Extreme", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["4 contradicting signals", "Low analysis confidence"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 85, "weight_mark_pct": 10, "is_cascade_dim": false, "cascade_extras": null},
+    {"name": "Execution Liquidity Risk", "key": "execution_liquidity_risk", "weight": 0.14, "weight_pct": 14, "score": 80, "not_active": false, "level": "Extreme", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["Very low relative volume", "Wide spread"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 80, "weight_mark_pct": 14, "is_cascade_dim": false, "cascade_extras": null},
+    {"name": "Execution Risk", "key": "execution_risk", "weight": 0.1, "weight_pct": 10, "score": 65, "not_active": false, "level": "High", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["Wide spread", "Low participation"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 65, "weight_mark_pct": 10, "is_cascade_dim": false, "cascade_extras": null},
+    {"name": "Market Risk", "key": "market_risk", "weight": 0.14, "weight_pct": 14, "score": 60, "not_active": false, "level": "High", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["Conflicting signals"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 60, "weight_mark_pct": 14, "is_cascade_dim": false, "cascade_extras": null},
+    {"name": "Structure Risk", "key": "structure_risk", "weight": 0.1, "weight_pct": 10, "score": 55, "not_active": false, "level": "Moderate", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["Weak structure"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 55, "weight_mark_pct": 10, "is_cascade_dim": false, "cascade_extras": null},
+    {"name": "Momentum Risk", "key": "momentum_risk", "weight": 0.14, "weight_pct": 14, "score": 45, "not_active": false, "level": "Moderate", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["Momentum weakening"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 45, "weight_mark_pct": 14, "is_cascade_dim": false, "cascade_extras": null},
+    {"name": "Cascade Risk", "key": "cascade_risk", "weight": 0.14, "weight_pct": 14, "score": 30, "not_active": false, "level": "Low", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": [], "no_evidence_text": null, "not_active_text": null, "bar_pct": 30, "weight_mark_pct": 14, "is_cascade_dim": true, "cascade_extras": {"state_label": "\u2014", "intensity_display": "0.0", "asymmetry_sign": "+", "asymmetry_magnitude_pct": 26.615976331360635, "asymmetry_description": "short squeeze", "asymmetry_display": "\u219126.6% (short squeeze)"}},
+    {"name": "Volatility Risk", "key": "volatility_risk", "weight": 0.14, "weight_pct": 14, "score": 23, "not_active": false, "level": "Low", "state": "Stable", "state_display": "\u2192 STABLE", "confidence": 42, "evidence": ["BBWP elevated"], "no_evidence_text": null, "not_active_text": null, "bar_pct": 23.387699334155194, "weight_mark_pct": 14, "is_cascade_dim": false, "cascade_extras": null}
+  ],
+  "headline_parts": {"very_low_count": 0, "low_count": 2, "moderate_count": 2, "high_count": 2, "extreme_count": 2, "overall_level": "Moderate"},
+  "interpretation_headline": "2 extreme \u00b7 2 high \u00b7 2 moderate \u00b7 overall moderate",
+  "interpretation_full": "<strong>Elevated risk environment.</strong> 2 dimensions at extreme levels. 2 dimensions at high levels. Consider reduced position sizing and wider stops. Monitor the highest-severity dimensions for evidence of improvement before committing capital. Overall composite score is <strong>moderate</strong> at 42% confidence.",
+  "disclosure": {
+    "weights": [
+      {"label": "Market", "pct": 14},
+      {"label": "Volatility", "pct": 14},
+      {"label": "ExecLiq", "pct": 14},
+      {"label": "Structure", "pct": 10},
+      {"label": "Momentum", "pct": 14},
+      {"label": "Signal", "pct": 10},
+      {"label": "Execution", "pct": 10},
+      {"label": "Cascade", "pct": 14}
+    ],
+    "note": "Overall risk is a weighted sum of the 8 dimension scores. State and confidence modify each dimension's contribution, but do not alter the headline score directly."
+  },
+  "awaiting_dimensions_text": "Awaiting risk assessment \u2014 this dimension will populate once market data stabilizes."
+}

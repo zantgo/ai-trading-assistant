@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -28,7 +28,7 @@ Implementation: `analyzer/mod.rs::run_single()`, `analyzer/normalize.rs::build_i
 
 ## 2. Stage 1 — Indicator Computation
 
-Every registry-enabled indicator calculator runs against the current candle buffers, producing a native `raw_value` (and auxiliary component lines for multi-line indicators such as MACD, Bollinger, ADX). The 50 indicators span eight functional groups:
+Every registry-enabled indicator calculator runs against the current candle buffers, producing a native `raw_value` (and auxiliary component lines for multi-line indicators such as MACD, Bollinger, ADX). The 51 indicators span eight functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives — see [`01-01-ontology.md` Appendix B §B.2](../../conceptual-foundations/01-01-ontology.md)):
 
 | Group | Examples |
 |-------|----------|
@@ -39,9 +39,11 @@ Every registry-enabled indicator calculator runs against the current candle buff
 | Structure | Fibonacci, Support/Resistance, Pivot Points, Chart Patterns, Candlestick |
 | Regime | Aroon, Choppiness, LinReg Slope, Z-Score |
 | Institutional | SMC Structure, Liquidity, FVG, Order Blocks |
-| DerivativesData | Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance, Spread, Depth Bias |
+| DerivativesData | Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance, Spread, Depth Bias, Mark-Index Spread |
 
 See [indicators/index.md](indicators/04-02-00-indicator-index.md) for the authoritative manifest.
+
+> **EMA Ribbon canonical record (v6.11+).** The four EMAs (fast / medium / slow / long) share a single canonical record: `MarketSnapshot.indicators["ema_stack"].values.{fast, medium, slow, long}`. The Metrics Layer writes it via `inject_ema_values` (`crates/market-analyzer/src/analyzer/normalize.rs:521-546`); the chart overlay reads it per bar (`PriceChart.svelte:336-340`); the on-screen Indicators facet micro-grid reads it (`IndicatorsView.svelte`); and the per-TF Metrics export body's `body.ema` block reads it via `buildEmaBlock` (`shared.ts`). Every consumer reads the same record — there is no second computation. See [04-02-01-ema-stack.md §Unified Ribbon Export](indicators/04-02-01-ema-stack.md) for the full contract.
 
 ---
 
@@ -63,13 +65,13 @@ Both fields are always populated (no `skip_serializing_if`); the dashboard never
 > ```rust
 > #[repr(C)]
 > pub struct MetricsMatrix {
->     pub indicators: [IndicatorEvaluation; 50], // indexable by an Enum offset
+>     pub indicators: [IndicatorEvaluation; 51], // indexable by an Enum offset
 >     pub timestamp: u64,
 >     pub close: f64,
 > }
 > ```
 >
-> All 50 technical calculators (RSI, ATR, MACD, …) would execute their smoothing and crossovers using raw `f64` primitives, enabling CPU SIMD auto-vectorization. *Current implementation:* indicators are stored in `MarketSnapshot.indicators: HashMap<String, NormalizedIndicatorValue>` and most calculators compute in `rust_decimal::Decimal`.
+> All 51 technical calculators (RSI, ATR, MACD, …) would execute their smoothing and crossovers using raw `f64` primitives, enabling CPU SIMD auto-vectorization. *Current implementation:* indicators are stored in `MarketSnapshot.indicators: HashMap<String, NormalizedIndicatorValue>` and most calculators compute in `rust_decimal::Decimal`.
 
 ---
 

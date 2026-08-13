@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.3 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -84,7 +84,7 @@ Owns: foundational indicator telemetry for a single Market Instance (Symbol × T
 | `funding_rate` | L1 | From DIE FundingRate event |
 | OHLC + `volume`, `average_volume` | L1 (candle aggregation) | |
 | `open_interest`, `oi_delta_1h`, `prev_day_px` | L1 | From DIE OpenInterest / AssetContext |
-| `indicators` (map of `IndicatorEvaluation`) | L1 (indicator calculators) | 50 indicators with normalized scores, state_labels, signals |
+| `indicators` (map of `IndicatorEvaluation`) | L1 (indicator calculators) | 51 indicators with normalized scores, state_labels, signals |
 | `context` (`MarketContext`) | L1 (`MarketContext::synthesize()`) | Per-TF context dimensions |
 | `metrics_config` | L1 (config-driven Active Set) | **Configurable Data Activation** (added v6.2 per [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)). Records the active indicator/signal set actually present in this snapshot. Omitted entirely when the active set equals the registry default. Carries `config_version` for PAE attribution. |
 | `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context` | **Attached matrices** | Composite envelope — L1 owns the envelope; the attached fields are *sourced* from L2–L6 for WebSocket delivery convenience (single frame carries the full cascade). The canonical sources of these fields are their respective layer matrices, NOT the Metrics Matrix. |
@@ -222,6 +222,11 @@ Owns: cross-symbol aggregation.
 | `global_summary` (string) | L7 | |
 | `instance_count`, `active_symbols` | L7 | **Invariant:** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. |
 | `systemic_risk_score` (derived) | L7 | `0.6 × high_pct + 0.4 × sync_penalty` |
+| `alignment_distribution` (`map<string, u32>`) (v6.10.3+) | L7 | Count of assets per `AlignmentMatrix.mtf_overall_label`. Aggregated from L2. |
+| `alignment_consensus_index` (`f64`, [-100, 100]) (v6.10.3+) | L7 | Mean of per-symbol `AlignmentMatrix.mtf_overall_score`. Cross-timeframe counterpart to `breadth_pct`. Aggregated from L2. |
+| `multi_tf_agreement_pct` (`f64`, [0, 100]) (v6.10.3+) | L7 | Mean of per-symbol `AlignmentMatrix.trend_agreement_pct`. Distinct from `market_synchronization` (which is cross-symbol, L6-derived). Aggregated from L2. |
+
+**AssetRank enrichment (v6.10.3+).** Each `AssetRank` entry additionally carries `mtf_score` (`f64`, [-100, 100]) and `mtf_label` (`string`), mirrors of `AlignmentMatrix.mtf_overall_score` / `mtf_overall_label` keyed by `symbol`. Defaults to `(0.0, "NO_DATA")` when no alignment is available for the symbol.
 
 ---
 

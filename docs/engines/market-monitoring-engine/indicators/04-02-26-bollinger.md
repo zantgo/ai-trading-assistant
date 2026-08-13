@@ -1,6 +1,6 @@
 # Bollinger Bands (20, 2.0)
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function
@@ -33,11 +33,12 @@ Stored in the `values` sub-map: `upper`, `middle`, `lower`. State labels determi
 | Breakout | BOLLINGER_LOWER_BREAKOUT | Price ≤ lower band | Bearish |
 | BandTouch | BOLLINGER_UPPER_BAND_TOUCH | Price inside bands, %B > 0.90 (near upper edge). Structured push from engine. | Bearish |
 | BandTouch | BOLLINGER_LOWER_BAND_TOUCH | Price inside bands, %B < 0.10 (near lower edge). Structured push from engine. | Bullish |
-| LevelTest | BOLLINGER_MIDDLE_BAND_REJECTION_BULLISH | Price approaches middle band from above, bounces. %B near 0.50 with directional momentum favoring bulls. | Bullish |
-| LevelTest | BOLLINGER_MIDDLE_BAND_REJECTION_BEARISH | Price approaches middle band from below, rejected. %B near 0.50 with directional momentum favoring bears. | Bearish |
-| LevelTest | BOLLINGER_MIDDLE_BAND_SUPPORT_HOLD | Price riding near middle band with multiple touches holding. Acts as dynamic S/R in trending markets. | Direction-neutral |
+| LevelTest | BOLLINGER_UPPER_LEVEL_TEST | Price within proximity of the upper band (generic band-proximity LevelTest). | Bearish |
+| LevelTest | BOLLINGER_LOWER_LEVEL_TEST | Price within proximity of the lower band (generic band-proximity LevelTest). | Bullish |
 
-Both Breakout and BandTouch fire from distinct detection sources (structured engine push + label-based trigger) — duplicate badges from both paths are intentional. LevelTest signals indicate price interaction with the middle band acting as dynamic support/resistance.
+Both Breakout and BandTouch fire from distinct detection sources (structured engine push + label-based trigger) — duplicate badges from both paths are intentional.
+
+> **Doc synced to runtime (AUDIT-AIU-090).** The previous table declared `BOLLINGER_MIDDLE_BAND_REJECTION_BULLISH/BEARISH` and `BOLLINGER_MIDDLE_BAND_SUPPORT_HOLD`, which no code emits — the engine emits the generic `BOLLINGER_UPPER/LOWER_LEVEL_TEST` band-proximity labels instead.
 
 ## 5. Configuration
 ```json

@@ -54,13 +54,20 @@ impl NormalizationEngine {
                 pick(sign, "EMERGING_BULL_TREND", "EMERGING_BEAR_TREND"),
             )
         } else if adx <= 40.0 {
-            let mag = 0.50 + ((adx - 25.0) / 15.0) * 0.30;
+            // AUDIT-AIU-021: continuous ramp 0.30 → 0.80 across [25, 40].
+            // The previous `0.50 + (…)×0.30` started at 0.50, producing a
+            // 0.20 jump at ADX = 25 that contradicted the doc's continuity
+            // claim (04-02-05 §6).
+            let mag = 0.30 + ((adx - 25.0) / 15.0) * 0.50;
             (
                 sign * mag,
                 pick(sign, "STRONG_BULL_TREND", "STRONG_BEAR_TREND"),
             )
         } else {
-            let mag = 0.90 + ((adx - 40.0) / 20.0).min(1.0) * 0.10;
+            // AUDIT-AIU-021: continuous ramp 0.80 → 1.00 across (40, 60].
+            // The previous `0.90 + (…)×0.10` started at 0.90, producing a
+            // 0.10 jump at ADX = 40.
+            let mag = 0.80 + ((adx - 40.0) / 20.0).min(1.0) * 0.20;
             (
                 sign * mag,
                 pick(sign, "CLIMACTIC_BULL_TREND", "CLIMACTIC_BEAR_TREND"),
@@ -86,13 +93,18 @@ impl NormalizationEngine {
     /// volatility context reaches the rest of the system through the
     /// `confidence` axis and the `risk.volatility_risk` dimension.
     pub fn normalize_bbwp(bbwp: f64, _bias: i8) -> NormalizedIndicatorValue {
+        // AUDIT-AIU-023: confidence band edges aligned to the doc
+        // (04-02-27 §6): <10 → 0.85, [10,25) → 0.60, [25,75] → 0.50,
+        // (75,90] → 0.60, >90 → 0.85. The previous code used [10,30) and
+        // [30,70] / (70,90], so BBWP ∈ [25,30) and (70,75] scored the wrong
+        // confidence.
         let (label, base_confidence) = if bbwp < 10.0 {
             ("MAX_VOLATILITY_COMPRESSION", 0.85)
         } else if bbwp > 90.0 {
             ("VOLATILITY_EXHAUSTION_REVERSION_WARNING", 0.85)
-        } else if bbwp <= 30.0 {
+        } else if bbwp <= 25.0 {
             ("LOW_VOLATILITY_BULL_CYCLE", 0.60)
-        } else if bbwp <= 70.0 {
+        } else if bbwp <= 75.0 {
             ("NORMAL_VOLATILITY_BULL_CYCLE", 0.50)
         } else {
             ("HIGH_VOLATILITY_BULL_EXPANSION", 0.60)
@@ -109,12 +121,19 @@ impl NormalizationEngine {
     /// never added to the directional confluence sum. A previous version of this function emitted
     /// the signed band values directly into `normalized`, which double-counted RVOL as both a gate
     /// and a directional voter.
-    pub fn normalize_rvol(rvol: f64) -> NormalizedIndicatorValue {
+    /// AUDIT-AIU-071: threshold parameters (`institutional`/`climax`) are
+    /// now threaded from config — the registry declares them in
+    /// `config_params` but the code hardcoded 1.5 / 3.0.
+    pub fn normalize_rvol(
+        rvol: f64,
+        institutional_threshold: f64,
+        climax_threshold: f64,
+    ) -> NormalizedIndicatorValue {
         let band = if rvol < 1.0 {
             -0.5
-        } else if rvol < 1.5 {
+        } else if rvol < institutional_threshold {
             0.2
-        } else if rvol < 3.0 {
+        } else if rvol < climax_threshold {
             0.8
         } else {
             -1.0
@@ -127,9 +146,9 @@ impl NormalizationEngine {
             // with the RVOL spec ([04-02-19-rvol.md §3]) and the volume
             // normalization ([04-02-18-volume.md §Normalization]).
             "LOW_PARTICIPATION_VOLUME"
-        } else if rvol < 1.5 {
+        } else if rvol < institutional_threshold {
             "NORMAL_PARTICIPATION_VOLUME"
-        } else if rvol < 3.0 {
+        } else if rvol < climax_threshold {
             "INSTITUTIONAL_BREAKOUT_VOLUME"
         } else {
             "EXHAUSTION_CLIMAX_VOLUME"

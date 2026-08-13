@@ -1,6 +1,6 @@
 # Donchian Channels (20)
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function
@@ -42,8 +42,10 @@ Labels: `DONCHIAN_UPPER_BREAKOUT`, `DONCHIAN_LOWER_BREAKOUT`, `DONCHIAN_UPPER_RA
 | Breakout | DONCHIAN_LOWER_BREAKOUT | Price ≤ lower band | Bearish |
 | BandTouch | DONCHIAN_UPPER_BAND_TOUCH | Price inside channel, position > 0.85 (near upper edge — mean-reversion proximity). Structured push from engine. | Bearish |
 | BandTouch | DONCHIAN_LOWER_BAND_TOUCH | Price inside channel, position < 0.15 (near lower edge). Structured push from engine. | Bullish |
-| LevelTest | DONCHIAN_MIDDLE_BAND_TEST | Price approaches the channel midpoint from either direction. Acts as dynamic equilibrium level — rejection signals continuation, crossing signals shift. | Direction depends on approach side |
-| LevelTest | DONCHIAN_MIDDLE_BAND_SUPPORT | Price bounces off the middle band after a pullback from a breakout. Confirms breakout integrity. | Aligned with breakout direction |
+| LevelTest | DONCHIAN_UPPER_LEVEL_TEST | Price within proximity of the upper band (generic band-proximity LevelTest). | Bearish |
+| LevelTest | DONCHIAN_LOWER_LEVEL_TEST | Price within proximity of the lower band (generic band-proximity LevelTest). | Bullish |
+
+> **Doc synced to runtime (AUDIT-AIU-090).** The previous table declared `DONCHIAN_MIDDLE_BAND_TEST` / `DONCHIAN_MIDDLE_BAND_SUPPORT`, which no code emits — the engine emits the generic `DONCHIAN_UPPER/LOWER_LEVEL_TEST` band-proximity labels instead.
 
 ## 5. Scoring
 

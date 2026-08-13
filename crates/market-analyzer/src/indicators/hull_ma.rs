@@ -41,6 +41,9 @@ impl HullMA {
     pub fn update(&mut self, price: f64) -> Option<Decimal> {
         let price = Decimal::from_f64_retain(price).unwrap_or(Decimal::ZERO);
         self.values.push(price);
+        if self.values.len() > self.period * 2 {
+            self.values.remove(0);
+        }
         let n2 = self.period / 2;
         let n = self.period;
         if self.values.len() < n {
@@ -60,6 +63,9 @@ impl HullMA {
         let wma_full = wma(&recent);
         let diff = Decimal::from(2) * wma_half - wma_full;
         self.diff_buffer.push(diff);
+        if self.diff_buffer.len() > self.period * 2 {
+            self.diff_buffer.remove(0);
+        }
         let sqrt_n = self.sqrt_period.min(self.diff_buffer.len());
         let wma_diff = wma(&self.diff_buffer[self.diff_buffer.len() - sqrt_n..]);
         Some(wma_diff)
@@ -78,6 +84,11 @@ impl HullMA {
     pub fn update_with_min_bars(&mut self, price: f64, min_bars: usize) -> Option<Decimal> {
         let price = Decimal::from_f64_retain(price).unwrap_or(Decimal::ZERO);
         self.values.push(price);
+        // AUDIT-AIU-005: capacity cap — the buffer was previously never
+        // trimmed, growing ~1.4 MB/day/symbol-TF at 1 s candles.
+        if self.values.len() > self.period * 2 {
+            self.values.remove(0);
+        }
         let avail = self.values.len();
         if avail < min_bars || self.period == 0 {
             return None;
@@ -100,6 +111,10 @@ impl HullMA {
         let wma_full = wma(&recent);
         let diff = Decimal::from(2) * wma_half - wma_full;
         self.diff_buffer.push(diff);
+        // AUDIT-AIU-005: same bounded-memory cap as `update()`.
+        if self.diff_buffer.len() > self.period * 2 {
+            self.diff_buffer.remove(0);
+        }
         let sqrt_n = self.sqrt_period.min(self.diff_buffer.len());
         let wma_diff = wma(&self.diff_buffer[self.diff_buffer.len() - sqrt_n..]);
         Some(wma_diff)

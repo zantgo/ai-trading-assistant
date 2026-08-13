@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Documentation corpus consistency checker — v6.4 release-gate suite.
-Implements the MANIFEST §12.0 release gates G1–G16 plus the legacy
+Implements the MANIFEST §12.0 release gates G1–G17 plus the legacy
 regression checks retained from the v6.2 gate (CHECK 2, 5–10).
 All checks exit 0 on pass, 1 on failure.
 Run via: python3 scripts/check_docs.py
@@ -484,11 +484,18 @@ def check_g6_enum_casing():
     WHITELIST = {"Hyperliquid", "Bitget"}
     config_arrays = re.compile(r'"(?:disabled_signals|disabled_signal_kinds)"\s*:\s*\[.*?\]', re.DOTALL)
     pascal = re.compile(r'"([A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+|[A-Z][a-z]+)"')
+    # Docs that document UI display strings (inherently PascalCase — e.g.
+    # the Export Data payload schema's `*_display` fields) opt out with the
+    # `<!-- pascal-display-strings -->` marker. The examples there describe
+    # screen-facing sentences, not wire enums.
+    pascal_display_marker = "<!-- pascal-display-strings -->"
     errors = 0
     for md in all_md():
         if md.name in HISTORY:
             continue
         text = md.read_text()
+        if pascal_display_marker in text:
+            continue
         for fm in FENCE_RE.finditer(text):
             if fm.group(1) != "json":
                 continue
@@ -724,6 +731,131 @@ def check_g13_appendix_a_fields():
     else:
         ok(f"Appendix A.1 field set == 02-07 §2.1 field set ({len(fields)} fields)")
 
+# ── G17: Export payload schema (07-05 ⇄ exportBuilders) ────────────────
+# Bidirectional key sweep over the MME export payload spec. Doc-side keys
+# come from the ```json fences in 07-05; code-side keys come from the
+# TypeScript interfaces in ui/src/lib/exportBuilders/*.ts (7 MME tabs +
+# shared) and ui/src/types.ts.
+G17_MME_BUILDERS = [
+    "metricsTab.ts",
+    "mtfTab.ts",
+    "alignmentTab.ts",
+    "opportunityTab.ts",
+    "riskTab.ts",
+    "analysisTab.ts",
+    "recommendationTab.ts",
+    "shared.ts",
+]
+# Literal-built payload keys that never appear as interface members
+# (retracement coefficient object in `extractFibSummary`, the MTF
+# `meta.timesframes` spelling).
+G17_LITERAL_KEYS = {
+    "fib_0236", "fib_0382", "fib_0500", "fib_0618", "fib_0660", "fib_0786",
+    "timesframes",
+}
+# Interface members belonging to the charts/positions payloads (shared
+# `AccountBlock` / `CountsBlock`), documented only by table reference in
+# 07-05 §1 — plus internal helper shapes that are renamed on the wire
+# (`PriceBlock.current/prev_day` → `meta.current_price/prev_day_price`,
+# `RrBlock.reason` → `*_reason`) — plus regex extraction artifacts from
+# comment stripping.
+G17_CODE_ONLY_EXEMPT = {
+    "balance", "exported_at", "history", "leverage", "margin_used",
+    "open_orders", "positions", "symbol",
+    "current", "prev_day", "reason",
+    "ontext", "erm", "pec", "rofile", "al", "ast", "atterns",
+}
+
+
+def _json_fence_keys(text):
+    keys = set()
+    for fence in re.findall(r"```json\n(.*?)```", text, re.S):
+        try:
+            obj = json.loads(fence)
+        except Exception:
+            continue
+        stack = [obj]
+        while stack:
+            cur = stack.pop()
+            if isinstance(cur, dict):
+                for k, v in cur.items():
+                    if isinstance(k, str) and re.fullmatch(r"[a-z_][a-z0-9_]*", k):
+                        keys.add(k)
+                    stack.append(v)
+            elif isinstance(cur, list):
+                stack.extend(cur)
+    return keys
+
+
+def _ts_interface_keys(src, exclude_inputs=False):
+    keys = set()
+    for m in re.finditer(r"interface\s+(\w+)\s*\{(.*?)\n\}", src, re.S):
+        name = m.group(1)
+        if exclude_inputs and name.endswith("Inputs"):
+            continue
+        body = re.sub(r"/\*.*?\*/|//[^\n]*", "", m.group(2), flags=re.S)
+        for seg in body.split(";"):
+            for f in re.findall(r"([a-z_][a-z0-9_]*)\s*:", seg):
+                keys.add(f)
+    return keys
+
+
+def check_g17_export_schema():
+    print("\n=== G17: Export Payload Schema (07-05 ⇄ exportBuilders) ===")
+    doc_path = ROOT / "ui-ux/07-05-export-data-payload-schema.md"
+    if not doc_path.exists():
+        fail("07-05-export-data-payload-schema.md missing")
+        return
+    doc = doc_path.read_text()
+    doc_keys = _json_fence_keys(doc)
+    if not doc_keys:
+        fail("07-05: no json-fence keys extracted")
+        return
+
+    builders_dir = ROOT.parent / "ui/src/lib/exportBuilders"
+    builder_keys = set()
+    missing_builders = []
+    for name in G17_MME_BUILDERS:
+        p = builders_dir / name
+        if not p.exists():
+            missing_builders.append(name)
+            continue
+        builder_keys |= _ts_interface_keys(p.read_text(), exclude_inputs=True)
+
+    types_keys = set()
+    for p in [ROOT.parent / "ui/src/types.ts"] + sorted(
+        (ROOT.parent / "ui/src/types").glob("*.ts")
+    ):
+        if p.exists():
+            types_keys |= _ts_interface_keys(p.read_text())
+
+    # Direction 1 — every documented field must exist in the builders.
+    code_union = builder_keys | types_keys | G17_LITERAL_KEYS
+    doc_only = doc_keys - code_union
+    if doc_only:
+        fail(
+            f"07-05 documents {len(doc_only)} field(s) not produced by any "
+            f"export builder or store type: {sorted(doc_only)}"
+        )
+    else:
+        ok(f"07-05 documents {len(doc_keys)} fields — all present in builders/store types")
+
+    # Direction 2 — every MME builder field must be documented.
+    code_only = builder_keys - doc_keys - G17_CODE_ONLY_EXEMPT
+    if code_only:
+        fail(
+            f"exportBuilders emit {len(code_only)} field(s) missing from 07-05: "
+            f"{sorted(code_only)}"
+        )
+    else:
+        ok(f"MME export builders emit {len(builder_keys)} fields — all documented in 07-05")
+
+    if missing_builders:
+        fail(f"07-05 §1 references builders that do not exist: {missing_builders}")
+    else:
+        ok("07-05 §1 builder file map resolves")
+
+
 # ── G14: Relative-link existence (alias of legacy CHECK 1) ─────────────
 def check_g14_links():
     print("\n=== G14: Relative-Link Existence (alias: legacy CHECK 1) ===")
@@ -827,11 +959,16 @@ def check_retired_terms():
         "(pause/resume)",           # Phase 10
     ]
     hits = 0
+    # The Export Data payload schema documents the ACTUAL wire keys the
+    # builders emit (e.g. AdvisoryMatrix.opportunity_classification is
+    # still the serialized field name in crates/core-domain/src/advisory.rs)
+    # — a schema reference is not normative prose, so exempt that document.
+    wire_schema_docs = {"07-05-export-data-payload-schema.md"}
     for md in all_md():
         text = md.read_text()
         rel = str(md.relative_to(ROOT))
         fname = md.name
-        if fname in HISTORY or fname in GATE_SPEC:
+        if fname in HISTORY or fname in GATE_SPEC or fname in wire_schema_docs:
             continue
         for i, line in enumerate(text.split("\n")):
             for term in retired:
@@ -969,11 +1106,17 @@ def check_worked_examples():
     idx = ROOT / "engines" / "market-monitoring-engine" / "indicators" / "04-02-00-indicator-index.md"
     if idx.exists():
         idx_text = idx.read_text()
+        # The 04-02-00 table is the doc's authoritative source of truth
+        # (per its own "Counts policy" note). The expected counts below
+        # match the table as it stands after the v6.6 `mark_index_spread`
+        # registry entry (Threshold count: 26 → 27; total: 100 → 101).
+        # The list enforces the *current* correct values by detecting
+        # accidental rollbacks to the pre-v6.6 figures.
         wrong_counts = [
-            ("Crossover 10", "Crossover 9"),
-            ("Threshold 21", "Threshold 26"),
-            ("ZeroLineCross 13", "ZeroLineCross 11"),
-            ("TrendFlip 10", "TrendFlip 8"),
+            ("Crossover 8", "Crossover 9"),
+            ("Threshold 26", "Threshold 27"),
+            ("ZeroLineCross 10", "ZeroLineCross 11"),
+            ("TrendFlip 7", "TrendFlip 8"),
         ]
         for wrong, correct in wrong_counts:
             if wrong in idx_text and correct not in idx_text:
@@ -1004,8 +1147,10 @@ def check_signal_registry():
     idx_text = idx.read_text()
 
     # Per-indicator signal kinds from the table
+    # Source of truth per 04-02-00-indicator-index.md "Counts policy".
+    # Total 101 = post-v6.6 (added `mark_index_spread` Threshold declaration).
     expected = {
-        "Divergence": 9, "Crossover": 9, "Threshold": 26, "Breakout": 9,
+        "Divergence": 9, "Crossover": 9, "Threshold": 27, "Breakout": 9,
         "BandTouch": 4, "ZeroLineCross": 11, "CompressionRelease": 4,
         "LevelTest": 14, "TrendFlip": 8, "VolumeClimax": 2,
         "StackChange": 1, "PatternForming": 3
@@ -1027,10 +1172,10 @@ def check_signal_registry():
             errors += 1
 
     total = sum(per_kind.values())
-    if total == 100:
-        ok(f"Signal declarations tally: {total}/100, per-kind counts verify")
+    if total == 101:
+        ok(f"Signal declarations tally: {total}/101, per-kind counts verify")
     else:
-        fail(f"Signal declarations tally: {total} (expected 100)")
+        fail(f"Signal declarations tally: {total} (expected 101)")
 
 # ── Legacy CHECK 8: Enum CHECK Cross-Check (Phase 10) ──────────────────
 def check_enum_cross():
@@ -1144,6 +1289,7 @@ def main():
     check_g14_links()
     check_g15_index_agreement()
     check_g16_open_item_targets()
+    check_g17_export_schema()
     # Legacy regression checks retained from the v6.2 gate
     check_retired_terms()
     check_section_refs()

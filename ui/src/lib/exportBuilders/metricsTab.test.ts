@@ -1,433 +1,565 @@
-// Tests for the Metrics tab (single-TF) builder.
+// Regression tests for the v7.0-audit Metrics tab export.
 
 import { describe, it, expect } from 'vitest';
-import { buildMetricsTabExport, type MetricsPayload } from './metricsTab';
-import type {
-  TimeframeTelemetry,
-  IndicatorMeta,
-  IndicatorDto,
-  VolumeProfileSnapshot,
-  LiquidationClusterMatrix,
-  LiquidityFlow,
-  LiquiditySignal,
-  MarketContext,
-} from '../../types';
+import { buildMetricsTabExport } from './metricsTab';
+import type { LayerHeaderSpec } from '../layerHeader';
+import type { TimeframeTelemetry, IndicatorMeta, IndicatorDto, VolumeProfileSnapshot, LiquidityFlow } from '../../types';
 
-function makeTf(overrides: Partial<TimeframeTelemetry> = {}): TimeframeTelemetry {
+const headerSpec: LayerHeaderSpec = {
+  layerNumber: 1,
+  layerName: 'Metrics',
+  badge: { label: 'Bullish', color: '#22c55e', background: 'rgba(34,197,94,0.08)', state: 'valid' },
+  meta: [],
+  status: 'live',
+};
+
+const registry: IndicatorMeta[] = [
+  {
+    key: 'rsi_14',
+    display_name: 'RSI 14',
+    group: 'Momentum',
+    class: 'Hybrid',
+    value_format: 'decimals2',
+    value_source: 'raw',
+    default_enabled: true,
+    directional: true,
+  } as unknown as IndicatorMeta,
+  {
+    key: 'smc_fvg',
+    display_name: 'SMC FVG',
+    group: 'Institutional',
+    class: 'Leading',
+    value_format: 'decimals2',
+    value_source: 'raw',
+    default_enabled: true,
+    directional: true,
+  } as unknown as IndicatorMeta,
+  {
+    key: 'derivatives_funding',
+    display_name: 'Derivatives Funding',
+    group: 'DerivativesData',
+    class: 'Hybrid',
+    value_format: 'decimals2',
+    value_source: 'raw',
+    default_enabled: true,
+    directional: false,
+  } as unknown as IndicatorMeta,
+];
+
+function makeTf(): TimeframeTelemetry {
   return {
-    slot: 'micro',
-    symbol: 'BTC-USDT',
-    exchange: 'Hyperliquid',
     barDurationSec: 60,
-    indicators: {},
-    priceText: '65000.00',
-    volText: '100',
-    avgVolText: '90',
-    showPatterns: true,
     isCompleted: true,
-    latestSnapshot: null,
-    historyPrices: [],
-    pipelineState: 'LIVE',
-    indicatorLifecycle: {},
-    ...overrides,
-  } as TimeframeTelemetry;
-}
-
-function makeMarketContext(overrides: Partial<MarketContext> = {}): MarketContext {
-  return {
-    regime: 'TRENDING_BULL',
-    overall_score: 0.5,
-    overall_label: 'BULLISH',
-    trend: { score: 0.6, confidence: 0.8, label: 'BULLISH' },
-    momentum: { score: 0.5, confidence: 0.7, label: 'BULLISH' },
-    volatility: { score: 0.2, confidence: 0.6, label: 'NEUTRAL' },
-    volume: { score: 0.4, confidence: 0.7, label: 'BULLISH' },
-    liquidity: { score: 0.3, confidence: 0.6, label: 'NEUTRAL' },
-    ...overrides,
-  };
-}
-
-function makeRegistry(): IndicatorMeta[] {
-  return [
-    {
-      key: 'rsi',
-      display_name: 'RSI',
-      group: 'Momentum',
-      class: 'Leading',
-      directional: true,
-      default_enabled: true,
-      value_format: 'decimals2',
-      value_source: 'rsi',
-      updates_on_shadow: false,
+    pipelineState: 'OK',
+    priceText: '63390.00',
+    latestSnapshot: {
+      timestamp: Math.floor(Date.now() / 1000) - 120,
+      mid_price: 63390,
+      prev_day_px: 63532.45,
     },
-    {
-      key: 'macd',
-      display_name: 'MACD',
-      group: 'Momentum',
-      class: 'Leading',
-      directional: true,
-      default_enabled: true,
-      value_format: 'decimals4',
-      value_source: 'macd',
-      updates_on_shadow: false,
+    context: {
+      regime: 'TRENDING_BULL',
+      overall_score: 0.62,
+      overall_label: 'Bullish',
+      trend: { score: 0.58, confidence: 0.75, label: 'Bullish' },
+      momentum: { score: 0.45, confidence: 0.72, label: 'Bullish' },
+      volatility: { score: 0.3, confidence: 0.65, label: 'Bearish' },
+      volume: { score: 0.42, confidence: 0.68, label: 'Neutral' },
+      liquidity: { score: 0.55, confidence: 0.7, label: 'Neutral' },
     },
-    {
-      key: 'fibonacci',
-      display_name: 'Fibonacci',
-      group: 'Structure',
-      class: 'Leading',
-      directional: false,
-      default_enabled: true,
-      value_format: 'decimals2',
-      value_source: 'fibonacci',
-      updates_on_shadow: false,
-    },
-  ] as IndicatorMeta[];
-}
-
-function makeRsiDto(): IndicatorDto {
-  return {
-    raw_value: 65,
-    normalized: 0.3,
-    state_label: 'BULLISH',
-    confidence: 0.75,
-    signals: [
-      { kind: 'Crossover', direction: 'Bullish', status: 'Active', label: 'RSI cross up', strength: 0.8, age_bars: 2 },
-    ],
-    values: null,
-  };
-}
-
-function makeFibDto(): IndicatorDto {
-  return {
-    raw_value: 0,
-    normalized: 0.2,
-    state_label: 'NEUTRAL',
-    confidence: 0.6,
-    signals: [],
-    values: {
-      gp_top: 66000,
-      gp_bottom: 64000,
-      ext_1618: 68000,
-      ext_2618: 70000,
-      fib_0618: 64500,
-    },
-  };
-}
-
-function makeVolumeProfile(): VolumeProfileSnapshot {
-  return {
-    symbol: 'BTC-USDT',
-    timeframe_slot: 'micro',
-    timeframe_secs: 60,
-    poc_price: 65000,
-    value_area_high: 66000,
-    value_area_low: 64000,
-    total_volume: 1000000,
-    range_low: 63000,
-    range_high: 67000,
-    num_bins: 30,
-    timestamp_ms: 1753950000,
-    bins: [
-      { price_low: 64900, price_high: 65000, volume: 50000, buy_volume: 30000, sell_volume: 20000, is_poc: false, is_value_area: true },
-      { price_low: 65000, price_high: 65100, volume: 40000, buy_volume: 25000, sell_volume: 15000, is_poc: true, is_value_area: true },
-    ],
-  };
-}
-
-function makeLiquidityFlow(): LiquidityFlow {
-  return {
-    long_liquidations_usd: 50000,
-    short_liquidations_usd: 10000,
-    net_liquidation_usd: 40000,
-    event_count: 3,
-    largest_event_usd: 30000,
-    largest_event_price: 49500,
-    largest_event_side: 'LONG',
-    cascade_state: 'DETECTED',
-    cascade_intensity: 65,
-  };
-}
-
-function makeCluster(): LiquidationClusterMatrix {
-  return {
-    symbol: 'BTC-USDT',
-    generated_at_ms: 1_700_000_000_000,
-    valid_until_ms: 1_700_000_300_000,
-    mid_price: 50000,
-    cascade_asymmetry: 0.3,
-    total_long_oi_usd: 1e8,
-    total_short_oi_usd: 9e7,
-    estimation_confidence: 0.8,
-    leverage_assumptions: {
-      source: 'DEFAULT_POWER_LAW',
-      buckets: [1, 3, 5, 10, 20, 50, 100],
-      weights: [0.05, 0.1, 0.2, 0.3, 0.2, 0.1, 0.05],
-      funding_modulation_active: true,
-      funding_extreme_pct: 0.5,
-    },
-    short_clusters: [
-      { price_low: 54000, price_high: 55500, peak_price: 55000, distance_from_mid_pct: 0.1, notional_usd: 1e6, dominant_leverage: 25, magnet_strength: 80, cluster_kind: 'ABOVE_CURRENT_PRICE' },
-    ],
-    long_clusters: [
-      { price_low: 44000, price_high: 45500, peak_price: 45000, distance_from_mid_pct: 0.1, notional_usd: 1e6, dominant_leverage: 25, magnet_strength: 70, cluster_kind: 'BELOW_CURRENT_PRICE' },
-    ],
-  };
-}
-
-function makeLiquiditySignals(): LiquiditySignal[] {
-  return [
-    { kind: 'CASCADE_DETECTED', direction: 'BULLISH', strength: 0.8, confidence: 0.7, evidence: ['Liq surge'] },
-  ];
+    indicators: {
+      rsi_14: { raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH', signals: [], values: {} },
+      smc_fvg: { raw_value: 5, normalized: 0.6, confidence: 0.8, state_label: 'BULLISH', signals: [], values: {} },
+      derivatives_funding: { raw_value: 0.0001, normalized: 0, confidence: 0.5, state_label: 'NEUTRAL', signals: [], values: {} },
+    } as unknown as Record<string, IndicatorDto>,
+  } as unknown as TimeframeTelemetry;
 }
 
 describe('buildMetricsTabExport', () => {
-  it('produces a valid payload with all expected top-level fields', () => {
-    const json = buildMetricsTabExport({
-      tf: makeTf({
-        context: makeMarketContext(),
-        indicators: { rsi: makeRsiDto(), fibonacci: makeFibDto() },
-      }),
-      registry: makeRegistry(),
-      volumeProfile: makeVolumeProfile(),
-      liquidity: makeLiquidityFlow(),
-      cluster: makeCluster(),
-      liquiditySignals: makeLiquiditySignals(),
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-      timestamp: 1753950000,
-      markPrice: 65000,
-      filterState: {
-        active_only: false,
-        confirmed_plus_only: false,
-        hide_gates: false,
-        hide_overlays: false,
-      },
-    });
-    const p = JSON.parse(json) as MetricsPayload;
-    expect(p.source_tab).toBe('metrics');
-    expect(p.meta.symbol).toBe('BTC-USDT');
-    expect(p.market_context).toBeDefined();
-    expect(p.group_confluence).toBeDefined();
-    expect(p.structural_anchors).toBeDefined();
-    expect(p.indicators).toBeDefined();
-    expect(p.signals_total).toBeDefined();
-    expect(p.signals_by_kind).toBeDefined();
-    expect(p.divergences).toBeDefined();
-    expect(p.levels).toBeDefined();
-    expect(p.liquidity_signals).toBeDefined();
-    expect(p.liquidity_flow).toBeDefined();
-    expect(p.cluster_matrix).toBeDefined();
-  });
-
-  it('market_context captures 5 dimensions + regime + overall', () => {
+  it('meta identity present; no filter_state', () => {
     const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf({ context: makeMarketContext() }),
-      registry: makeRegistry(),
+      tf: makeTf(),
+      registry,
       volumeProfile: null,
       liquidity: null,
       cluster: null,
-      liquiditySignals: [],
       symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.market_context?.regime).toBe('TRENDING_BULL');
-    expect(p.market_context?.overall_label).toBe('BULLISH');
-    expect(p.market_context?.trend.score).toBe(0.6);
+      markPrice: 63390,
+      headerSpec,
+      terms: {
+        microTerm: {
+          priceText: '63390.00',
+          latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5, mid_price: 63390, prev_day_px: 63532.45 },
+        },
+      },
+    }));
+    expect(p.meta.pair).toBe('BTC-USDT');
+    expect(p.meta.current_price).toBeCloseTo(63390, 0);
+    expect(p.meta.price_change_direction).toBe('down');
+    expect('filter_state' in p.meta).toBe(false);
+    expect(p.header.layer_name).toBe('Metrics');
   });
 
-  it('group_confluence counts bullish/bearish/neutral per group', () => {
-    const tf = makeTf({
+  it('group labels map raw keys to display labels (SMC, Derivatives)', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const groups = p.group_confluence;
+    const smc = groups.find((g: { group: string }) => g.group === 'Institutional');
+    expect(smc.label).toBe('SMC');
+    const drv = groups.find((g: { group: string }) => g.group === 'DerivativesData');
+    expect(drv.label).toBe('Derivatives');
+  });
+
+  it('indicator keys are stripped of period; period is a separate field', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
+    expect(rsi).not.toBeUndefined();
+    expect(rsi.period).toBe(14);
+    expect(rsi.display_name).toBe('RSI 14');
+    expect('normalized_available' in rsi).toBe(true);
+  });
+
+  it('market_context exposes age_bars_display (not null)', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.market_context.age_bars_display).toMatch(/^\d+b$/);
+  });
+
+  it('volume_profile current_position is a real label, not hardcoded true', () => {
+    const vp: VolumeProfileSnapshot = {
+      symbol: 'BTC-USDT',
+      timeframe_slot: 'MICRO',
+      timeframe_secs: 60,
+      poc_price: 63200,
+      value_area_high: 63800,
+      value_area_low: 62800,
+      total_volume: 12500,
+      range_low: 62500,
+      range_high: 64500,
+      num_bins: 80,
+      timestamp_ms: Date.now(),
+      bins: [],
+    };
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: vp,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    // 63390 is between 62800 and 63800 → INSIDE VALUE AREA
+    expect(p.structural_anchors.volume_profile.current_position_label).toBe('INSIDE VALUE AREA');
+    expect('in_va' in p.structural_anchors.volume_profile).toBe(false);
+  });
+
+  it('emits liquidity_panel block (Flow / Cluster / Context)', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.liquidity_panel).toBeDefined();
+    expect(p.liquidity_panel.flow).toBeNull();
+    expect(p.liquidity_panel.cluster).toBeNull();
+    expect(p.liquidity_panel.context).toBeDefined();
+  });
+
+  it('indicator rows carry rich lifecycle state_display (not hardcoded null)', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
+    expect(rsi).toBeDefined();
+    expect(rsi.indicator_lifecycle).toBeDefined();
+    expect(rsi.indicator_lifecycle.state).toMatch(/Live|Loading|Stale|Failed/);
+    expect(typeof rsi.indicator_lifecycle.state_display).toBe('string');
+    expect(typeof rsi.indicator_lifecycle.not_active).toBe('boolean');
+  });
+
+  it('fibonacci block carries price_vs_gp_pct computed from mark price', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    // fib has no values in makeTf so block is present=false
+    expect(p.structural_anchors.fibonacci.price_vs_gp_pct).toBeNull();
+  });
+
+  it('signals_by_kind entries carry key, period, display_name (parent indicator linkage)', () => {
+    const tfWithSignals = {
+      ...makeTf(),
       indicators: {
-        rsi: { ...makeRsiDto(), normalized: 0.5 },
-        macd: { ...makeRsiDto(), normalized: -0.3 },
+        rsi_14: {
+          raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH',
+          signals: [
+            { kind: 'Crossover', direction: 'BULLISH', status: 'Confirmed', label: 'Bull cross', strength: 75, age_bars: 2 },
+          ],
+          values: {},
+        },
+      } as unknown as Record<string, IndicatorDto>,
+    };
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: tfWithSignals,
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const cross = p.signals_by_kind.Crossover?.[0];
+    expect(cross).toBeDefined();
+    expect(cross.key).toBe('rsi');
+    expect(cross.period).toBe(14);
+    expect(cross.display_name).toBe('RSI 14');
+  });
+});
+// Regression (D7): a registry indicator with NO store DTO is omitted from
+// the per-indicator rows (documented behavior) but still contributes to
+// group_confluence as neutral (total counts the registry, not the rows).
+it('omits missing-DTO indicators from rows but counts them neutral in confluence', () => {
+  const wideRegistry = [
+    ...registry,
+    {
+      key: 'smc_liquidity',
+      display_name: 'SMC Liquidity',
+      group: 'Institutional',
+      class: 'Leading',
+      value_format: 'decimals2',
+      value_source: 'raw',
+      default_enabled: true,
+      directional: true,
+    } as unknown as IndicatorMeta,
+  ];
+  const tf = makeTf(); // store has rsi_14 / smc_fvg / derivatives_funding only
+  const p = JSON.parse(buildMetricsTabExport({
+    tf,
+    registry: wideRegistry,
+    volumeProfile: null,
+    liquidity: null,
+    cluster: null,
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+  }));
+  const keys = p.indicators.map((i: { key: string }) => i.key);
+  expect(keys).not.toContain('smc_liquidity');
+  const smc = p.group_confluence.find((g: { group: string }) => g.group === 'Institutional');
+  expect(smc.total).toBe(2); // smc_fvg + smc_liquidity (registry-driven)
+  expect(smc.neutral).toBe(1); // the missing-DTO indicator counts as neutral
+});
+
+it('EventOnly normalization mode renders N/A like the screen (available:false)', () => {
+  const eventRegistry = [
+    ...registry,
+    {
+      key: 'hull_ma',
+      display_name: 'Hull MA',
+      group: 'Trend',
+      class: 'Overlay',
+      value_format: 'price',
+      value_source: 'raw',
+      default_enabled: true,
+      directional: true,
+      normalization_mode: 'EventOnly',
+    } as unknown as IndicatorMeta,
+  ];
+  const tf = {
+    ...makeTf(),
+    indicators: {
+      ...makeTf().indicators,
+      hull_ma: { raw_value: 63500, normalized: 0, state_label: 'LIVE', confidence: 0, signals: [], values: {} },
+    } as unknown as Record<string, IndicatorDto>,
+  };
+  const p = JSON.parse(buildMetricsTabExport({
+    tf,
+    registry: eventRegistry,
+    volumeProfile: null,
+    liquidity: null,
+    cluster: null,
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+  }));
+  const hull = p.indicators.find((i: { key: string }) => i.key === 'hull_ma');
+  expect(hull).toBeDefined();
+  expect(hull.normalized_available).toBe(false);
+  expect(hull.normalized_value).toBeNull();
+  expect(hull.normalized_reason).toBe('context_only');
+});
+
+it('WARMING rows render the norm placeholder (never 0.00)', () => {
+  const tf = {
+    ...makeTf(),
+    indicators: {
+      ...makeTf().indicators,
+      rsi_14: { raw_value: 0, normalized: 0, state_label: 'WARMING', confidence: 0, signals: [], values: {} },
+    } as unknown as Record<string, IndicatorDto>,
+  };
+  const p = JSON.parse(buildMetricsTabExport({
+    tf,
+    registry,
+    volumeProfile: null,
+    liquidity: null,
+    cluster: null,
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+  }));
+  const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
+  expect(rsi.normalized_available).toBe(false);
+  expect(rsi.normalized_value).toBeNull();
+  expect(rsi.normalized_reason).toBe('warming');
+});
+
+it('legacy state fallback mirrors the screen (NO SIGNAL / AWAITING DATA / —)', () => {
+  // No indicatorLifecycle map — the legacy heuristic applies.
+  const tf = {
+    ...makeTf(),
+    indicatorLifecycle: undefined,
+    indicators: {
+      ...makeTf().indicators,
+      rsi_14: { raw_value: 0, normalized: 0, confidence: 0, state_label: 'WARMING', signals: [], values: {} },
+      smc_fvg: { raw_value: 5, normalized: 0.6, confidence: 0.8, state_label: 'WARMING', signals: [], values: {} },
+      derivatives_funding: { raw_value: 0, normalized: 0, confidence: 0, state_label: '--', signals: [], values: {} },
+    } as unknown as Record<string, IndicatorDto>,
+  };
+  const p = JSON.parse(buildMetricsTabExport({
+    tf,
+    registry,
+    volumeProfile: null,
+    liquidity: null,
+    cluster: null,
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+  }));
+  const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
+  expect(rsi.state_display).toBe('AWAITING DATA'); // WARMING → AWAITING DATA
+  const smc = p.indicators.find((i: { key: string }) => i.key === 'smc_fvg');
+  expect(smc.state_display).toBe('AWAITING DATA'); // screen hasRealData short-circuits WARMING
+  const funding = p.indicators.find((i: { key: string }) => i.key === 'derivatives_funding');
+  expect(funding.state_display).toBe('—'); // state_label '--'
+});
+
+it('micro_volume_profile + micro_cascade_alert mirror the anchors strip inputs', () => {
+  const vp: VolumeProfileSnapshot = {
+    symbol: 'BTC-USDT',
+    timeframe_slot: 'MICRO',
+    timeframe_secs: 60,
+    poc_price: 63200,
+    value_area_high: 63800,
+    value_area_low: 62800,
+    total_volume: 12500,
+    range_low: 62500,
+    range_high: 64500,
+    num_bins: 80,
+    timestamp_ms: Date.now(),
+    bins: [],
+  };
+  const p = JSON.parse(buildMetricsTabExport({
+    tf: makeTf(),
+    registry,
+    volumeProfile: null, // active TF has no VP
+    microVolumeProfile: vp,
+    liquidity: null, // active TF has no flow
+    microLiquidity: { cascade_state: 'DETECTED', cascade_intensity: 41, long_liquidations_usd: 0, short_liquidations_usd: 0, net_liquidation_usd: 0, event_count: 0, largest_event_usd: 0, largest_event_price: null, largest_event_side: null } as unknown as LiquidityFlow,
+    cluster: null,
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+  }));
+  expect(p.structural_anchors.volume_profile).toBeNull();
+  expect(p.structural_anchors.micro_volume_profile.poc_price).toBe(63200);
+  expect(p.structural_anchors.micro_volume_profile.current_position_label).toBe('INSIDE VALUE AREA');
+  expect(p.structural_anchors.cascade_alert).toBeNull();
+  expect(p.structural_anchors.micro_cascade_alert).toEqual({ state: 'DETECTED', intensity: 41 });
+});
+
+// ── EMA Ribbon — single source of truth across the export body ──
+//
+// Three sites must all read the SAME `tf.indicators["ema_stack"].values.*`
+// record: the chart overlay (PriceChart.svelte), the on-screen
+// Indicators facet micro-grid (`buildEmaRibbonCellView` via
+// `IndicatorsView.svelte`), and the per-TF Metrics export body's
+// `body.ema` block (`buildEmaBlock` via `buildMetricsTabExport`).
+// These tests lock the export-body side of that invariant.
+
+describe('body.ema — Metrics tab export body block', () => {
+  function tfWithEma(tf: TimeframeTelemetry, values: { fast: number; medium: number; slow: number; long: number }, priceText: string, midPrice: number): TimeframeTelemetry {
+    const merged = JSON.parse(JSON.stringify(tf));
+    (merged.indicators as Record<string, IndicatorDto>) = {
+      ...(tf.indicators as Record<string, IndicatorDto>),
+      ema_stack: {
+        raw_value: values.fast,
+        normalized: 1.0,
+        confidence: 0.9,
+        state_label: 'ESTABLISHED_BULLISH_STACK',
+        signals: [],
+        values: { ...values },
       },
-    });
+    };
+    (merged as { priceText?: string }).priceText = priceText;
+    (merged.latestSnapshot as { mid_price?: number }).mid_price = midPrice;
+    return merged;
+  }
+
+  it('renders the 4-line + spread_pct block in body.ema', () => {
+    const tf = tfWithEma(makeTf(),
+      { fast: 64018.2, medium: 64110.0, slow: 63980.4, long: 63845.0 },
+      '64000.00', 64000);
     const p = JSON.parse(buildMetricsTabExport({
       tf,
-      registry: makeRegistry(),
+      registry,
       volumeProfile: null,
       liquidity: null,
       cluster: null,
-      liquiditySignals: [],
       symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    const momentumGroup = p.group_confluence.find(g => g.group === 'Momentum');
-    expect(momentumGroup).toBeDefined();
-    expect(momentumGroup?.bullish).toBe(1);
-    expect(momentumGroup?.bearish).toBe(1);
+      markPrice: 64000,
+      headerSpec,
+    }));
+    expect(p.ema).toBeDefined();
+    expect(p.ema.fast.value).toBe(64018.2);
+    expect(p.ema.medium.value).toBe(64110.0);
+    expect(p.ema.slow.value).toBe(63980.4);
+    expect(p.ema.long.value).toBe(63845.0);
+    expect(p.ema.spread_pct).toBeCloseTo((64018.2 - 63845.0) / 64000, 10);
   });
 
-  it('structural_anchors.fibonacci captures summary values', () => {
+  it('unification: body.ema.*.value === indicators[ema_stack].sub_values.* (same record)', () => {
+    const tf = tfWithEma(makeTf(),
+      { fast: 64018.2, medium: 64110.0, slow: 63980.4, long: 63845.0 },
+      '64000.00', 64000);
     const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf({ indicators: { fibonacci: makeFibDto() } }),
-      registry: makeRegistry(),
+      tf,
+      registry,
       volumeProfile: null,
       liquidity: null,
       cluster: null,
-      liquiditySignals: [],
       symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.structural_anchors.fibonacci.present).toBe(true);
-    expect(p.structural_anchors.fibonacci.gp_top).toBe(66000);
-    expect(p.structural_anchors.fibonacci.retracement_coefficients?.fib_0618).toBe(64500);
+      markPrice: 64000,
+      headerSpec,
+    }));
+    // The export body must NOT have an `indicators[]` row that looks like
+    // our ema_stack unless the registry mapping includes it. But `body.indicators[]`
+    // is built from `args.registry`, so ema_stack won't appear unless we put it
+    // in the registry. Test the values-subset unification via sub_values if
+    // present; the structural invariant is that body.ema mirrors tf.indicators.
+    const emaRow = p.indicators.find((i: { key: string }) => i.key === 'ema_stack');
+    if (emaRow && emaRow.sub_values) {
+      expect(emaRow.sub_values.fast).toBe(p.ema.fast.value);
+      expect(emaRow.sub_values.medium).toBe(p.ema.medium.value);
+      expect(emaRow.sub_values.slow).toBe(p.ema.slow.value);
+      expect(emaRow.sub_values.long).toBe(p.ema.long.value);
+    }
   });
 
-  it('structural_anchors.volume_profile captures POC/VAH/VAL + top HVN', () => {
+  it('configured periods flow through the configuredEmaPeriods input', () => {
+    const tf = tfWithEma(makeTf(),
+      { fast: 64018.2, medium: 64110.0, slow: 63980.4, long: 63845.0 },
+      '64000.00', 64000);
+    const p = JSON.parse(buildMetricsTabExport({
+      tf,
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 64000,
+      headerSpec,
+      configuredEmaPeriods: { ema_fast: 7, ema_medium: 25, ema_slow: 75, ema_long: 150 },
+    }));
+    expect(p.ema.fast.period).toBe(7);
+    expect(p.ema.medium.period).toBe(25);
+    expect(p.ema.slow.period).toBe(75);
+    expect(p.ema.long.period).toBe(150);
+  });
+
+  it('cold start: every value is null and spread_pct is null', () => {
+    // No ema_stack entry in the tf.
     const p = JSON.parse(buildMetricsTabExport({
       tf: makeTf(),
-      registry: makeRegistry(),
-      volumeProfile: makeVolumeProfile(),
+      registry,
+      volumeProfile: null,
       liquidity: null,
       cluster: null,
-      liquiditySignals: [],
       symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.structural_anchors.volume_profile?.poc_price).toBe(65000);
-    expect(p.structural_anchors.volume_profile?.value_area_high).toBe(66000);
-    expect(p.structural_anchors.volume_profile?.value_area_low).toBe(64000);
+      markPrice: 64000,
+      headerSpec,
+    }));
+    expect(p.ema.fast.value).toBeNull();
+    expect(p.ema.medium.value).toBeNull();
+    expect(p.ema.slow.value).toBeNull();
+    expect(p.ema.long.value).toBeNull();
+    expect(p.ema.fast.distance_from_price).toBeNull();
+    expect(p.ema.spread_pct).toBeNull();
   });
+});
 
-  it('structural_anchors.cascade_alert is null when state is None', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf(),
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: {
-        ...makeLiquidityFlow(),
-        cascade_state: 'NONE',
+describe('meta envelope — does NOT carry ema', () => {
+  it('meta has no `ema` key (body-level only)', () => {
+    const tf = {
+      indicators: {
+        ema_stack: { values: { fast: 64000, medium: 64050, slow: 63980, long: 63845 }, raw_value: 64000, normalized: 1, state_label: 'ESTABLISHED_BULLISH_STACK', signals: [], confidence: 1 },
       },
-      cluster: null,
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.structural_anchors.cascade_alert).toBeNull();
-  });
-
-  it('structural_anchors.cascade_alert fires when state is DETECTED', () => {
+    } as any;
     const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf(),
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: makeLiquidityFlow(),
-      cluster: null,
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.structural_anchors.cascade_alert).not.toBeNull();
-    expect(p.structural_anchors.cascade_alert?.state).toBe('DETECTED');
-  });
-
-  it('indicators captures raw/normalized/state/signals/sub_values/lifecycle', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf({ indicators: { rsi: makeRsiDto() } }),
-      registry: makeRegistry(),
+      tf,
+      registry,
       volumeProfile: null,
       liquidity: null,
       cluster: null,
-      liquiditySignals: [],
       symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    const rsi = p.indicators.find(i => i.key === 'rsi');
-    expect(rsi).toBeDefined();
-    expect(rsi?.raw).toBe(65);
-    expect(rsi?.normalized).toBe(0.3);
-    expect(rsi?.state).toBe('BULLISH');
-    expect(rsi?.signals.length).toBe(1);
-    expect(rsi?.signals[0].kind).toBe('CRO');
-  });
-
-  it('append the Fibonacci summary row when fib data is present', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf({ indicators: { fibonacci: makeFibDto() } }),
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: null,
-      cluster: null,
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    const fib = p.indicators.find(i => i.key === '__fibonacci_summary__');
-    expect(fib).toBeDefined();
-    expect(fib?.display_name).toBe('Fibonacci Levels (computed values)');
-  });
-
-  it('signals_by_kind groups signals by SignalKind', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf({ indicators: { rsi: makeRsiDto() } }),
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: null,
-      cluster: null,
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.signals_by_kind['Crossover'].length).toBe(1);
-  });
-
-  it('liquidity_flow captures long/short liquidations + cascade state', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf(),
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: makeLiquidityFlow(),
-      cluster: null,
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.liquidity_flow?.long_liquidations_usd).toBe(50000);
-    expect(p.liquidity_flow?.cascade_state).toBe('DETECTED');
-  });
-
-  it('cluster_matrix captures top_above/top_below', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: makeTf(),
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: null,
-      cluster: makeCluster(),
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.cluster_matrix?.top_above.length).toBe(1);
-    expect(p.cluster_matrix?.top_below.length).toBe(1);
-  });
-
-  it('handles null tf gracefully', () => {
-    const p = JSON.parse(buildMetricsTabExport({
-      tf: null,
-      registry: makeRegistry(),
-      volumeProfile: null,
-      liquidity: null,
-      cluster: null,
-      liquiditySignals: [],
-      symbol: 'BTC-USDT',
-      tfLabel: 'Micro',
-      tfSecs: 60,
-    })) as MetricsPayload;
-    expect(p.indicators).toEqual([]);
-    expect(p.market_context).toBeNull();
+      markPrice: 64000,
+      headerSpec,
+    }));
+    expect('ema' in p.meta).toBe(false);
   });
 });

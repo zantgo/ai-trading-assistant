@@ -1,0 +1,68 @@
+.cta {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    color: inherit;
+    text-align: left;
+}
+
+.cta:hover {
+    border-color: rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.04);
+}
+
+.icon {
+    font-size: 22px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.85);
+    text-transform: uppercase;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dotGreen { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
+.dotAmber { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.6); }
+.dotRed { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.dotGray { background: rgba(255,255,255,0.25); }
+
+.pillLabel {
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+    letter-spacing: 0.02em;
+}

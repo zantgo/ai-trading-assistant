@@ -25,7 +25,7 @@
     const hasPosition = $derived(app.paperDirection !== '');
     const positionCount = $derived(hasPosition ? 1 : 0);
     const positionBrackets = $derived(
-        app.paper.openOrders.filter((o) => (o as { is_reduce_only: boolean }).is_reduce_only)
+        app.openOrders.filter((o) => (o as { is_reduce_only: boolean }).is_reduce_only)
     );
 
     let bracketPrice = $state('');
@@ -117,7 +117,7 @@
 
     function fmtTs(ts: number): string {
         if (!ts) return '—';
-        return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     }
 
     function fmtPnl(val: number): string {
@@ -167,7 +167,25 @@
             } else if (tab === 'history') {
                 result = buildHistoryTabExport(app);
             } else if (tab === 'plan') {
-                result = buildPlanTabExport(app);
+                // Export the currently-edited rows (the plan inputs are
+                // local state and are not written back to `app.activePlan`).
+                result = buildPlanTabExport(app, planVisible
+                    ? {
+                        targets: planTpRows.map((r) => ({
+                            label: r.label,
+                            price: Number(r.price) || 0,
+                            sizePct: Number(r.sizePct) || 0,
+                        })),
+                        stop: planSlRow
+                            ? {
+                                label: 'SL',
+                                price: Number(planSlRow.price) || 0,
+                                distancePct: Number(planSlRow.sizePct),
+                            }
+                            : null,
+                        visible: true,
+                    }
+                    : undefined);
             } else {
                 result = buildPositionsTabExport(app);
             }
@@ -200,7 +218,7 @@
             <button
                 class="{styles.consoleTab} {activeConsoleTab === 'orders' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'orders'}
-            >Open Orders<span class={styles.consoleTabCount}>{app.paper.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only).length}</span></button>
+            >Open Orders<span class={styles.consoleTabCount}>{app.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only).length}</span></button>
             <button
                 class="{styles.consoleTab} {activeConsoleTab === 'history' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'history'}
@@ -431,7 +449,7 @@
 
     <!-- Open Orders Table -->
     {:else if activeConsoleTab === 'orders'}
-        {@const entryOrders = app.paper.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only)}
+        {@const entryOrders = app.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only)}
         <div class={styles.tableWrapper}>
             {#if entryOrders.length > 0}
                 <table class={styles.table}>

@@ -1,0 +1,109 @@
+{
+  "source_tab": "recommendation",
+  "meta": {
+    "datetime_utc": "2026-08-13T13:51:17.569Z",
+    "exchange": "Hyperliquid",
+    "pair": "ETH-USDC",
+    "timeframe_secs": 60,
+    "current_price": 1890.35,
+    "prev_day_price": 1900.8,
+    "price_change": -0.5497685185185209,
+    "price_change_direction": "down",
+    "timestamp": 1786629060,
+    "is_completed": false
+  },
+  "header": {
+    "layer_name": "Recommendation",
+    "badge": {
+      "label": "STAND ASIDE",
+      "sublabel": "STAND ASIDE",
+      "tone": "warn"
+    },
+    "chips": [
+      {"label": "Confidence", "value": 19},
+      {"label": "R:R", "value": "N/A"},
+      {"label": "Stance", "value": "Cautious"}
+    ],
+    "status": "live"
+  },
+  "gauge": {
+    "net_bias_pct": -22,
+    "bias_direction": "SHORT",
+    "long_pct": 2,
+    "short_pct": 24,
+    "hold_pct": 74,
+    "net_bias_display": "-22%"
+  },
+  "environment": {
+    "directional_guidance": "Neutral",
+    "market_stance": "Cautious",
+    "strategy_environment": "HighVolatility",
+    "opportunity_classification": "Pullback",
+    "confidence_pct": 19.308940848254576,
+    "readiness": "STAND_ASIDE",
+    "entry_danger_score": 45.08179545454546,
+    "entry_danger_level": "MODERATE"
+  },
+  "verdict": {
+    "top": "HOLD",
+    "long_probability": 2,
+    "short_probability": 24,
+    "hold_probability": 74
+  },
+  "top_setup": {
+    "opportunity_type": "Pullback",
+    "viability": "DirectionalNeutral",
+    "badge_text": "HOLD \u00b7 NO DIRECTIONAL EDGE",
+    "score": 59.83640909090909,
+    "preconditions_met": 2,
+    "preconditions_total": 2,
+    "direction_label": "NEUTRAL",
+    "entry_zone": {"low": 1891.7, "high": 1892.5396304152107},
+    "target_zone": {"low": 1887.5018479239466, "high": 1889.1811087543679},
+    "invalidation": 1892.625,
+    "entry_zone_display": "$1892\u2013$1893",
+    "target_zone_display": "$1888\u2013$1889",
+    "invalidation_display": "$1893",
+    "rr_display": "R:R 1 : 5.8",
+    "rr_available": true,
+    "rr_value": 5.82,
+    "rr_reason": null,
+    "rationale": "Pullback: preconditions 2/2"
+  },
+  "no_clear_card": null,
+  "safety_flags": {
+    "readiness": "STAND_ASIDE",
+    "rr_available": false,
+    "rr_value": null,
+    "rr_reason": "no_directional_bias",
+    "stop_loss_pct": 5.338769933415519,
+    "confidence_pct": 19.308940848254576,
+    "entry_danger_score": 45.08179545454546,
+    "entry_danger_level": "MODERATE",
+    "rr_display": "N/A",
+    "stop_loss_display": "5.34%",
+    "confidence_display": "19%",
+    "entry_danger_display": "45 (MODERATE)"
+  },
+  "why_note": "No directional edge \u2014 these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.",
+  "why": [
+    "Neutral bias, confluence score 0 (L2 tradability_dim + L3 quality + L4 opportunity)",
+    "Setup: Pullback (L4 score 60, Moderate)",
+    "Trade readiness = STAND_ASIDE because confidence_assessment 19 < 20"
+  ],
+  "price_levels": {
+    "side": "hold",
+    "entry_zone": null,
+    "target_zone": null,
+    "invalidation": null,
+    "horizon": "SWING",
+    "hold_placeholder": "No active setup \u2014 verdict is HOLD. Top Setup card above carries the Neutral primary bracket (entry = target = invalidation = close; R:R = 0.00)."
+  },
+  "strategy": {
+    "entry": "Wait For Confirmation",
+    "exit": "Trend Weakening",
+    "protection": "ATR-Based",
+    "target": "Trailing Method"
+  },
+  "final_verdict": "Neutral \u2014 no directional edge: NEUTRAL bias with 19% confidence, cautious stance in a high-volatility environment. Pullback opportunity. Entry: wait for confirmation. Stop: ATR-based."
+}

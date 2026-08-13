@@ -157,7 +157,9 @@ pub struct IndicatorMeta {
     /// transition in [03-02-15 ILS-11](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md).
     /// For 50 indicators at the canonical `[candle_buffer] size = 500`,
     /// every `bars_required ≤ 200` so a fully-warmed pipeline is `Live`
-    /// across all indicators (DCP-04 / ILS-05).
+    /// across all indicators (DCP-04 / ILS-05). Note: `ema_stack` carries
+    /// `bars_required = 1` — its per-line availability is gated by period
+    /// inside `inject_ema_values` (AUDIT-V8-001).
     pub bars_required: u32,
     /// Whether this indicator recomputes on shadow (live) ticks via clone.
     /// `true` = candle-close-independent (RSI, MACD, EMA…); the value
@@ -245,7 +247,14 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:fast",
         color: "#fdd835",
         guide_section: "6",
-        bars_required: 200,
+        // AUDIT-V8-001: bars_required dropped 200 → 1. The per-line
+        // availability gate now lives in `inject_ema_values` (each line
+        // appears once `bar_count >=` its configured period: fast@10,
+        // medium@50, slow@100, long@200). The registry gate only decides
+        // whether the entry survives the normalize retain; the lifecycle
+        // (Loading → Live) is unaffected for fully-warmed pipelines and
+        // sub-minute TFs now surface partial ribbons instead of nothing.
+        bars_required: 1,
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
@@ -430,6 +439,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "rsi",
         display_name: "RSI",
+        // AUDIT-AIU-080: real warmup is period+1 closes (15 for 14); the
+        // previous 14 made the lifecycle flip Live one bar early.
         group: Momentum,
         class: Leading,
         render: Pane,
@@ -443,7 +454,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#7e57c2",
         guide_section: "1",
-        bars_required: 14,
+        bars_required: 15,
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
@@ -452,6 +463,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "stochastic",
         display_name: "Stochastic",
+        // AUDIT-AIU-080: real warmup is k+s+d−2 = 30 at default 18/5/9;
+        // the previous 14 flipped Live ~16 bars early.
         group: Momentum,
         class: Leading,
         render: Pane,
@@ -465,7 +478,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:k_line",
         color: "#2962ff",
         guide_section: "12",
-        bars_required: 14,
+        bars_required: 30,
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
@@ -853,6 +866,9 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "bbwp",
         display_name: "BBWP",
+        // AUDIT-AIU-080: real warmup is period + lookback = 272; the gate
+        // stays 200 (the INDICATORS_MAX_BARS_REQUIRED invariant) and the
+        // lifecycle doc notes BBWP shows WARMING from 200→272.
         group: Volatility,
         class: Leading,
         render: Pane,
@@ -866,7 +882,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffca28",
         guide_section: "9",
-        bars_required: 20,
+        bars_required: 200,
         data_source: None,
         updates_on_shadow: true,
         // Non-directional gate: BBWP carries no directional bias;
@@ -879,6 +895,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "squeeze",
         display_name: "TTM Squeeze",
+        // AUDIT-AIU-080: real warmup is 20 SMA + 20 val history = 39-40;
+        // the previous 20 flipped Live ~20 bars early.
         group: Volatility,
         class: Hybrid,
         render: Pane,
@@ -892,7 +910,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "state",
         color: "#b2ff59",
         guide_section: "3",
-        bars_required: 20,
+        bars_required: 39,
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
@@ -901,6 +919,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "hv",
         display_name: "Hist. Volatility",
+        // AUDIT-AIU-080: real warmup is period+1 closes (21 for 20); the
+        // previous 20 flipped Live one bar early.
         group: Volatility,
         class: Lagging,
         render: Pane,
@@ -914,7 +934,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff7043",
         guide_section: "20",
-        bars_required: 20,
+        bars_required: 21,
         data_source: None,
         updates_on_shadow: true,
         // Non-directional gate: `normalized` is contractually 0.0; the
@@ -1448,9 +1468,11 @@ pub fn all() -> Vec<IndicatorMeta> {
 
 /// Maximum `bars_required` across all indicators in the registry.
 /// Every candle-based indicator is mathematically correct once the buffer
-/// holds at least this many bars (200 = Hull MA / EMA Stack).  Used as
+/// holds at least this many bars (200 = Hull MA / BBWP).  Used as
 /// the lower-tier mathematical-gate (Layer 1); the higher-tier system-gate
 /// (Layer 2) is `[candle_buffer] size` (default 500).
+/// (AUDIT-V8-001: ema_stack dropped to 1 — per-line period gating replaced
+/// the whole-ribbon 200-bar gate; the constant stays 200 via BBWP/Hull MA.)
 pub const INDICATORS_MAX_BARS_REQUIRED: u32 = 200;
 
 /// Look up an indicator's metadata by key.

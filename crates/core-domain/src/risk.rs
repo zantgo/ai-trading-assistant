@@ -413,6 +413,11 @@ fn assess_cascade_risk(
     analysis: &AnalysisMatrix,
     flow: Option<&crate::liquidity::LiquidityFlow>,
     cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
+    // AUDIT-AIU-062: the discrete liquidity signals are now consumed here
+    // (previously computed and broadcast but unused by any downstream
+    // layer). OI-Price divergence and funding flips are positioning-stress
+    // tell-tales that belong in the cascade dimension.
+    liquidity_signals: &[crate::liquidity::LiquiditySignal],
 ) -> RiskDimension {
     let mut score: f64 = 30.0; // baseline
     let mut evidence = Vec::new();
@@ -452,6 +457,24 @@ fn assess_cascade_risk(
             ));
         }
     }
+    // AUDIT-AIU-062: discrete-signal bonuses — OI-price divergence and
+    // funding flips are positioning-stress tell-tales. Strength is 0..100;
+    // scale the contribution to ≤ 15 points.
+    for sig in liquidity_signals {
+        match sig.kind {
+            crate::liquidity::LiquiditySignalKind::OiPriceDivergence => {
+                let bonus = (sig.strength / 100.0 * 15.0).min(15.0);
+                score = (score + bonus).min(100.0);
+                evidence.push("OI-price divergence (positioning stress)".into());
+            }
+            crate::liquidity::LiquiditySignalKind::FundingFlip => {
+                let bonus = (sig.strength / 100.0 * 10.0).min(10.0);
+                score = (score + bonus).min(100.0);
+                evidence.push("Funding rate flipped (crowd positioning stress)".into());
+            }
+            _ => {}
+        }
+    }
     RiskDimension::from_score_with_confidence(score, state_confidence).with_evidence(evidence)
 }
 
@@ -463,6 +486,8 @@ pub fn compute_risk(
     flow: Option<&crate::liquidity::LiquidityFlow>,
     cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
     close: f64,
+    // AUDIT-AIU-062: discrete liquidity signals feed the cascade dimension.
+    liquidity_signals: &[crate::liquidity::LiquiditySignal],
 ) -> RiskMatrix {
     if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
@@ -475,7 +500,7 @@ pub fn compute_risk(
     let momentum = assess_momentum_risk(analysis);
     let signal = assess_signal_risk(analysis);
     let execution = assess_execution_risk(analysis, indicators);
-    let cascade = assess_cascade_risk(analysis, flow, cluster);
+    let cascade = assess_cascade_risk(analysis, flow, cluster, liquidity_signals);
 
     // v6.10 (Phase 1 / A6): Risk weights restored to the canonical spec table
     // at `docs/matrices/02-11-risk-matrix.md §3`. The previous v6.9 weights
@@ -567,7 +592,7 @@ mod tests {
     fn compute_with_analysis_produces_valid_dimensions() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[]);
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
         assert!(
@@ -580,7 +605,7 @@ mod tests {
     fn cascade_risk_does_not_crash_with_zero_inputs() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[]);
         // Baseline (no flow, no cluster) → score = 30.0
         assert!(
             (r.cascade_risk.score - 30.0).abs() < 1e-9,
@@ -599,7 +624,7 @@ mod tests {
         };
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0, &[]);
         // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
         assert!(
             r.cascade_risk.score >= 90.0,
@@ -632,7 +657,7 @@ mod tests {
         );
         let analysis = make_analysis_with_timeframes();
         // close = $60_000 → atr_pct = 2.5% → score_mag(2.5, 5.0) = 50
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0, &[]);
         assert!(
             r.volatility_risk.score < 100.0,
             "volatility_risk should not saturate; got {}",
@@ -648,7 +673,7 @@ mod tests {
         // dimension scores is ≈ 1.0 (within ±5%) rather than ≈ 0.90.
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[]);
         let dims = [
             r.market_risk.score,
             r.volatility_risk.score,

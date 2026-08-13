@@ -22,6 +22,7 @@ pub mod overview;
 pub mod performance;
 pub mod portfolio;
 pub mod risk;
+pub mod snapshot_export;
 pub mod state_matrix;
 pub mod statistics;
 pub mod timeframe_category;

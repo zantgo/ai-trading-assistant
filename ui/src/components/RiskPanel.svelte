@@ -3,7 +3,6 @@
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
     import { buildRiskTabExport } from '../lib/exportBuilders/riskTab';
-    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL5RiskHeader, type LayerHeaderSpec } from '../lib/layerHeader';
@@ -35,12 +34,13 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: buildFilterStateBlock({
-                activeOnly: false,
-                confirmedPlusOnly: false,
-                hideGates: false,
-                hideOverlays: false,
-            }),
+            headerSpec,
+            terms: {
+                microTerm: instance?.microTerm as any,
+                fastTerm: instance?.fastTerm as any,
+                slowTerm: instance?.slowTerm as any,
+                macroTerm: instance?.macroTerm as any,
+            },
         });
     }
 
@@ -189,7 +189,7 @@
     const cascadeCluster = $derived(microSnap?.cluster as LiquidationClusterMatrix | undefined);
 
     function cascadeStateLabel(state: string | undefined): string {
-        if (!state || state === 'None') return '\u2014';
+        if (!state || state.toUpperCase() === 'NONE') return '\u2014';
         return state;
     }
 

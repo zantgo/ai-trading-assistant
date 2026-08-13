@@ -171,19 +171,30 @@ async fn one_second_timeframe_shadow_broadcast_is_throttled() {
     tokio::time::sleep(Duration::from_millis(600)).await;
     let snapshots = drain(&mut broadcast_rx).await;
 
+    // The throttle caps the SHADOW (live/flickering) broadcast path only.
+    // Completed-candle closes — including the sub-minute force-close +
+    // doji-fill path (v6.11), which now emits completed snapshots with a
+    // populated indicators map so the EMA/Rsi/etc. advance per wall-clock
+    // second — are NOT throttled and may legitimately exceed the shadow
+    // budget. Count only `is_completed == Some(false)` frames.
+    let shadow_frames: Vec<_> = snapshots
+        .iter()
+        .filter(|s| s.is_completed == Some(false))
+        .collect();
+
     // At 1-s TF the throttle is 250 ms → at most 4 shadow broadcasts in a
     // 500 ms drain window, plus maybe one initial tick before the throttle
     // first fires. Allow generous headroom (≤ 8) to absorb timer jitter
     // without flaking on slower CI.
     assert!(
-        snapshots.len() <= 8,
-        "shadow broadcasts at 1-s TF must be throttled: got {} snapshots for 50 ticks in 500 ms",
-        snapshots.len()
+        shadow_frames.len() <= 8,
+        "shadow broadcasts at 1-s TF must be throttled: got {} shadow frames for 50 ticks in 500 ms",
+        shadow_frames.len()
     );
     // And we must have seen at least one — the throttle must not have
     // suppressed all broadcasts.
     assert!(
-        !snapshots.is_empty(),
+        !shadow_frames.is_empty(),
         "shadow broadcast must fire at least once per 1-s candle at 1-s TF"
     );
 

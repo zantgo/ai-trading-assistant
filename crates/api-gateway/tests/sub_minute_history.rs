@@ -175,6 +175,10 @@ async fn build_router_with_snapshots(
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
+
+        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+
+        snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
     (api_gateway::build_router(state.clone()), state)
 }
@@ -514,4 +518,90 @@ async fn history_endpoint_marks_gap_fill_dojis_as_synthetic() {
     })
     .await
     .expect("gap-fill synthetic tagging test timed out");
+}
+
+/// AUDIT-V8-004 (history continuity): snapshots whose
+/// `quality_envelope.is_gap_filled == true` (idle-bucket heartbeat dojis
+/// pushed into the in-memory snapshot history) must surface on the wire as
+/// `reconstructed: "SYNTHETIC"` so the frontend's `candleReconstructed`
+/// filter keeps them out of its persistent candle cache — while real
+/// snapshots keep `reconstructed: null`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut real = make_snapshot(1, 1_718_000_001, 65000.0);
+        real.quality_envelope = Some(core_domain::models::CandleQualityEnvelope {
+            quality_score: 100.0,
+            is_valid: true,
+            is_gap_filled: false,
+            had_outliers_rejected: false,
+            spike_detected: false,
+            is_stale: false,
+            sequence_integrity: core_domain::models::SequenceIntegrity::Valid,
+            gap_since_last: 1,
+            validated_at: 0,
+        });
+        let mut doji = make_snapshot(1, 1_718_000_002, 65000.0);
+        doji.volume = Some(rust_decimal::Decimal::ZERO);
+        doji.open = doji.close;
+        doji.high = doji.close;
+        doji.low = doji.close;
+        doji.quality_envelope = Some(core_domain::models::CandleQualityEnvelope {
+            quality_score: 80.0,
+            is_valid: true,
+            is_gap_filled: true,
+            had_outliers_rejected: false,
+            spike_detected: false,
+            is_stale: false,
+            sequence_integrity: core_domain::models::SequenceIntegrity::Valid,
+            gap_since_last: 1,
+            validated_at: 0,
+        });
+
+        let (_router, state) =
+            build_router_with_snapshots(1, vec![real, doji]).await;
+        let addr = serve_for(state.clone()).await;
+        let client = reqwest::Client::new();
+
+        let res = client
+            .get(format!(
+                "http://{addr}/api/history?symbol=BTC-USDT&timeframe_secs=1&limit=100"
+            ))
+            .send()
+            .await
+            .expect("history request");
+        assert!(res.status().is_success());
+
+        let body: serde_json::Value = res.json().await.expect("json");
+        let candles = body
+            .get("candles")
+            .and_then(|v| v.as_array())
+            .expect("candles array");
+
+        let real_candle = candles
+            .iter()
+            .find(|c| c.get("time").and_then(|t| t.as_u64()) == Some(1_718_000_001_000))
+            .expect("real candle present");
+        assert!(
+            real_candle.get("reconstructed").is_none()
+                || real_candle.get("reconstructed").and_then(|v| v.as_str()).is_none(),
+            "real snapshot must NOT carry a reconstructed flag: {:?}",
+            real_candle.get("reconstructed")
+        );
+
+        let doji_candle = candles
+            .iter()
+            .find(|c| c.get("time").and_then(|t| t.as_u64()) == Some(1_718_000_002_000))
+            .expect("doji candle present");
+        assert_eq!(
+            doji_candle
+                .get("reconstructed")
+                .and_then(|v| v.as_str()),
+            Some("SYNTHETIC"),
+            "gap-filled heartbeat snapshot must carry reconstructed=\"SYNTHETIC\": {:?}",
+            doji_candle
+        );
+    })
+    .await
+    .expect("history provenance test timed out");
 }

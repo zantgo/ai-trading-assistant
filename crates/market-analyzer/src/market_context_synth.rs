@@ -57,9 +57,18 @@ fn group_dimension(
     if n < f64::EPSILON {
         return ContextDimension::neutral();
     }
-    let mean = sum / n;
+    // AUDIT-AIU-060: the docs (02-07 §5.1) specify a confidence-WEIGHTED
+    // mean `Σ(score×confidence)/Σ(confidence)`. The previous code computed
+    // `Σ(score×confidence)/n` — the mean of the products — which shrank
+    // every score toward zero as confidence dropped. The weighted mean is
+    // invariant to confidence scale: an indicator with confidence 0.9
+    // contributes 9× the weight of one with confidence 0.1.
+    let score = if conf > 1e-9 {
+        sum / conf
+    } else {
+        0.0
+    };
     let conf = conf / n;
-    let score = mean;
     let label = dir_label(
         score,
         "STRONG_BULL",
@@ -120,28 +129,22 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
 
     // Liquidity proxy: VWAP proximity + volume participation.
     //
-    // Bug-fix #16: the legacy implementation hardcoded
-    // `liquidity.score = 0.0` (the "neutral" sentinel), so the L2
-    // liquidity dimension was always 0 regardless of the actual
-    // VWAP proximity and volume participation. The downstream
-    // confidence-weighted blend `Σ(score × confidence) / Σ(confidence)`
-    // includes liquidity with confidence ≈ 0.3, so the zeroed score
-    // dragged the overall_score down by ~5-10 points on every
-    // snapshot. We now compute a real liquidity score:
-    //   - rvol contribution: `(rvol - 1) * 50`, clamped to [-50, +50]
-    //   - vwap proximity contribution: `vwap_conf * 50` (when vwap
-    //     has high confidence, the price is near the institutional
-    //     fair value → higher liquidity score)
-    //   - the two contributions are summed and clamped to [-100, +100]
-    //     (matches the L2 score convention used by trend, momentum,
-    //     volatility, volume).
+    // AUDIT-AIU-061: the previous code scored the VWAP contribution as
+    // `vwap_score × 50` where `vwap_score = vwap.normalized` — a SIGNED
+    // premium/discount reading. The comment claimed "near fair value →
+    // higher liquidity", but `confidence = |normalized|` means high
+    // confidence = FAR from fair value, so the mapping contradicted its own
+    // intent (extreme premium −0.8 → −40 liquidity; equilibrium → 0).
+    // The corrected contribution is proximity-based: `(1 − |normalized|)`
+    // so price AT fair value contributes +50 and a stretched price
+    // contributes ~0.
     let vwap_conf = map.get("vwap").map(|v| v.confidence).unwrap_or(0.0);
     let vwap_score = map
         .get("vwap")
         .map(|v| v.normalized)
         .unwrap_or(0.0);
     let rvol_contrib = ((rvol - 1.0) * 50.0).clamp(-50.0, 50.0);
-    let vwap_contrib = vwap_score * 50.0;
+    let vwap_contrib = ((1.0 - vwap_score.abs()).clamp(0.0, 1.0)) * 50.0;
     let liquidity_score = (rvol_contrib + vwap_contrib).clamp(-100.0, 100.0);
     let liquidity = ContextDimension {
         score: liquidity_score,

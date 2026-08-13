@@ -43,8 +43,12 @@ fn rsi_equilibrium_at_fifty() {
 fn rsi_confirmed_divergence_hard_overrides() {
     let bull = NormalizationEngine::normalize_rsi(80.0, DivergenceState::ConfirmedBullish);
     assert_eq!(bull.normalized, 1.0);
+    // AUDIT-AIU-033: the override label must not be the price-zone label
+    // (which would trigger a spurious OVERSOLD Threshold at RSI=80).
+    assert_eq!(bull.state_label, "DIVERGENCE_BULLISH_CONFIRMED");
     let bear = NormalizationEngine::normalize_rsi(20.0, DivergenceState::ConfirmedBearish);
     assert_eq!(bear.normalized, -1.0);
+    assert_eq!(bear.state_label, "DIVERGENCE_BEARISH_CONFIRMED");
 }
 
 #[test]
@@ -63,7 +67,7 @@ fn rsi_potential_divergence_capped() {
 proptest! {
     #[test]
     fn rvol_below_one_band_is_negative(rvol in 0.0f64..1.0) {
-        let v = NormalizationEngine::normalize_rvol(rvol);
+        let v = NormalizationEngine::normalize_rvol(rvol, 1.5, 3.0);
         prop_assert_eq!(v.normalized, 0.0, "rvol gate normalized is always 0.0");
         let band = v.values.as_ref().and_then(|m| m.get("rvol_band")).copied();
         prop_assert_eq!(band, Some(-0.5));
@@ -72,7 +76,7 @@ proptest! {
 
     #[test]
     fn rvol_climax_band_is_negative_one(rvol in 3.0f64..100.0) {
-        let v = NormalizationEngine::normalize_rvol(rvol);
+        let v = NormalizationEngine::normalize_rvol(rvol, 1.5, 3.0);
         prop_assert_eq!(v.normalized, 0.0, "rvol gate normalized is always 0.0");
         let band = v.values.as_ref().and_then(|m| m.get("rvol_band")).copied();
         prop_assert_eq!(band, Some(-1.0));
@@ -82,7 +86,7 @@ proptest! {
 
 #[test]
 fn rvol_institutional_band_is_positive() {
-    let v = NormalizationEngine::normalize_rvol(2.0);
+    let v = NormalizationEngine::normalize_rvol(2.0, 1.5, 3.0);
     assert_eq!(v.normalized, 0.0);
     let band = v.values.as_ref().and_then(|m| m.get("rvol_band")).copied();
     assert_eq!(band, Some(0.8));
@@ -193,9 +197,93 @@ fn macd_bullish_crossover_below_zero_accelerates() {
 
 #[test]
 fn macd_fomo_crossover_above_zero_rejected() {
+    // AUDIT-AIU-022: a zero-line-filtered (FOMO) crossover must contribute
+    // ZERO to the directional accumulator per 04-02-17. This test previously
+    // codified the buggy ±0.2 leak.
     let v = NormalizationEngine::normalize_macd(12.4, 8.0, 4.0, 8.0, Some(1));
-    assert_eq!(v.normalized, 0.2);
+    assert_eq!(v.normalized, 0.0);
     assert_eq!(v.state_label, "FOMO_BULLISH_CROSSOVER_REJECTED");
+}
+
+#[test]
+fn macd_panic_crossover_below_zero_rejected() {
+    // AUDIT-AIU-022: symmetric PANIC rejection must also contribute zero.
+    let v = NormalizationEngine::normalize_macd(-12.4, -8.0, -4.0, -8.0, Some(-1));
+    assert_eq!(v.normalized, 0.0);
+    assert_eq!(v.state_label, "PANIC_BEARISH_CROSSOVER_REJECTED");
+}
+
+// ─────────────────── AUDIT-AIU-020: Williams %R ───────────────────
+
+proptest! {
+    #[test]
+    fn williams_r_normalized_monotonic_increasing(wr in -100.0f64..=0.0f64) {
+        // AUDIT-AIU-020: the mapping must be monotonic — wr near 0 (price at
+        // period high) is the most bullish, wr near -100 the most bearish.
+        let v = NormalizationEngine::normalize_williams_r(wr);
+        let expected = ((wr + 50.0) / 50.0).clamp(-1.0, 1.0);
+        prop_assert!((v.normalized - expected).abs() < 1e-9);
+        prop_assert!(v.normalized >= -1.0 && v.normalized <= 1.0);
+    }
+}
+
+#[test]
+fn williams_r_continuous_at_boundaries() {
+    // AUDIT-AIU-020: no step at -80 / -50 / -20.
+    let just_below = NormalizationEngine::normalize_williams_r(-80.0001);
+    let at = NormalizationEngine::normalize_williams_r(-80.0);
+    let just_above = NormalizationEngine::normalize_williams_r(-79.9999);
+    assert!((just_below.normalized - at.normalized).abs() < 0.001);
+    assert!((just_above.normalized - at.normalized).abs() < 0.001);
+}
+
+#[test]
+fn williams_r_midline_is_neutral() {
+    // AUDIT-AIU-020: wr = -50 must map to 0.0 (was +0.6, a spurious
+    // strong-bullish vote at the neutral point).
+    let v = NormalizationEngine::normalize_williams_r(-50.0);
+    assert!((v.normalized - 0.0).abs() < 1e-9);
+}
+
+#[test]
+fn williams_r_extremes_saturate() {
+    let top = NormalizationEngine::normalize_williams_r(0.0);
+    assert_eq!(top.normalized, 1.0);
+    let bottom = NormalizationEngine::normalize_williams_r(-100.0);
+    assert_eq!(bottom.normalized, -1.0);
+}
+
+// ─────────────────── AUDIT-AIU-021: ADX continuity ───────────────────
+
+#[test]
+fn adx_normalization_continuous_at_25_and_40() {
+    // AUDIT-AIU-021: the piecewise must not jump at ADX = 25 or 40.
+    let v_before = NormalizationEngine::normalize_adx(24.999, 20.0, 10.0, 0.0, false);
+    let v_at = NormalizationEngine::normalize_adx(25.0, 20.0, 10.0, 0.0, false);
+    let v_after = NormalizationEngine::normalize_adx(25.001, 20.0, 10.0, 0.0, false);
+    assert!((v_before.normalized - v_at.normalized).abs() < 0.001);
+    assert!((v_after.normalized - v_at.normalized).abs() < 0.001);
+
+    let v_before = NormalizationEngine::normalize_adx(39.999, 20.0, 10.0, 0.0, false);
+    let v_at = NormalizationEngine::normalize_adx(40.0, 20.0, 10.0, 0.0, false);
+    let v_after = NormalizationEngine::normalize_adx(40.001, 20.0, 10.0, 0.0, false);
+    assert!((v_before.normalized - v_at.normalized).abs() < 0.001);
+    assert!((v_after.normalized - v_at.normalized).abs() < 0.001);
+}
+
+// ─────────────────── AUDIT-AIU-024: mark-index spread gate ───────────────────
+
+#[test]
+fn mark_index_spread_normalized_always_zero() {
+    // AUDIT-AIU-024: ContextOnly gate — `normalized` must be 0.0 even in
+    // the extreme band.
+    for spread in [-2.0, -0.5, 0.0, 0.5, 2.0] {
+        let v = market_analyzer::indicators::normalized::derivatives::normalize_mark_index_spread(
+            spread,
+            Some(64000.0),
+        );
+        assert_eq!(v.normalized, 0.0);
+    }
 }
 
 #[test]

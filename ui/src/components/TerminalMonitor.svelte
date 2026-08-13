@@ -38,7 +38,6 @@
     import { formatTimeframeLabel } from '../lib/telemetry';
     import { buildMetricsTabExport } from '../lib/exportBuilders/metricsTab';
     import { buildMtfExportJson } from '../lib/exportBuilders/mtfTab';
-    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
 
     const app = useAppStore();
@@ -166,20 +165,34 @@
             tf: activeTfObj,
             registry,
             volumeProfile: (activeTfObj as any)?.volumeProfile ?? null,
+            microVolumeProfile: (pair as any)?.microTerm?.volumeProfile ?? null,
             liquidity: (activeTfObj as any)?.liquidity ?? null,
+            microLiquidity: (pair as any)?.microTerm?.liquidity ?? null,
             cluster: (activeTfObj as any)?.cluster ?? null,
-            liquiditySignals: ((activeTfObj as any)?.liquiditySignals ?? []) as any[],
-            symbol: pair.symbol,
-            tfLabel: activeTfEntry.label,
+            liquiditySignals: (activeTfObj as any)?.liquiditySignals ?? [],
+            // `pairKey` is the FULL exchange-symbol (e.g. BTC-USDC) — never
+            // the bare base. This is the canonical `meta.pair` for every
+            // export payload.
+            symbol: pairKey,
             tfSecs: activeTfEntry.secs ?? null,
             timestamp: snapshotTs,
             markPrice,
-            filterState: buildFilterStateBlock({
-                activeOnly: filters.activeOnly,
-                confirmedPlusOnly: filters.confirmedPlusOnly,
-                hideGates: filters.hideGates,
-                hideOverlays: filters.hideOverlays,
-            }),
+            headerSpec,
+            // EMA ribbon periods — single source of truth with the dashboard
+            // settings UI (state.svelte.ts:419-422). Drives the `period` field
+            // on each line of the `body.ema` block in the export JSON.
+            configuredEmaPeriods: {
+                ema_fast:   activeTfObj.emaFastVal   ?? app.settings.globalIndicatorsConfig.ema_fast,
+                ema_medium: activeTfObj.emaMediumVal ?? app.settings.globalIndicatorsConfig.ema_medium,
+                ema_slow:   activeTfObj.emaSlowVal   ?? app.settings.globalIndicatorsConfig.ema_slow,
+                ema_long:   activeTfObj.emaLongVal   ?? app.settings.globalIndicatorsConfig.ema_long,
+            },
+            terms: {
+                microTerm: pair.microTerm,
+                fastTerm: pair.fastTerm,
+                slowTerm: pair.slowTerm,
+                macroTerm: pair.macroTerm,
+            },
         });
     }
 
@@ -188,7 +201,8 @@
     function buildMtfExport() {
         if (!pair) return null;
         return buildMtfExportJson({
-            symbol: pair.symbol,
+            // `pairKey` is the FULL exchange-symbol (e.g. BTC-USDC).
+            symbol: pairKey,
             pair: {
                 microTerm: pair.microTerm,
                 fastTerm:  pair.fastTerm,
@@ -196,12 +210,17 @@
                 macroTerm: pair.macroTerm,
             },
             registry,
-            filterState: buildFilterStateBlock({
-                activeOnly: filters.activeOnly,
-                confirmedPlusOnly: filters.confirmedPlusOnly,
-                hideGates: filters.hideGates,
-                hideOverlays: filters.hideOverlays,
-            }),
+            filters,
+            markPrice: parseFloat(pair.microTerm?.priceText ?? '') || 0,
+            tfSecs: activeTfEntry?.secs ?? null,
+            timestamp: snapshotTs,
+            headerSpec,
+            terms: {
+                microTerm: pair.microTerm,
+                fastTerm: pair.fastTerm,
+                slowTerm: pair.slowTerm,
+                macroTerm: pair.macroTerm,
+            },
         });
     }
 

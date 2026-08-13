@@ -6,6 +6,240 @@
 
 
 
+## v6.10.5 (2026-08-13) — Sub-minute EMA ribbon fix + idle-bucket heartbeat + stale-mid guard
+
+Fixes the sub-minute EMA rendering anomalies (lines all starting at the same right-edge bar, flat plateaus, straight diagonal bridges, phantom U-dives, and lines vanishing after tab switches) and the "1s candle sometimes stays open for 2-3 s" behavior. All changes are backend-only — the frontend already handled `None` sub-keys and `reconstructed` provenance.
+
+**AUDIT-V8-001 — per-line EMA warm-up (`market-analyzer`):**
+* `ema_stack.bars_required` dropped `200 → 1` in the registry; the per-line availability gate now lives in `inject_ema_values` (`crates/market-analyzer/src/analyzer/normalize.rs`), which injects each line only when `bar_count ≥` its configured period: `fast`@10, `medium`@50, `slow`@100, `long`@200.
+* Sub-minute TFs (which skip the historical bootstrap, CB-05) now surface a partial ribbon instead of nothing for 200 bars: EMA-10 renders 30 s after cold start at 3 s candles, EMA-200 after 10 min. Each line starts at its own x position on the chart, exactly as the old per-period semantics imply.
+* `NormalizeParams` gains `ema_periods`; threaded through `warm.rs::build_historical_snapshot`, the completed-candle path, `build_completed_snapshot_from_readings`, and `broadcast_live_snapshot`.
+
+**AUDIT-V8-002 — stale-mid guard (`market-analyzer`):**
+* The force-close / doji-fill paths previously closed candles at the order-book mid regardless of the book's age. On a quiet or one-way market a mid received seconds earlier became the close — and up to 60 dojis at that phantom price dragged EMA/RSI into the "reacting to price that isn't there" distortion.
+* The analyzer now tracks `last_ob_ms` and only uses the bid/ask mid while the book is fresh (≤ grace period); otherwise the close falls back to the last trade price.
+
+**AUDIT-V8-003 — idle-bucket heartbeat (`market-analyzer`):**
+* After a sub-minute candle closes and no events arrive, the generator has no current candle and the stale check previously did nothing — every elapsed bucket stayed empty. The chart gap-filled with flat Dojis, the EMA lines bridged gaps with straight segments, and the last visible candle looked "open for seconds".
+* The stale check now synthesizes one doji per elapsed empty bucket (O=H=L=C=last close, `reconstructed: SYNTHETIC`, cap 60/batch), advances every stateful indicator, and broadcasts — one closed candle per wall-clock bucket even in total silence.
+
+**AUDIT-V8-004 — history continuity (`market-analyzer` + `api-gateway`):**
+* Force-close and heartbeat snapshots are now pushed into the in-memory `snapshot_history` (never the DB), so `/api/history` serves continuous candles + indicator series (no straight-line EMA bridges after a tab switch).
+* `crates/api-gateway/src/handlers/history.rs` now sets `HistoryCandle.reconstructed` from `quality_envelope.is_gap_filled` (was hardcoded `None`), so the frontend's `candleReconstructed` filter keeps synthetic dojis out of its persistent candle cache — no "ghost flat-line" regression.
+
+**Tests (9 → 12 in `sub_minute_indicator_cadence.rs`, +1 in `sub_minute_history.rs`):**
+* `ema_lines_appear_at_their_own_periods_on_sub_minute_tf` — fast@12 bars only, fast+medium@60, +slow@120, all four@210.
+* `idle_bucket_heartbeat_fills_quiet_seconds_on_sub_minute_tf` — 5.5 s of silence after one seed → consecutive 1 s buckets, all marked gap-filled.
+* `stale_mid_guard_falls_back_to_last_trade_close` — a mid received ≥1 s before the close must be discarded.
+* `history_endpoint_marks_heartbeat_dojis_as_reconstructed` — `quality_envelope.is_gap_filled` maps to `reconstructed: "SYNTHETIC"` on the wire.
+* BUG-FIX-01 updated: the 110 mid is re-pumped continuously (an OB heartbeat) so the stale-mid guard deterministically honours a fresh book.
+
+**Spec updates:** `04-02-01-ema-stack.md` §Sub-minute warm-up; `08-08-candle-buffer-spec.md` CB-05a (idle heartbeat) + CB-06 note.
+
+------
+
+
+## v6.10.4 (2026-08-13) — Snapshot Export scheduler + Interactive CLI setup
+
+The Trading Platform gains a periodic per-tab JSON dump for offline data science, plus an interactive CLI for headless / first-boot configuration. Both GUI and CLI converge on the same `SnapshotExportRuntime` shared via `AppState` — `GET /api/snapshot-export/status` is the single source of truth.
+
+**Snapshot Export (L7-extracted "snapshot_extractor" task):**
+* New top-level `[snapshot_export]` section in `config.toml` — `enabled`, `output_path`, `interval_secs`, `max_snapshots_retained`, `tabs[]`. All fields `#[serde(default)]` so the section is opt-in.
+* New daemon-owned task in `crates/execution-daemon/src/snapshot_export.rs` — `tokio::time::interval` based, hot-reloadable (reads runtime every tick), prunes oldest dirs when retention exceeded.
+* On-disk layout: `<output_path>/<YYYY-MM-DD>/<HHhMMmSS>/<pairKey>.<slot>.<tab>.json`. Each file is wrapped in a `SnapshotEnvelope { snapshot_metadata, payload }` so data-science consumers don't have to parse directory names.
+* Default cadence: 60s. Floor 5s, ceiling 3600s. Default retention: 1000 snapshots (~24h at 60s cadence).
+* The 9 canonical tabs are exhaustive: `metrics`, `mtf`, `alignment`, `opportunity`, `risk`, `analysis`, `advisory`, `decision`, `recommendation`. Operators may opt out per-tab via the `tabs` field.
+
+**REST endpoints (new in `crates/api-gateway/src/handlers/snapshot_export.rs`):**
+* `GET  /api/snapshot-export/status` — live runtime.
+* `PUT  /api/snapshot-export/config` — partial patch. Validation: `output_path` non-empty (otherwise 400); `interval_secs` clamped `[5, 3600]`; `max_snapshots_retained` clamped `[10, 100000]`; unknown tab IDs silently dropped; empty `tabs` falls back to all 9.
+* `POST /api/snapshot-export/run-now` — fires a `tokio::sync::Notify` for an immediate tick (the next scheduled tick proceeds as usual).
+
+**GUI (bottom-left CTA on `GeneralDashboard`):**
+* New `<SnapshotSchedulerButton />` renders immediately to the left of `<WatchlistRunnerButton />` in the bottom CTA row.
+* Live status pill (`ON · last 12s ago` / `OFF` / `ERROR`) on the button — 3s polling.
+* New `<SnapshotSchedulerModal />` with enabled toggle, folder path, interval, retention, 9-tab checkbox grid, Run Now, Save. Validates before save.
+
+**CLI (`execution-daemon setup` / `--mode setup`):**
+* Interactive prompts: exchange, trading pair (live-validated against the exchange REST ticker), timeframes (multi-select), per-TF `timeframe_secs`, snapshot-export enabled/interval/path.
+* `--dry-run` — print what would be written without touching `config.toml`.
+* `--auto-start` — skip the "Start now?" prompt.
+* `--sub status` — print current schedule (mirrors `GET /api/snapshot-export/status` for offline / headless operators).
+* Hand-rolled stdin prompts (no new dependency — see `docs/conceptual-foundations/01-09-cli-setup-flow.md` §5 for rationale).
+
+**Convergence guarantee:**
+* Both GUI and CLI write the same `config.toml` shape; both hydrate the same `SnapshotExportRuntime` at boot. `GET /api/snapshot-export/status` exposes the live state — the CLI `--sub status` command, the GUI modal, and any third-party HTTP client see exactly the same JSON.
+
+**Implementation surface:**
+* `crates/config-models/src/models.rs` — new `SnapshotExportConfig` struct + defaults + `PlatformConfig.snapshot_export` field.
+* `crates/core-domain/src/snapshot_export.rs` — shared types (`SnapshotExportRuntime`, `ALL_TABS`, `runtime_from_config`, `SnapshotEnvelope`, `SnapshotMetadata`).
+* `crates/execution-daemon/src/snapshot_export.rs` — task implementation (`run_snapshot_exporter`, `tick_once`).
+* `crates/execution-daemon/src/main.rs` — `setup` subcommand parser + interactive flow + `--sub status` + `apply_setup_to_config` / `apply_snapshot_to_platform` / `write_full_config` helpers.
+* `crates/api-gateway/src/lib.rs` — `snapshot_export` + `snapshot_export_manual_tick` fields on `AppState`; new route registrations.
+* `ui/src/components/SnapshotSchedulerButton.svelte` + `SnapshotSchedulerModal.svelte` + matching `.module.css`.
+* `ui/src/components/GeneralDashboard.svelte` — bottom CTA row becomes a 2-button flex `.runnerBar`.
+
+**Tests added (30 total):**
+* 1 in `core-domain/src/snapshot_export.rs::tests` — `SnapshotExportRuntime::default` shape.
+* 5 in `crates/execution-daemon/src/snapshot_export.rs::tests` — `runtime_from_config` cases + `sanitize` helper.
+* 8 in `crates/api-gateway/tests/snapshot_export_api.rs` — full HTTP contract coverage (default status, PUT clamping, empty-path 400, tab filter/dedup/empty-fallback, run-now, round-trip).
+* 5 in `ui/src/components/SnapshotSchedulerButton.test.ts` — pill states (loading / OFF / ON / ERROR), modal open.
+* 9 in `ui/src/components/SnapshotSchedulerModal.test.ts` — form hydration, validation, save patch, run-now disabled-when-off, error display.
+
+**Docs added:**
+* `docs/operations-and-compliance/08-09-snapshot-export.md` — operator manual.
+* `docs/integration-and-api/06-03-snapshot-export-schema.md` — on-disk JSON schema reference.
+* `docs/conceptual-foundations/01-09-cli-setup-flow.md` — CLI flow + UX rationale.
+* `docs/integration-and-api/06-01-api-gateway-contract.md` §2.8.1 — REST endpoint table.
+
+**Invariants preserved:**
+* `asset_ranking` cardinality and `instance_count == active_symbols.length` invariants unchanged.
+* No new TOML field is required for existing `config.toml` files — `[snapshot_export]` is fully optional.
+* The CLI's `validate_symbol` call uses the same `symbol_exists` REST endpoints `registry::add_instance` makes at boot, so a CLI-driven setup that completes will boot cleanly.
+
+---
+
+## v6.11 (2026-08-13) — EMA Ribbon unification across all surfaces
+
+The four EMA consumers in the platform now read from the **same record** — `MarketSnapshot.indicators["ema_stack"].values.{fast, medium, slow, long}` — and so carry byte-identical numbers everywhere. Single source of truth.
+
+* **Metrics Layer (L1, Rust, unchanged):** the four `Ema::new(period)` calculator instances continue to write the canonical record via `inject_ema_values` in `crates/market-analyzer/src/analyzer/normalize.rs:521-546`.
+* **Metrics Matrix (unchanged):** `MarketSnapshot.indicators["ema_stack"].values.*` is the record; `MarketSnapshot::ema_fast() / ema_medium() / ema_slow() / ema_long()` accessors at `crates/core-domain/src/models.rs:536-547` continue to proxy through `ind_sub`.
+* **DB schema (unchanged):** the four `market_snapshots.ema_fast / ema_medium / ema_slow / ema_long TEXT` columns continue to be populated; no migration required.
+* **Charts tab overlay (unchanged):** the four price-overlay lines continue to read the per-bar series via `alignedSeriesFromHistory(...)` in `ui/src/components/PriceChart.svelte:336-340, 811-846`.
+* **Metrics tab on-screen micro-grid (NEW rendering):** the collapsed `raw_value` cell on the `ema_stack` row of the Indicators facet (`ui/src/components/facets/IndicatorsView.svelte`) now shows a 4-line / 8-cell micro-grid — `LABEL  value  distance%` for `F / M / S / L`, plus a `spread ↔ 0.27%` sub-label. Single implementation: `buildEmaRibbonCellView()` in `ui/src/lib/telemetry.ts`.
+* **Metrics tab per-TF export body (NEW block):** the export JSON gains a top-level `body.ema` block carrying `{fast, medium, slow, long}.{value, period, distance_from_price}` plus `body.ema.spread_pct`. Periods flow from `app.settings.globalIndicatorsConfig.{ema_fast,ema_medium,ema_slow,ema_long}` (single source: `ui/src/state.svelte.ts:419-422`). Single implementation: `buildEmaBlock()` in `ui/src/lib/exportBuilders/shared.ts`.
+* **Other 6 MME tab exports + Charts sub-tabs (untouched):** the `body.ema` block is per-TF Metrics tab only. `meta` does NOT carry `ema` — that block stays at `exported_at / source_tab / exchange / pair / timeframe_secs / pipeline_state / price`. `chartsTab.ts` (Positions/Orders/History/Plan) is out of scope and retains its legacy flat-top-level layout.
+
+**Per-line math (uniform across all consumers).**
+
+```
+distance_from_price[role] = (close − ema[role]) / close
+spread_pct              = (values.fast − values.long) / close
+```
+
+Implemented once in `ui/src/lib/telemetry.ts` (`distFromPrice`, `emaSpreadPct`,
+`buildEmaRibbonView`). Reused by the on-screen micro-grid cell AND the
+export body `body.ema` block — no second computation; the formula cannot
+drift between the two surfaces.
+
+**Composite unchanged.** The `indicators[ema_stack].raw_value`, `normalized` (discrete stack-state classifier: ±1.0 / ±0.8 / 0.0), and `state_label` semantics are unchanged. The `body.ema` block is additive — it does not replace `body.indicators[ema_stack].sub_values.*` and does not change the registry row.
+
+**Regression tests** (added/updated):
+* `ui/src/lib/telemetry.test.ts` — new (22 tests): `distFromPrice`, `readEmaValues`, `emaSpreadPct`, `buildEmaRibbonView`, `fmtPctSigned`, `buildEmaRibbonCellView`.
+* `ui/src/lib/exportBuilders/shared.test.ts` — +7 new tests in `describe('buildEmaBlock')`: happy path, cold start, partial, undefined tf, null close, config override, deterministic order, single-source-of-truth idempotency.
+* `ui/src/lib/exportBuilders/metricsTab.test.ts` — +4 new tests in `describe('body.ema — Metrics tab export body block')`: renders the 4-line + spread block; unification with `indicators[ema_stack].sub_values.*`; configured periods flow through; cold start. Plus `describe('meta envelope — does NOT carry ema')`.
+* `ui/src/components/facets/IndicatorsView.test.ts` — +3 new tests in `describe('IndicatorsView EMA Ribbon micro-grid')`: renders all 4 lines + signed distance + spread sub-label; cold-start shows `--`; non-`ema_stack` indicators unchanged.
+
+**Spec updates**: `docs/engines/market-monitoring-engine/indicators/04-02-01-ema-stack.md` adds §Unified Ribbon Export; `docs/matrices/02-07-metrics-matrix.md` §2.1.1 notes the EMA consumers table; `docs/engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md` §2 notes the canonical-record location.
+
+**Wire / DB / registry unchanged.** No Rust source change, no `migrations/`, no `INDICATORS` registry entry movement, no `/api/*` contract change. The 51-indicator registry count stays intact; the `ema_stack` index stays at 01.
+
+---
+
+## v6.10.3 (2026-08-13) — Cross-timeframe alignment aggregation in the Overview Matrix
+
+The Overview Matrix (L7) gains three new aggregate fields sourced from each instance's per-symbol `AlignmentMatrix` (L2), and the AssetRank leaderboard gains two per-asset columns mirroring the same source. A new `MarketAlignmentCard` sub-component surfaces the new aggregates in the system-wide Market Overview dashboard, and the Asset Rankings leaderboard grows from 9 to 11 columns with MTF Score / MTF Label.
+
+**OverviewMatrix (L7) new fields:**
+* `alignment_distribution` (`map<string, u32>`) — count of assets per `AlignmentMatrix.mtf_overall_label` (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`).
+* `alignment_consensus_index` (`f64`, [-100, 100]) — mean of all per-symbol `mtf_overall_score`. The cross-timeframe counterpart to `breadth_pct` (which is cross-symbol).
+* `multi_tf_agreement_pct` (`f64`, [0, 100]) — mean of all per-symbol `trend_agreement_pct`. Distinct from `market_synchronization` (which is cross-symbol, L6-derived).
+
+**AssetRank (L7) enriched fields:**
+* `mtf_score` (`f64`, [-100, 100]) — `AlignmentMatrix.mtf_overall_score` mirror.
+* `mtf_label` (`string`) — `AlignmentMatrix.mtf_overall_label` mirror. Defaults to `"NO_DATA"` when no alignment is available for the symbol.
+
+**Implementation:**
+* `crates/core-domain/src/overview.rs::compute_overview()` signature is now `(advisories, instances, alignments)` — the third argument may be empty, in which case the three new aggregate fields default to neutral (`0.0` / empty map) without affecting the existing breadth / sync / health aggregates. 5 new unit tests added.
+* `crates/execution-daemon/src/main.rs` L7 task now also pulls `snapshots.2.alignment` per instance alongside `snapshots.2.advisory`.
+* `ui/src/components/dashboard/MarketAlignmentCard.svelte` (new) + `.module.css` — stacked distribution bar + signed consensus gauge + MTF agreement numeric. Renders "Awaiting alignment data…" placeholder when the engine has booted but no instance has yet produced a slow-tier Alignment Matrix.
+* `ui/src/components/GeneralDashboard.svelte` — 4-up card row expanded to 5-up (Trade Opportunities / Risk Distribution / Signal Quality / Direction / **Market Alignment**). Responsive breakpoints re-tuned (5 → 3 → 2 → 1 cols at 1600 / 1100 / 800 px).
+* `ui/src/components/dashboard/AssetRankingsTable.svelte` — added `MTF Score` (signed ±numeric) and `MTF Label` (color-coded categorical) columns. Table grew from 9 to 11 columns. Default sort unchanged (`score` desc).
+* `ui/src/types.ts` — `OverviewMatrix` and `AssetRank` interfaces gained optional v6.10.3 fields.
+
+**Invariants preserved:**
+* L6 → L7 (`breadth_pct`, `market_synchronization`, `systemic_risk_score`) remains L6-derived only; the new alignment aggregates are explicitly **independent** of L6 so a single corrupt alignment source cannot poison the systemic-risk veto (see [03-02-08 §6](./engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) new "Alignment independence" guarantee).
+* `asset_ranking` cardinality and `instance_count == active_symbols.length` invariants unchanged.
+* `/api/overview` REST contract auto-extended — no breaking change; consumers ignoring the new optional fields continue to work.
+
+**Docs updated:** [`02-09-overview-matrix.md`](./matrices/02-09-overview-matrix.md) §1, §2.1, §2.2, new §3.5, §6 JSON example; [`03-02-08-mme-layer7-overview.md`](./engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) §1 input diagram, new §6 alignment aggregation; [`02-00-matrix-field-ownership.md`](./matrices/02-00-matrix-field-ownership.md) §2.7 L7 row + AssetRank enrichment note.
+
+**Tests added:** 5 unit tests in `crates/core-domain/src/overview.rs::tests` (alignment distribution counts; consensus index mean; AssetRank mirror; AssetRank default when missing; empty alignments don't break advisories). 5 new tests in `ui/src/components/dashboard/MarketAlignmentCard.test.ts`. 1 new test in `ui/src/components/GeneralDashboard.test.ts` for the populated-state path; the existing 11-column asset rankings assertion updated.
+
+
+
+## v6.10.2 (2026-08-13) — Analytical Input Universe correctness audit (AUDIT-AIU-001 … 091)
+
+Full forensic audit of every item in the Analytical Input Universe (51 indicators + 11 liquidity signals + synthesis layers). All 51 indicators and 11 liquidity signals were verified against their canonical math and docs; every defect below was fixed with a regression test.
+
+**Critical correctness fixes (Phase 1):**
+- AUDIT-AIU-001: `spread_pct` double-scaling (`×100` on an already-percent value) removed — SPREAD_WIDENING no longer fires on every snapshot and the execution-risk dimensions are no longer permanently inflated.
+- AUDIT-AIU-002: RSI/MACD divergence confirmation was unreachable in the live path (S/R level selection made `close < support` unsatisfiable); the nearest level on the break side is now selected — divergences can reach Confirmed again.
+- AUDIT-AIU-003: ATR (and ADX) now use **Wilder's RMA** (SMA seed + `(prev×(N−1)+TR)/N`) instead of a plain EMA — the D3/D5 deferral is resolved; supertrend/keltner/TTM-Squeeze inherit the corrected volatility input.
+- AUDIT-AIU-004/005: Ichimoku and Hull MA double-pushed warmup bars via the `update().or_else(update_with_min_bars)` chain; now single soft-floor call + bounded memory (Hull MA buffers were unbounded).
+- AUDIT-AIU-006: S/R level keying `(price×100) as i64` collapsed sub-cent assets to one level; replaced with 4-significant-digit keys + 0.05% relative merge + relative proximity.
+- AUDIT-AIU-007: OI-Price divergence direction canonicalized to the MME convention (price-up+OI-down = Bullish) across the liquidity layer; `04-02-44` reconciled with `04-02-47`.
+- AUDIT-AIU-008: Aroon double TrendFlip emission removed (two identical blocks fired per crossing).
+- AUDIT-AIU-009: VolumeProfile `num_bins=0` division-by-zero panic fixed (constructor clamps).
+- AUDIT-AIU-010: Hull MA normalizer now honors the EventOnly contract (`normalized = 0.0`) — the saturated `hma/100` vote is gone.
+- AUDIT-AIU-011: `derive_cascade_state` ran before intensity was assigned, making `CascadeExhausted` unreachable; ordering fixed.
+- AUDIT-AIU-012: order-book wall threshold default 5.0 → 0.5 (5.0 made BID_WALL/ASK_WALL mathematically unreachable).
+- AUDIT-AIU-013: shadow-tick lifecycle no longer hardcodes `pipeline_is_live=false` (badges show Live on live ticks).
+
+**Normalizer conformance (Phase 2):** AUDIT-AIU-020 Williams %R (continuous monotone ramp, midline now 0.0); AUDIT-AIU-021 ADX continuity at 25/40 + exhaustion-hook Threshold now fires; AUDIT-AIU-022 MACD zero-line filter (rejected crossovers contribute 0.0 and emit no Crossover signal); AUDIT-AIU-023 BBWP >90 exhaustion Threshold now emits + confidence bands aligned to doc; AUDIT-AIU-024 mark_index_spread ContextOnly contract (`normalized = 0.0`, Neutral signal).
+
+**Signal emission (Phase 3):** AUDIT-AIU-030 ema_stack StackChange now transition-only (was every-bar spam); AUDIT-AIU-031 EMA price-cross-medium signals added; AUDIT-AIU-032 chandemo/RSI bias Thresholds now fire; AUDIT-AIU-033 RSI confirmed-divergence label no longer mislabels price zones; AUDIT-AIU-034 CCI duplicate Threshold removed; AUDIT-AIU-035 squeeze acceleration/exhaustion Thresholds now fire; AUDIT-AIU-036 squeeze release gated on ≥ min_duration (5) consecutive ON candles (was any 1-bar squeeze); AUDIT-AIU-037 volume climax band aligned to 3.0×; AUDIT-AIU-038 pivot Breakout signals now emitted; AUDIT-AIU-039 oi_delta ZeroLineCross is a true sign-change transition (was a persistent band).
+
+**Calculator math (Phase 4):** AUDIT-AIU-041 MFI flat-flow → 50 (was 100); AUDIT-AIU-042 force_index smoothing floored at 1; AUDIT-AIU-043 force_index extreme threshold now scale-relative (30× rolling |FI| mean); AUDIT-AIU-044 AO normalization + threshold ATR-relative; AUDIT-AIU-045 volume-profile snapshot honors configured value_area (was hardcoded 0.70); AUDIT-AIU-046 patterns least-squares slope (was two-point) + zero-gap guard; AUDIT-AIU-047 SMC structure one-sided-market detection + both-BOS preservation; AUDIT-AIU-048 SMC order-block zone full `high..low`; AUDIT-AIU-049 SMC BOTH_SWEEPS now emits signals.
+
+**Liquidity layer (Phase 5):** AUDIT-AIU-051 OI delta is a true 3600 s time window, one deque per TF (`(timestamp, value)` samples; the 60-sample cap made "1h" really 15 min at 15 s TF); AUDIT-AIU-052/053 cascade baseline is the mean of actual event notionals and the configurable `cascade_detected_zscore` is now a genuine z-score (mean + z×σ); AUDIT-AIU-054 CascadeSustained dead code + truthful evidence string; AUDIT-AIU-055 MagnetActivated honors `min_cluster_notional_usd`; AUDIT-AIU-056 FundingFlip strength scaled against `funding_extreme_pct`; AUDIT-AIU-057 per-signal confidences moved to config (`[liquidity.signal_confidences]`).
+
+**Synthesis/wiring (Phase 6):** AUDIT-AIU-060 MarketContext group score is now a confidence-weighted mean (docs' `Σ(score×conf)/Σ(conf)`); AUDIT-AIU-061 liquidity dimension uses VWAP *proximity* (was signed premium/discount contradicting its own comment); AUDIT-AIU-062 liquidity signals (`OiPriceDivergence`, `FundingFlip`) now feed the L5 cascade-risk dimension (were computed but unused downstream).
+
+**Config plumbing (Phase 7):** AUDIT-AIU-070 `volume_average_period` wired (was hardcoded 20); AUDIT-AIU-071 rvol thresholds wired from config; AUDIT-AIU-072 `pivot_points_method` config added + wired (was hardcoded Classic); AUDIT-AIU-073 `candlestick_min_confidence` config added + wired (was hardcoded 0.3); AUDIT-AIU-074 funding "extreme" threshold unified on `funding_extreme_pct` (indicator + liquidity layers); AUDIT-AIU-075 fibonacci named levels honor configured coefficients (canonical-cardinality guarded).
+
+**Lifecycle (Phase 8):** AUDIT-AIU-080 registry `bars_required` aligned to real warmup (rsi 14→15, stochastic 14→30, squeeze 20→39, hv 20→21; bbwp stays 200 — the `INDICATORS_MAX_BARS_REQUIRED` invariant — with a documented WARMING 200→272).
+
+**Docs (Phase 9):** AUDIT-AIU-090 donchian/keltner/bollinger LevelTest labels, psar removed signal, williams_r normalization, spread scale, RSI divergence labels, mark-index writers status all synced to runtime; AUDIT-AIU-091 stale "writers pending (AUDIT-V6-301)" notes corrected (in-memory writers live; DB persistence remains open).
+
+
+
+## v7.0-verify (2026-08-13) — Export-JSON ↔ screen parity audit (every MME tab)
+
+Full field-by-field audit of every Market Monitoring tab's rendered values against its `Export Data` JSON payload (11 payloads across 8 surfaces). Fixes below restore the contract "the JSON always contains every value shown on the screen".
+
+**Metrics (single-TF) — `metricsTab.ts`:**
+* The Structural Anchors **Volume Profile tile** reads the micro-TF VP (micro-anchored refresh cadence) while the export serialized the active TF's — values shown were missing from the JSON on Fast/Slow/Macro rails. Added `structural_anchors.micro_volume_profile` (built from the micro VP; `volume_profile` remains the active-TF block that the Levels facet renders). Strip footer now states the micro source truthfully.
+* The **Tier-1 cascade banner** reads the micro flow — added `structural_anchors.micro_cascade_alert` (`cascade_alert` remains active-TF).
+* Norm column parity: WARMING rows emit `normalized_available: false, reason: "warming"` (screen `--`, never `0.00`); non-Directional modes (`normalization_mode` ≠ `Directional`, e.g. EventOnly Hull MA) emit `available: false, reason: "context_only"` (screen `N/A`).
+* Raw column: the onoff branch now runs before the warming check exactly like the screen (warming squeeze renders `OFF`, not `--`).
+* State column legacy fallback (no lifecycle map) mirrors the screen: `AWAITING DATA` for WARMING, `SILENT` for Conditional/DataOnly rows without signals, `—` for empty labels.
+* Derived strings (fib status, price-vs-GP, VP position label, age) now use the **active TF's `priceText`** — the same price the screen uses (`meta.current_price` stays the cross-slot freshest price).
+
+**MTF — `mtfTab.ts` + `MtfView.svelte`:**
+* Added `filter_state` block + per-row `visible` flags; `groups[].indicator_count` counts visible rows and `total_indicator_count` the unfiltered total — the on-screen row set is now reconstructible from the JSON.
+* `MtfView` now passes a `signalsFor` callback to `filterRegistry` so the "Active only" pill behaves like the single-TF Indicators facet (was emptying the entire grid).
+
+**Alignment — `alignmentTab.ts`:**
+* Null state mirrors the screen: `consensus.trend_agreement_pct: null`, `label: null`, `label_display: "—"`, polarization `"+0.00"`, score-calculation displays `"—"` — no fabricated "Conflict" verdict or zero formula.
+* `NO_DATA` dimension state renders `"NO DATA"` on both surfaces; `trend_agreement_pct` keeps raw float precision (bar-width parity).
+
+**Risk — `riskTab.ts`:**
+* Dimension name unified to the screen card: `"Exec Liquidity Risk"`.
+* Null state: `dimensions` carries the 8 awaiting placeholder rows (`awaiting: true`, `awaiting_badge: "AWAITING"`, name + `weight_pct`); `interpretation_full` carries the "Risk synthesis is initializing — …" paragraph.
+
+**Analysis — `analysisTab.ts`:** split-tone hero label is exactly `"Split signals"`; hero block is always emitted (incl. the null-analysis `"No signals"` placeholders); empty states use the screen's `"—"`; added `signals_count_display`.
+
+**Recommendation — `recommendationTab.ts`:** added `top_setup_empty_text` (`"no qualifying setup yet"`); strategy fields render `"—"` when guidance is absent (screen parity).
+
+**Opportunity — `opportunityTab.ts`:** `directional_bars` always emitted (0/0/100 when matrix absent); `expected_rr` of 0 with a non-HOLD verdict emits `available: true, value: 0` (screen `"0.00"`); `notes` are raw wire strings; unknown level-source tokens fall back to `"ATR"`; empty states use `"—"`.
+
+**Charts console — `chartsTab.ts` + `BottomConsole.svelte`:** orders/brackets/counts unified on `AppStore.openOrders` (the screen previously read the never-written `paper.openOrders`); `liq_price` uses the shared `calcLiqPrice` (SHORT + leverage 1 now matches the console's `2× entry`); `history[].symbol` is raw/`null` (no activeTab fallback); `buildPlanTabExport(app, planOverride?)` exports the console's currently-edited plan rows; console timestamps are 24-hour (byte-identical to `*_display`).
+
+**Docs touched:** `docs/ui-ux/07-05-export-data-payload-schema.md` (schema examples + notes for every change), this CHANGELOG.
+
+**Tests:** `ui/src/tests/exportConsistency/exportConsistency.test.ts` grew to 12 tests (non-Micro rail parity, MTF filter-state reconstruction); per-builder unit tests extended (alignment 9, analysis 9, recommendation 9, opportunity 11, risk 6, charts 22, metrics 14). Full suite: 740 UI tests green.
 ## v6.10.1 (2026-08-05) — Bug fix: Opportunity score = 0 when preconditions 0/X
 
 **Bug.** `OpportunityMatrix.profiles[*].score` was multiplied by `preconditions_met / preconditions_total` in `compute_candidate_score` (`crates/market-analyzer/src/synthesis.rs:117-120`). When a profile's preconditions were unmet (e.g. `TrendContinuation 0/3 met`, `Breakout 0/2 met`, etc.), `ratio = 0` and the displayed score collapsed to **0**, hiding the operator's view of how close the setup was to firing. Every inactive candidate card showed `preconditions 0/N met` AND `score 0` — the two signals were collapsed into one and the viability component was lost.
@@ -849,6 +1083,10 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V7-307` | `ui`: introduce `IndicatorStatusBadge.svelte`; honor `tf.pipeline_state` in chart headers; stop merging old values when a snapshot arrives with `pipeline_state = LOADING`; remove the `analysisLimit` selector (replace with read-only display of `candle_buffer.size`) | Open (specified in `08-08` §7) | v6.10 |
 | `AUDIT-V7-310` | `core-domain`: add `CandlePipelineState` enum + `IndicatorLifecycleStatus` map type; extend `MarketSnapshot` with `pipeline_state` + `indicator_lifecycle` fields | Open (specified in `03-01-06` §7) | v6.10 |
 | `AUDIT-V7-311` | `database-storage`: migration `00XX_add_candle_pipeline_state_events.sql` + `00XX_alter_market_snapshots.sql`; bump `user_version` | Open (specified in `03-01-06` §7) | v6.10 |
+| `AUDIT-V8-001` | `market-analyzer`: per-line EMA ribbon warm-up — `ema_stack.bars_required` 200→1; `inject_ema_values` gates each line on `bar_count ≥` its configured period (`fast`@10, `medium`@50, `slow`@100, `long`@200); `NormalizeParams.ema_periods` threaded through all four `build_indicator_map` call sites | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-002` | `market-analyzer`: stale-mid guard — force-close/doji-fill only uses the order-book mid while the book is fresh (≤ grace period), else falls back to the last trade close; tracked via `last_ob_ms` | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-003` | `market-analyzer`: idle-bucket heartbeat — sub-minute stale check synthesizes one doji per elapsed empty bucket (last known close, `reconstructed: SYNTHETIC`), advances all indicators, broadcasts, pushes to in-memory `snapshot_history` | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-004` | `api-gateway`: `/api/history` marks heartbeat/gap-filled candles `reconstructed: SYNTHETIC` from `quality_envelope.is_gap_filled`; force-close + doji snapshots pushed into in-memory `snapshot_history` for continuous sub-minute history | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
 | `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09) | Open (specified in `03-01-06` §7) | v6.10 |
 | `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11 | Open (specified in `03-01-06` §7) | v6.10 |
 | `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle` | Open (specified in `03-01-06` §7) | v6.10 |

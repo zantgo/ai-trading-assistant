@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 > **Implementation status (v6.8).** DIE and MME are end-to-end implemented. TAE, PME, and PAE are **WIP** — the backends run and expose state, but the dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest panel) render hardcoded placeholder data. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality and §3 for the phased delivery plan.
@@ -350,10 +350,10 @@ To achieve microsecond-level analytical throughput without sacrificing penny-per
 
 Scope: **DIE ingestion + MME Layers 1–5.**
 
-- Volatile ticks, order-book deltas, and the 50 indicator arrays are packed into cache-aligned, contiguous memory blocks using a **Structure of Arrays (SoA)** layout.
+- Volatile ticks, order-book deltas, and the 51 indicator arrays are packed into cache-aligned, contiguous memory blocks using a **Structure of Arrays (SoA)** layout.
 - Rolling histories live in **pre-allocated arena buffers / object pools**, reclaimed rather than freed, to eliminate heap fragmentation and allocator pauses on the analytical loop.
 - Calculations run on native floating-point primitives so the compiler can **auto-vectorize (SIMD, AVX/SSE)** and drive hardware FPUs directly.
-- Indicator lookup avoids string hashing: the metrics frame is a flat, enum-indexed array (`[IndicatorEvaluation; 50]`) rather than a `HashMap<String, …>`.
+- Indicator lookup avoids string hashing: the metrics frame is a flat, enum-indexed array (`[IndicatorEvaluation; 51]`) rather than a `HashMap<String, …>`.
 
 ### 6.2 The Cold Path — OOP / Domain-Driven Design (`Decimal` precision)
 

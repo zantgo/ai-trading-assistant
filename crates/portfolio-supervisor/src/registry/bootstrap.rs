@@ -428,7 +428,8 @@ pub(crate) async fn populate_buffers(
     latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_index_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    oi_history: &Arc<RwLock<VecDeque<f64>>>,
+    // AUDIT-AIU-051: timestamped OI history `(timestamp_secs, value)`.
+    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
 ) {
     // All four timeframes share the same per-pair derivatives state
@@ -485,7 +486,8 @@ async fn populate_derivatives(
     latest_funding: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_mark_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
     latest_index_px: &Arc<RwLock<Option<rust_decimal::Decimal>>>,
-    oi_history: &Arc<RwLock<VecDeque<f64>>>,
+    // AUDIT-AIU-051: timestamped OI history `(timestamp_secs, value)`.
+    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
 ) {
     use market_analyzer::analyzer::warm::DerivativesWarmedState;

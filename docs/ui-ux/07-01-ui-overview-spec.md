@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, hash-based URL routing, chart overlay models, CSS architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -39,7 +39,7 @@ const app = useAppStore();
 | Sub-Store | File | Responsibility |
 |-----------|------|----------------|
 | `SessionStore` | `stores/session.svelte.ts` | Session active state, exchange, currency, init/quit lifecycle, fetch status. |
-| `SettingsStore` | `stores/settings.svelte.ts` | Config, indicator registry, ~50 indicator parameters per timeframe, rules content. |
+| `SettingsStore` | `stores/settings.svelte.ts` | Config, indicator registry, ~51 indicator parameters per timeframe, rules content. |
 | `AnalyticsStore` | `stores/analytics.svelte.ts` | Dashboard stats, trade ledger, journal, observability, system heartbeat. |
 | `ProfileStore` | `stores/profiles.svelte.ts` | Decision/risk profile CRUD, risk calculation, commission projection, fee table. |
 
@@ -173,7 +173,7 @@ All CSS classes (`.sidebarItem`, `.cell`, `.wsPanelRow`, `.tabCellFill`) carry `
 **File:** `lib/api.svelte.ts`
 
 - `fetchConfigFromServer()` — GET `/api/config` with cache busting.
-- `applyConfigToStore()` — Parses config, initializes `instancesMap`, applies ~50 indicator parameters per `*Term`.
+- `applyConfigToStore()` — Parses config, initializes `instancesMap`, applies ~51 indicator parameters per `*Term`.
 - `fetchHistory(symbol, timeframe_secs, limit=100)` — GET `/api/history` with cache busting. Called on chart mount before subscribing to WebSocket to seed the historical series; the response shape is `{ symbol, prices[], candles[], indicator_histories }` (see [06-01-api-gateway-contract.md §2.3](../integration-and-api/06-01-api-gateway-contract.md)).
 - `fetchMonitor(symbol)` — GET `/api/monitor` for per-TF regime, MTF agreement, MarketContext.
 - `fetchConnectionQuality(window='one_hour')` — GET `/api/connection-quality?window=…` for the Connection Quality panel.

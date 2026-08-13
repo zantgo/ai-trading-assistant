@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.11 (2026-08-08) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer

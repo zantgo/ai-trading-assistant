@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -71,7 +71,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 
 ## 2. REST API Reference
 
-> **Per-instance matrices via WebSocket only.** The Decision Matrix, Analysis Matrix, Opportunity Matrix, Risk Matrix, and other per-Market-Instance MME outputs are delivered exclusively via the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint, because these matrices update on every completed candle and a polling REST surface would stale. Use `/ws?symbol=…&timeframe_secs=…` for live access; use `/api/history?symbol=…&timeframe_secs=…` for replay. Global aggregations (Overview Matrix) are also WebSocket-only; the aggregate payload includes `market_breadth.low_coverage` (`bool`, default `false` — `true` when fewer than 4 of 12 SignalKinds are enabled; schema in [`02-09-overview-matrix.md §3.2`](../matrices/02-09-overview-matrix.md)).
+> **Per-instance matrices via WebSocket only.** The Decision Matrix, Analysis Matrix, Opportunity Matrix, Risk Matrix, and other per-Market-Instance MME outputs are delivered exclusively via the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint, because these matrices update on every completed candle and a polling REST surface would stale. Use `/ws?symbol=…&timeframe_secs=…` for live access; use `/api/history?symbol=…&timeframe_secs=…` for replay. Global aggregations (Overview Matrix) are also WebSocket-only; the aggregate payload includes `market_breadth.low_coverage` (`bool`, default `false` — `true` when fewer than 4 of 12 SignalKinds are enabled; schema in [`02-09-overview-matrix.md §3.2`](../matrices/02-09-overview-matrix.md)). As of v6.10.3 the Overview Matrix additionally carries `alignment_distribution` (`map<string, u32>`), `alignment_consensus_index` (`f64`, [-100, 100]), and `multi_tf_agreement_pct` (`f64`, [0, 100]) — see [`02-09-overview-matrix.md §3.5`](../matrices/02-09-overview-matrix.md) and the per-asset `AssetRank.mtf_score` / `mtf_label` columns in [`02-09-overview-matrix.md §2.2`](../matrices/02-09-overview-matrix.md).
 
 ### 2.1 Session Management
 
@@ -220,6 +220,21 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/dashboard/stats?initial_capital=` | `DashboardStats` (20+ stat categories). |
 | `GET` | `/api/system/status` | `{ observation_loop_latency_ms, ingest_skew_ms, system_heartbeat_latency_ms, journal_mode, active_pairs_count }`. The three `*_latency_ms` / `*_skew_ms` fields are distinct: `observation_loop_latency_ms` is the end-to-end raw-frame-to-broadcast latency (DIE performance target, see [03-01-01 §3](../engines/data-infrastructure-engine/03-01-01-die-overview-spec.md) and [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md)); `ingest_skew_ms` is the difference between local receipt time and `timestamp_ms` (per-trade skew); `system_heartbeat_latency_ms` is the round-trip of the most recent WS control frame. |
 | `GET` | `/api/system/observability?symbol=` | `{ recent_decisions[], completed_trades[] }`. |
+
+### 2.8.1 Snapshot Export (v6.10.4+)
+
+The periodic JSON dump scheduler — see
+[`../operations-and-compliance/08-09-snapshot-export.md`](../operations-and-compliance/08-09-snapshot-export.md)
+for the operator manual and
+[`06-03-snapshot-export-schema.md`](06-03-snapshot-export-schema.md) for the on-disk schema.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `GET` | `/api/snapshot-export/status` | — | `SnapshotExportRuntime { enabled, output_path, interval_secs, max_snapshots_retained, tabs[], last_snapshot_at, total_snapshots_written, last_error, last_instance_count }`. |
+| `PUT` | `/api/snapshot-export/config` | `SnapshotExportConfigPatch` (every field optional): `{ enabled?: bool, output_path?: string, interval_secs?: u64, max_snapshots_retained?: u32, tabs?: string[] }` | Updated `SnapshotExportRuntime`. Validation: `output_path` non-empty (otherwise 400); `interval_secs` clamped to `[5, 3600]`; `max_snapshots_retained` clamped to `[10, 100000]`; unknown `tabs` IDs silently dropped; empty `tabs` list falls back to all 9 canonical ids. |
+| `POST` | `/api/snapshot-export/run-now` | — | `{ triggered: true, path: string, note: "Tick scheduled; …" }`. Fires an immediate tick (the next scheduled tick proceeds as usual). |
+
+
 
 ### 2.9 Pre-dispatch Approval (Gate 5)
 

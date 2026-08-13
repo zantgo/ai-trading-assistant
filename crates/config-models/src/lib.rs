@@ -62,6 +62,10 @@ struct OnDiskConfig {
     reconnect: ReconnectConfig,
     #[serde(default)]
     candle_buffer: CandleBufferConfig,
+    /// Optional snapshot-export scheduler. When `None` the
+    /// `SnapshotExportConfig::default()` (disabled) is used.
+    #[serde(default)]
+    snapshot_export: Option<SnapshotExportConfig>,
     workspace: WorkspaceConfig,
 }
 
@@ -76,6 +80,7 @@ impl OnDiskConfig {
                 quality: self.quality,
                 reconnect: self.reconnect,
                 candle_buffer: self.candle_buffer,
+                snapshot_export: self.snapshot_export.unwrap_or_default(),
             },
             self.workspace,
         )
@@ -107,6 +112,12 @@ pub struct PlatformConfig {
     /// `docs/operations-and-compliance/08-08-candle-buffer-spec.md` (CB-01).
     #[serde(default)]
     pub candle_buffer: CandleBufferConfig,
+    /// Periodic per-tab JSON dump configuration. See
+    /// `SnapshotExportConfig` and `docs/operations-and-compliance/08-09-snapshot-export.md`.
+    /// Default `SnapshotExportConfig::default()` (disabled) is used when
+    /// the `[snapshot_export]` section is absent from `config.toml`.
+    #[serde(default)]
+    pub snapshot_export: SnapshotExportConfig,
 }
 
 impl Default for PlatformConfig {
@@ -118,6 +129,7 @@ impl Default for PlatformConfig {
             quality: None,
             reconnect: ReconnectConfig::default(),
             candle_buffer: CandleBufferConfig::default(),
+            snapshot_export: SnapshotExportConfig::default(),
         }
     }
 }
@@ -408,6 +420,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         quality: on_disk.quality,
         reconnect: on_disk.reconnect,
         candle_buffer: on_disk.candle_buffer,
+        snapshot_export: on_disk.snapshot_export,
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;

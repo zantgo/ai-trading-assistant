@@ -1,175 +1,137 @@
-// Tests for the Risk tab builder.
+// Regression tests for the v7.0-audit Risk tab export.
 
 import { describe, it, expect } from 'vitest';
-import { buildRiskTabExport, type RiskPayload } from './riskTab';
-import type { RiskMatrix, RiskDimension, LiquidityFlow, LiquidationClusterMatrix } from '../../types';
+import { buildRiskTabExport } from './riskTab';
+import type { LayerHeaderSpec } from '../layerHeader';
+import type { RiskMatrix, RiskDimension } from '../../types';
 
-function makeDim(overrides: Partial<RiskDimension> = {}): RiskDimension {
-  return {
-    score: 50,
-    level: 'Moderate',
-    state: 'Stable',
-    confidence: 75,
-    evidence: ['test evidence'],
-    ...overrides,
-  };
+const headerSpec: LayerHeaderSpec = {
+  layerNumber: 5,
+  layerName: 'Risk',
+  badge: { label: 'Moderate', color: '#f59e0b', background: 'rgba(245,158,11,0.08)', state: 'valid' },
+  meta: [],
+  status: 'live',
+};
+
+function dim(score: number, level: string, state = 'STABLE'): RiskDimension {
+  return { score, level, state, confidence: 78, evidence: [] } as unknown as RiskDimension;
 }
 
-function makeRiskMatrix(overrides: Partial<RiskMatrix> = {}): RiskMatrix {
+function makeRisk(): RiskMatrix {
   return {
-    symbol: 'BTC-USDT',
-    market_risk: makeDim({ score: 60, level: 'Moderate' }),
-    volatility_risk: makeDim({ score: 80, level: 'High' }),
-    execution_liquidity_risk: makeDim({ score: 40, level: 'Moderate' }),
-    structure_risk: makeDim({ score: 30, level: 'Low' }),
-    momentum_risk: makeDim({ score: 55, level: 'Moderate' }),
-    signal_risk: makeDim({ score: 25, level: 'Low' }),
-    execution_risk: makeDim({ score: 20, level: 'VeryLow' }),
-    cascade_risk: makeDim({ score: 90, level: 'Extreme' }),
-    overall_risk: makeDim({ score: 65, level: 'High' }),
-    ...overrides,
-  };
-}
-
-function makeFlow(): LiquidityFlow {
-  return {
-    long_liquidations_usd: 50000,
-    short_liquidations_usd: 10000,
-    net_liquidation_usd: 40000,
-    event_count: 3,
-    largest_event_usd: 30000,
-    largest_event_price: 49500,
-    largest_event_side: 'LONG',
-    cascade_state: 'DETECTED',
-    cascade_intensity: 65,
-  };
-}
-
-function makeCluster(): LiquidationClusterMatrix {
-  return {
-    symbol: 'BTC-USDT',
-    generated_at_ms: 1_700_000_000_000,
-    valid_until_ms: 1_700_000_300_000,
-    mid_price: 50000,
-    cascade_asymmetry: 0.3,
-    total_long_oi_usd: 1e8,
-    total_short_oi_usd: 9e7,
-    estimation_confidence: 0.8,
-    leverage_assumptions: {
-      source: 'DEFAULT_POWER_LAW',
-      buckets: [1, 3, 5, 10, 20, 50, 100],
-      weights: [0.05, 0.1, 0.2, 0.3, 0.2, 0.1, 0.05],
-      funding_modulation_active: true,
-      funding_extreme_pct: 0.5,
-    },
-    short_clusters: [],
-    long_clusters: [],
-  };
+    overall_risk: { score: 50, level: 'Moderate', state: 'Stable', confidence: 78, evidence: [] },
+    market_risk: dim(60, 'Moderate'),
+    volatility_risk: dim(55, 'Moderate'),
+    execution_liquidity_risk: dim(30, 'Low'),
+    structure_risk: dim(45, 'Moderate'),
+    momentum_risk: dim(40, 'Low'),
+    signal_risk: dim(25, 'Low'),
+    execution_risk: dim(35, 'Low'),
+    cascade_risk: dim(50, 'Moderate'),
+  } as unknown as RiskMatrix;
 }
 
 describe('buildRiskTabExport', () => {
-  it('produces a valid payload with all expected top-level fields', () => {
-    const json = buildRiskTabExport({
-      risk: makeRiskMatrix(),
-      flow: makeFlow(),
-      cluster: makeCluster(),
+  it('emits structured headline_parts (counts separate from words)', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeRisk(),
+      flow: null,
+      cluster: null,
       symbol: 'BTC-USDT',
-      tfSecs: 60,
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.headline_parts).not.toBeNull();
+    expect(p.headline_parts.very_low_count).toBe(0);
+    expect(p.headline_parts.low_count).toBe(4);
+    expect(p.headline_parts.moderate_count).toBe(4);
+    expect(p.headline_parts.overall_level).toBe('Moderate');
+    expect(p.interpretation_headline).toContain('4 moderate');
+  });
+
+  it('interpretation_full mirrors the screen paragraph', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeRisk(),
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.interpretation_full).toContain('<strong>Moderate risk environment.</strong>');
+    expect(p.interpretation_full).toContain('at 78% confidence');
+  });
+
+  it('summary_counts carry labels with counts', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeRisk(),
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.summary_counts.moderate).toEqual({ label: 'Moderate', count: 4 });
+    expect(p.summary_counts.low).toEqual({ label: 'Low', count: 4 });
+  });
+
+  it('dimension scores and confidence are integer-rounded; state_display has arrow', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeRisk(),
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const market = p.dimensions.find((d: { key: string }) => d.key === 'market_risk');
+    expect(market.score).toBe(60);
+    expect(market.confidence).toBe(78);
+    expect(market.state_display).toBe('→ STABLE');
+  });
+
+  it('no risk → hero null, awaiting placeholder dims, init interpretation, valid meta identity', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: null,
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.hero).toBeNull();
+    // 8 awaiting placeholder rows mirror the screen's AWAITING cards
+    // (name + weight + badge + paragraph).
+    expect(p.dimensions).toHaveLength(8);
+    expect(p.dimensions[0]).toMatchObject({
+      name: 'Market Risk',
+      weight_pct: 14,
+      awaiting: true,
+      awaiting_badge: 'AWAITING',
+      not_active: false,
     });
-    const p = JSON.parse(json) as RiskPayload;
-    expect(p.source_tab).toBe('risk');
-    expect(p.meta.symbol).toBe('BTC-USDT');
-    expect(p.meta.tf_secs).toBe(60);
+    expect(p.dimensions[2].name).toBe('Exec Liquidity Risk');
+    expect(p.dimensions.every((d: { awaiting: boolean }) => d.awaiting)).toBe(true);
+    expect(p.interpretation_full).toContain('Risk synthesis is initializing');
+    expect(p.meta.pair).toBe('BTC-USDT');
+  });
+
+  it('emits disclosure (8 weight chips + note) and hero hint', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeRisk(),
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.disclosure).toBeDefined();
+    expect(p.disclosure.weights).toHaveLength(8);
+    expect(p.disclosure.weights[0]).toHaveProperty('label');
+    expect(p.disclosure.weights[0]).toHaveProperty('pct');
+    expect(p.disclosure.note).toContain('weighted sum of the 8 dimension scores');
     expect(p.hero).toBeDefined();
-    expect(p.summary_counts).toBeDefined();
-    expect(p.dimensions).toBeDefined();
-    expect(p.cascade_telemetry).toBeDefined();
-    expect(p.interpretation).toBeDefined();
-  });
-
-  it('captures the hero block correctly', () => {
-    const risk = makeRiskMatrix();
-    const p = JSON.parse(buildRiskTabExport({
-      risk, flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.hero.overall_score).toBe(65);
-    expect(p.hero.overall_level).toBe('High');
-    expect(p.hero.top_severity).toBe('Extreme');
-    expect(p.hero.ring_pct).toBe(65);
-  });
-
-  it('captures summary_counts correctly', () => {
-    const risk = makeRiskMatrix();
-    const p = JSON.parse(buildRiskTabExport({
-      risk, flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.summary_counts.very_low).toBe(1);
-    expect(p.summary_counts.low).toBe(2);
-    expect(p.summary_counts.moderate).toBe(3);
-    expect(p.summary_counts.high).toBe(1);
-    expect(p.summary_counts.extreme).toBe(1);
-  });
-
-  it('exports all 8 dimensions in panel-sorted order (severity desc)', () => {
-    const risk = makeRiskMatrix();
-    const p = JSON.parse(buildRiskTabExport({
-      risk, flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.dimensions.length).toBe(8);
-    // First dimension should be cascade_risk (highest score: 90)
-    expect(p.dimensions[0].name).toBe('Cascade Risk');
-    expect(p.dimensions[0].is_cascade_dim).toBe(true);
-    expect(p.dimensions[0].score).toBe(90);
-  });
-
-  it('emits weight_mark_pct correctly', () => {
-    const risk = makeRiskMatrix();
-    const p = JSON.parse(buildRiskTabExport({
-      risk, flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    const market = p.dimensions.find(d => d.key === 'market_risk');
-    expect(market?.weight_mark_pct).toBe(14);
-    expect(market?.weight_pct).toBe(14);
-    const structure = p.dimensions.find(d => d.key === 'structure_risk');
-    expect(structure?.weight_mark_pct).toBe(10);
-  });
-
-  it('captures cascade_telemetry when flow and cluster are present', () => {
-    const p = JSON.parse(buildRiskTabExport({
-      risk: makeRiskMatrix(), flow: makeFlow(), cluster: makeCluster(), symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.cascade_telemetry).not.toBeNull();
-    expect(p.cascade_telemetry?.cascade_state).toBe('DETECTED');
-    expect(p.cascade_telemetry?.cascade_intensity).toBe(65);
-    expect(p.cascade_telemetry?.cascade_asymmetry).toBe(0.3);
-  });
-
-  it('emits null cascade_telemetry when both flow and cluster are null', () => {
-    const p = JSON.parse(buildRiskTabExport({
-      risk: makeRiskMatrix(), flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.cascade_telemetry).toBeNull();
-  });
-
-  it('produces a valid payload even when risk is null', () => {
-    const p = JSON.parse(buildRiskTabExport({
-      risk: null, flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.source_tab).toBe('risk');
-    expect(p.hero.top_severity).toBeNull();
-    expect(p.dimensions).toEqual([]);
-    expect(p.summary_counts).toEqual({
-      very_low: 0, low: 0, moderate: 0, high: 0, extreme: 0,
-    });
-  });
-
-  it('interpretation reflects severity counts', () => {
-    const risk = makeRiskMatrix();
-    const p = JSON.parse(buildRiskTabExport({
-      risk, flow: null, cluster: null, symbol: 'BTC-USDT',
-    })) as RiskPayload;
-    expect(p.interpretation).toContain('1 extreme');
-    expect(p.interpretation).toContain('1 high');
-    expect(p.interpretation).toContain('3 moderate');
+    expect(p.hero.hint).toContain('Lower is safer');
+    expect(p.awaiting_dimensions_text).toContain('Awaiting risk assessment');
   });
 });

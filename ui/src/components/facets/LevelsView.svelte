@@ -34,6 +34,7 @@
     import type { FilterState } from '../../lib/filtering';
     import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
     import { formatTimeframeLabel } from '../../lib/telemetry';
+    import { fibStatusString, vpPositionLabel } from '../../lib/structuralStrings';
     import styles from './LevelsView.module.css';
 
     interface Props {
@@ -157,15 +158,9 @@
     );
 
     const fibPosition = $derived.by<string>(() => {
-        const top = fibGpTop;
-        const bot = fibGpBottom;
+        // Shared canonical sentence (anchors strip + JSON export + this facet).
         const price = tf.priceText ? parseFloat(tf.priceText) : NaN;
-        if (top == null || bot == null || !isFinite(price) || price <= 0) return 'NO DATA';
-        const lo = Math.min(top, bot);
-        const hi = Math.max(top, bot);
-        if (price >= lo && price <= hi) return 'INSIDE GP';
-        if (price > hi) return `+${((price - hi) / hi * 100).toFixed(2)}% ABOVE GP`;
-        return `${((lo - price) / price * 100).toFixed(2)}% BELOW GP`;
+        return fibStatusString(fibGpTop, fibGpBottom, isFinite(price) && price > 0 ? price : null);
     });
 
     const fibHasData = $derived<boolean>(
@@ -289,10 +284,8 @@
                 <span class={styles.vpPosition}>
                     {(() => {
                         const p = tf.priceText ? parseFloat(tf.priceText) : NaN;
-                        if (!Number.isFinite(p) || p <= 0) return '';
-                        if (p > vp.value_area_high) return `+${((p - vp.value_area_high) / vp.value_area_high * 100).toFixed(2)}% ABOVE VAH`;
-                        if (p < vp.value_area_low) return `${((vp.value_area_low - p) / p * 100).toFixed(2)}% BELOW VAL`;
-                        return 'INSIDE VALUE AREA';
+                        // Shared canonical label (anchors strip badge + JSON export).
+                        return vpPositionLabel(vp, isFinite(p) && p > 0 ? p : null);
                     })()}
                 </span>
             </header>

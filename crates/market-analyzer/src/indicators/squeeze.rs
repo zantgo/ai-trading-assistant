@@ -44,6 +44,7 @@ pub struct SqueezeMomentum {
     prev_squeeze_on: Option<bool>,
     prev_momentum: Option<Decimal>,
     squeeze_duration: u32,
+    prev_squeeze_duration: u32,
     min_duration: u32,
 }
 
@@ -61,6 +62,7 @@ impl SqueezeMomentum {
             prev_squeeze_on: None,
             prev_momentum: None,
             squeeze_duration: 0,
+            prev_squeeze_duration: 0,
             min_duration: 5,
         }
     }
@@ -134,15 +136,28 @@ impl SqueezeMomentum {
 
         let squeeze_on = bb_lower > kc_lower && bb_upper < kc_upper;
 
-        // Squeeze duration tracking
+        // Squeeze duration tracking. `prev_squeeze_duration` is the count of
+        // consecutive ON candles that ended with the previous bar — it is
+        // what the release gate below must compare against (the duration of
+        // the just-ended squeeze). Snapshot BEFORE this bar's mutation: on
+        // the release bar `squeeze_on` is false so the counter is zeroed
+        // below, and we need the length of the squeeze being released.
+        self.prev_squeeze_duration = self.squeeze_duration;
         if squeeze_on {
             self.squeeze_duration = self.squeeze_duration.saturating_add(1);
         } else {
             self.squeeze_duration = 0;
         }
 
-        // Release trigger: transition from ON to OFF
-        let squeeze_release_trigger = self.prev_squeeze_on == Some(true) && !squeeze_on;
+        // Release trigger: transition from ON to OFF.
+        // AUDIT-AIU-036: the doc (04-02-28 §4) requires a breakout to be
+        // valid only if the squeeze lasted ≥ `min_duration` consecutive ON
+        // candles (default 5). The previous code fired the release on ANY
+        // ON→OFF transition — a 1-bar squeeze released with full strength.
+        // `min_duration` was stored by `set_min_duration` but never read.
+        let squeeze_release_trigger = self.prev_squeeze_on == Some(true)
+            && !squeeze_on
+            && self.prev_squeeze_duration >= self.min_duration;
 
         let return_val = if self.val_history.len() == p {
             let n = p as f64;

@@ -3,7 +3,7 @@
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import { buildAnalysisTabExport } from '../lib/exportBuilders/analysisTab';
-    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
+    import { prettifyPhase, highlightKeywords as importedHighlightKeywords } from '../lib/prettifyPhase';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
@@ -25,7 +25,10 @@
             : null
     );
     const registry = $derived(app.indicatorRegistry ?? []);
-    const pairKey = $derived(app.activeSymbol ?? '');
+    // `activeTab` is the FULL instancesMap key (e.g. "BTC-USDT") — the
+    // same key the other panels route by. `activeSymbol` returns only the
+    // bare base ("BTC") which would corrupt meta.pair in the export.
+    const pairKey = $derived(app.activeTab ?? '');
 
     function buildExport() {
         return buildAnalysisTabExport({
@@ -35,12 +38,13 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: buildFilterStateBlock({
-                activeOnly: false,
-                confirmedPlusOnly: false,
-                hideGates: false,
-                hideOverlays: false,
-            }),
+            headerSpec,
+            terms: {
+                microTerm: instance?.microTerm as any,
+                fastTerm: instance?.fastTerm as any,
+                slowTerm: instance?.slowTerm as any,
+                macroTerm: instance?.macroTerm as any,
+            },
         });
     }
 
@@ -90,7 +94,9 @@
         return r.replace(/_/g, ' ');
     }
     function displayPhase(p: string): string {
-        return p.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim().toUpperCase();
+        // Shared prettifier with the export builder — both surfaces must
+        // render the identical string for the same wire token.
+        return prettifyPhase(p);
     }
 
     /** Parse signal text for (bullish/bearish/neutral) direction indicator. */
@@ -113,10 +119,10 @@
     }
 
     function highlightKeywords(text: string): string {
-        if (!text) return '\u2014';
-        const keywords = /\b(TRANSITIONAL|DEVELOPING|WEAKENING|UNSTABLE|WEAK|STRONG|HEALTHY|EXHAUSTED|EXPANDING|COMPRESSED|NORMAL|EXTREME|INCREASING|STABLE|REVERSING|BROKEN|EXCEPTIONAL|BULLISH|BEARISH|NEUTRAL)\b/gi;
-        return text.replace(keywords, '<strong>$1</strong>');
+        return importedHighlightKeywords(text);
     }
+    // (Logic lives in `lib/prettifyPhase.ts::highlightKeywords` so the
+    //  export builder can reuse the exact same regex.)
 
     // Dynamic extraction of timeframe alignments in exact micro -> fast -> slow -> macro order
     const timeframeSlots = $derived.by(() => {

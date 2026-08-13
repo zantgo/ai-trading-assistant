@@ -92,11 +92,27 @@ impl SmartMoney {
                 sl_idx.push((i, l));
             }
         }
-        if sh_idx.len() >= 2 && sl_idx.len() >= 2 {
+        // AUDIT-AIU-047: the previous `>= 2` gate on BOTH sides meant a
+        // strong one-sided rally with a single swing low reported Neutral
+        // forever, and when both BOS flags fired on one bar the bearish flag
+        // unconditionally overwrote the bullish one (order-dependent).
+        // Structure is now resolved from whichever side has pivots; both
+        // flags are preserved so the normalizer can prioritize.
+        if !sh_idx.is_empty() && !sl_idx.is_empty() {
             let last_sh = sh_idx.last().unwrap().1;
-            let prev_sh = sh_idx[sh_idx.len() - 2].1;
+            let prev_sh = if sh_idx.len() >= 2 {
+                sh_idx[sh_idx.len() - 2].1
+            } else {
+                // Single swing high: no prior high to compare — treat the
+                // last swing as a continuation candidate only.
+                last_sh
+            };
             let last_sl = sl_idx.last().unwrap().1;
-            let prev_sl = sl_idx[sl_idx.len() - 2].1;
+            let prev_sl = if sl_idx.len() >= 2 {
+                sl_idx[sl_idx.len() - 2].1
+            } else {
+                last_sl
+            };
             if last_sh > prev_sh {
                 bos_bull = true;
                 structure = MarketStructure::Bullish;
@@ -117,6 +133,34 @@ impl SmartMoney {
                 structure = self.prev_structure;
             }
             self.prev_structure = structure;
+        } else if !sh_idx.is_empty() && self.prev_structure == MarketStructure::Bearish {
+            // One-sided market (only swing highs): a higher high in a bearish
+            // regime is a bullish CHoCH candidate.
+            let last_sh = sh_idx.last().unwrap().1;
+            let prev_sh = if sh_idx.len() >= 2 {
+                sh_idx[sh_idx.len() - 2].1
+            } else {
+                last_sh
+            };
+            if last_sh > prev_sh {
+                choch_bull = true;
+                structure = MarketStructure::Bullish;
+                self.prev_structure = structure;
+            }
+        } else if !sl_idx.is_empty() && self.prev_structure == MarketStructure::Bullish {
+            // One-sided market (only swing lows): a lower low in a bullish
+            // regime is a bearish CHoCH candidate.
+            let last_sl = sl_idx.last().unwrap().1;
+            let prev_sl = if sl_idx.len() >= 2 {
+                sl_idx[sl_idx.len() - 2].1
+            } else {
+                last_sl
+            };
+            if last_sl < prev_sl {
+                choch_bear = true;
+                structure = MarketStructure::Bearish;
+                self.prev_structure = structure;
+            }
         }
 
         let mut liq_sweep_buy = false;
@@ -162,7 +206,12 @@ impl SmartMoney {
         if bos_bull && n >= 2 {
             let prev = bars[n - 2];
             if prev.3 < prev.0 {
-                self.ob_bullish_high = Some(prev.0);
+                // AUDIT-AIU-048: the zone is the FULL range of the last
+                // opposite candle (`high..low`), not `open..low` — the
+                // previous code narrowed the zone by up to the wick above
+                // open, mis-framing the order block and producing a zone
+                // that did not contain the candle that created it.
+                self.ob_bullish_high = Some(prev.1);
                 self.ob_bullish_low = Some(prev.2);
             }
         }

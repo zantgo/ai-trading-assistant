@@ -105,6 +105,18 @@ pub fn derive_signals(map: &mut Map) {
         } else if l.contains("CLIMACTIC_BEAR") || l.contains("OVEREXTENDED_LOW") {
             sigs.push(threshold(SignalDirection::Bullish, l));
         }
+        // AUDIT-AIU-021: the ADX 2-bar deceleration hook (`*_TREND_EXHAUSTION_HOOK`)
+        // previously matched no deriver branch, so the documented climactic
+        // Threshold never fired on a decelerating extreme trend. It is the
+        // exhaustion counterpart of CLIMACTIC: a decelerating BULL trend is a
+        // bearish warning, and vice versa.
+        if l.contains("EXHAUSTION_HOOK") {
+            if l.contains("BULL") {
+                sigs.push(threshold(SignalDirection::Bearish, l));
+            } else {
+                sigs.push(threshold(SignalDirection::Bullish, l));
+            }
+        }
         // Breakouts (Donchian / Keltner / Bollinger).
         if l.contains("UPPER_BREAKOUT") {
             sigs.push(IndicatorSignal::new(
@@ -137,6 +149,17 @@ pub fn derive_signals(map: &mut Map) {
         } else if l == "COMPRESSION_COILING" || l.contains("MAX_VOLATILITY_COMPRESSION") {
             sigs.push(IndicatorSignal::new(
                 SignalKind::CompressionRelease,
+                SignalDirection::Neutral,
+                SignalStatus::Active,
+                l,
+            ));
+        } else if l.contains("VOLATILITY_EXHAUSTION_REVERSION_WARNING") {
+            // AUDIT-AIU-023: BBWP > 90 (volatility exhaustion) is documented
+            // as a Threshold (04-02-27 §5) but previously no deriver branch
+            // matched this label, so the >90 regime emitted no signal at all.
+            // Non-directional gate: the reversion warning is Neutral.
+            sigs.push(IndicatorSignal::new(
+                SignalKind::Threshold,
                 SignalDirection::Neutral,
                 SignalStatus::Active,
                 l,
@@ -232,22 +255,13 @@ pub fn derive_signals(map: &mut Map) {
             ));
         }
 
-        // EMA ribbon stack alignment / retest (ribbon flip or retest trigger).
-        if key == "ema_stack" && l.contains("STACK") {
-            let d = if l.contains("BULLISH") {
-                SignalDirection::Bullish
-            } else if l.contains("BEARISH") {
-                SignalDirection::Bearish
-            } else {
-                SignalDirection::Neutral
-            };
-            sigs.push(IndicatorSignal::new(
-                SignalKind::StackChange,
-                d,
-                SignalStatus::Active,
-                l,
-            ));
-        }
+        // EMA ribbon stack alignment / retest: REMOVED here (AUDIT-AIU-030).
+        // StackChange is a transition-only momentary signal per 05-02-11 §4;
+        // it is now emitted by the structured block in
+        // `normalize_all` (all.rs), gated on a ribbon-order change between
+        // the previous and current bar. The previous stateless branch below
+        // fired on every bar whose label contained "STACK" (i.e. every bar
+        // while stacked or tangled), spamming persistent Active signals.
 
         // Aroon trend strength (primary directional signal).
         if key == "aroon" {
@@ -267,33 +281,54 @@ pub fn derive_signals(map: &mut Map) {
             sigs.push(threshold(SignalDirection::Neutral, l));
         }
 
+        // Squeeze expansion-phase thresholds (AUDIT-AIU-035): the doc
+        // (04-02-28 §4) declares `BULLISH/BEARISH_EXPANSION_ACCELERATING`
+        // and `BULLISH/BEARISH_MOMENTUM_EXHAUSTING` Thresholds, but no
+        // branch matched these labels so they never fired.
+        if key == "squeeze"
+            && (l.contains("EXPANSION_ACCELERATING") || l.contains("MOMENTUM_EXHAUSTING"))
+        {
+            let d = if l.contains("BULLISH") {
+                SignalDirection::Bullish
+            } else {
+                SignalDirection::Bearish
+            };
+            sigs.push(threshold(d, l));
+        }
+
         // HV extreme volatility (regime outlier warning).
         if key == "hv" && l.contains("EXTREME") {
             sigs.push(threshold(SignalDirection::Neutral, l));
         }
 
         // RSI / Stochastic / MFI / ChandeMO directional momentum bias (non-extreme).
+        // AUDIT-AIU-032: the chandemo labels are `EMERGING_BULL_MOMENTUM` /
+        // `EMERGING_BEAR_MOMENTUM` (no "BULLISH_MOMENTUM" substring) and RSI
+        // uses `BULLISH_DISCOUNT` / `BEARISH_PREMIUM` — none matched this
+        // branch, so the documented bias Thresholds (04-02-13 §4, 04-02-11)
+        // never fired. The patterns below cover every label form.
         const MOM_KEYS: &[&str] = &["rsi", "stochastic", "chandemo", "mfi"];
         if MOM_KEYS.contains(&key.as_str()) {
-            if l.contains("BULLISH_MOMENTUM") || (l.contains("_BULLISH_") && l.contains("BIAS")) {
+            if l.contains("BULLISH_MOMENTUM")
+                || l.contains("BULL_MOMENTUM")
+                || (l.contains("_BULLISH_") && l.contains("BIAS"))
+                || l.contains("BULLISH_DISCOUNT")
+            {
                 sigs.push(threshold(SignalDirection::Bullish, l));
             } else if l.contains("BEARISH_MOMENTUM")
+                || l.contains("BEAR_MOMENTUM")
                 || (l.contains("_BEARISH_") && l.contains("BIAS"))
+                || l.contains("BEARISH_PREMIUM")
             {
                 sigs.push(threshold(SignalDirection::Bearish, l));
             }
         }
 
-        // CCI: overbought/oversold thresholds and climactic exhaustion.
-        // Also matches the Momentum bias patterns above via the MOM_KEYS list
-        // (CCI is NOT in MOM_KEYS, so its BIAS labels are handled here).
-        if key == "cci" {
-            if l.contains("OVERBOUGHT") || l.contains("CLIMACTIC_BULL") {
-                sigs.push(threshold(SignalDirection::Bearish, l));
-            } else if l.contains("OVERSOLD") || l.contains("CLIMACTIC_BEAR") {
-                sigs.push(threshold(SignalDirection::Bullish, l));
-            }
-        }
+        // CCI: REMOVED here (AUDIT-AIU-034). The generic overbought/oversold
+        // branch (above) and the climactic-exhaustion branch already fire for
+        // CCI labels (`OVERBOUGHT`/`OVERSOLD`/`CLIMACTIC_*`), so this
+        // keyed branch double-emitted a second Threshold on the same bar
+        // (e.g. `OVERBOUGHT` + `CCI_OVERBOUGHT`).
 
         // ── ZeroLineCross across oscillators ──
         const ZERO_CROSS_KEYS: &[&str] = &[
@@ -577,6 +612,25 @@ pub fn derive_signals(map: &mut Map) {
                 sigs.push(IndicatorSignal::new(
                     SignalKind::Threshold,
                     d,
+                    SignalStatus::Active,
+                    "SMC_LIQUIDITY_SWEEP",
+                ));
+            }
+            // AUDIT-AIU-049: `SMC_LIQUIDITY_BOTH_SWEEPS` previously emitted
+            // zero signals (no deriver branch matched the label) and scored
+            // 0.0 — the strongest event (both liquidity pools taken out on
+            // one bar) was silent. Without sweep sizes the net direction is
+            // genuinely balanced, so both signals are Neutral.
+            if l == "SMC_LIQUIDITY_BOTH_SWEEPS" {
+                sigs.push(IndicatorSignal::new(
+                    SignalKind::PatternForming,
+                    SignalDirection::Neutral,
+                    SignalStatus::Active,
+                    l,
+                ));
+                sigs.push(IndicatorSignal::new(
+                    SignalKind::Threshold,
+                    SignalDirection::Neutral,
                     SignalStatus::Active,
                     "SMC_LIQUIDITY_SWEEP",
                 ));

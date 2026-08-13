@@ -293,3 +293,139 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         }
     });
 });
+
+// ── EMA Ribbon micro-grid on the `ema_stack` collapsed `raw_value` cell ──
+//
+// Single source of truth: the same `tf.indicators["ema_stack"].values.*`
+// record drives the chart overlay, this micro-grid, and the export body's
+// `body.ema` block. These tests cover the screen-side rendering.
+describe('IndicatorsView EMA Ribbon micro-grid', () => {
+    function realEmaReading(values: { fast: number; medium: number; slow: number; long: number }): IndicatorDto {
+        return {
+            raw_value: values.fast,
+            normalized: 1.0,
+            state_label: 'ESTABLISHED_BULLISH_STACK',
+            confidence: 0.9,
+            signals: [],
+            values: { ...values },
+        };
+    }
+
+    function partialEmaReading(values: Partial<{ fast: number; medium: number; slow: number; long: number }>): IndicatorDto {
+        return {
+            raw_value: values.fast ?? 0,
+            normalized: 0,
+            state_label: 'WARMING',
+            confidence: 0,
+            values: {
+                ...(values.fast != null ? { fast: values.fast } : {}),
+                ...(values.medium != null ? { medium: values.medium } : {}),
+                ...(values.slow != null ? { slow: values.slow } : {}),
+                ...(values.long != null ? { long: values.long } : {}),
+            },
+            signals: [],
+        };
+    }
+
+    it('renders all 4 EMA lines + signed distance + spread sub-label on the `ema_stack` row', () => {
+        const tf = makeTf({
+            indicators: {
+                ema_stack: realEmaReading({ fast: 64018.2, medium: 64110.0, slow: 63980.4, long: 63845.0 }),
+            },
+            priceText: '64000.00',
+        });
+        const registry = [meta('ema_stack', {
+            group: 'Trend',
+            class: 'Lagging',
+            render: 'PriceOverlay',
+            value_format: 'price',
+            value_source: 'sub:fast',
+            normalization_mode: 'Directional',
+        })];
+
+        const { container } = render(IndicatorsView, {
+            props: { tf, registry, filters: defaultFilters() },
+        });
+
+        const ribbon = container.querySelector('[class*="emaRibbon"]');
+        expect(ribbon).not.toBeNull();
+        const text = (ribbon?.textContent ?? '').replace(/\s+/g, ' ').trim();
+        // All four labels must be present (F/M/S/L).
+        expect(text).toContain('F');
+        expect(text).toContain('M');
+        expect(text).toContain('S');
+        expect(text).toContain('L');
+        // All four formatted prices render (formatted by fmtPrice against
+        // the refPrice 64000, which is 1-decimal scale for >=$10k prices).
+        expect(text).toContain('64018.2');
+        expect(text).toContain('64110.0');
+        expect(text).toContain('63980.4');
+        expect(text).toContain('63845.0');
+        // Per-line distance_from_price (signed %): with refPrice=64000,
+        //   fast  (64000 - 64018.2) / 64000 = -0.0284% → '-0.03%'
+        //   medium (64000 - 64110.0) / 64000 = -0.1719% → '-0.17%'
+        //   slow   (64000 - 63980.4) / 64000 = +0.0306% → '+0.03%'
+        //   long   (64000 - 63845.0) / 64000 = +0.2422% → '+0.24%'
+        expect(text).toContain('-0.03%');
+        expect(text).toContain('-0.17%');
+        expect(text).toContain('+0.03%');
+        expect(text).toContain('+0.24%');
+        // The spread = (64018.2 - 63845) / 64000 ≈ +0.2703% → '+0.27%'.
+        expect(text).toContain('spread ↔');
+        expect(text).toMatch(/0\.2[5-9]%/);
+    });
+
+    it('shows -- across the grid when the EMA ribbon has not warmed up (cold start)', () => {
+        // True cold-start: no `ema_stack` entry at all → readEmaValues
+        // returns all-null → every value in the micro-grid is '--' and
+        // the spread is '--'.
+        const tf = makeTf({
+            indicators: {},
+            priceText: '64000.00',
+        });
+        const registry = [meta('ema_stack', {
+            group: 'Trend',
+            class: 'Lagging',
+            render: 'PriceOverlay',
+            value_format: 'price',
+            value_source: 'sub:fast',
+            normalization_mode: 'Directional',
+        })];
+
+        const { container } = render(IndicatorsView, {
+            props: { tf, registry, filters: defaultFilters() },
+        });
+
+        const ribbon = container.querySelector('[class*="emaRibbon"]');
+        const text = (ribbon?.textContent ?? '').replace(/\s+/g, ' ').trim();
+        // Five -- placeholders should appear (4 lines + spread suffix).
+        expect((text.match(/--/g) ?? []).length).toBeGreaterThanOrEqual(5);
+        expect(text).toContain('spread ↔');
+    });
+
+    it('does NOT alter rendering of any other indicator (regression)', () => {
+        // The collapsed `raw_value` cell for any non-`ema_stack` indicator
+        // still goes through `formatRaw()` and renders the single-scalar
+        // `raw_value`. The micro-grid is `ema_stack`-only.
+        const tf = makeTf({
+            indicators: {
+                rsi_14: realReading(62.4, 0.24, 'BULLISH'),
+            },
+            priceText: '64000.00',
+        });
+        const registry = [meta('rsi_14', { group: 'Momentum', value_format: 'decimals2' })];
+
+        const { container } = render(IndicatorsView, {
+            props: { tf, registry, filters: defaultFilters() },
+        });
+
+        // No `emaRibbon` element should appear when the only row is RSI.
+        const ribbon = container.querySelector('[class*="emaRibbon"]');
+        expect(ribbon).toBeNull();
+
+        // The single-scalar 62.40 renders as the raw_value cell.
+        const raws = rowCells(container, 'colRaw');
+        expect(raws.length).toBe(1);
+        expect(raws[0]).toBe('62.40');
+    });
+});

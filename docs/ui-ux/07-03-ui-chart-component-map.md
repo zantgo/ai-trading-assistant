@@ -1,6 +1,6 @@
 # UI Chart Component Map
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Per-indicator mapping from registry key to frontend rendering location. Companion to [UI Overview](07-01-ui-overview-spec.md) and [Dashboard Layout](07-02-ui-dashboard-layout.md).
 

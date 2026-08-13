@@ -1,6 +1,6 @@
 use axum::{
     response::Redirect,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use core_domain::normalized::SymbolMapper;
@@ -76,6 +76,18 @@ pub struct AppState {
     /// `recharge_instance`. Subscribed by the WS handler so it can swap its
     /// broadcast subscription off the orphaned `ActivePair` onto the new one.
     pub recharge_tx: tokio::sync::broadcast::Sender<RechargeNotice>,
+
+    // ── Snapshot Export (v6.10.4+) ─────────────────────────────────
+    /// Runtime state of the periodic snapshot-export task. Shared between
+    /// the task (reads config every tick), the HTTP handlers
+    /// (`/api/snapshot-export/status`, `.../config`, `.../run-now`), and
+    /// the CLI `setup` flow (which writes the same data into
+    /// `config.toml`).
+    pub snapshot_export: Arc<RwLock<core_domain::snapshot_export::SnapshotExportRuntime>>,
+    /// `Notify` fired by `POST /api/snapshot-export/run-now` to wake the
+    /// scheduler task for an immediate tick (the next scheduled tick is
+    /// unaffected).
+    pub snapshot_export_manual_tick: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -295,6 +307,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::cluster_status::serve_cluster_status),
         )
         .route("/api/overview", get(handlers::overview::serve_overview))
+        .route(
+            "/api/snapshot-export/status",
+            get(handlers::snapshot_export::serve_snapshot_export_status),
+        )
+        .route(
+            "/api/snapshot-export/config",
+            put(handlers::snapshot_export::serve_update_snapshot_export_config),
+        )
+        .route(
+            "/api/snapshot-export/run-now",
+            post(handlers::snapshot_export::serve_run_snapshot_export_now),
+        )
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
         .route(
             "/api/trades",

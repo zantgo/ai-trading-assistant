@@ -1,6 +1,6 @@
 # Market Monitoring Engine — Overview Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven core analytical layers (L1–L7) with two fractional extension layers (L1.5: Derivatives Telemetry, L2.5: Liquidity Synthesis) — see `01-01-ontology.md` Ch. 6 and `03-02-11-mme-liquidity-extension.md`. L1–L3 sequential, L4 ∥ L5 parallel from L3 (with additional feeds from L1.5 and L2.5), L6–L7 sequential after convergence.
@@ -42,7 +42,7 @@ The per-timeframe pipeline (`crates/market-analyzer/src/analyzer/mod.rs`) execut
 completed candle
    │
    ▼
-[indicator calculators]  → raw values (50 indicators)
+[indicator calculators]  → raw values (51 indicators)
    │
    ▼
 [NormalizationEngine]    → normalized [-1,1] scores + state labels
@@ -125,7 +125,7 @@ The MME follows a Welcome-Gate pattern: no pipelines spawn until a **session** (
 
 ## 5. Indicator & Signal System
 
-The MME computes **50 technical indicators** across 8 functional groups, with **100 signal-kind declarations** across 12 SignalKind types (post-v2.1; the 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md)). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
+The MME computes **51 technical indicators** across 8 functional groups, with **101 signal-kind declarations** across 12 SignalKind types (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
 
 - Per-indicator specifications: [indicators/](indicators/04-02-00-indicator-index.md)
 - Indicator rulebook: [mme-indicators-guide.md](03-02-09-mme-indicators-guide.md)

@@ -344,7 +344,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
         }));
         expect(spec.badge.label).toBe('WEAK BULL');
         expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
-        expect(spec.meta.find((c) => c.label === 'Score')!.value).toBe('21.2');
+        expect(spec.meta.find((c) => c.label === 'Score')!.value).toBe('21.20');
         expect(spec.meta.find((c) => c.label === 'Agreement')!.value).toBe('100%');
         expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4/4');
     });

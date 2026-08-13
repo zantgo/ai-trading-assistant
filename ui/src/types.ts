@@ -533,6 +533,13 @@ export interface AssetRank {
     confidence: number;
     regime: string;
     risk_level: string;
+    /// v6.11+ — Mirrors `AlignmentMatrix.mtf_overall_score` for this
+    /// symbol ∈ [-100, 100]. `0` when no alignment is available.
+    mtf_score?: number;
+    /// v6.11+ — Mirrors `AlignmentMatrix.mtf_overall_label`
+    /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
+    /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`).
+    mtf_label?: string;
 }
 
 export interface RiskDistribution {
@@ -566,6 +573,22 @@ export interface OverviewMatrix {
     /// v6.9+ — Market-wide danger index consumed by the PME safety
     /// veto. `0.6 × high_pct + 0.4 × sync_penalty`.
     systemic_risk_score?: number;
+    /// v6.11+ — Count of assets per `AlignmentMatrix.mtf_overall_label`
+    /// (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` /
+    /// `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`). Mirrors
+    /// the shape of `opportunity_distribution` (per-type counts,
+    /// not a partition).
+    alignment_distribution?: Record<string, number>;
+    /// v6.11+ — Mean of all per-symbol
+    /// `AlignmentMatrix.mtf_overall_score` ∈ [-100, 100]. The
+    /// cross-timeframe counterpart to `breadth_pct` (which is
+    /// cross-symbol). `0` when no alignments are available.
+    alignment_consensus_index?: number;
+    /// v6.11+ — Mean of all per-symbol
+    /// `AlignmentMatrix.trend_agreement_pct` ∈ [0, 100]. Distinct
+    /// from `market_synchronization` (cross-symbol, derived from
+    /// `breadth_pct`).
+    multi_tf_agreement_pct?: number;
 }
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
@@ -1234,4 +1257,46 @@ export interface OpportunityMatrix {
     long_geometry_consistent?: boolean;
     /** Server-side geometry-consistency for the SHORT side at matrix level. */
     short_geometry_consistent?: boolean;
+}
+
+// ── Snapshot Export (v6.10.4+) ──────────────────────────────────────
+//
+// Mirrors the Rust `SnapshotExportRuntime` (in
+// `core-domain/src/snapshot_export.rs`) and the JSON wire shape
+// returned by `GET /api/snapshot-export/status`. The 9 tabs
+// listed in `ALL_SNAPSHOT_TABS` mirror the Rust `ALL_TABS` array.
+export const ALL_SNAPSHOT_TABS = [
+    'metrics',
+    'mtf',
+    'alignment',
+    'opportunity',
+    'risk',
+    'analysis',
+    'advisory',
+    'decision',
+    'recommendation',
+] as const;
+
+export type SnapshotExportTabId = typeof ALL_SNAPSHOT_TABS[number];
+
+export interface SnapshotExportStatus {
+    enabled: boolean;
+    output_path: string;
+    interval_secs: number;
+    max_snapshots_retained: number;
+    tabs: string[];
+    /** ISO-8601 UTC timestamp of the most recent successful tick. */
+    last_snapshot_at: string | null;
+    total_snapshots_written: number;
+    last_error: string | null;
+    last_instance_count: number;
+}
+
+/** Patch shape accepted by `PUT /api/snapshot-export/config`. */
+export interface SnapshotExportConfigPatch {
+    enabled?: boolean;
+    output_path?: string;
+    interval_secs?: number;
+    max_snapshots_retained?: number;
+    tabs?: string[];
 }

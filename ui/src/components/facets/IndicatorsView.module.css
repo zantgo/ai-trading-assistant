@@ -497,3 +497,59 @@
     font-feature-settings: "tnum" 1;
     font-weight: 600;
 }
+
+/* ── EMA Ribbon micro-grid (Indicators facet, `ema_stack` collapsed cell) ──
+ * Each row is `LABEL  value  distance%` on one line; 4 rows for F/M/S/L
+ * plus the spread sub-label. Single source of truth with the chart overlay
+ * and the per-TF Metrics export body's `body.ema` block. */
+.emaRibbon {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    align-items: flex-start;
+    font-feature-settings: "tnum" 1;
+    line-height: 1.15;
+    white-space: nowrap;
+}
+
+.emaRibbonRow {
+    display: inline-grid;
+    grid-template-columns: 0.7em 4.5em 3.2em;
+    align-items: baseline;
+    column-gap: 0.4em;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.emaRibbonLabel {
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 700;
+    text-align: center;
+}
+
+.emaRibbonValue {
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.emaRibbonDist {
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 9px;
+}
+
+.emaRibbonSpread {
+    margin-top: 2px;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    padding-top: 1px;
+    width: 100%;
+    text-align: right;
+}

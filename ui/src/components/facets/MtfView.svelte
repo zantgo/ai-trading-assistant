@@ -39,7 +39,12 @@
         { label: 'Macro', tf: pair.macroTerm, secs: pair.macroTerm.barDurationSec },
     ]);
 
-    const filteredRegistry = $derived(filterRegistry(registry, filters));
+    // Active-only filtering counts signals across ALL 4 slots (an indicator
+    // firing on any timeframe is active). Mirrors the export builder's
+    // `signalsFor` so the on-screen grid and the MTF JSON agree.
+    const filteredRegistry = $derived(filterRegistry(registry, filters, (key) =>
+        SLOTS.flatMap((s) => s.tf.indicators?.[key]?.signals ?? [])
+    ));
 
     interface IndicatorMtf {
         meta: IndicatorMeta;

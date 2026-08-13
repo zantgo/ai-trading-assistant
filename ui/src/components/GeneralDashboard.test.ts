@@ -286,7 +286,7 @@ describe('GeneralDashboard — hero states', () => {
 });
 
 describe('GeneralDashboard — asset rankings table', () => {
-    it('renders 9 columns (Symbol, Price, Bias, Signal, Direction, R:R, Score, Confidence, Risk, Updated)', () => {
+    it('renders 11 columns (Symbol, Price, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score, MTF Label, Risk, Updated)', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
         // Verify each column header is present (use getAllByText for
@@ -300,6 +300,8 @@ describe('GeneralDashboard — asset rankings table', () => {
         expect(screen.getAllByText('R:R').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('MTF Score').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('MTF Label').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Risk').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Updated').length).toBeGreaterThan(0);
     });
@@ -460,5 +462,40 @@ describe('GeneralDashboard — trade opportunities card', () => {
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Best R:R').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
+    });
+});
+
+describe('GeneralDashboard — market alignment card', () => {
+    it('renders the MARKET ALIGNMENT card title and awaiting-data placeholder', () => {
+        seedPair('BTC');
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        expect(screen.getByText('MARKET ALIGNMENT')).toBeTruthy();
+        expect(screen.getByText(/Awaiting alignment data/i)).toBeTruthy();
+    });
+
+    it('renders populated distribution + consensus + agreement when overview has alignment data', () => {
+        const app = useAppStore();
+        app.overviewMatrix = {
+            global_market_bias: 'Bullish',
+            market_breadth: 'Positive',
+            regime_distribution: {},
+            opportunity_distribution: {},
+            risk_distribution: { low_pct: 50, moderate_pct: 40, high_pct: 10, risk_environment: 'LOW_RISK' },
+            asset_ranking: [],
+            market_synchronization: 'Synchronized',
+            market_health: 'Healthy',
+            global_summary: '',
+            instance_count: 4,
+            active_symbols: [],
+            alignment_distribution: { STRONG_BULL_MTF: 2, WEAK_BULL_MTF: 1, NEUTRAL_MTF: 1 },
+            alignment_consensus_index: 50,
+            multi_tf_agreement_pct: 80,
+        } as OverviewMatrix;
+        seedPair('BTC');
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        expect(screen.getByText(/Distribution \(4 pairs\)/)).toBeTruthy();
+        expect(screen.getByText('+50')).toBeTruthy();
+        expect(screen.getByText('80%')).toBeTruthy();
+        expect(screen.getByText('Strong consensus')).toBeTruthy();
     });
 });

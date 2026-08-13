@@ -296,14 +296,24 @@ impl NormalizationEngine {
     }
 
     /// Williams %R: [-100, 0] oscillator. Overbought ≥ -20 (bearish), oversold ≤ -80 (bullish).
+    ///
+    /// AUDIT-AIU-020: the previous mapping was non-monotonic and
+    /// discontinuous — at wr = −80 the value jumped from ~0.96 to 0.0, the
+    /// oversold band [−100, −80] ran 0→1 opposite to the (−80, −20) band,
+    /// and the midline (−50) scored +0.6 (a spurious strong-bullish vote at
+    /// the neutral point). The corrected mapping is a single continuous
+    /// ramp, bullish at the top of the range (wr near 0 = price near the
+    /// period high), bearish at the bottom (wr near −100):
+    ///
+    /// ```text
+    /// norm = clamp((−50 − wr) / 50, −1, 1)
+    /// ```
+    ///
+    /// wr = 0   → +1.0 (strong bullish, price pinned at period high)
+    /// wr = −50 →  0.0 (neutral)
+    /// wr = −100→ −1.0 (strong bearish, price pinned at period low)
     pub fn normalize_williams_r(wr: f64) -> NormalizedIndicatorValue {
-        let norm = if wr >= -20.0 {
-            clamp_unit(-((wr + 20.0) / 80.0))
-        } else if wr <= -80.0 {
-            clamp_unit(-(wr + 80.0) / 20.0)
-        } else {
-            clamp_unit(-wr / 100.0 * 1.2)
-        };
+        let norm = clamp_unit((wr + 50.0) / 50.0);
         let label = if wr >= -20.0 {
             "WILLIAMS_R_OVERBOUGHT"
         } else if wr <= -80.0 {
@@ -317,8 +327,18 @@ impl NormalizationEngine {
     }
 
     /// Awesome Oscillator: raw AO value, label from sign + direction.
-    pub fn normalize_awesome_oscillator(ao: f64, rising: bool) -> NormalizedIndicatorValue {
-        let norm = clamp_unit((ao / 100.0).tanh());
+    ///
+    /// AUDIT-AIU-044: AO is a price-scaled oscillator (SMA5−SMA34 of
+    /// mid-prices), so the previous `tanh(ao/100)` normalization and the
+    /// ±50 threshold were meaningless across assets (BTC-scale AO regularly
+    /// exceeds ±50; sub-$1 alts never do). The mapping is now **ATR-relative**:
+    /// `ao_norm = ao / atr`, normalized via `tanh(ao_norm / 5)` — an AO
+    /// impulse of 5× ATR saturates the score. When ATR is unavailable the
+    /// raw price-scale fallback is used.
+    pub fn normalize_awesome_oscillator(ao: f64, rising: bool, atr: Option<f64>) -> NormalizedIndicatorValue {
+        let scale = atr.filter(|a| *a > 0.0).unwrap_or(100.0);
+        let ao_scaled = ao / scale;
+        let norm = clamp_unit((ao_scaled / 5.0).tanh());
         let label = if ao > 0.0 && rising {
             "AO_BULLISH_RISING"
         } else if ao > 0.0 {
@@ -341,13 +361,17 @@ impl NormalizationEngine {
     }
 
     /// Hull MA: single-line near-zero-lag overlay.
-    /// Phase 1.1 fix: use the actual HMA value instead of discarding it.
-    /// Normalize as a price-relative bias: HMA values typically run 0.001–10
-    /// (price-scaled); we expose a 0.5%-band symmetric normalized score.
+    ///
+    /// AUDIT-AIU-010: `normalized` is contractually **0.0** — the registry
+    /// declares `normalization_mode: Some(EventOnly)` (registry.rs), whose
+    /// contract is "`normalized` is always 0.0; the directional contribution
+    /// is conveyed via `state_label` and discrete signals". The previous
+    /// `hma / 100.0` mapping was applied to a price-scaled series (≈100,000
+    /// for BTC), so it saturated to ±1.0 on every bar and leaked a
+    /// meaningless directional vote into the confluence accumulator. The raw
+    /// HMA value is still exposed for the chart overlay.
     pub fn normalize_hull_ma(hma: f64) -> NormalizedIndicatorValue {
-        // Map hma ∈ [-100, 100] onto [-1, +1]; clamp_unit clamps to unit interval.
-        let norm = clamp_unit(hma / 100.0);
-        NormalizedIndicatorValue::scalar(hma, norm, "HULL_MA_OVERLAY")
+        NormalizedIndicatorValue::scalar(hma, 0.0, "HULL_MA_OVERLAY")
     }
 
     /// StdDev Channel: linear regression center ±2σ.

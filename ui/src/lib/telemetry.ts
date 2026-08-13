@@ -168,9 +168,156 @@ export function formatTimeframeLabel(secs: number): string {
 
 // `resolveChartTimeframe(timeframe, pair)` was deleted: every chart
 // component now takes a positional `slot: 'micro' | 'fast' | 'slow' |
-// 'macro'` prop. The old duration-based dispatch was the source of the
+// `macro'` prop. The old duration-based dispatch was the source of the
 // label/contents cross-talk whenever the user picked non-default
 // durations (e.g. micro=1s, fast=3m, slow=1m, macro=1h — every column
 // rendered micro data). Slot identity is the single source of truth:
 // stamped onto every MarketSnapshot on the wire (`timeframe_slot`)
 // and stamped onto every TimeframeTelemetry in the store (`slot`).
+
+// ── EMA Ribbon — single source of truth for the 4-line overlay ──
+//
+// All four EMA surfaces in the platform — the price-overlay chart, the
+// collapsed `raw_value` cell on the `ema_stack` row of the Indicators
+// facet, the per-TF Metrics export body's `body.ema` block, and the
+// canonical `MarketSnapshot.indicators["ema_stack"].values.*` record —
+// read from the SAME `tf.indicators["ema_stack"].values.*` field. This
+// module exposes the shared math so the formula cannot drift between
+// surfaces.
+
+/** Four-line EMA ribbon sub-line identifiers, in the canonical
+ *  fastest→slowest order. Period names match the registry entry
+ *  (`crates/market-analyzer/src/indicators/registry.rs:233-252`) and
+ *  the configured settings (`ui/src/stores/settings.svelte.ts:9-18`). */
+export type EmaRole = 'fast' | 'medium' | 'slow' | 'long';
+export const EMA_ROLES: readonly EmaRole[] = ['fast', 'medium', 'slow', 'long'] as const;
+
+/** Signed fractional distance of price from a single EMA line.
+ *  `null` on either operand or when close is 0 (would divide by zero). */
+export function distFromPrice(close: number | null | undefined, ema: number | null | undefined): number | null {
+    if (close == null || ema == null) return null;
+    if (!Number.isFinite(close) || !Number.isFinite(ema)) return null;
+    if (close === 0) return null;
+    return (close - ema) / close;
+}
+
+/** Read the 4 EMA values from a timeframe's indicator map. Returns
+ *  an object with one entry per role; missing values are `null`. Single
+ *  accessor — every consumer (chart overlay, on-screen ribbon cell,
+ *  export body helper) reads through here so the source-of-truth path
+ *  is unified. */
+export function readEmaValues(m: IndicatorMap | undefined | null): {
+    fast: number | null;
+    medium: number | null;
+    slow: number | null;
+    long: number | null;
+} {
+    const v = iSub(m, 'ema_stack', 'fast');
+    const m2 = iSub(m, 'ema_stack', 'medium');
+    const s = iSub(m, 'ema_stack', 'slow');
+    const l = iSub(m, 'ema_stack', 'long');
+    return { fast: v, medium: m2, slow: s, long: l };
+}
+
+/** Signed spread between the fastest and slowest EMA lines, expressed
+ *  as a fraction of `close`. Positive = fast is above long (bullish
+ *  ribbon shape). Negative = bear. Magnitude is the ribbon's "spread",
+ *  which is the canonical trend-conviction proxy on a 4-EMA system
+ *  (coiled breakout ⇒ spread → 0; trending maturity ⇒ spread → wider).
+ *  Returns `null` when either line or close is missing. */
+export function emaSpreadPct(
+    values: { fast: number | null; long: number | null },
+    close: number | null | undefined,
+): number | null {
+    if (values.fast == null || values.long == null) return null;
+    if (close == null || !Number.isFinite(close) || close === 0) return null;
+    return (values.fast - values.long) / close;
+}
+
+/** Four-line EMA ribbon view — the per-line `(value, distance_from_price)`
+ *  pair plus the cross-line `spread_pct`. Used both by the on-screen
+ *  cell and by the export-body builder; single computation. */
+export interface EmaRibbonView {
+    values: { fast: number | null; medium: number | null; slow: number | null; long: number | null };
+    /** Signed distance `(close - ema) / close` for each line. `null`
+     *  when either operand is missing. */
+    distance: { fast: number | null; medium: number | null; slow: number | null; long: number | null };
+    /** `(fast - long) / close`. `null` on missing data. */
+    spread: number | null;
+}
+
+/** Build an `EmaRibbonView` from a single source of truth (the
+ *  timeframe's `indicators["ema_stack"].values.*`). All four sites
+ *  (chart overlay, on-screen cell, export body, Metrics Matrix)
+ *  funnel through this so the four surfaces are guaranteed to read
+ *  the same record. */
+export function buildEmaRibbonView(
+    tf: { indicators?: IndicatorMap },
+    close: number | null | undefined,
+): EmaRibbonView {
+    const values = readEmaValues(tf.indicators);
+    const distance = {
+        fast: distFromPrice(close, values.fast),
+        medium: distFromPrice(close, values.medium),
+        slow: distFromPrice(close, values.slow),
+        long: distFromPrice(close, values.long),
+    };
+    return { values, distance, spread: emaSpreadPct(values, close) };
+}
+
+/** Format a signed fraction as a percentage string with sign prefix.
+ *  `null` → `'--'`. Sign is shown explicitly so the 4 lines read
+ *  consistently even when they're all near zero. */
+export function fmtPctSigned(v: number | null | undefined, digits = 2): string {
+    if (v == null || !Number.isFinite(v)) return '--';
+    const pct = v * 100;
+    const sign = pct > 0 ? '+' : (pct < 0 ? '' : ' ');
+    return `${sign}${pct.toFixed(digits)}%`;
+}
+
+/** On-screen cell view: the 4 EMA lines as a micro-grid (2 columns × 4
+ *  rows: value + signed-distance). Used by the Indicators facet for the
+ *  collapsed `raw_value` cell on the `ema_stack` row, so a trader sees
+ *  all four lines inline instead of just the fast. */
+export interface EmaRibbonCellRow {
+    role: EmaRole;
+    label: string;            // 'F' | 'M' | 'S' | 'L'
+    valueText: string;        // formatted price (e.g. '64018.20') or '--'
+    distanceText: string;     // formatted signed % (e.g. '+0.09%') or '--'
+}
+
+export interface EmaRibbonCellView {
+    rows: EmaRibbonCellRow[];
+    spreadText: string;       // formatted spread (e.g. '+0.27%') or '--'
+    /** True when all four lines have real values AND close is finite. */
+    ready: boolean;
+}
+
+/** Build the on-screen micro-grid cell for the `ema_stack` collapsed
+ *  row. Reads from `tf.indicators["ema_stack"].values.*` via
+ *  `buildEmaRibbonView()` so the cell and the export body's
+ *  `body.ema` block read the same record. */
+export function buildEmaRibbonCellView(
+    tf: { indicators?: IndicatorMap },
+    refPrice: number | null | undefined,
+): EmaRibbonCellView {
+    const close = refPrice != null && Number.isFinite(refPrice) ? refPrice : null;
+    const view = buildEmaRibbonView(tf, close);
+    const valueText = (v: number | null) => v == null ? '--' : fmtPrice(v, refPrice);
+    const lines: { role: EmaRole; label: string }[] = [
+        { role: 'fast',   label: 'F' },
+        { role: 'medium', label: 'M' },
+        { role: 'slow',   label: 'S' },
+        { role: 'long',   label: 'L' },
+    ];
+    const rows: EmaRibbonCellRow[] = lines.map(({ role, label }) => ({
+        role,
+        label,
+        valueText: valueText(view.values[role]),
+        distanceText: fmtPctSigned(view.distance[role]),
+    }));
+    const ready = close != null
+        && view.values.fast != null && view.values.medium != null
+        && view.values.slow != null && view.values.long != null;
+    return { rows, spreadText: fmtPctSigned(view.spread), ready };
+}

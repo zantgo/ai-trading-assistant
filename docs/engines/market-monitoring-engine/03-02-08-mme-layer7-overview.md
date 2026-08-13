@@ -1,11 +1,11 @@
 # MME Layer 7 — Overview Layer
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.3 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved — feature status is tracked in [README §Feature Status](../../README.md).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7
 **Output Contract:** [Overview Matrix](../../matrices/02-09-overview-matrix.md)
-**Purpose:** This document specifies the Overview Layer — the process that aggregates every symbol's Decision Matrix into global breadth indices, asset rankings, market-health summaries, and the Systemic Risk Score.
+**Purpose:** This document specifies the Overview Layer — the process that aggregates every symbol's Decision Matrix and Alignment Matrix (v6.10.3+) into global breadth indices, cross-timeframe alignment aggregates, asset rankings, market-health summaries, and the Systemic Risk Score.
 
 ---
 
@@ -14,12 +14,14 @@
 The Overview Layer synthesizes cross-symbol intelligence. Where Layers 1–6 describe one asset, the Overview Layer describes the **whole monitored universe**, producing the [Overview Matrix](../../matrices/02-09-overview-matrix.md).
 
 ```
-[Decision Matrix × all symbols] ─┐
-                                 ├──► OVERVIEW LAYER (L7) ──► [Overview Matrix]
-[Instance metadata            ] ─┘     compute_overview()
+[Decision Matrix × all symbols]    ─┐
+                                    │
+[Alignment Matrix × all symbols]    ─┼──► OVERVIEW LAYER (L7) ──► [Overview Matrix]
+                                    │       compute_overview()
+[Instance metadata              ]  ─┘
 ```
 
-Implementation: `crates/core-domain/src/overview.rs::compute_overview()`.
+Implementation: `crates/core-domain/src/overview.rs::compute_overview()`. The `alignments` slice (third argument) is required by signature but may be empty; see §5 below for the v6.10.3 alignment aggregation pipeline.
 
 ---
 
@@ -74,7 +76,33 @@ The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / 
 
 ---
 
-## 6. Guarantees
+## 6. Alignment Aggregation (v6.10.3+)
+
+The Overview Layer consumes a `&[AlignmentMatrix]` slice (one per active symbol) and synthesizes three system-wide fields. The slice is sourced from each instance's slow-tier (300 s) `MarketSnapshot.alignment` by the periodic aggregation task in `crates/execution-daemon/src/main.rs` (§ L7 task, ~720–752). For full field semantics see [Overview Matrix §3.5](../../matrices/02-09-overview-matrix.md).
+
+| Field | Formula | Range |
+|-------|---------|-------|
+| `alignment_distribution` | `tally(aln.mtf_overall_label for aln in alignments)` | `map<string, u32>` (counts sum to `alignments.len()`) |
+| `alignment_consensus_index` | `mean(aln.mtf_overall_score for aln in alignments)` | `[-100, 100]` (signed) |
+| `multi_tf_agreement_pct` | `mean(aln.trend_agreement_pct for aln in alignments)` | `[0, 100]` |
+
+The per-asset `AssetRank` (see [Overview Matrix §2.2](../../matrices/02-09-overview-matrix.md)) is also enriched in the same pass — each rank carries a `mtf_score` and `mtf_label` mirror of `AlignmentMatrix.mtf_overall_score` / `mtf_overall_label`. When a symbol is present in `advisories` but absent from `alignments` (cold start / transient snapshot gap), the AssetRank defaults to `(mtf_score = 0.0, mtf_label = "NO_DATA")` so downstream consumers can detect the gap explicitly rather than reading a misleading zero.
+
+**Empty-input semantics.** When `alignments.is_empty()` but L6 inputs are populated (e.g. the engine has just booted and no instance has produced a slow-tier Alignment Matrix yet), the three aggregate fields default to neutral values:
+
+| Field | Default |
+|-------|---------|
+| `alignment_distribution` | `HashMap::new()` |
+| `alignment_consensus_index` | `0.0` |
+| `multi_tf_agreement_pct` | `0.0` |
+
+The remaining breadth / bias / sync / risk aggregates are unaffected. The dashboard's Market Alignment card detects this state and renders an "Awaiting alignment data…" placeholder rather than a misleading neutral gauge.
+
+**Why this is independent of breadth / sync.** The existing `breadth_pct`, `market_breadth`, and `market_synchronization` are derived from L6 `directional_guidance` (a per-symbol, per-snapshot bias tally). The new alignment aggregates are derived from L2 `mtf_overall_score` and `trend_agreement_pct` (per-symbol, per-timeframe-axis aggregates). They measure different things — bias voting vs time-horizon agreement — and the Overview Matrix exposes both lenses deliberately so the operator can disambiguate "every symbol is bullish, but their timeframes disagree" (high breadth + low multi_tf_agreement_pct) from "every symbol's timeframes agree, but on opposite directions" (low breadth + high multi_tf_agreement_pct).
+
+---
+
+## 7. Guarantees
 
 | Property | Guarantee |
 |----------|-----------|
@@ -82,11 +110,13 @@ The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / 
 | **Systemic authority** | Sole producer of the Systemic Risk Score. |
 | **Deterministic ranking** | Ties resolve by stable sort. |
 | **Empty safety** | No active instances → neutral empty overview. |
+| **Alignment independence** | Alignment aggregates (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`) do not influence `breadth_pct`, `market_breadth`, `market_synchronization`, or `systemic_risk_score` — the L6 and L2 lenses remain independent so a single corrupt alignment source cannot poison the systemic-risk veto. |
 
 ---
 
-## 7. Cross-References
+## 8. Cross-References
 
-- [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Per-asset input.
+- [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Per-asset L6 input.
+- [Alignment Matrix](../../matrices/02-01-alignment-matrix.md) — Per-asset L2 input (v6.10.3+).
 - [Overview Matrix](../../matrices/02-09-overview-matrix.md) — Output contract.
 - [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Systemic Risk consumer.

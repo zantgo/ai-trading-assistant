@@ -1,313 +1,275 @@
-// Tests for the Recommendation tab builder.
+// Regression tests for the v7.0-audit Recommendation tab export.
 
 import { describe, it, expect } from 'vitest';
-import { buildRecommendationTabExport, type RecommendationPayload } from './recommendationTab';
-import type { AdvisoryMatrix, AnalysisMatrix, DecisionContext, OpportunityMatrix, OpportunityProfile, RiskDimension } from '../../types';
+import { buildRecommendationTabExport } from './recommendationTab';
+import type { LayerHeaderSpec } from '../layerHeader';
+import type { DecisionContext, OpportunityMatrix, AnalysisMatrix, AdvisoryMatrix } from '../../types';
 
-function makeRiskDim(overrides: Partial<RiskDimension> = {}): RiskDimension {
-  return {
-    score: 50,
-    level: 'Moderate',
-    state: 'Stable',
-    confidence: 0.7,
-    evidence: [],
-    ...overrides,
-  };
-}
-
-function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
-  return {
-    symbol: 'BTC-USDT',
-    directional_guidance: 'Long',
-    market_stance: 'Constructive',
-    opportunity_classification: 'TrendContinuation',
-    strategy_environment: 'TrendFollowing',
-    entry_guidance: 'Pullback',
-    exit_guidance: 'TrendWeakening',
-    protection_strategy: 'StructureBased',
-    target_strategy: 'RRBased',
-    confidence_assessment: 78,
-    stop_loss_distance_pct: 0.015,
-    cascade_risk_score: 30,
-    environment_favorability: makeRiskDim({ score: 30, level: 'Low' }),
-    final_recommendation: 'Long bias — structure-based entry with R:R 2.5',
-    ...overrides,
-  };
-}
+const headerSpec: LayerHeaderSpec = {
+  layerNumber: 6,
+  layerName: 'Recommendation',
+  badge: { label: 'STAND ASIDE', color: '#f59e0b', background: 'rgba(245,158,11,0.08)', state: 'valid' },
+  meta: [],
+  status: 'live',
+};
 
 function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
   return {
-    score: 60,
-    bias: 'Bullish',
-    confidence: 0.75,
-    score_confidence: 0.75,
-    entry_danger: makeRiskDim({ score: 30, level: 'Low', state: 'Stable' }),
-    expected_reward_risk_ratio: 2.5,
-    trade_readiness: 'READY',
-    contributing_indicators: ['RSI', 'MACD', 'VWAP'],
+    score: 0,
+    bias: 'Neutral',
+    confidence: 0.1,
+    score_confidence: 0,
+    entry_danger: { score: 59.25, level: 'Moderate', state: 'Stable', confidence: 27.66, evidence: [] },
+    expected_reward_risk_ratio: 0,
+    trade_readiness: 'STAND_ASIDE',
+    contributing_indicators: [],
+    long_probability: 12,
+    short_probability: 2,
+    hold_probability: 86,
+    net_bias_pct: 10,
     ...overrides,
   };
 }
 
 function makeOpportunity(): OpportunityMatrix {
-  const profile: OpportunityProfile = {
-    opportunity_type: 'TrendContinuation',
-    score: 78,
-    preconditions_met: 4,
-    preconditions_total: 5,
-    notes: 'Trend alignment strong',
-    direction_family: 'TrendRiding',
-    long_entry_zone: { low: 64000, high: 64500 },
-    long_target_zone: { low: 66000, high: 67000 },
-    long_invalidation_level: 63000,
-    short_entry_zone: null,
-    short_target_zone: null,
-    short_invalidation_level: null,
-    long_expected_rr_internal: 2.5,
-    short_expected_rr_internal: null,
-    trade_viability: 'Actionable',
-  };
   return {
-    symbol: 'BTC-USDT',
-    primary_opportunity: 'TrendContinuation',
-    opportunity_score: 78,
-    setup_quality: 'STRONG',
-    forecast_confidence: 0.85,
-    time_horizon: 'INTRADAY',
-    entry_zone: { low: 64000, high: 64500 },
-    target_zone: { low: 66000, high: 67000 },
-    invalidation_level: 63000,
-    long_entry_zone: { low: 64000, high: 64500 },
-    long_target_zone: { low: 66000, high: 67000 },
-    long_invalidation_level: 63000,
-    short_entry_zone: { low: 65500, high: 66000 },
-    short_target_zone: { low: 63000, high: 64000 },
-    short_invalidation_level: 66500,
-    long_expected_rr_internal: 2.5,
+    symbol: 'SOL-USDC',
+    primary_opportunity: 'NoClearOpportunity',
+    opportunity_score: 41.3,
+    setup_quality: 'Moderate',
+    profiles: [],
+    forecast_confidence: 0.1,
+    contributing_signals: [],
+    invalidation_note: 'Close below 75.4 invalidates the MeanReversion thesis.',
+    entry_zone: { low: 75.509, high: 75.523 },
+    target_zone: { low: 75.564, high: 75.591 },
+    invalidation_level: 75.4957,
+    long_entry_zone: { low: 75.509, high: 75.523 },
+    long_target_zone: { low: 75.564, high: 75.591 },
+    long_invalidation_level: 75.4957,
+    long_expected_rr_internal: 0,
+    short_entry_zone: { low: 75.523, high: 75.537 },
+    short_target_zone: { low: 75.455, high: 75.482 },
+    short_invalidation_level: 75.5503,
     short_expected_rr_internal: 0,
-    contributing_signals: ['RSI cross up'],
-    profiles: [profile],
+    time_horizon: 'SWING',
     confluent_entry_levels: [],
     confluent_target_levels: [],
     confluent_invalidation_levels: [],
-    invalidation_note: 'Below 63000 invalidates the setup',
-  };
+    direction_family: 'Neutral',
+    long_geometry_consistent: true,
+    short_geometry_consistent: true,
+  } as unknown as OpportunityMatrix;
 }
 
-function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
+function makeAnalysis(): AnalysisMatrix {
   return {
-    symbol: 'BTC-USDT',
-    bias: 'Bullish',
-    confidence: 0.7,
-    state_confidence: 0.7,
-    market_regime: 'TRENDING_BULL',
-    trend_assessment: 'Healthy',
-    momentum_assessment: 'Increasing',
-    structure_assessment: 'Strong',
-    volatility_assessment: 'Normal',
-    volume_assessment: 'Strong',
-    opportunity_analysis: 'TrendContinuation',
-    market_quality: 'Good',
-    market_quality_score: 75,
-    market_phase: 'MARKUP',
-    market_interpretation: 'Bullish trend healthy',
-    rationale: 'Multi-timeframe alignment supports the bullish bias',
-    supporting_signals: ['RSI cross up'],
-    contradicting_signals: [],
+    bias: 'Neutral',
+    confidence: 0.13,
+    state_confidence: 0.1,
+    market_regime: 'RANGING',
+    market_quality: 'Average',
+    market_phase: 'ACCUMULATION',
     timeframes_considered: 4,
-    ...overrides,
-  };
+    supporting_signals: [],
+    contradicting_signals: [],
+    trend_assessment: 'Neutral',
+    momentum_assessment: 'Neutral',
+    structure_assessment: 'Neutral',
+    volatility_assessment: 'Neutral',
+    volume_assessment: 'Neutral',
+    market_interpretation: '',
+    rationale: '',
+  } as unknown as AnalysisMatrix;
+}
+
+function makeAdvisory(): AdvisoryMatrix {
+  return {
+    directional_guidance: 'Neutral',
+    market_stance: 'Cautious',
+    strategy_environment: 'LowActivity',
+    opportunity_classification: 'Pullback',
+    confidence_assessment: 13.15,
+    entry_guidance: 'Breakout',
+    exit_guidance: 'StructureBreakdown',
+    protection_strategy: 'ATRBased',
+    target_strategy: 'TrailingMethod',
+    final_recommendation: 'Neutral — no directional edge.',
+  } as unknown as AdvisoryMatrix;
 }
 
 describe('buildRecommendationTabExport', () => {
-  it('produces a valid payload with all expected top-level fields', () => {
-    const json = buildRecommendationTabExport({
+  it('has the mandatory meta identity fields and no filter_state', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-      tfSecs: 60,
-    });
-    const p = JSON.parse(json) as RecommendationPayload;
+      symbol: 'SOL-USDC',
+      markPrice: 75.5465,
+      headerSpec,
+    }));
     expect(p.source_tab).toBe('recommendation');
-    expect(p.meta.symbol).toBe('BTC-USDT');
-    expect(p.environment).toBeDefined();
-    expect(p.verdict).toBeDefined();
-    expect(p.runner_ups).toBeDefined();
-    expect(p.top_setup).toBeDefined();
-    expect(p.safety_flags).toBeDefined();
-    expect(p.why).toBeDefined();
-    expect(p.price_levels).toBeDefined();
-    expect(p.strategy).toBeDefined();
-    expect(p.final_verdict).toBeDefined();
+    expect(p.meta.datetime_utc).toBeTruthy();
+    expect(p.meta.exchange).toBe('Hyperliquid');
+    expect(p.meta.pair).toBe('SOL-USDC');
+    expect(p.meta.timeframe_secs).toBe(0);
+    expect(p.meta.current_price).toBeCloseTo(75.55, 1);
+    expect(p.meta.price_change_direction).toBe('unknown');
+    expect('filter_state' in p.meta).toBe(false);
   });
 
-  it('environment captures directional_guidance, market_stance, strategy_environment', () => {
+  it('emits the gauge block with net_bias_pct as a raw number', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext({ long_probability: 60, short_probability: 10, hold_probability: 30, net_bias_pct: 50 }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.gauge.net_bias_pct).toBe(50);
+    expect(p.gauge.bias_direction).toBe('LONG');
+    expect(p.gauge.long_pct).toBe(60);
+    expect(p.gauge.short_pct).toBe(10);
+    expect(p.gauge.hold_pct).toBe(30);
+    // No mixed-string net_label — raw numbers only
+    expect('net_label' in p.gauge).toBe(false);
+  });
+
+  it('renders rr as {available, value, reason} not null', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.environment.directional_guidance).toBe('Long');
-    expect(p.environment.market_stance).toBe('Constructive');
-    expect(p.environment.strategy_environment).toBe('TrendFollowing');
-    expect(p.environment.opportunity_classification).toBe('TrendContinuation');
-    expect(p.environment.confidence_pct).toBe(78);
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.safety_flags.rr_available).toBe(false);
+    expect(p.safety_flags.rr_value).toBeNull();
+    expect(p.safety_flags.rr_reason).toBe('no_directional_bias');
   });
 
-  it('environment captures entry_danger as a structured shape', () => {
+  it('entry_danger is split into score + level', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.environment.entry_danger.score).toBe(30);
-    expect(p.environment.entry_danger.level).toBe('Low');
-    expect(p.environment.entry_danger.state).toBe('Stable');
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.environment.entry_danger_score).toBeCloseTo(59.25, 1);
+    expect(p.environment.entry_danger_level).toBe('MODERATE');
+    expect(p.safety_flags.entry_danger_score).toBeCloseTo(59.25, 1);
+    expect(p.safety_flags.entry_danger_level).toBe('MODERATE');
   });
 
-  it('verdict captures all 3 probabilities + top + headline', () => {
+  it('no_clear_card surfaces when the primary opportunity is NoClearOpportunity', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.verdict.top).toBeDefined();
-    expect(['LONG', 'SHORT', 'HOLD']).toContain(p.verdict.top);
-    expect(p.verdict.long_probability).toBeDefined();
-    expect(p.verdict.short_probability).toBeDefined();
-    expect(p.verdict.hold_probability).toBeDefined();
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.no_clear_card).not.toBeNull();
+    expect(p.no_clear_card.title).toBe('No Clear Setup');
+    expect(p.why_note).toContain('No directional edge');
   });
 
-  it('runner_ups excludes the winner', () => {
+  it('strategy fields are display-formatted (no raw enums)', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.runner_ups.length).toBe(2);
-    expect(p.runner_ups.every((r) => r.action !== p.verdict.top)).toBe(true);
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.strategy.protection).toBe('ATR-Based');
+    expect(p.strategy.entry).toBe('Breakout');
   });
 
-  it('top_setup captures entry/target/SL/R:R', () => {
+  it('top_setup carries badge_text mirroring screen badge', () => {
+    const oppWithProfile: OpportunityMatrix = {
+      ...makeOpportunity(),
+      primary_opportunity: 'Breakout',
+      profiles: [
+        {
+          opportunity_type: 'Breakout',
+          score: 60,
+          preconditions_met: 2,
+          preconditions_total: 2,
+          notes: 'Breakout',
+          direction_family: 'TrendRiding',
+          long_entry_zone: { low: 75.0, high: 75.5 },
+          long_target_zone: { low: 76.0, high: 77.0 },
+          long_invalidation_level: 74.0,
+          long_expected_rr_internal: 2.5,
+          long_geometry_consistent: true,
+          short_entry_zone: null,
+          short_target_zone: null,
+          short_invalidation_level: null,
+          short_expected_rr_internal: 0,
+          short_geometry_consistent: false,
+          trade_viability: 'Actionable',
+        } as any,
+      ],
+    };
+    const analysisBullish: AnalysisMatrix = { ...makeAnalysis(), bias: 'Bullish' };
+    const dc: DecisionContext = { ...makeDecisionContext(), bias: 'Bullish' };
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
+      decisionContext: dc,
+      opportunity: oppWithProfile,
+      analysis: analysisBullish,
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
     expect(p.top_setup).not.toBeNull();
-    expect(p.top_setup?.opportunity_type).toBe('TrendContinuation');
-    expect(p.top_setup?.entry_zone).toEqual({ low: 64000, high: 64500 });
-    expect(p.top_setup?.target_zone).toEqual({ low: 66000, high: 67000 });
-    expect(p.top_setup?.invalidation).toBe(63000);
+    // Either a real badge text (one of the 4 tokens) or empty string
+    // when the screen shows nothing (Actionable + HOLD).
+    expect(['', 'ACTIONABLE', 'HOLD · NO DIRECTIONAL EDGE', 'GEOMETRY INVERTED', 'NO CLEAR SETUP'])
+      .toContain(p.top_setup!.badge_text);
+    expect(p.top_setup!.viability).toBeDefined();
   });
 
-  it('safety_flags captures all 5 fields', () => {
+  it('no qualifying setup → top_setup_empty_text mirrors the screen caption', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
+      opportunity: makeOpportunity(), // NoClearOpportunity, no profiles
       analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.safety_flags.internal_rr).toBe(2.5);
-    expect(p.safety_flags.risk_adj_rr).toBe(2.5);
-    expect(p.safety_flags.stop_loss_pct).toBe(0.015);
-    expect(p.safety_flags.confidence_pct).toBe(78);
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.top_setup).toBeNull();
+    expect(p.top_setup_empty_text).toBe('no qualifying setup yet');
   });
 
-  it('why captures top-3 rationale bullets', () => {
-    const p = JSON.parse(buildRecommendationTabExport({
-      advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.why.length).toBeLessThanOrEqual(3);
-    expect(p.why.length).toBeGreaterThan(0);
-  });
-
-  it('price_levels reflects verdict side', () => {
-    const p = JSON.parse(buildRecommendationTabExport({
-      advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    const side = p.verdict.top;
-    if (side === 'LONG' || side === 'SHORT') {
-      expect(p.price_levels.side).toBe(side === 'LONG' ? 'long' : 'short');
-      expect(p.price_levels.scenarios).toBeNull();
-    } else {
-      expect(p.price_levels.side).toBe('hold');
-      expect(p.price_levels.scenarios).not.toBeNull();
-      expect(p.price_levels.scenarios?.long).toBeDefined();
-      expect(p.price_levels.scenarios?.short).toBeDefined();
-    }
-  });
-
-  it('strategy captures all 4 advisory fields', () => {
-    const p = JSON.parse(buildRecommendationTabExport({
-      advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.strategy.entry).toBe('Pullback');
-    expect(p.strategy.exit).toBe('TrendWeakening');
-    expect(p.strategy.protection).toBe('StructureBased');
-    expect(p.strategy.target).toBe('RRBased');
-  });
-
-  it('final_verdict captures the advisory text', () => {
-    const p = JSON.parse(buildRecommendationTabExport({
-      advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.final_verdict).toBe('Long bias — structure-based entry with R:R 2.5');
-  });
-
-  it('produces a valid payload when advisory is null', () => {
+  it('strategy fields render "—" when the advisory is absent (screen parity)', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: null,
       decisionContext: makeDecisionContext(),
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.environment.directional_guidance).toBe('—');
-    expect(p.final_verdict).toBe('');
-  });
-
-  it('top_setup is null when no qualifying profile exists', () => {
-    const noQualifying: OpportunityMatrix = {
-      ...makeOpportunity(),
-      profiles: [],
-    };
-    const p = JSON.parse(buildRecommendationTabExport({
-      advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
-      opportunity: noQualifying,
-      analysis: makeAnalysis(),
-      symbol: 'BTC-USDT',
-    })) as RecommendationPayload;
-    expect(p.top_setup).toBeNull();
+      opportunity: null,
+      analysis: null,
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.strategy.entry).toBe('—');
+    expect(p.strategy.exit).toBe('—');
+    expect(p.strategy.protection).toBe('—');
+    expect(p.strategy.target).toBe('—');
   });
 });

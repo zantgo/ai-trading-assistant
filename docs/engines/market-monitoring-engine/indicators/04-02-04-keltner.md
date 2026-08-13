@@ -1,6 +1,6 @@
 # Keltner Channels (20, 10, 2.0)
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function
@@ -43,8 +43,10 @@ Labels: `KELTNER_UPPER_BREAKOUT`, `KELTNER_LOWER_BREAKOUT`, `KELTNER_UPPER_HALF`
 | Breakout | KELTNER_LOWER_BREAKOUT | Price ≤ lower band | Bearish |
 | BandTouch | KELTNER_UPPER_BAND_TOUCH | Price inside channel, position > 0.85 (near upper edge). Structured push from engine. | Bearish |
 | BandTouch | KELTNER_LOWER_BAND_TOUCH | Price inside channel, position < 0.15 (near lower edge). Structured push from engine. | Bullish |
-| LevelTest | KELTNER_MIDDLE_BAND_TEST | Price approaches the EMA midline from either direction. Acts as dynamic equilibrium level — rejection signals continuation, crossing signals shift. | Direction depends on approach side |
-| LevelTest | KELTNER_MIDDLE_BAND_SUPPORT | Price bounces off the EMA midline after a pullback from a breakout. Confirms breakout integrity and trend continuation. | Aligned with breakout direction |
+| LevelTest | KELTNER_UPPER_LEVEL_TEST | Price within proximity of the upper band (generic band-proximity LevelTest). | Bearish |
+| LevelTest | KELTNER_LOWER_LEVEL_TEST | Price within proximity of the lower band (generic band-proximity LevelTest). | Bullish |
+
+> **Doc synced to runtime (AUDIT-AIU-090).** The previous table declared `KELTNER_MIDDLE_BAND_TEST` / `KELTNER_MIDDLE_BAND_SUPPORT`, which no code emits — the engine emits the generic `KELTNER_UPPER/LOWER_LEVEL_TEST` band-proximity labels instead.
 
 ## 5. Scoring
 

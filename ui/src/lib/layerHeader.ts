@@ -89,6 +89,9 @@ export interface ChipOptions {
     /** When `true`, render `0` in `valid` colour rather than the neutral
      * amber `neutral` tone. Used for risk scores where zero is "perfectly safe". */
     zeroIsGood?: boolean;
+    /** Number of fractional digits to render for a numeric `rawValue`.
+     *  Defaults to `2` for floats and `0` for integer-valued chips. */
+    digits?: number;
 }
 
 /**
@@ -111,17 +114,27 @@ export function chip(
     if (typeof numericValue === 'number' && numericValue === 0) {
         if (opts.zeroIsGood) {
             // Risk-zero: green "0" — meaningful good news.
-            return { label, value: isCount ? '0' : String(rawValue), color: '#22c55e', state: 'valid' };
+            const z = isCount ? '0' : formatChipNumber(0, opts.digits);
+            return { label, value: z, color: '#22c55e', state: 'valid' };
         }
         return { label, value: isCount ? '0' : String(rawValue), color: COLORS.neutral, state: 'neutral' };
     }
     const color = colorFn && numericValue != null ? colorFn(numericValue) : COLORS.text;
-    return {
-        label,
-        value: isCount && typeof rawValue === 'number' ? String(rawValue) : String(rawValue),
-        color,
-        state: 'valid',
-    };
+    const display =
+        isCount && typeof rawValue === 'number'
+            ? String(rawValue)
+            : typeof rawValue === 'number'
+                ? formatChipNumber(rawValue, opts.digits)
+                : String(rawValue);
+    return { label, value: display, color, state: 'valid' };
+}
+
+function formatChipNumber(n: number, digits?: number): string {
+    if (digits === undefined) {
+        // Default: integers get 0 decimals, floats get 2 (rounded).
+        digits = Number.isInteger(n) ? 0 : 2;
+    }
+    return n.toFixed(digits);
 }
 
 /** Map a `QualityLevel` (`Poor`/`Weak`/`Average`/`Good`/`Excellent`) to a colour. */

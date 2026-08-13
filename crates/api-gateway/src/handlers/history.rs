@@ -143,7 +143,18 @@ pub async fn serve_history(
                         .volume
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "0".to_string()),
-                    reconstructed: None,
+                    // AUDIT-V8-004: surface reconstruction provenance so the
+                    // frontend's `candleReconstructed` filter can keep
+                    // synthetic heartbeat Dojis (idle buckets + stale-check
+                    // gap fills) out of its persistent candle cache. The
+                    // `quality_envelope.is_gap_filled` flag is set on every
+                    // `reconstructed: Some(...)` candle by
+                    // `build_completed_snapshot_from_readings`.
+                    reconstructed: snap
+                        .quality_envelope
+                        .as_ref()
+                        .filter(|q| q.is_gap_filled)
+                        .map(|_| core_domain::normalized::ReconstructionMethod::Synthetic),
                 });
             }
 

@@ -11,7 +11,7 @@ The platform is organized around a **Two-Dimensional Architecture** — 5 specia
 | Logical Engine | Physical Crate(s) | Responsibility | Status |
 |---------------|-------------------|----------------|--------|
 | Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` + `market-analyzer` (L2–L4) | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries; candle generation, quality validation, distribution (executes in `market-analyzer` for latency — logical ownership remains DIE's) | ✅ Implemented |
-| Market Monitoring Engine (MME) | `market-analyzer` | 50 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis; plus L1.5 (derivatives telemetry) and L2.5 (liquidity synthesis) fractional extension layers | ✅ Implemented |
+| Market Monitoring Engine (MME) | `market-analyzer` | 51 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis; plus L1.5 (derivatives telemetry) and L2.5 (liquidity synthesis) fractional extension layers | ✅ Implemented |
 | Trade Automation Engine (TAE) | `portfolio-supervisor` | Policy evaluation, position sizing, profile evaluation, trigger engine, paper-trading matching engine, veto loop | ⚠️ WIP — backend runs; `TradeAutomationDashboard` is placeholder data; full wiring lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase A–B |
 | Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto | ⚠️ WIP — backend runs; `PortfolioDashboard` is placeholder data; full wiring lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase A + C |
 | Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator; SQLite persistence for analytics tables | ⚠️ WIP — analytics APIs live and Overview/Strategy/Risk/Regimes/Trades panels render real data; **backtest tab is a UI mock**; lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase D |
@@ -24,7 +24,7 @@ The platform is organized around a **Two-Dimensional Architecture** — 5 specia
 crates/
 ├── core-domain/            # Stateless DTOs, JSON-RPC schemas, shared types
 ├── config-models/          # All *Config structs + load_config() / load_instances()
-├── market-analyzer/        # 50 indicators, multi-TF pipeline, decision support
+├── market-analyzer/        # 51 indicators, multi-TF pipeline, decision support
 ├── database-storage/       # SQLite schema, migrations, WAL telemetry logger, queries
 ├── network-adapters/       # WS/REST clients, NTP clock monitor, candle reconstruction, connection-quality tracker
 ├── portfolio-supervisor/   # PME+TAE: instances, sizing, exposure, capital, session, safety vetoes, profile eval

@@ -58,7 +58,15 @@ impl Mfi {
         }
         let sum_pos: Decimal = self.pos_flows.iter().sum();
         let sum_neg: Decimal = self.neg_flows.iter().sum();
+        // AUDIT-AIU-041: when BOTH pos and neg flow are zero (flat TPs and/or
+        // all-zero volume), MFI is undefined — the previous code returned 100
+        // (overbought) for a neutral flat regime. The neutral value 50 is
+        // returned instead. The `sum_neg == 0 && sum_pos > 0` case is the
+        // canonical all-buying regime and correctly maps to 100.
         if sum_neg == Decimal::ZERO {
+            if sum_pos == Decimal::ZERO {
+                return Some(Decimal::from(50));
+            }
             return Some(Decimal::from(100));
         }
         let ratio = sum_pos / sum_neg;
@@ -110,5 +118,33 @@ mod tests {
                 assert!(v >= dec!(0) && v <= dec!(100), "MFI out of range: {}", v);
             }
         }
+    }
+
+    #[test]
+    fn test_flat_flows_return_neutral_fifty() {
+        // AUDIT-AIU-041: an all-flat regime (equal TPs → zero pos/neg flows)
+        // previously returned MFI=100 (overbought). It must return the
+        // neutral 50.
+        let mut m = Mfi::new(5);
+        feed(&mut m, 100.0, 100.0, 100.0, 10.0);
+        let mut last = None;
+        for _ in 0..6 {
+            last = feed(&mut m, 100.0, 100.0, 100.0, 10.0);
+        }
+        assert_eq!(last.unwrap(), dec!(50));
+    }
+
+    #[test]
+    fn test_zero_volume_returns_neutral_fifty() {
+        // AUDIT-AIU-041: all-zero volume also produces zero flows → neutral.
+        let mut m = Mfi::new(5);
+        let mut p = 100.0;
+        feed(&mut m, p, p, p, 0.0);
+        let mut last = None;
+        for _ in 0..6 {
+            p += 1.0;
+            last = feed(&mut m, p, p, p, 0.0);
+        }
+        assert_eq!(last.unwrap(), dec!(50));
     }
 }

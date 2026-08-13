@@ -1,6 +1,6 @@
 # MME Signals Guide — Readable Technical Signal Rulebook
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's discrete technical signals. It defines the 12 canonical `SignalKind`s, their detection semantics, and their confirmation lifecycle. Each SignalKind has a detailed specification under [signals/](signals/05-02-00-signals-index.md).
@@ -43,7 +43,7 @@ struct IndicatorSignal {
 | **StackChange** | The EMA ribbon reorders. | [stack-change.md](signals/05-02-11-stack-change.md) |
 | **PatternForming** | A chart or candlestick pattern is detected. | [pattern-forming.md](signals/05-02-12-pattern-forming.md) |
 
-There are **100 signal-kind declarations** across 50 registry entries (post-v2.1; the 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md) — i.e. most indicators declare several SignalKinds.
+There are **101 signal-kind declarations** across 51 registry entries (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry — i.e. most indicators declare several SignalKinds.
 
 ---
 

@@ -59,6 +59,11 @@ pub struct PreviousBarState {
     pub price: Option<f64>,
     pub ema_fast: Option<f64>,
     pub ema_medium: Option<f64>,
+    /// Previous EMA slow / long — carried for the StackChange transition
+    /// detector (AUDIT-AIU-030), which must know the full 4-line ribbon
+    /// ordering of the previous bar.
+    pub ema_slow: Option<f64>,
+    pub ema_long: Option<f64>,
     pub supertrend_line: Option<f64>,
     // ── Deferred-indicator transition state (pivots / ichimoku) ──
     /// Signed position vs the nearest active pivot level: +1 above pivot,
@@ -112,6 +117,10 @@ pub struct NormalizationContext {
     pub adx_consecutive_deceleration: bool,
     /// Previous completed-bar indicator values for crossover/zero-line detection.
     pub prev: PreviousBarState,
+    /// RVOL institutional/climax thresholds from config (AUDIT-AIU-071).
+    /// Defaults 1.5 / 3.0 match the legacy hardcoded values.
+    pub rvol_institutional_threshold: f64,
+    pub rvol_climax_threshold: f64,
 }
 
 // `clamp_unit` is defined in `core_domain::indicator_dtos` and re-exported above.
@@ -140,12 +149,18 @@ impl NormalizationEngine {
     /// RSI (14): piecewise sigmoid-style compression with divergence override.
     pub fn normalize_rsi(rsi: f64, divergence: DivergenceState) -> NormalizedIndicatorValue {
         // Confirmed divergence hard-overrides the entire score.
+        // AUDIT-AIU-033: the override previously forced the label to
+        // `OVERSOLD_ACCUMULATION` / `OVERBOUGHT_DISTRIBUTION` regardless of
+        // the actual RSI zone, so a confirmed bullish divergence at RSI=80
+        // labeled the bar "OVERSOLD" and the deriver then emitted a spurious
+        // OVERSOLD Threshold. The label now reflects the divergence itself,
+        // which the deriver does not misread as a price zone.
         match divergence {
             DivergenceState::ConfirmedBullish => {
-                return NormalizedIndicatorValue::scalar(rsi, 1.0, "OVERSOLD_ACCUMULATION")
+                return NormalizedIndicatorValue::scalar(rsi, 1.0, "DIVERGENCE_BULLISH_CONFIRMED")
             }
             DivergenceState::ConfirmedBearish => {
-                return NormalizedIndicatorValue::scalar(rsi, -1.0, "OVERBOUGHT_DISTRIBUTION")
+                return NormalizedIndicatorValue::scalar(rsi, -1.0, "DIVERGENCE_BEARISH_CONFIRMED")
             }
             _ => {}
         }
@@ -187,7 +202,13 @@ impl NormalizationEngine {
                         "BULLISH_CROSSOVER_ACCELERATING",
                     )
                 } else {
-                    (0.2, "FOMO_BULLISH_CROSSOVER_REJECTED")
+                    // AUDIT-AIU-022: a zero-line-filtered crossover (FOMO)
+                    // must contribute ZERO to the directional accumulator
+                    // (doc 04-02-17: "A 'rejected' crossover must contribute
+                    // zero… any non-zero value would let a filter-out signal
+                    // leak into the directional accumulator"). The previous
+                    // ±0.2 leaked a directional vote for rejected entries.
+                    (0.0, "FOMO_BULLISH_CROSSOVER_REJECTED")
                 }
             }
             Some(c) if c < 0 => {
@@ -197,7 +218,8 @@ impl NormalizationEngine {
                         "BEARISH_CROSSOVER_ACCELERATING",
                     )
                 } else {
-                    (-0.2, "PANIC_BEARISH_CROSSOVER_REJECTED")
+                    // AUDIT-AIU-022: see FOMO above — zero contribution.
+                    (0.0, "PANIC_BEARISH_CROSSOVER_REJECTED")
                 }
             }
             _ => {

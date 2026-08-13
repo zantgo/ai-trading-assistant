@@ -1,47 +1,60 @@
 // Analysis tab builder — scoped export payload mirroring the panel.
 //
-// The Analysis panel renders:
-//   1. Header (bias badge, confidence gauge, market_regime, market_quality)
-//   2. Signals section (supporting + contradicting signals with lean)
-//   3. Qualitative Assessment (6 cards: trend, momentum, structure, volatility, volume, cycle_phase)
-//   4. Per-Timeframe Alignment (4 squares: trend/momentum/overall/regime)
-//   5. Interpretation (market_interpretation + rationale)
+// v7.0-audit: rewrites the payload to use the new shared envelope (no
+// filter_state, single current_price, structured header chrome). Adds
+// signal_lean_hero block, sign-prefixed display strings, and indicator
+// key/period separation.
 
 import type {
   AnalysisMatrix,
   AlignmentMatrix,
-  TfAlignmentInfo,
 } from '../../types';
-import { buildMeta } from './shared';
-import type { MetaEnvelope, FilterStateBlock } from './shared';
+import {
+  buildPriceBlock,
+  buildHeaderBlock,
+  type MetaEnvelope,
+  type HeaderBlock,
+  type InstanceTermsLike,
+} from './shared';
+import type { LayerHeaderSpec } from '../layerHeader';
+import { prettifyPhase, highlightKeywords } from '../prettifyPhase';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
-export interface AnalysisHeaderBlock {
-  bias: string;
-  confidence: number;
-  state_confidence: number;
-  market_regime: string;
-  market_quality: string;
-}
-
 export interface DecomposedSignal {
-  raw: string;
+  key: string;
+  period: number | null;
+  display_name: string;
   timeframe: string;
   score: number | null;
+  score_display: string;
   regime: string;
   signals_count: number | null;
+  /** Screen cell for `signals_count` — "—" when the count is absent. */
+  signals_count_display: string;
+  raw: string;
 }
 
 export interface AnalysisSignalsBlock {
   supporting: DecomposedSignal[];
   contradicting: DecomposedSignal[];
+  /** The exact merged, timeframe-sorted list the screen renders, with the
+   *  source bucket annotated on each row. */
+  list: Array<DecomposedSignal & { bucket: 'supporting' | 'contradicting' }>;
   lean: {
     label: string;
     bullish: number;
     bearish: number;
     tone: 'bull' | 'bear' | 'split';
   };
+}
+
+export interface SignalLeanHeroBlock {
+  label_html: string;
+  meta_html: string;
+  bullish_pct: number;
+  bearish_pct: number;
+  tone: 'bull' | 'bear' | 'split';
 }
 
 export interface QualitativeAssessmentBlock {
@@ -57,26 +70,83 @@ export interface PerTimeframeAlignmentRow {
   name: string;
   active: boolean;
   trend: number;
+  trend_display: string;
   momentum: number;
+  momentum_display: string;
   overall: number;
+  overall_display: string;
   regime: string;
 }
 
 export interface AnalysisPayload {
   source_tab: 'analysis';
   meta: MetaEnvelope;
-  header: AnalysisHeaderBlock;
+  header: HeaderBlock;
+  body: AnalysisBodyBlock;
+  signal_lean_hero: SignalLeanHeroBlock | null;
   signals: AnalysisSignalsBlock;
   qualitative_assessment: QualitativeAssessmentBlock;
   per_timeframe_alignment: PerTimeframeAlignmentRow[];
   interpretation: string;
+  /** Marked-up HTML mirroring the panel's keyword-bolded interpretation. */
+  interpretation_display: string;
   rationale: string;
 }
 
-// ── Helper: decompose raw signal text (matches `AnalysisPanel.svelte::decomposeSignal`) ──
+// Also surface the original analysis header for analysts who want it
+export interface AnalysisBodyBlock {
+  bias: string;
+  confidence_pct: number;
+  state_confidence: number;
+  market_regime: string;
+  market_quality: string;
+  cycle_phase: string;
+}
 
-function decomposeSignal(text: string): DecomposedSignal {
-  const t = text || '';
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function splitIndicatorKey(rawKey: string): { key: string; period: number | null } {
+  // "rsi_14" → { key: "rsi", period: 14 }
+  // "macd_12_26_9" → { key: "macd", period: null }  (multi-period stays joined)
+  // "vwap" → { key: "vwap", period: null }
+  const parts = rawKey.split('_');
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    const lastNum = parseInt(last, 10);
+    if (Number.isFinite(lastNum) && String(lastNum) === last) {
+      return { key: parts.slice(0, -1).join('_'), period: lastNum };
+    }
+  }
+  return { key: rawKey, period: null };
+}
+
+function displayNameForKey(rawKey: string): string {
+  const { key, period } = splitIndicatorKey(rawKey);
+  return period != null ? `${key.toUpperCase()} ${period}` : key.toUpperCase();
+}
+
+function signedStr(n: number, decimals: number): string {
+  // Screen renders `(p.score >= 0 ? '+' : '') + p.score` — zero gets '+'.
+  const s = n.toFixed(decimals);
+  return n >= 0 ? '+' + s : s;
+}
+
+/** Timeframe sort rank — mirrors `AnalysisPanel.svelte::timeframeRank`. */
+function timeframeRank(signal: string): number {
+  const s = (signal || '').toUpperCase();
+  if (s.includes('MICRO')) return 0;
+  if (s.includes('FAST')) return 1;
+  if (s.includes('SLOW')) return 2;
+  if (s.includes('MACRO')) return 3;
+  if (s.includes('1S') || s.includes('3S') || s.includes('5S') || s.includes('15S') || s.includes('30S') || s.includes('1M')) return 0;
+  if (s.includes('3M') || s.includes('5M')) return 1;
+  if (s.includes('15M') || s.includes('30M')) return 2;
+  if (s.includes('1H') || s.includes('4H') || s.includes('12H') || s.includes('1D') || s.includes('DAY')) return 3;
+  return 4;
+}
+
+function decomposeSignal(raw: string): DecomposedSignal {
+  const t = raw || '';
   let timeframe = 'GLOBAL';
   const tfMatch = t.match(/\[?(MICRO|FAST|SLOW|MACRO|1S|3S|5S|15S|30S|1M|3M|5M|15M|30M|1H|4H|12H|1D)\]?/i);
   if (tfMatch) timeframe = tfMatch[1].toUpperCase();
@@ -89,16 +159,38 @@ function decomposeSignal(text: string): DecomposedSignal {
   let signalsCount: number | null = null;
   const sigMatch = t.match(/(\d+)\s+signals?/i);
   if (sigMatch) signalsCount = parseInt(sigMatch[1], 10);
-  return { raw: t, timeframe, score, regime, signals_count: signalsCount };
+  // Extract a key/period from the raw text if present
+  const keyMatch = t.match(/\b([a-z][a-z0-9_]+)\b(?=\s*(?:score|signals?))/i);
+  const rawKey = keyMatch ? keyMatch[1] : 'unknown';
+  const { key, period } = splitIndicatorKey(rawKey);
+  return {
+    key,
+    period,
+    display_name: displayNameForKey(rawKey),
+    timeframe,
+    score,
+    // Screen renders "—" when the score is absent.
+    score_display: score != null ? signedStr(score, 0) : '\u2014',
+    regime,
+    signals_count: signalsCount,
+    signals_count_display: signalsCount != null ? String(signalsCount) : '\u2014',
+    raw: t,
+  };
 }
 
-function buildHeaderBlock(analysis: AnalysisMatrix | null): AnalysisHeaderBlock {
+function prettifyBias(bias: string): string {
+  // "StrongBullish" → "Strong Bullish"
+  return bias.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+function buildAnalysisBodyBlock(analysis: AnalysisMatrix | null): AnalysisBodyBlock {
   return {
-    bias: analysis?.bias ?? '—',
-    confidence: analysis?.confidence ?? 0,
+    bias: prettifyBias(analysis?.bias ?? ''),
+    confidence_pct: analysis ? Math.round(analysis.confidence * 100) : 0,
     state_confidence: analysis?.state_confidence ?? 0,
-    market_regime: analysis?.market_regime ?? '—',
-    market_quality: analysis?.market_quality ?? '—',
+    market_regime: analysis?.market_regime ?? '',
+    market_quality: analysis?.market_quality ?? '',
+    cycle_phase: prettifyPhase(analysis?.market_phase ?? 'UNKNOWN'),
   };
 }
 
@@ -111,15 +203,62 @@ function signalDirection(text: string): 'bullish' | 'bearish' | 'neutral' {
   return 'neutral';
 }
 
+function buildSignalLeanHero(
+  analysis: AnalysisMatrix | null,
+): SignalLeanHeroBlock | null {
+  // The screen ALWAYS renders the hero — including the "No signals" /
+  // "Waiting for cross-TF consensus" placeholders when the analysis is
+  // absent. Emit the same strings instead of null.
+  const supporting = analysis?.supporting_signals ?? [];
+  const contradicting = analysis?.contradicting_signals ?? [];
+  const allTexts = [...supporting, ...contradicting];
+  const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
+  const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
+  if (bull === 0 && bear === 0) {
+    return {
+      label_html: 'No signals',
+      meta_html: 'Waiting for cross-TF consensus',
+      bullish_pct: 0,
+      bearish_pct: 0,
+      tone: 'split',
+    };
+  }
+  const total = bull + bear;
+  const bullishPct = total > 0 ? Math.round((bull / total) * 100) : 0;
+  const bearishPct = total > 0 ? Math.round((bear / total) * 100) : 0;
+  const tone: 'bull' | 'bear' | 'split' =
+    bull > bear * 1.5 ? 'bull' : bear > bull * 1.5 ? 'bear' : 'split';
+  const direction = tone === 'bull' ? 'bullish' : tone === 'bear' ? 'bearish' : 'Split signals';
+  // Screen ratio: `bear > 0 ? (bull/bear).toFixed(1) : bull.toFixed(0)` for
+  // the bull-dominant arm, mirrored for the bear arm. Never "∞".
+  const ratio =
+    tone === 'bull'
+      ? bear > 0 ? (bull / bear).toFixed(1) : bull.toFixed(0)
+      : tone === 'bear'
+        ? bull > 0 ? (bear / bull).toFixed(1) : bear.toFixed(0)
+        : null;
+  // Screen renders the split tone WITHOUT the parenthetical — the bull/bear
+  // counts live in `meta_html` (and the lean label chip).
+  const hero = tone === 'split'
+    ? 'Split signals'
+    : `Net ${direction} (${bull}↑ vs ${bear}↓)`;
+  return {
+    label_html: hero,
+    meta_html: tone === 'split' ? `${bull}↑ vs ${bear}↓` : `${ratio}:1 signal ratio`,
+    bullish_pct: bullishPct,
+    bearish_pct: bearishPct,
+    tone,
+  };
+}
+
 function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBlock {
   const supporting = analysis?.supporting_signals ?? [];
   const contradicting = analysis?.contradicting_signals ?? [];
   const allTexts = [...supporting, ...contradicting];
   const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
   const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
-  const total = bull + bear;
   let lean: AnalysisSignalsBlock['lean'];
-  if (total === 0) {
+  if (bull === 0 && bear === 0) {
     lean = { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split' };
   } else if (bull > bear * 1.5) {
     lean = { label: `Net bullish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bull' };
@@ -131,18 +270,24 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
   return {
     supporting: supporting.map((s) => decomposeSignal(s)),
     contradicting: contradicting.map((c) => decomposeSignal(c)),
+    list: [...supporting.map((s) => ({ bucket: 'supporting' as const, sig: s })),
+           ...contradicting.map((c) => ({ bucket: 'contradicting' as const, sig: c }))]
+      .sort((a, b) => timeframeRank(a.sig) - timeframeRank(b.sig))
+      .map((e) => ({ ...decomposeSignal(e.sig), bucket: e.bucket })),
     lean,
   };
 }
 
 function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAssessmentBlock {
   return {
-    trend: analysis?.trend_assessment ?? '—',
-    momentum: analysis?.momentum_assessment ?? '—',
-    structure: analysis?.structure_assessment ?? '—',
-    volatility: analysis?.volatility_assessment ?? '—',
-    volume: analysis?.volume_assessment ?? '—',
-    cycle_phase: analysis?.market_phase ?? 'UNKNOWN',
+    // Screen renders "—" for missing assessments.
+    trend: analysis?.trend_assessment ?? '\u2014',
+    momentum: analysis?.momentum_assessment ?? '\u2014',
+    structure: analysis?.structure_assessment ?? '\u2014',
+    volatility: analysis?.volatility_assessment ?? '\u2014',
+    volume: analysis?.volume_assessment ?? '\u2014',
+    // Screen renders "—" when the analysis is absent, prettified otherwise.
+    cycle_phase: analysis ? prettifyPhase(analysis.market_phase ?? '') : '\u2014',
   };
 }
 
@@ -151,13 +296,30 @@ function buildPerTimeframeBlock(alignment: AlignmentMatrix | null): PerTimeframe
   const alignments = alignment?.timeframe_alignments ?? [];
   return order.map((slot) => {
     const found = alignments.find((a) => a.timeframe.toUpperCase() === slot);
+    if (!found) {
+      return {
+        name: slot,
+        active: false,
+        trend: 0,
+        // Screen renders "—" for inactive slots.
+        trend_display: '\u2014',
+        momentum: 0,
+        momentum_display: '\u2014',
+        overall: 0,
+        overall_display: '\u2014',
+        regime: 'OFFLINE',
+      };
+    }
     return {
       name: slot,
-      active: !!found,
-      trend: found?.trend_score ?? 0,
-      momentum: found?.momentum_score ?? 0,
-      overall: found?.overall_score ?? 0,
-      regime: found?.regime ?? 'AWAITING',
+      active: true,
+      trend: found.trend_score ?? 0,
+      trend_display: signedStr(found.trend_score ?? 0, 2),
+      momentum: found.momentum_score ?? 0,
+      momentum_display: signedStr(found.momentum_score ?? 0, 2),
+      overall: found.overall_score ?? 0,
+      overall_display: signedStr(found.overall_score ?? 0, 1),
+      regime: found.regime ?? 'AWAITING',
     };
   });
 }
@@ -168,34 +330,44 @@ export interface AnalysisTabInputs {
   analysis: AnalysisMatrix | null;
   alignment: AlignmentMatrix | null;
   symbol: string;
+  exchange?: string;
   tfSecs?: number | null;
   timestamp?: number | null;
   markPrice?: number | null;
-  filterState?: FilterStateBlock;
+  isCompleted?: boolean;
+  terms?: InstanceTermsLike;
+  headerSpec: LayerHeaderSpec;
 }
 
 /**
  * Build the Analysis tab export payload. Mirrors `AnalysisPanel.svelte` 1:1.
  */
 export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
-  const meta = buildMeta({
-    sourceTab: 'analysis',
+  const { meta } = buildPriceBlock({
     symbol: args.symbol,
-    tfSecs: args.tfSecs ?? null,
-    timestamp: args.timestamp ?? null,
-    markPrice: args.markPrice ?? null,
-    filterState: args.filterState,
+    exchange: args.exchange,
+    terms: args.terms,
+    fallbackMarkPrice: args.markPrice,
+    tfSecs: args.tfSecs,
+    timestamp: args.timestamp,
+    isCompleted: args.isCompleted,
   });
   const analysis = args.analysis;
   const payload: AnalysisPayload = {
     source_tab: 'analysis',
     meta,
-    header: buildHeaderBlock(analysis),
+    header: buildHeaderBlock(args.headerSpec),
+    body: buildAnalysisBodyBlock(analysis),
+    signal_lean_hero: buildSignalLeanHero(analysis),
     signals: buildSignalsBlock(analysis),
     qualitative_assessment: buildQualitativeBlock(analysis),
     per_timeframe_alignment: buildPerTimeframeBlock(args.alignment),
     interpretation: analysis?.market_interpretation ?? '',
-    rationale: analysis?.rationale ?? '',
+    // Screen renders the interpretation with keyword bolding; mirror
+    // the marked-up HTML in `interpretation_display` for export parity.
+    interpretation_display: highlightKeywords(analysis?.market_interpretation ?? ''),
+    // Screen renders "—" when the rationale is absent.
+    rationale: analysis?.rationale ?? '\u2014',
   };
   return JSON.stringify(payload, null, 2);
 }

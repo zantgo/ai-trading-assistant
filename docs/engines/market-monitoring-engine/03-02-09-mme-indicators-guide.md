@@ -1,6 +1,6 @@
 # MME Indicators Guide — Readable Technical Rulebook
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
@@ -31,7 +31,7 @@ In addition to the four semantic axes above, every indicator carries an **operat
 | `Stale` | amber dot + `Stale (Xs)` | decays linearly from 1.0 to 0.0 across `2 × stale_threshold_secs` | `now - last_updated_at > stale_threshold_secs` |
 | `Failed` | grey icon + tooltip with `last_error` | 0.0 | calculator panic OR double-stale escalation |
 
-The lifecycle is **uniform across all 50 indicators** — there is one state machine, applied via the registry metadata (`bars_required`) and the analyzer's `run_single` orchestrator. The dashboard's `IndicatorsView.svelte` renders a badge for every row so users can distinguish "missing data" from "neutral data" from "loading data" — the previous neutral-default workaround (rendering `--` / `UNKNOWN` / `tangled` / `equilibrium` / `OFF` for missing values) is **removed** in v6.5.
+The lifecycle is **uniform across all 51 indicators** — there is one state machine, applied via the registry metadata (`bars_required`) and the analyzer's `run_single` orchestrator. The dashboard's `IndicatorsView.svelte` renders a badge for every row so users can distinguish "missing data" from "neutral data" from "loading data" — the previous neutral-default workaround (rendering `--` / `UNKNOWN` / `tangled` / `equilibrium` / `OFF` for missing values) is **removed** in v6.5.
 
 ---
 
@@ -58,8 +58,8 @@ Aroon, Choppiness (gate), LinReg Slope, Z-Score. Regime indicators classify tren
 ### 2.7 Institutional (4)
 SMC Structure (CHoCH), Liquidity, Fair Value Gap, Order Blocks. Smart-money-concept indicators track structural breaks and institutional footprints.
 
-### 2.8 Derivatives Data (7)
-Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance, Spread, Depth Bias. Perp-specific context feeding liquidity and execution risk.
+### 2.8 Derivatives Data (8)
+Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance, Spread, Depth Bias, Mark-Index Spread. Perp-specific context feeding liquidity and execution risk.
 
 ---
 

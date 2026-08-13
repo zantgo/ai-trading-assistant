@@ -16,7 +16,7 @@ import type { AppStore } from '../../state.svelte';
 import type {
   AccountBlock,
   CountsBlock,
-  MetaEnvelope,
+  LegacyMetaEnvelope,
   SourceTab,
 } from './shared';
 import {
@@ -27,6 +27,7 @@ import {
   fmtTimeHM,
   parseMarkPrice,
 } from './shared';
+import { calcLiqPrice } from '../telemetry';
 
 // ── Per-tab payload types ───────────────────────────────────────────────
 
@@ -107,7 +108,8 @@ export interface OrdersPayload {
 export interface HistoryRow {
   exit_timestamp: number | null;
   exit_timestamp_display: string;
-  symbol: string;
+  /** Raw wire symbol — null when absent (screen renders "—"). */
+  symbol: string | null;
   direction: string;
   entry_price: number | null;
   exit_price: number | null;
@@ -140,6 +142,15 @@ export interface PlanStopRow {
   distance_pct: number | null;
 }
 
+/** Editable plan rows as currently rendered in the console — lets the
+ *  export mirror the user's on-screen edits (which are not written back
+ *  to `app.activePlan`). */
+export interface PlanRowsOverride {
+  targets: Array<{ label: string; price: number; sizePct: number }>;
+  stop: { label: string; price: number; distancePct: number | null } | null;
+  visible: boolean;
+}
+
 export interface PlanPayload {
   source_tab: SourceTab;
   exported_at: string;
@@ -155,18 +166,6 @@ export interface PlanPayload {
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────
-
-/** Mirror `calcLiqPrice` from `lib/telemetry.ts` (frontend-only). */
-function calcLiqPrice(
-  entry: number,
-  direction: string,
-  leverage: number,
-): number {
-  if (leverage <= 1) return 0;
-  if (direction === 'LONG') return entry * (1 - 1 / leverage);
-  if (direction === 'SHORT') return entry * (1 + 1 / leverage);
-  return 0;
-}
 
 function readNumberField(obj: Record<string, unknown>, key: string): number | null {
   const v = obj[key];
@@ -196,7 +195,9 @@ function buildPositionBlock(app: AppStore, markPrice: number): PositionBlock | n
   const size = readNumberField(pos, 'size');
   const openedAt = readNumberField(pos, 'opened_at')
     ?? readNumberField(pos, 'created_at');
-  const liq = entry > 0 ? calcLiqPrice(entry, app.paperDirection, app.paperLeverage) : 0;
+  const liq = entry > 0
+    ? calcLiqPrice(entry, app.paperDirection as 'LONG' | 'SHORT', app.paperLeverage)
+    : 0;
   return {
     symbol: app.activeTab,
     direction: app.paperDirection,
@@ -289,7 +290,9 @@ function buildHistoryRows(app: AppStore): HistoryRow[] {
     return {
       exit_timestamp: exitTs,
       exit_timestamp_display: fmtTimeHM(exitTs),
-      symbol: readStringField(t, 'symbol') || app.activeTab,
+      // Faithful mirror of the screen cell: the raw string when present,
+      // null (rendered "—") otherwise — never a fabricated fallback.
+      symbol: typeof t.symbol === 'string' ? t.symbol : null,
       direction: readStringField(t, 'direction'),
       entry_price: readNumberField(t, 'entry_price'),
       exit_price: readNumberField(t, 'exit_price'),
@@ -301,12 +304,36 @@ function buildHistoryRows(app: AppStore): HistoryRow[] {
   });
 }
 
-function buildPlanPayload(app: AppStore, meta: MetaEnvelope, account: AccountBlock): PlanPayload {
+function buildPlanPayload(
+  app: AppStore,
+  meta: LegacyMetaEnvelope,
+  account: AccountBlock,
+  override?: PlanRowsOverride,
+): PlanPayload {
   const plan = (app.activePlan ?? null) as Record<string, unknown> | null;
   const targets: PlanTargetRow[] = [];
   let stop: PlanStopRow | null = null;
   let planVisible = false;
-  if (plan) {
+  // When the console's editable plan rows are supplied, they are the
+  // source of truth (the user's on-screen edits have not been written
+  // back to `app.activePlan`).
+  if (override) {
+    for (const t of override.targets) {
+      targets.push({
+        label: t.label || 'TP',
+        price: Number(t.price) || 0,
+        size_pct: Number(t.sizePct) || 0,
+      });
+    }
+    if (override.stop && (Number(override.stop.price) ?? 0) > 0) {
+      stop = {
+        label: 'SL',
+        price: Number(override.stop.price) || 0,
+        distance_pct: override.stop.distancePct != null ? Number(override.stop.distancePct) : null,
+      };
+    }
+    planVisible = override.visible;
+  } else if (plan) {
     const rawTargets = Array.isArray(plan.targets) ? plan.targets : [];
     for (const t of rawTargets) {
       const row = t as Record<string, unknown>;
@@ -425,8 +452,9 @@ export function buildHistoryTabExport(app: AppStore): string {
  * Mirrors `BottomConsole.svelte:333-420` (plan tab).
  * Even when no plan is loaded, returns a valid payload with empty
  * `targets` + `stop: null` + `plan_visible: false`.
+ * Pass `planOverride` to export the console's currently-edited rows.
  */
-export function buildPlanTabExport(app: AppStore): string {
+export function buildPlanTabExport(app: AppStore, planOverride?: PlanRowsOverride): string {
   const markPrice = parseMarkPrice(app.priceText) ?? 0;
   const meta = buildMeta({
     sourceTab: 'plan',
@@ -434,6 +462,6 @@ export function buildPlanTabExport(app: AppStore): string {
     timestamp: Date.now(),
     markPrice,
   });
-  const payload = buildPlanPayload(app, meta, buildAccountBlock(app));
+  const payload = buildPlanPayload(app, meta, buildAccountBlock(app), planOverride);
   return JSON.stringify(payload, null, 2);
 }

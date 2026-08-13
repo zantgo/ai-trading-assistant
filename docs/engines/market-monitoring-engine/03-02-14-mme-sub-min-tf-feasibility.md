@@ -1,6 +1,6 @@
 # 03-02-14: MME Sub-Minute Timeframe Feasibility on Commodity Hardware
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 
@@ -25,7 +25,7 @@ recompute), not pinned benchmarks — actual CPU usage is well below
 
 | TF cadence | Candles/sec | Cluster refresh rate | Volume profile rate | Indicator recompute ops | CPU/refresh |
 |---|---|---|---|---|---|
-| 1 s       | 1.00 Hz | 1.00 Hz | 1.00 Hz | ~50 indicators × `O(1)` = ~5 µs | <1 ms |
+| 1 s       | 1.00 Hz | 1.00 Hz | 1.00 Hz | ~51 indicators × `O(1)` = ~5 µs | <1 ms |
 | 15 s      | 0.067 Hz | 0.067 Hz | 0.067 Hz | same | <1 ms |
 | 60 s      | 0.017 Hz | 0.017 Hz | 0.017 Hz | same | <1 ms |
 | 300 s     | 0.003 Hz | 0.003 Hz | 0.003 Hz | same | <1 ms |

@@ -114,6 +114,10 @@ pub struct IndicatorInputs {
     // EMA ribbon values for fast/medium crossover detection.
     pub ema_fast: Option<f64>,
     pub ema_medium: Option<f64>,
+    /// Full ribbon (slow/long) for the StackChange transition detector
+    /// (AUDIT-AIU-030).
+    pub ema_slow: Option<f64>,
+    pub ema_long: Option<f64>,
     // Session Pivot Points: seven levels + proximity threshold (fraction).
     pub pivot: Option<f64>,
     pub pivot_r1: Option<f64>,
@@ -145,6 +149,8 @@ pub struct IndicatorInputs {
     pub awesome_oscillator: Option<f64>,
     pub ao_rising: bool,
     pub force_index: Option<f64>,
+    /// Rolling mean of |FI| — scale-relative extreme baseline (AUDIT-AIU-043).
+    pub force_index_mean_abs: Option<f64>,
     pub hull_ma: Option<f64>,
     pub stddev_upper: Option<f64>,
     pub stddev_center: Option<f64>,
@@ -216,14 +222,24 @@ impl NormalizationEngine {
         }
 
         if let Some(ao) = inputs.awesome_oscillator {
+            // AUDIT-AIU-044: ATR-relative scaling for the normalization.
+            let atr = inputs.atr_14.filter(|a| *a > 0.0);
             out.insert(
                 "awesome_oscillator".into(),
-                Self::normalize_awesome_oscillator(ao, inputs.ao_rising),
+                Self::normalize_awesome_oscillator(ao, inputs.ao_rising, atr),
             );
         }
 
         if let Some(fi) = inputs.force_index {
-            out.insert("force_index".into(), Self::normalize_force_index(fi));
+            // AUDIT-AIU-043: carry the scale-relative mean so the extreme
+            // threshold detector can compare |fi| against its own baseline.
+            let mut niv = Self::normalize_force_index(fi);
+            if let Some(ma) = inputs.force_index_mean_abs {
+                let mut vals = niv.values.clone().unwrap_or_default();
+                vals.insert("mean_abs".to_string(), ma);
+                niv.values = Some(vals);
+            }
+            out.insert("force_index".into(), niv);
         }
 
         if let Some(cci) = inputs.cci {
@@ -314,19 +330,26 @@ impl NormalizationEngine {
             // Structured Crossover signal: the MACD normalizer computes the state
             // label, but the crossover event itself is a structured boolean that
             // `derive_signals()` cannot detect from the label string alone.
+            // AUDIT-AIU-022: rejected crossovers (FOMO bullish above the zero
+            // line / PANIC bearish below it) must NOT emit a Crossover signal —
+            // the zero-line filter suppresses the event entirely (04-02-17),
+            // otherwise a filtered-out crossover leaks into TAE policy streams.
             if let Some(cross_dir) = inputs.macd_crossover {
-                if let Some(entry) = out.get_mut("macd") {
-                    let (d, label) = if cross_dir > 0 {
-                        (SignalDirection::Bullish, "BULLISH_CROSSOVER")
-                    } else {
-                        (SignalDirection::Bearish, "BEARISH_CROSSOVER")
-                    };
-                    entry.signals.push(IndicatorSignal::new(
-                        SignalKind::Crossover,
-                        d,
-                        SignalStatus::Active,
-                        label,
-                    ));
+                let rejected = (cross_dir > 0 && line >= 0.0) || (cross_dir < 0 && line <= 0.0);
+                if !rejected {
+                    if let Some(entry) = out.get_mut("macd") {
+                        let (d, label) = if cross_dir > 0 {
+                            (SignalDirection::Bullish, "BULLISH_CROSSOVER")
+                        } else {
+                            (SignalDirection::Bearish, "BEARISH_CROSSOVER")
+                        };
+                        entry.signals.push(IndicatorSignal::new(
+                            SignalKind::Crossover,
+                            d,
+                            SignalStatus::Active,
+                            label,
+                        ));
+                    }
                 }
             }
         }
@@ -363,7 +386,14 @@ impl NormalizationEngine {
         }
 
         if let Some(rvol) = inputs.rvol {
-            out.insert("rvol".into(), Self::normalize_rvol(rvol));
+            out.insert(
+                "rvol".into(),
+                Self::normalize_rvol(
+                    rvol,
+                    ctx.rvol_institutional_threshold,
+                    ctx.rvol_climax_threshold,
+                ),
+            );
         }
 
         if ctx.ema_stack_state.is_some() {
@@ -1273,6 +1303,61 @@ impl NormalizationEngine {
             }
         }
 
+        // ── EMA stack-order change (StackChange, transition-only) ──
+        // AUDIT-AIU-030: StackChange must fire ONLY on the bar where the
+        // ribbon order (or price-vs-fast placement) crosses — a momentary
+        // event per 05-02-11 §4. The previous stateless deriver emitted a
+        // StackChange on EVERY bar whose label contained "STACK", spamming
+        // persistent Active signals. We compute the stack state for the
+        // current and previous bars from the four EMAs + close and emit only
+        // on a state transition.
+        if let (
+            Some(f),
+            Some(m),
+            Some(s),
+            Some(lng),
+            Some(pf),
+            Some(pm),
+            Some(ps),
+            Some(pl),
+        ) = (
+            inputs.ema_fast,
+            inputs.ema_medium,
+            inputs.ema_slow,
+            inputs.ema_long,
+            ctx.prev.ema_fast,
+            ctx.prev.ema_medium,
+            ctx.prev.ema_slow,
+            ctx.prev.ema_long,
+        ) {
+            let stack_state = |fast: f64, med: f64, slow: f64, long: f64, price: f64| -> i8 {
+                if fast > med && med > slow && slow > long && price > fast {
+                    1
+                } else if fast < med && med < slow && slow < long && price < fast {
+                    -1
+                } else {
+                    0
+                }
+            };
+            let cur = stack_state(f, m, s, lng, ctx.price);
+            let prev_state = stack_state(pf, pm, ps, pl, ctx.prev.price.unwrap_or(ctx.price));
+            if cur != prev_state {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    let (d, label) = match cur {
+                        1 => (SignalDirection::Bullish, "EMA_STACK_BULLISH_REORDER"),
+                        -1 => (SignalDirection::Bearish, "EMA_STACK_BEARISH_REORDER"),
+                        _ => (SignalDirection::Neutral, "EMA_STACK_TANGLED"),
+                    };
+                    e.signals.push(IndicatorSignal::new(
+                        SignalKind::StackChange,
+                        d,
+                        SignalStatus::Confirmed,
+                        label,
+                    ));
+                }
+            }
+        }
+
         // ── EMA fast/medium Crossover (distinct from StackChange). ──
         if let (Some(f), Some(m), Some(pf), Some(pm)) = (
             inputs.ema_fast,
@@ -1355,36 +1440,6 @@ impl NormalizationEngine {
             }
         }
 
-        // ── Aroon TrendFlip (transition-only, distinct from Crossover). ──
-        // Fires ONLY on the bar where Up/Down leadership crosses — a discrete
-        // point-in-time flip event, then goes quiet until the next crossing.
-        if let (Some(up), Some(down), Some(pu), Some(pd)) = (
-            inputs.aroon_up,
-            inputs.aroon_down,
-            ctx.prev.aroon_up,
-            ctx.prev.aroon_down,
-        ) {
-            if pu <= pd && up > down {
-                if let Some(e) = out.get_mut("aroon") {
-                    e.signals.push(IndicatorSignal::new(
-                        SignalKind::TrendFlip,
-                        SignalDirection::Bullish,
-                        SignalStatus::Active,
-                        "AROON_BULLISH_TREND_FLIP",
-                    ));
-                }
-            } else if pu >= pd && up < down {
-                if let Some(e) = out.get_mut("aroon") {
-                    e.signals.push(IndicatorSignal::new(
-                        SignalKind::TrendFlip,
-                        SignalDirection::Bearish,
-                        SignalStatus::Active,
-                        "AROON_BEARISH_TREND_FLIP",
-                    ));
-                }
-            }
-        }
-
         // ── Pivot central crossover (distinct from level-test proximity):
         // fires on the bar where price crosses the central pivot, using the
         // prior bar's side-of-pivot. `pivot_active_level` carries the signed
@@ -1414,6 +1469,36 @@ impl NormalizationEngine {
             }
         }
 
+        // ── Pivot level Breakouts (AUDIT-AIU-038) ──
+        // The registry declares Breakout for pivot_points but the label-based
+        // deriver could never fire it (no label containing "BREAKOUT"/"FLIP"
+        // was ever emitted). Price crossing a pivot resistance from below is
+        // an upward breakout; crossing a support from above is a downward
+        // break. Detected structurally using the previous bar's price vs the
+        // session levels (levels are stable within a session; rollover bars
+        // simply won't produce a transition).
+        if let (Some(ppx), Some(r1), Some(s1)) = (ctx.prev.price, inputs.pivot_r1, inputs.pivot_s1) {
+            if ppx <= r1 && ctx.price > r1 {
+                if let Some(e) = out.get_mut("pivot_points") {
+                    e.signals.push(IndicatorSignal::new(
+                        SignalKind::Breakout,
+                        SignalDirection::Bullish,
+                        SignalStatus::Active,
+                        "PIVOT_R1_BREAKOUT",
+                    ));
+                }
+            } else if ppx >= s1 && ctx.price < s1 {
+                if let Some(e) = out.get_mut("pivot_points") {
+                    e.signals.push(IndicatorSignal::new(
+                        SignalKind::Breakout,
+                        SignalDirection::Bearish,
+                        SignalStatus::Active,
+                        "PIVOT_S1_BREAKOUT",
+                    ));
+                }
+            }
+        }
+
         // ── EMA price/vs fast-EMA crossover (Crossover).
         // The EMA Ribbon registry entry claims Crossover; this is the price
         // crossing the fast EMA line, distinct from the EMA fast/medium
@@ -1437,6 +1522,34 @@ impl NormalizationEngine {
                         SignalDirection::Bearish,
                         SignalStatus::Active,
                         "EMA_PRICE_CROSS_FAST_BEARISH",
+                    ));
+                }
+            }
+        }
+
+        // ── EMA price/vs medium-EMA crossover (Crossover).
+        // AUDIT-AIU-031: the doc (04-02-01 §Signals) declares the medium-EMA
+        // price-cross variant but no code emitted it. Mirrors the fast-EMA
+        // block with the medium line.
+        if let (Some(ppx), Some(pema), Some(ema)) =
+            (ctx.prev.price, ctx.prev.ema_medium, inputs.ema_medium)
+        {
+            if ppx <= pema && ctx.price > ema {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    e.signals.push(IndicatorSignal::new(
+                        SignalKind::Crossover,
+                        SignalDirection::Bullish,
+                        SignalStatus::Active,
+                        "EMA_PRICE_CROSS_MEDIUM_BULLISH",
+                    ));
+                }
+            } else if ppx >= pema && ctx.price < ema {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    e.signals.push(IndicatorSignal::new(
+                        SignalKind::Crossover,
+                        SignalDirection::Bearish,
+                        SignalStatus::Active,
+                        "EMA_PRICE_CROSS_MEDIUM_BEARISH",
                     ));
                 }
             }
@@ -1598,8 +1711,14 @@ impl NormalizationEngine {
         }
 
         // ── Awesome Oscillator threshold (extreme values). ──
+        // AUDIT-AIU-044: the extreme threshold was an absolute ±50 on a
+        // price-scaled oscillator — scale-dependent across assets. Now
+        // ATR-relative: extreme when |ao| > 5× ATR. Falls back to the
+        // absolute ±50 only when ATR is unavailable.
         if let Some(ao) = inputs.awesome_oscillator {
-            if ao > 50.0 {
+            let atr = inputs.atr_14.filter(|a| *a > 0.0).unwrap_or(10.0);
+            let extreme = 5.0 * atr;
+            if ao > extreme {
                 if let Some(e) = out.get_mut("awesome_oscillator") {
                     if !e.signals.iter().any(|s| s.label == "AO_EXTREME_BULLISH") {
                         e.signals.push(IndicatorSignal::new(
@@ -1610,7 +1729,7 @@ impl NormalizationEngine {
                         ));
                     }
                 }
-            } else if ao < -50.0 {
+            } else if ao < -extreme {
                 if let Some(e) = out.get_mut("awesome_oscillator") {
                     if !e.signals.iter().any(|s| s.label == "AO_EXTREME_BEARISH") {
                         e.signals.push(IndicatorSignal::new(
@@ -1648,8 +1767,19 @@ impl NormalizationEngine {
         }
 
         // ── Force Index threshold (extreme values). ──
+        // AUDIT-AIU-043: the extreme threshold was an absolute ±1000 on a
+        // raw price×volume-scaled quantity — meaningless across assets ($100k
+        // BTC contracts vs $0.01 alts). Now scale-relative: FI is extreme
+        // when |fi| > 30× the rolling mean of |fi| (an outlier gate). The
+        // rolling mean is carried in `values.mean_abs` by the normalizer.
         if let Some(fi) = inputs.force_index {
-            if fi > 1000.0 {
+            let mean_abs = out
+                .get("force_index")
+                .and_then(|e| e.values.as_ref())
+                .and_then(|v| v.get("mean_abs"))
+                .copied()
+                .unwrap_or(0.0);
+            if fi > 0.0 && mean_abs > 0.0 && fi > mean_abs * 30.0 {
                 if let Some(e) = out.get_mut("force_index") {
                     if !e.signals.iter().any(|s| s.label == "FI_EXTREME_BULLISH") {
                         e.signals.push(IndicatorSignal::new(
@@ -1660,7 +1790,7 @@ impl NormalizationEngine {
                         ));
                     }
                 }
-            } else if fi < -1000.0 {
+            } else if fi < 0.0 && mean_abs > 0.0 && fi.abs() > mean_abs * 30.0 {
                 if let Some(e) = out.get_mut("force_index") {
                     if !e.signals.iter().any(|s| s.label == "FI_EXTREME_BEARISH") {
                         e.signals.push(IndicatorSignal::new(

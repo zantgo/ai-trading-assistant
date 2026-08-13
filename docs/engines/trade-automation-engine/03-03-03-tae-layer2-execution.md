@@ -1,6 +1,6 @@
 # TAE Layer 2 — Execution Layer
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/execution/`) is implemented; live exchange order dispatch is not yet built (paper trading is the default and only execution path today). Dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A and Phase E (live adapter).
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 2 of 2

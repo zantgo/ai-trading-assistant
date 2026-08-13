@@ -182,7 +182,7 @@
     function engineLabel(key: string): string {
         if (key === 'exchange_settings') return 'EXCHANGE API KEYS';
         const map: Record<string, string> = {
-            data_infra: 'DATA INFRASTRUCTURE', market_monitor: 'MARKET MONITORING',
+            data_infra: 'DATA INFRASTRUCTURE', market_monitor: 'MARKET MONITOR',
             trade_automation: 'TRADE AUTOMATION', portfolio: 'PORTFOLIO MANAGEMENT',
             performance: 'PERFORMANCE ANALYTICS',
         };

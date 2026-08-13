@@ -1,0 +1,288 @@
+.modalInner {
+    width: min(640px, 92vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: left;
+    padding: 4px 8px;
+    color: #e2e8f0;
+}
+
+.modalHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.modalTitle {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.9);
+    text-transform: uppercase;
+    margin: 0;
+}
+
+.modalSubtitle {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    font-weight: 500;
+}
+
+/* ── Live status row ───────────────────────────────────────── */
+
+.statusRow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+}
+
+.statusItem {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.statusLabel {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+}
+
+.statusValue {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.statusOn { color: #22c55e; }
+.statusOff { color: rgba(255,255,255,0.45); }
+.statusErr { color: #ef4444; }
+.statusMuted { color: rgba(255,255,255,0.35); font-style: italic; }
+
+/* ── Form ─────────────────────────────────────────────────── */
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.fieldRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.fieldSmall {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.fieldLabel {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.55);
+    text-transform: uppercase;
+}
+
+.input {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    color: rgba(255,255,255,0.95);
+    font-size: 12px;
+    padding: 8px 10px;
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.input:focus {
+    border-color: rgba(34, 197, 94, 0.6);
+}
+
+.checkbox {
+    width: 16px;
+    height: 16px;
+    accent-color: #22c55e;
+}
+
+/* ── Tab grid ─────────────────────────────────────────────── */
+
+.tabGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    padding: 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+}
+
+.tabChip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    color: rgba(255,255,255,0.7);
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.tabChip:hover {
+    background: rgba(255,255,255,0.04);
+}
+
+.tabChip.active {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.4);
+    color: rgba(255,255,255,0.95);
+}
+
+.tabCheckbox {
+    width: 12px;
+    height: 12px;
+    accent-color: #22c55e;
+    margin: 0;
+}
+
+.tabLabel {
+    flex: 1;
+    min-width: 0;
+    font-weight: 500;
+}
+
+/* ── Validation / toasts / errors ─────────────────────────── */
+
+.validationErr {
+    font-size: 11px;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+
+.toastOk {
+    font-size: 11px;
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+
+.toastErr {
+    font-size: 11px;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+
+.lastErrorBox {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(239, 68, 68, 0.04);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
+.lastErrorLabel {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #ef4444;
+    text-transform: uppercase;
+}
+
+.lastErrorText {
+    font-size: 11px;
+    color: rgba(239, 68, 68, 0.9);
+    word-break: break-word;
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+/* ── Actions ──────────────────────────────────────────────── */
+
+.actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.cancelBtn,
+.runNowBtn,
+.saveBtn {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    color: rgba(255,255,255,0.85);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.cancelBtn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.2);
+}
+
+.runNowBtn {
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #f59e0b;
+}
+
+.runNowBtn:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.saveBtn {
+    border-color: rgba(34, 197, 94, 0.5);
+    color: #22c55e;
+}
+
+.saveBtn:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.cancelBtn:disabled,
+.runNowBtn:disabled,
+.saveBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

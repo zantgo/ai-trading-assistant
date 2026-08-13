@@ -1,6 +1,6 @@
 # 📈 Exponential Moving Averages (EMA 10, 50, 100, 200) Protocol
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.4 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction
@@ -89,3 +89,96 @@ The EMA Ribbon normalized score in [-1, 1] is binary/tertiary:
 - **ESTABLISHED_BEARISH_STACK**: -1.0
 
 The `values` sub-map carries: `fast`, `medium`, `slow`, `long` (the 4 EMA values). Confidence = |normalized|.
+
+> **Note.** The composite `ema_stack.normalized` score is a discrete stack-state classifier — it is **NOT** an equal-weighted average of the 4 EMAs. It considers all four lines always (never just the fast) and emits one of 5 buckets. If a future change wants a continuous equal-weighted aggregate, it must be added as a separate signal/value — not by replacing this classifier.
+
+---
+
+## Unified Ribbon Export (v6.11)
+
+The four EMA surfaces in the platform now read from the **same record** —
+`MarketSnapshot.indicators["ema_stack"].values.{fast,medium,slow,long}` —
+and so carry byte-identical numbers in every consumer. Surfacing the full
+four values plus a cross-line spread gives the trader the fast/medium/slow/long
+view at a glance without expanding the indicator row.
+
+### The four surfaces (all read the same record)
+
+| Surface | Path | What it carries |
+|---|---|---|
+| **Metrics Layer (L1)** | `crates/market-analyzer/src/analyzer/{mod.rs:694-697, 1713-1716}` + `crates/market-analyzer/src/analyzer/warm.rs:156-159, 321-324, 533-536` | The `Ema::new(period)` calculator instances that produce `final_ema_*` Decimals per candle |
+| **Metrics Matrix** | `MarketSnapshot.indicators["ema_stack"].values.*` (written by `inject_ema_values` in `crates/market-analyzer/src/analyzer/normalize.rs:521-546`) | Canonical record on the wire and DB |
+| **Charts tab overlay** | `ui/src/components/PriceChart.svelte:336-340` + `:811-846` | 4 colored lines drawn as price overlays (per-bar series via `alignedSeriesFromHistory`) |
+| **Metrics tab — on-screen micro-grid** | `ui/src/components/facets/IndicatorsView.svelte` (collapsed `raw_value` cell when `m.key === 'ema_stack'`) | 4-line / 8-cell micro-grid: `LABEL  value  distance%`, plus `spread ↔ 0.27%` sub-label |
+| **Metrics tab — export body `body.ema`** | `ui/src/lib/exportBuilders/metricsTab.ts` → `buildEmaBlock()` (defined in `ui/src/lib/exportBuilders/shared.ts`) | Top-level `body.ema.{fast,medium,slow,long}.{value, period, distance_from_price}` plus `body.ema.spread_pct` |
+
+### Per-line distance_from_price and spread
+
+For each line:
+```
+distance_from_price[role] = (close − ema[role]) / close
+```
+
+For the cross-line spread:
+```
+spread_pct = (values.fast − values.long) / close
+```
+
+Positive spread = bull (fast above long). Negative = bear. Magnitude =
+ribbon "spread", the canonical trend-conviction proxy on a 4-EMA system
+(coiled breakout → spread → 0; trending maturity → spread → wider).
+Implemented once in `distFromPrice()` / `emaSpreadPct()` in
+`ui/src/lib/telemetry.ts` and reused by every consumer — single source
+of truth, no second computation.
+
+### Defaults and configuration
+
+Default periods (`ui/src/stores/settings.svelte.ts:10`): `fast=10`,
+`medium=50`, `slow=100`, `long=200`. These can be overridden per
+timeframe via the dashboard settings; the same configured list drives
+the `period` field on every `body.ema.*` line in the export (single
+source: `app.settings.globalIndicatorsConfig.{ema_fast,ema_medium,ema_slow,ema_long}`,
+read at `ui/src/state.svelte.ts:419-422`).
+
+## Sub-minute warm-up (per-line availability, AUDIT-V8-001)
+
+On sub-minute timeframes (CB-05 skips the historical bootstrap, so the
+buffer starts at zero) the ribbon is emitted **per line**: each line
+appears in `ema_stack.values.*` only once the pipeline has accumulated at
+least its configured period of completed closes.
+
+| Line | Appears at | Example at 3 s candles |
+|------|-----------|------------------------|
+| `fast` | ≥ 10 closes | 30 s after cold start |
+| `medium` | ≥ 50 closes | 2.5 min |
+| `slow` | ≥ 100 closes | 5 min |
+| `long` | ≥ 200 closes | 10 min |
+
+Implementation: the registry entry carries `bars_required = 1` (the entry
+always survives the normalize gate); the per-line gate lives in
+`inject_ema_values` (`crates/market-analyzer/src/analyzer/normalize.rs`),
+which skips any line whose `bar_count < period`. Consumers treat a missing
+sub-key as `None` (chart lines, the on-screen micro-grid, and the export
+body all render `--`). Above-minute timeframes are unaffected: the
+historical bootstrap preloads ≥ `[candle_buffer] size` candles, so all
+four lines are present from first paint.
+
+### Unification invariants (regression-tested)
+
+1. `body.ema.{fast,medium,slow,long}.value` is byte-identical to
+   `indicators[ema_stack].sub_values.{fast,medium,slow,long}` on the
+   export body. Test:
+   `ui/src/lib/exportBuilders/metricsTab.test.ts > body.ema — Metrics
+   tab export body block > unification: body.ema.*.value ===
+   indicators[ema_stack].sub_values.*`.
+2. The on-screen micro-grid cell and the export body's `body.ema`
+   block read the same record — `buildEmaRibbonCellView()` and
+   `buildEmaBlock()` both funnel through `buildEmaRibbonView()` in
+   `ui/src/lib/telemetry.ts`. Tests:
+   `ui/src/components/facets/IndicatorsView.test.ts > IndicatorsView
+   EMA Ribbon micro-grid` and
+   `ui/src/lib/exportBuilders/shared.test.ts > buildEmaBlock`.
+3. `meta` does NOT carry an `ema` field — the per-TF indicator snapshot
+   lives in the body. Test:
+   `ui/src/lib/exportBuilders/metricsTab.test.ts > meta envelope —
+   does NOT carry ema`.

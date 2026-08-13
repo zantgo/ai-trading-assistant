@@ -3,7 +3,6 @@
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
     import { buildOpportunityTabExport } from '../lib/exportBuilders/opportunityTab';
-    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
@@ -205,16 +204,18 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
             opportunity,
             analysis,
             decisionContext,
+            advisory,
             symbol: pairKey,
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: buildFilterStateBlock({
-                activeOnly: false,
-                confirmedPlusOnly: false,
-                hideGates: false,
-                hideOverlays: false,
-            }),
+            headerSpec,
+            terms: {
+                microTerm: instance?.microTerm as any,
+                fastTerm: instance?.fastTerm as any,
+                slowTerm: instance?.slowTerm as any,
+                macroTerm: instance?.macroTerm as any,
+            },
         });
     }
 

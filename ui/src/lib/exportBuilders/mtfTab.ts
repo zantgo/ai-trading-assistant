@@ -1,28 +1,52 @@
 // MTF (multi-timeframe) builder — scoped export payload mirroring the panel.
 //
-// The MTF view renders:
-//   1. Header summary row (4 timeframe labels with duration_secs)
-//   2. Per-group section headers (8 functional groups with indicator counts)
-//   3. Per-indicator row (4 values normalized per TF + agreement + agreement_label)
-//
-// This builder emits:
-//   - groups[] (rollup by functional group)
-//   - indicators[] (cross-TF grid with per-TF normalized values)
-//   - timeframes[] (per-TF full detail: indicators + fibonacci_summary + context)
-//   - signals_total (unique labels across all 4 TFs)
+// v7.0-audit: rewrites the payload to use the new shared envelope (no
+// filter_state in `meta`, single current_price, structured header chrome).
+// v7.0-verify: adds a top-level `filter_state` block + per-row `visible`
+// flags so the on-screen row set is reconstructible from the JSON (the
+// payload rows themselves remain the unfiltered superset). Adds:
+//   - GROUP_META label mapping and indicator key/period separation
+//   - per-TF state humanization (matches the single-TF Metrics export)
+//   - per-TF raw_display / state_display (display parity with screen)
+//   - top-level signals_by_kind, divergences, levels (cross-TF aggregates)
+//   - meta.timesframes list (removes the timeframe_secs=0 ambiguity)
 
 import type {
   TimeframeTelemetry,
   IndicatorMeta,
   IndicatorDto,
+  IndicatorGroup,
+  IndicatorClass,
+  SignalDirection,
+  SignalStatus,
   VolumeProfileSnapshot,
   LiquidationClusterMatrix,
   LiquidityFlow,
-  LiquiditySignal,
   MarketContext,
 } from '../../types';
-import { buildMeta } from './shared';
-import type { MetaEnvelope, FilterStateBlock } from './shared';
+import {
+  buildPriceBlock,
+  buildHeaderBlock,
+  type MetaEnvelope,
+  type HeaderBlock,
+  type InstanceTermsLike,
+  type LiquidityPanelBlock,
+} from './shared';
+import type { LayerHeaderSpec } from '../layerHeader';
+import { GROUP_META } from '../groupMeta';
+import { filterRegistry, type FilterState } from '../filtering';
+import { fibStatusString, vpPositionLabel } from '../structuralStrings';
+import {
+  buildGroupConfluence as buildGroupConfluenceShared,
+  buildSignalsByKind,
+  buildDivergences,
+  buildLevels,
+  buildLiquidityPanelBlock,
+  type GroupConfluenceRow,
+  type IndicatorSignalExport,
+  type DivergenceRow,
+  type LevelRow,
+} from './metricsTab';
 
 export type MtfSlotLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
 
@@ -38,59 +62,70 @@ export interface MtfTimeframeEntry {
     present: boolean;
     gp_top: number | null;
     gp_bottom: number | null;
+    swing_direction: string;
+    status: string;
     ext_1618: number | null;
     ext_2618: number | null;
     retracement_coefficients: Record<string, number | null> | null;
   };
-  indicators: Array<{
-    key: string;
-    display_name: string;
-    group: string;
-    class: string;
-    raw: number | null;
-    normalized: number;
-    state: string;
-    confidence_pct: number;
-    signals: Array<{
-      kind: string;
-      direction: string;
-      status: string;
-      label: string;
-      strength: number;
-      age_bars: number | undefined;
-    }>;
-    sub_values: Record<string, number> | null;
-    indicator_lifecycle: {
-      state: string;
-      bars_seen: number;
-      bars_required: number;
-    } | null;
-  }>;
-  liquidity_signals: Array<{
+  volume_profile: Record<string, unknown> | null;
+  liquidity_cluster: Record<string, unknown> | null;
+  liquidity_flow: Record<string, unknown> | null;
+  indicators: MtfPerTimeframeIndicator[];
+}
+
+export interface MtfPerTimeframeIndicator {
+  key: string;
+  period: number | null;
+  fast_period: number | null;
+  slow_period: number | null;
+  signal_period: number | null;
+  display_name: string;
+  group: IndicatorGroup;
+  class: IndicatorClass;
+  raw: number | null;
+  raw_display: string;
+  normalized_available: boolean;
+  normalized_value: number;
+  state: string;
+  state_display: string;
+  confidence_pct: number;
+  signals: Array<{
     kind: string;
-    direction: string;
+    direction: SignalDirection;
+    status: SignalStatus;
+    label: string;
     strength: number;
-    confidence: number;
-    evidence: string[];
+    age_bars: number | undefined;
+    display_label: string;
   }>;
-  volume_profile: unknown | null;
-  liquidity_flow: unknown | null;
-  cluster_matrix: unknown | null;
+  sub_values: Record<string, number> | null;
 }
 
 export interface MtfIndicatorValue {
   timeframe: MtfSlotLabel;
   normalized: number;
+  normalized_display: string;
   active: boolean;
 }
 
 export interface MtfIndicatorEntry {
   key: string;
+  period: number | null;
   display_name: string;
   group: string;
+  label: string;
+  class: string;
   directional: boolean;
+  /** Whether the row is visible under the applied filters (mirrors
+   *  `MtfView.svelte::filteredRegistry` — `filterRegistry` semantics with
+   *  signals counted across all 4 slots). */
+  visible: boolean;
+  normalized_available: boolean;
+  confidence_pct: number;
   values: MtfIndicatorValue[];
   agreement: number;
+  agreement_display: string;
   agreement_label: 'BULL' | 'BEAR' | 'MIXED';
 }
 
@@ -98,33 +133,44 @@ export interface MtfGroupEntry {
   key: string;
   label: string;
   accent: string;
+  /** Count of visible (filtered) indicators — mirrors the on-screen
+   *  `g.items.length` section count. */
   indicator_count: number;
+  /** Count of all registry indicators in the group (pre-filter). */
+  total_indicator_count: number;
+}
+
+export interface MtfFilterStateBlock {
+  active_only: boolean;
+  confirmed_plus_only: boolean;
+  hide_gates: boolean;
+  hide_overlays: boolean;
+  query: string;
 }
 
 export interface MtfPayload {
   source_tab: 'mtf';
-  meta: MetaEnvelope;
+  meta: MetaEnvelope & { timesframes?: string[] };
+  header: HeaderBlock;
+  /** Filter state at export time — lets consumers reconstruct exactly which
+   *  rows are visible on screen (the payload rows themselves are the
+   *  unfiltered superset, each flagged with `visible`). */
+  filter_state: MtfFilterStateBlock;
   groups: MtfGroupEntry[];
   indicators: MtfIndicatorEntry[];
+  /** Aggregated across all 4 TFs (same shape as the Metrics single-TF export). */
+  group_confluence: GroupConfluenceRow[];
+  signals_by_kind: Record<string, IndicatorSignalExport[]>;
+  divergences: DivergenceRow[];
+  levels: LevelRow[];
+  liquidity_panel: LiquidityPanelBlock;
   timeframes: MtfTimeframeEntry[];
-  signals_total: number;
 }
 
 const GROUP_ORDER = [
   'Trend', 'Momentum', 'Volume', 'Volatility',
   'Structure', 'Regime', 'Institutional', 'DerivativesData',
 ] as const;
-
-const GROUP_META: Record<string, { label: string; accent: string }> = {
-  Trend:           { label: 'Trend',        accent: '#22d3ee' },
-  Momentum:        { label: 'Momentum',     accent: '#a78bfa' },
-  Volume:          { label: 'Volume',       accent: '#fb923c' },
-  Volatility:      { label: 'Volatility',   accent: '#ef4444' },
-  Structure:       { label: 'Structure',    accent: '#60a5fa' },
-  Regime:          { label: 'Regime',       accent: '#facc15' },
-  Institutional:   { label: 'SMC',          accent: '#ec4899' },
-  DerivativesData: { label: 'Derivatives',  accent: '#34d399' },
-};
 
 const SIGNAL_ABBR: Record<string, string> = {
   Divergence: 'DIV', Crossover: 'CRO', Threshold: 'TH', Breakout: 'BO',
@@ -133,22 +179,63 @@ const SIGNAL_ABBR: Record<string, string> = {
   StackChange: 'STK', PatternForming: 'PAT',
 };
 
+/** Abbreviation → canonical kind token (inverse of SIGNAL_ABBR). The
+ *  per-TF indicator rows carry abbreviated kinds ("LV"); the shared
+ *  Metrics builders (`buildSignalsByKind` / `buildDivergences` /
+ *  `buildLevels`) key on the canonical tokens ("LevelTest"), so the
+ *  merged DTOs must carry canonical kinds to produce the same
+ *  signals_by_kind/divergences/levels shapes as the single-TF export. */
+const CANONICAL_KIND_BY_ABBR: Record<string, string> = Object.fromEntries(
+  Object.entries(SIGNAL_ABBR).map(([canonical, abbr]) => [abbr, canonical]),
+);
+
+function splitIndicatorKey(rawKey: string): {
+  key: string;
+  period: number | null;
+  fast_period: number | null;
+  slow_period: number | null;
+  signal_period: number | null;
+} {
+  const parts = rawKey.split('_');
+  if (parts.length === 2) {
+    const n = parseInt(parts[1], 10);
+    if (Number.isFinite(n) && String(n) === parts[1]) {
+      return { key: parts[0], period: n, fast_period: null, slow_period: null, signal_period: null };
+    }
+  }
+  if (parts.length === 4 && parts[0] === 'macd') {
+    const fast = parseInt(parts[1], 10);
+    const slow = parseInt(parts[2], 10);
+    const sig = parseInt(parts[3], 10);
+    if ([fast, slow, sig].every((v) => Number.isFinite(v))) {
+      return { key: parts[0], period: null, fast_period: fast, slow_period: slow, signal_period: sig };
+    }
+  }
+  return { key: rawKey, period: null, fast_period: null, slow_period: null, signal_period: null };
+}
+
+function deriveDisplayName(rawKey: string, split: ReturnType<typeof splitIndicatorKey>): string {
+  if (split.period != null) return `${split.key.toUpperCase()} ${split.period}`;
+  if (split.fast_period != null) return `${split.key.toUpperCase()} ${split.fast_period} ${split.slow_period} ${split.signal_period}`;
+  // Registry display_name is the canonical source (panel rendering); fall
+  // back to a deterministic derived name only when the registry omits it.
+  return rawKey.toUpperCase();
+}
+
+function deriveLabelForGroup(groupKey: string): string {
+  return (GROUP_META as Record<string, { label: string; accent: string } | undefined>)[groupKey]?.label ?? groupKey;
+}
+
 function classifyAgreement(value: number): 'BULL' | 'BEAR' | 'MIXED' {
   if (value > 0.2) return 'BULL';
   if (value < -0.2) return 'BEAR';
   return 'MIXED';
 }
 
-function parseMarkPrice(priceText: string | undefined | null): number | null {
-  const v = parseFloat(priceText ?? '');
-  if (!isFinite(v) || v <= 0) return null;
-  return v;
-}
-
-function parseSnapshotTimestamp(snap: unknown): number | null {
-  if (!snap) return null;
-  const ts = (snap as { timestamp?: unknown }).timestamp;
-  return typeof ts === 'number' ? ts : null;
+function signedStr(n: number, decimals: number): string {
+  // Screen renders `(v >= 0 ? '+' : '')` — zero gets '+'.
+  const s = n.toFixed(decimals);
+  return n >= 0 ? '+' + s : s;
 }
 
 function iRaw(indicators: Record<string, IndicatorDto>, key: string): number | null {
@@ -169,23 +256,31 @@ function rawVal(meta: IndicatorMeta, indicators: Record<string, IndicatorDto>): 
   return iRaw(indicators, meta.key);
 }
 
-function formatRawForExport(
+function formatRawValue(
   meta: IndicatorMeta,
   indicators: Record<string, IndicatorDto>,
-): number | null {
-  if (meta.value_format === 'onoff') {
-    return rawVal(meta, indicators) != null ? 1 : 0;
-  }
+): { value: number | null; display: string } {
   const v = rawVal(meta, indicators);
-  if (v == null) return null;
+  if (v == null) return { value: null, display: '\u2014' };
+  // WARMING entries render '--' exactly like the Metrics single-TF export.
+  const warming = indicators?.[meta.key]?.state_label === 'WARMING';
+  if (warming) return { value: null, display: '--' };
   switch (meta.value_format) {
-    case 'percent1':  return Number(v.toFixed(1));
-    case 'price':     return Number(v.toFixed(2));
-    case 'ratio2':    return Number(v.toFixed(2));
-    case 'decimals1': return Number(v.toFixed(1));
-    case 'decimals4': return Number(v.toFixed(4));
+    case 'onoff':
+      return { value: v ? 1 : 0, display: v ? 'ON' : 'OFF' };
+    case 'percent1':
+      return { value: Number(v.toFixed(1)), display: `${v.toFixed(1)}%` };
+    case 'price':
+      return { value: Number(v.toFixed(2)), display: v.toFixed(2) };
+    case 'ratio2':
+      return { value: Number(v.toFixed(2)), display: v.toFixed(2) };
+    case 'decimals1':
+      return { value: Number(v.toFixed(1)), display: v.toFixed(1) };
+    case 'decimals4':
+      return { value: Number(v.toFixed(4)), display: v.toFixed(4) };
     case 'decimals2':
-    default:          return Number(v.toFixed(2));
+    default:
+      return { value: Number(v.toFixed(2)), display: v.toFixed(2) };
   }
 }
 
@@ -195,15 +290,48 @@ function confidencePct(indicators: Record<string, IndicatorDto>, key: string): n
   return Math.round(Math.abs(dto.confidence) * 100);
 }
 
-function extractFibSummary(indicators: Record<string, IndicatorDto>): MtfTimeframeEntry['fibonacci_summary'] {
+function fibSwingDirection(norm: number | null): string {
+  if (norm == null) return 'NEUTRAL SWING';
+  if (norm > 0.05) return 'BULL SWING';
+  if (norm < -0.05) return 'BEAR SWING';
+  return 'NEUTRAL SWING';
+}
+
+function humanizeStateToken(raw: string | null | undefined): string {
+  if (!raw) return '\u2014';
+  if (raw === 'WARMING') return 'WARMING';
+  // `_` → space + uppercase, matching the single-TF Metrics export and the
+  // shared `lifecycleDisplay` helper used by the screen.
+  return raw.replace(/_/g, ' ').toUpperCase();
+}
+
+function extractFibSummary(
+  indicators: Record<string, IndicatorDto>,
+  markPrice: number | null,
+): MtfTimeframeEntry['fibonacci_summary'] {
   const fibVals = (indicators['fibonacci']?.values ?? {}) as Record<string, number | undefined>;
   if (Object.keys(fibVals).length === 0) {
-    return { present: false, gp_top: null, gp_bottom: null, ext_1618: null, ext_2618: null, retracement_coefficients: null };
+    return {
+      present: false,
+      gp_top: null,
+      gp_bottom: null,
+      swing_direction: 'NEUTRAL SWING',
+      status: 'UNKNOWN',
+      ext_1618: null,
+      ext_2618: null,
+      retracement_coefficients: null,
+    };
   }
+  const gpTop = fibVals['gp_top'] ?? null;
+  const gpBottom = fibVals['gp_bottom'] ?? null;
   return {
     present: true,
-    gp_top: fibVals['gp_top'] ?? null,
-    gp_bottom: fibVals['gp_bottom'] ?? null,
+    gp_top: gpTop,
+    gp_bottom: gpBottom,
+    swing_direction: fibSwingDirection(indicators['fibonacci']?.normalized ?? null),
+    // Shared canonical string — identical to the anchors strip tile and
+    // the single-TF Metrics export.
+    status: fibStatusString(gpTop, gpBottom, markPrice),
     ext_1618: fibVals['ext_1618'] ?? null,
     ext_2618: fibVals['ext_2618'] ?? null,
     retracement_coefficients: {
@@ -221,64 +349,157 @@ function buildTimeframeEntry(
   label: MtfSlotLabel,
   tf: TimeframeTelemetry,
   registry: IndicatorMeta[],
+  markPrice: number | null,
 ): MtfTimeframeEntry {
   const indicators = (tf.indicators ?? {}) as Record<string, IndicatorDto>;
-  const markPrice = parseMarkPrice(tf.priceText);
-  const exportIndicators = registry.map((m) => {
+  const exportIndicators: MtfPerTimeframeIndicator[] = registry.map((m) => {
     const dto = indicators[m.key];
     if (!dto) return null;
-    const signals = (dto.signals ?? []).map((s) => ({
-      kind: SIGNAL_ABBR[s.kind] ?? s.kind,
-      direction: s.direction,
-      status: s.status,
-      label: s.label,
-      strength: s.strength,
-      age_bars: s.age_bars,
-    }));
+    const split = splitIndicatorKey(m.key);
+    const signals = (dto.signals ?? []).map((s) => {
+      const abbr = SIGNAL_ABBR[s.kind] ?? s.kind;
+      // Screen badge format: "DIV·3" — '·' separator only when age > 0.
+      const age = (s.age_bars ?? 0) === 0 ? '' : `\u00B7${s.age_bars}`;
+      return {
+        kind: abbr,
+        direction: s.direction,
+        status: s.status,
+        label: s.label,
+        strength: s.strength,
+        age_bars: s.age_bars,
+        display_label: `${abbr}${age}`,
+      };
+    });
     const subValues: Record<string, number> = {};
     if (dto.values) {
       for (const [k, v] of Object.entries(dto.values)) {
         if (v != null && !Number.isNaN(v)) subValues[k] = v;
       }
     }
-    const lc = tf.indicatorLifecycle?.[m.key];
+    const rawFmt = formatRawValue(m, indicators);
     return {
-      key: m.key,
-      display_name: m.display_name,
+      key: split.key,
+      period: split.period,
+      fast_period: split.fast_period,
+      slow_period: split.slow_period,
+      signal_period: split.signal_period,
+      display_name: m.display_name ?? deriveDisplayName(m.key, split),
       group: m.group,
       class: m.class,
-      raw: formatRawForExport(m, indicators),
-      normalized: dto.normalized ?? 0,
-      state: dto.state_label ?? '--',
+      raw: rawFmt.value,
+      raw_display: rawFmt.display,
+      normalized_available: dto.normalized != null,
+      normalized_value: dto.normalized ?? null,
+      state: dto.state_label ?? '\u2014',
+      state_display: humanizeStateToken(dto.state_label),
       confidence_pct: confidencePct(indicators, m.key),
       signals,
       sub_values: Object.keys(subValues).length > 0 ? subValues : null,
-      indicator_lifecycle: lc ? {
-        state: lc.state,
-        bars_seen: lc.bars_seen,
-        bars_required: lc.bars_required,
-      } : null,
     };
-  }).filter((x): x is NonNullable<typeof x> => x !== null);
+  }).filter((x): x is MtfPerTimeframeIndicator => x !== null);
 
-  const fibSummary = extractFibSummary(indicators);
+  const fibSummary = extractFibSummary(indicators, markPrice);
   const ctx = (tf.context ?? null) as MarketContext | null;
 
   return {
     label,
     duration_seconds: tf.barDurationSec ?? 0,
-    mark_price: markPrice,
-    timestamp: parseSnapshotTimestamp(tf.latestSnapshot),
+    mark_price: parseFloat(tf.priceText ?? '') || null,
+    timestamp: typeof tf.latestSnapshot?.timestamp === 'number' ? tf.latestSnapshot.timestamp : null,
     pipeline_state: (tf.pipelineState ?? null) as string | null,
     is_completed: tf.isCompleted ?? false,
     context: ctx as unknown as Record<string, unknown> | null,
     fibonacci_summary: fibSummary,
+    volume_profile: (tf.volumeProfile ?? null) as Record<string, unknown> | null,
+    liquidity_cluster: (tf.cluster ?? null) as Record<string, unknown> | null,
+    liquidity_flow: (tf.liquidity ?? null) as Record<string, unknown> | null,
     indicators: exportIndicators,
-    liquidity_signals: [],
-    volume_profile: (tf as { volumeProfile?: VolumeProfileSnapshot })?.volumeProfile ?? null,
-    liquidity_flow: (tf as { liquidity?: LiquidityFlow })?.liquidity ?? null,
-    cluster_matrix: (tf as { cluster?: LiquidationClusterMatrix })?.cluster ?? null,
   };
+}
+
+interface MtfAggregate {
+  signals: IndicatorSignalExport[];
+  divergences: DivergenceRow[];
+  levels: LevelRow[];
+}
+
+/**
+ * Aggregate indicator data across all 4 TFs into a single flattened view
+ * (same shape the single-TF Metrics export carries in its top-level
+ * `signals_by_kind` / `divergences` / `levels` blocks). Deduplicates by
+ * `(key, label, kind, time-bucket)` so the same signal that fired on
+ * several TFs appears once with the highest-strength entry.
+ */
+function aggregateAcrossTFs(perTf: MtfTimeframeEntry[], registry: IndicatorMeta[]): MtfAggregate {
+  const seenSignal = new Map<string, IndicatorSignalExport>();
+  const seenDivergence = new Map<string, DivergenceRow>();
+  const seenLevel = new Map<string, LevelRow>();
+  for (const tf of perTf) {
+    for (const ind of tf.indicators) {
+      const meta = registry.find((m) => m.key === `${ind.key}${ind.period ? `_${ind.period}` : ''}`);
+      if (!meta) continue;
+      for (const sig of ind.signals) {
+        const key = `${ind.key}|${sig.kind}|${sig.label}|${sig.direction}`;
+        const prev = seenSignal.get(key);
+        if (!prev || sig.strength > prev.strength) {
+          seenSignal.set(key, {
+            key: ind.key,
+            period: ind.period,
+            display_name: ind.display_name,
+            kind: sig.kind,
+            direction: sig.direction,
+            status: sig.status,
+            label: sig.label,
+            strength: sig.strength,
+            age_bars: sig.age_bars,
+            display_label: sig.display_label,
+          });
+        }
+        if (sig.kind === 'Divergence' && ind.key) {
+          const dvKey = `${ind.key}|${sig.label}`;
+          if (!seenDivergence.has(dvKey)) {
+            seenDivergence.set(dvKey, {
+              key: ind.key,
+              period: ind.period,
+              display_name: ind.display_name,
+              sub_kind: '',
+              direction: sig.direction,
+              status: sig.status,
+              strength: sig.strength,
+              confidence_pct: ind.confidence_pct,
+              age_bars: sig.age_bars,
+              label: sig.label,
+              pivots: null,
+            });
+          }
+        }
+        if (sig.kind === 'LevelTest' && ind.key) {
+          const lvKey = `${ind.key}|${sig.label}|${tf.label}`;
+          if (!seenLevel.has(lvKey)) {
+            seenLevel.set(lvKey, {
+              key: ind.key,
+              coefficient: null,
+              display_name: ind.display_name,
+              level_name: sig.label,
+              kind: '',
+              role: 'neutral',
+              value_key: null,
+              is_range: false,
+              price_text: '\u2014',
+              direction: sig.direction,
+              status: sig.status,
+              strength: sig.strength,
+              confidence_pct: ind.confidence_pct,
+              age_bars: sig.age_bars,
+            });
+          }
+        }
+      }
+    }
+  }
+  const signals: IndicatorSignalExport[] = Array.from(seenSignal.values());
+  signals.sort((a, b) => b.strength - a.strength);
+  return { signals, divergences: Array.from(seenDivergence.values()), levels: Array.from(seenLevel.values()) };
 }
 
 // ── Public builder ───────────────────────────────────────────────────────
@@ -291,18 +512,38 @@ export interface MtfTabInputs {
     macroTerm: TimeframeTelemetry;
   };
   registry: IndicatorMeta[];
+  /** Filter state at export time — drives per-row `visible` flags and the
+   *  `filter_state` block (mirrors the pills above the MTF grid). When
+   *  omitted, every row is treated as visible. */
+  filters?: FilterState;
+  /**
+   * The full `BTC-USDC` / `BTC-USDT` exchange-symbol. Callers MUST pass
+   * the complete pairKey; the bare `BTC` base is rejected because the
+   * export's `meta.pair` is the canonical market identifier.
+   */
   symbol: string;
-  filterState?: FilterStateBlock;
+  exchange?: string;
+  /** MTF sentinel: always 0 (use `meta.timesframes` instead). */
+  tfSecs?: number | null;
+  timestamp?: number | null;
+  markPrice?: number | null;
+  isCompleted?: boolean;
+  terms?: InstanceTermsLike;
+  headerSpec: LayerHeaderSpec;
 }
 
 /**
  * Build the MTF tab export payload. Mirrors `MtfView.svelte` 1:1.
  */
 export function buildMtfExportJson(args: MtfTabInputs): string {
-  const meta = buildMeta({
-    sourceTab: 'mtf',
+  const { meta } = buildPriceBlock({
     symbol: args.symbol,
-    filterState: args.filterState,
+    exchange: args.exchange,
+    terms: args.terms,
+    fallbackMarkPrice: args.markPrice,
+    tfSecs: args.tfSecs ?? 0,
+    timestamp: args.timestamp,
+    isCompleted: args.isCompleted,
   });
   const slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[] = [
     { label: 'Micro', tf: args.pair.microTerm },
@@ -310,16 +551,30 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     { label: 'Slow',  tf: args.pair.slowTerm },
     { label: 'Macro', tf: args.pair.macroTerm },
   ];
+  const markPrice = meta.current_price;
   const timeframes: MtfTimeframeEntry[] = slotDefs.map(({ label, tf }) =>
-    buildTimeframeEntry(label, tf, args.registry),
+    buildTimeframeEntry(label, tf, args.registry, markPrice),
   );
 
-  const indicators: MtfIndicatorEntry[] = args.registry.map((meta) => {
+  // Visible row set — same filterRegistry semantics as MtfView (signals
+  // counted across all 4 slots so "Active only" behaves identically).
+  const filters = args.filters ?? undefined;
+  const visibleKeys = new Set(
+    filterRegistry(args.registry, filters ?? ({} as FilterState), (key) =>
+      slotDefs.flatMap(({ tf }) => (tf.indicators ?? {})[key]?.signals ?? []),
+    ).map((m) => m.key),
+  );
+
+  // Per-TF per-indicator row (one per registry entry × 4 TFs).
+  const indicators: MtfIndicatorEntry[] = args.registry.map((m) => {
+    const split = splitIndicatorKey(m.key);
     const values: MtfIndicatorValue[] = slotDefs.map(({ label, tf }) => {
-      const dto = (tf.indicators ?? {})[meta.key];
+      const dto = (tf.indicators ?? {})[m.key];
+      const n = dto?.normalized ?? 0;
       return {
         timeframe: label,
-        normalized: dto?.normalized ?? 0,
+        normalized: n,
+        normalized_display: signedStr(n, 2),
         active: dto != null,
       };
     });
@@ -327,47 +582,156 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     const agreement = presentNorms.length > 0
       ? presentNorms.reduce((a, b) => a + b, 0) / presentNorms.length
       : 0;
+    // Aggregate state across TFs — first non-null state wins.
+    const aggregateState = slotDefs
+      .map(({ tf }) => (tf.indicators ?? {})[m.key]?.state_label)
+      .find((s) => s != null) ?? null;
+    // Aggregate confidence — take the max across TFs.
+    const aggregateConfidence = Math.max(
+      ...slotDefs.map(({ tf }) => confidencePct((tf.indicators ?? {}) as Record<string, IndicatorDto>, m.key)),
+    );
     return {
-      key: meta.key,
-      display_name: meta.display_name,
-      group: meta.group,
-      directional: meta.directional ?? true,
+      key: split.key,
+      period: split.period,
+      display_name: m.display_name ?? deriveDisplayName(m.key, split),
+      group: m.group,
+      label: deriveLabelForGroup(m.group),
+      class: m.class,
+      directional: m.directional ?? true,
+      visible: visibleKeys.has(m.key),
+      normalized_available: presentNorms.length > 0,
+      confidence_pct: aggregateConfidence,
       values,
       agreement,
+      agreement_display: signedStr(agreement, 2),
       agreement_label: classifyAgreement(agreement),
     };
   });
 
   const groupCounts = new Map<string, number>();
+  const groupTotalCounts = new Map<string, number>();
   for (const ind of indicators) {
-    groupCounts.set(ind.group, (groupCounts.get(ind.group) ?? 0) + 1);
+    groupTotalCounts.set(ind.group, (groupTotalCounts.get(ind.group) ?? 0) + 1);
+    if (ind.visible) groupCounts.set(ind.group, (groupCounts.get(ind.group) ?? 0) + 1);
   }
   const groups: MtfGroupEntry[] = GROUP_ORDER
-    .filter((k) => (groupCounts.get(k) ?? 0) > 0)
+    .filter((k) => (groupCounts.get(k) ?? 0) > 0 || (groupTotalCounts.get(k) ?? 0) > 0)
     .map((k) => ({
       key: k,
-      label: GROUP_META[k]?.label ?? k,
-      accent: GROUP_META[k]?.accent ?? 'rgba(255,255,255,0.4)',
+      label: (GROUP_META as Record<string, { label: string; accent: string } | undefined>)[k]?.label ?? k,
+      accent: (GROUP_META as Record<string, { label: string; accent: string } | undefined>)[k]?.accent ?? 'rgba(255,255,255,0.4)',
       indicator_count: groupCounts.get(k) ?? 0,
+      total_indicator_count: groupTotalCounts.get(k) ?? 0,
     }));
 
-  const uniqueLabels = new Set<string>();
-  for (const { tf } of slotDefs) {
-    const inds = (tf.indicators ?? {}) as Record<string, IndicatorDto>;
-    for (const k of Object.keys(inds)) {
-      for (const s of inds[k]?.signals ?? []) {
-        if (s.label) uniqueLabels.add(s.label);
+  // Group confluence + signals_by_kind + divergences + levels across all 4 TFs.
+  // We aggregate per-TF indicator maps into a single map and reuse the
+  // shared Metrics builders so the cross-TF aggregates have the same shape
+  // as the single-TF aggregates.
+  const mergedIndicators: Record<string, IndicatorDto> = {};
+  for (const tf of timeframes) {
+    for (const ind of tf.indicators) {
+      const m = args.registry.find((mm) => mm.key === `${ind.key}${ind.period ? `_${ind.period}` : ''}`);
+      if (!m) continue;
+      // Key by the FULL registry key (e.g. "rsi_14") — the shared Metrics
+      // builders look up `indicators[meta.key]` with the registry key.
+      const existing = mergedIndicators[m.key] as IndicatorDto | undefined;
+      // NOTE: `existing.confidence` is stored as a 0..1 fraction
+      // (line below, `confidence_pct / 100`), while `ind.confidence_pct`
+      // is a 0..100 integer. Comparing them raw made every subsequent TF
+      // with confidence >= 2% win the merge, so the LAST timeframe
+      // (Macro) always won and the MTF aggregates (group_confluence /
+      // signals_by_kind / divergences / levels) became macro-only.
+      // Normalize to the same unit before comparing.
+      const prefer = !existing || (ind.confidence_pct ?? 0) > (existing.confidence ?? 0) * 100;
+      if (!prefer) continue;
+      mergedIndicators[m.key] = {
+        raw_value: ind.raw ?? 0,
+        normalized: ind.normalized_value,
+        state_label: ind.state,
+        confidence: ind.confidence_pct / 100,
+        values: ind.sub_values,
+        signals: ind.signals.map((s) => ({
+          // Per-TF rows carry abbreviated kinds; convert back to the
+          // canonical token so the shared builders emit the same
+          // signals_by_kind / divergences / levels as the Metrics export.
+          kind: (CANONICAL_KIND_BY_ABBR[s.kind as string] ?? s.kind) as any,
+          direction: s.direction as any,
+          status: s.status as any,
+          label: s.label,
+          strength: s.strength,
+          age_bars: s.age_bars,
+          points: null,
+        })) as any,
+      } as unknown as IndicatorDto;
+    }
+  }
+  const groupConfluence = buildGroupConfluenceShared(args.registry, mergedIndicators);
+  const signalsByKind = buildSignalsByKind(args.registry, mergedIndicators);
+  const divergences = buildDivergences(args.registry, mergedIndicators);
+  // Levels aggregate requires a known markPrice for the price_text; the
+  // merged map carries raw values but not parsed zones — produce a
+  // flat raw-value list.
+  const levelRawList: any[] = [];
+  for (const [k, dto] of Object.entries(mergedIndicators)) {
+    for (const sig of (dto as any).signals ?? []) {
+      if (sig.kind === 'LevelTest') {
+        levelRawList.push({
+          key: k,
+          signal: sig,
+          dto,
+        });
       }
     }
   }
+  // Reuse the Metrics levels builder with a synthetic wrapper.
+  const levels: LevelRow[] = buildLevels(
+    args.registry,
+    Object.fromEntries(levelRawList.map((e) => [e.key, e.dto])),
+    markPrice,
+  );
+
+  // Liquidity panel — processed through the shared Metrics builder so the
+  // MTF payload carries the exact same shape/null semantics as the
+  // single-TF Metrics export (flow/cluster/context with `available` flags).
+  const liquidityPanel: LiquidityPanelBlock = buildLiquidityPanelBlock(
+    (timeframes[0]?.liquidity_flow as LiquidityFlow | null) ?? null,
+    (timeframes[0]?.liquidity_cluster as LiquidationClusterMatrix | null) ?? null,
+    [],
+  );
 
   const payload: MtfPayload = {
     source_tab: 'mtf',
-    meta,
+    meta: { ...meta, timesframes: ['Micro', 'Fast', 'Slow', 'Macro'] },
+    header: buildHeaderBlock(args.headerSpec),
+    filter_state: filters
+      ? {
+          active_only: filters.activeOnly ?? false,
+          confirmed_plus_only: filters.confirmedPlusOnly ?? false,
+          hide_gates: filters.hideGates ?? false,
+          hide_overlays: filters.hideOverlays ?? false,
+          query: filters.query ?? '',
+        }
+      : {
+          active_only: false,
+          confirmed_plus_only: false,
+          hide_gates: false,
+          hide_overlays: false,
+          query: '',
+        },
     groups,
     indicators,
+    group_confluence: groupConfluence,
+    signals_by_kind: signalsByKind,
+    divergences,
+    levels,
+    liquidity_panel: liquidityPanel,
     timeframes,
-    signals_total: uniqueLabels.size,
   };
   return JSON.stringify(payload, null, 2);
 }
+
+// Silence unused-import warnings — these types are still re-exported for downstream tests.
+export type { VolumeProfileSnapshot as _VolumeProfileSnapshot };
+export type { LiquidationClusterMatrix as _LiquidationClusterMatrix };
+export type { LiquidityFlow as _LiquidityFlow };

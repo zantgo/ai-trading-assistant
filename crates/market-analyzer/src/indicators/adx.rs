@@ -1,4 +1,4 @@
-use super::ema::Ema;
+use super::rma::WilderRma;
 use super::traits::{BarInput, Indicator};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -40,16 +40,21 @@ pub struct AdxOutput {
 ///
 /// Tracks ADX history for slope calculation, +DI/-DI history for
 /// crossover detection, and a running ADX peak for exhaustion monitoring.
+///
+/// AUDIT-AIU-003: all four smoothers (TR, +DM, −DM, DX) now use Wilder's
+/// RMA (`rma.rs`) per the canonical definition — the previous plain-EMA
+/// smoothing contradicted the D5 deferral note and produced non-canonical
+/// ADX values.
 #[derive(Debug, Clone)]
 pub struct Adx {
     period: usize,
     prev_high: Option<Decimal>,
     prev_low: Option<Decimal>,
     prev_close: Option<Decimal>,
-    tr_ema: Ema,
-    plus_dm_ema: Ema,
-    minus_dm_ema: Ema,
-    dx_ema: Ema,
+    tr_rma: WilderRma,
+    plus_dm_rma: WilderRma,
+    minus_dm_rma: WilderRma,
+    dx_rma: WilderRma,
     adx_history: VecDeque<Decimal>,
     prev_plus_di: Option<Decimal>,
     prev_minus_di: Option<Decimal>,
@@ -66,10 +71,10 @@ impl Adx {
             prev_high: None,
             prev_low: None,
             prev_close: None,
-            tr_ema: Ema::new(period),
-            plus_dm_ema: Ema::new(period),
-            minus_dm_ema: Ema::new(period),
-            dx_ema: Ema::new(period),
+            tr_rma: WilderRma::new(period),
+            plus_dm_rma: WilderRma::new(period),
+            minus_dm_rma: WilderRma::new(period),
+            dx_rma: WilderRma::new(period),
             adx_history: VecDeque::with_capacity(ADX_HISTORY_LEN),
             prev_plus_di: None,
             prev_minus_di: None,
@@ -129,9 +134,11 @@ impl Adx {
             Decimal::ZERO
         };
 
-        let tr_smooth = self.tr_ema.update(tr.to_f64().unwrap_or(0.0));
-        let plus_dm_smooth = self.plus_dm_ema.update(plus_dm.to_f64().unwrap_or(0.0));
-        let minus_dm_smooth = self.minus_dm_ema.update(minus_dm.to_f64().unwrap_or(0.0));
+        let tr_smooth = self.tr_rma.update_seeded(tr.to_f64().unwrap_or(0.0));
+        let plus_dm_smooth = self.plus_dm_rma.update_seeded(plus_dm.to_f64().unwrap_or(0.0));
+        let minus_dm_smooth = self
+            .minus_dm_rma
+            .update_seeded(minus_dm.to_f64().unwrap_or(0.0));
 
         if tr_smooth == Decimal::ZERO {
             return None;
@@ -146,7 +153,7 @@ impl Adx {
         }
 
         let dx = ((plus_di - minus_di).abs() / di_sum) * Decimal::from(100);
-        let adx = self.dx_ema.update(dx.to_f64().unwrap_or(0.0));
+        let adx = self.dx_rma.update_seeded(dx.to_f64().unwrap_or(0.0));
 
         // Track ADX history for slope calculation
         self.adx_history.push_back(adx);

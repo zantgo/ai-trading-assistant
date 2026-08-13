@@ -26,6 +26,7 @@ import type {
     OpportunityProfile,
     PriceRange,
 } from '../types';
+import { normalizeViability } from './viability';
 
 export type DecisionAction = 'LONG' | 'SHORT' | 'HOLD';
 export type DecisionState = 'READY' | 'FORMING' | 'WATCH' | 'STAND_ASIDE';
@@ -694,29 +695,28 @@ export function topSetupSummary(
             : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
-    // Per-side R:R from the wire (canonical). When the wire value is
-    // missing or 0, fall back to the geometric R:R derived from the
-    // entry/target/SL zones so the operator always sees the actual
-    // ratio — even when the producer's `long_geometry_consistent`
-    // is false or `0.0` was emitted as the wire-contract "no R:R"
-    // signal. Note that long and short move in OPPOSITE directions,
-    // so a SHORT setup's `target.low > entry.high` is geometrically
-    // inverted for SHORT but perfectly valid — never treat that as
-    // a producer error. The wire's `0.0` is the only signal we
-    // override; the geometric check at `profileZones` / `aggregateZones`
-    // (where reward and risk must both be positive) still gates truly
-    // degenerate brackets.
+    // Per-side R:R from the wire (canonical). The wire value comes from
+    // the backend's `compute_side_rr_v2` (target-mid geometry) and is the
+    // single source of truth shared with the header chip
+    // (`layerHeader.ts`). Read it from the FINAL resolved side — including
+    // the aggregate fallback side resolved above — so a NEUTRAL-side
+    // setup that falls back to LONG zones still surfaces the wire R:R
+    // instead of the TP1-based `zones.rr` (which uses `target.low` only
+    // and disagrees with the wire). When the wire value is missing or 0,
+    // fall back to the geometric R:R derived from the zones so the
+    // operator always sees a ratio.
+    const finalSide = zones?.side ?? side;
     const wireRr =
-        side === 'LONG'
-            ? top.long_expected_rr_internal
-            : side === 'SHORT'
-              ? top.short_expected_rr_internal
+        finalSide === 'LONG'
+            ? top.long_expected_rr_internal ?? opportunity.long_expected_rr_internal
+            : finalSide === 'SHORT'
+              ? top.short_expected_rr_internal ?? opportunity.short_expected_rr_internal
               : null;
     const rr = wireRr != null && wireRr > 0
         ? Math.round(wireRr * 100) / 100
         : zones?.rr ?? null;
     // Viability — wire-side default to `NoClear` when missing.
-    const viability = (top.trade_viability ?? 'NoClear') as TopSetupSummary['viability'];
+    const viability = normalizeViability(top.trade_viability ?? 'NoClear') as TopSetupSummary['viability'];
     // Clean rationale (no raw/ratio debug strings).
     const rationale = `${top.opportunity_type}: preconditions ${top.preconditions_met}/${top.preconditions_total}`;
     return {
@@ -763,16 +763,23 @@ export function profileSummary(
             : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
+    // Per-side R:R from the wire (canonical, target-mid geometry via
+    // `compute_side_rr_v2` — same family as the header chip). Read from
+    // the FINAL resolved side (including the aggregate fallback side) so
+    // NEUTRAL-side profiles that fall back to LONG/SHORT zones surface
+    // the wire value instead of the TP1-based `zones.rr`. Fall back to
+    // the geometric R:R only when the wire value is missing or 0.
+    const finalSide = zones?.side ?? side;
     const wireRr =
-        side === 'LONG'
-            ? profile.long_expected_rr_internal
-            : side === 'SHORT'
-              ? profile.short_expected_rr_internal
+        finalSide === 'LONG'
+            ? profile.long_expected_rr_internal ?? opportunity?.long_expected_rr_internal
+            : finalSide === 'SHORT'
+              ? profile.short_expected_rr_internal ?? opportunity?.short_expected_rr_internal
               : null;
     const rr = wireRr != null && wireRr > 0
         ? Math.round(wireRr * 100) / 100
         : zones?.rr ?? null;
-    const viability = (profile.trade_viability ?? 'NoClear') as 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+    const viability = normalizeViability(profile.trade_viability ?? 'NoClear') as 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
     return { side, zones, rr, viability };
 }
 

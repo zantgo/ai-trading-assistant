@@ -164,27 +164,32 @@ check_status() {
 run_tests() {
     local failures=0
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 1/4: TEST-CORE — Pure math, indicators, serialization"
+    echo "  STAGE 1/5: TEST-CORE — Pure math, indicators, serialization"
     echo "═══════════════════════════════════════════════════════════"
     test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 2/4: TEST-INDICATORS — Per-indicator e2e"
+    echo "  STAGE 2/5: TEST-GOLDEN — Golden-vector conformance"
+    echo "═══════════════════════════════════════════════════════════"
+    test_golden || { ((failures++)); echo "❌ TEST-GOLDEN failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 3/5: TEST-INDICATORS — Per-indicator e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_indicators || { ((failures++)); echo "❌ TEST-INDICATORS failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 3/4: TEST-ENGINE — DB + server + e2e"
+    echo "  STAGE 4/5: TEST-ENGINE — DB + server + e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_engine || { ((failures++)); echo "❌ TEST-ENGINE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 4/4: TEST-UI — Svelte 5 components, state, snapshots"
+    echo "  STAGE 5/5: TEST-UI — Svelte 5 components, state, snapshots"
     echo "═══════════════════════════════════════════════════════════"
     test_ui || { ((failures++)); echo "❌ TEST-UI failed"; }
     echo ""
     if [ $failures -eq 0 ]; then
-        echo "✅ All 4 test suites passed"
+        echo "✅ All 5 test suites passed"
     else
         echo "❌ $failures test suite(s) failed"
         return 1
@@ -217,6 +222,11 @@ test_engine_full() {
 test_property() {
     echo "🦀 TEST-PROPERTY: Running generative property tests across all indicators..."
     cargo test -p market-analyzer --test property_ema_sma --test property_rsi --test property_macd --test property_adx --test property_bollinger_atr --test property_squeeze --test property_bbwp --test property_fibonacci --test property_divergence --test property_patterns
+}
+
+test_golden() {
+    echo "🦀 TEST-GOLDEN: Running golden-vector conformance tests (AUDIT-AIU Phase 10)..."
+    cargo test -p market-analyzer --test golden_vectors
 }
 
 test_ui() {
@@ -360,6 +370,9 @@ case "$1" in
         ;;
     test-property)
         test_property
+        ;;
+    test-golden)
+        test_golden
         ;;
     test-ui)
         test_ui

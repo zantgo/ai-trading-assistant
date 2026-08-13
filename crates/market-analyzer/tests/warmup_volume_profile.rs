@@ -79,6 +79,7 @@ fn make_test_config(window: usize, bins: usize) -> TimeframeConfig {
             volume_profile_bins: bins,
             volume_profile_window: window,
             volume_profile_value_area: 0.7,
+            ..Default::default()
         },
         leverage: Default::default(),
     }

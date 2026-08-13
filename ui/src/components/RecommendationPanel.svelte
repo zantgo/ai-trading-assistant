@@ -3,14 +3,12 @@
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
     import { buildRecommendationTabExport } from '../lib/exportBuilders/recommendationTab';
-    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL6DecisionHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
     import { computeDecisionRank, entryDangerLevel, selectProfileSide, profileZones, topSetupSummary } from '../lib/decisionRank';
-    import { computeRiskReward, discountRiskReward, type RiskRewardDisplay } from '../lib/riskReward';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -115,12 +113,13 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: buildFilterStateBlock({
-                activeOnly: false,
-                confirmedPlusOnly: false,
-                hideGates: false,
-                hideOverlays: false,
-            }),
+            headerSpec,
+            terms: {
+                microTerm: instance?.microTerm as any,
+                fastTerm: instance?.fastTerm as any,
+                slowTerm: instance?.slowTerm as any,
+                macroTerm: instance?.macroTerm as any,
+            },
         });
     }
 
@@ -342,14 +341,7 @@
                         <span class={styles.profileRecZoneValue}>
                             {#if topSetup.rr != null}
                                 <span class={rrColorCls(topSetup.rr)}>
-                                    {(() => {
-                                        const z = topSetup.zones;
-                                        if (z && z.entry && z.target && z.invalidation) {
-                                            const disp = computeRiskReward(z.entry, z.target, z.invalidation, z.side, markPrice);
-                                            return disp.display;
-                                        }
-                                        return `R:R ${topSetup.rr.toFixed(2)}`;
-                                    })()}
+                                    {topSetup.rr >= 9.99 ? 'R:R 1 : 9.99+' : topSetup.rr >= 5 ? `R:R 1 : ${topSetup.rr.toFixed(1)}` : `R:R 1 : ${topSetup.rr.toFixed(2)}`}
                                 </span>
                             {:else}
                                 <span class={styles.rrNa}>R:R N/A</span>

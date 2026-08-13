@@ -83,12 +83,25 @@ impl FibonacciRange {
 
         let extension_levels = calculate_fib_levels(swing_low, swing_high, extension_coeffs);
 
-        let fib_levels = calculate_fib_levels(
-            swing_high,
-            swing_low,
-            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
-        );
-        let ext_levels = calculate_fib_levels(swing_low, swing_high, &[1.272, 1.618, 2.000, 2.618]);
+        // AUDIT-AIU-075: the named levels now honor operator-configured
+        // coefficients (config-models defaults exactly match the canonical
+        // set). Guarded to the canonical cardinalities (6 retracements,
+        // 4 extensions) so a custom count can never index out of bounds —
+        // a mismatched count falls back to the canonical coefficients.
+        let canonical_retracement: [f64; 6] = [0.236, 0.382, 0.500, 0.618, 0.660, 0.786];
+        let canonical_extension: [f64; 4] = [1.272, 1.618, 2.000, 2.618];
+        let fib_coeffs: &[f64] = if retracement_coeffs.len() == canonical_retracement.len() {
+            retracement_coeffs
+        } else {
+            &canonical_retracement
+        };
+        let ext_coeffs: &[f64] = if extension_coeffs.len() == canonical_extension.len() {
+            extension_coeffs
+        } else {
+            &canonical_extension
+        };
+        let fib_levels = calculate_fib_levels(swing_high, swing_low, fib_coeffs);
+        let ext_levels = calculate_fib_levels(swing_low, swing_high, ext_coeffs);
 
         Self {
             swing_high: Some(swing_high),
@@ -132,12 +145,22 @@ impl FibonacciRange {
 
         let extension_levels = calculate_fib_levels(swing_high, swing_low, extension_coeffs);
 
-        let fib_levels = calculate_fib_levels(
-            swing_low,
-            swing_high,
-            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
-        );
-        let ext_levels = calculate_fib_levels(swing_high, swing_low, &[1.272, 1.618, 2.000, 2.618]);
+        // AUDIT-AIU-075: named levels honor configured coefficients when the
+        // cardinality matches (see compute_bullish).
+        let canonical_retracement: [f64; 6] = [0.236, 0.382, 0.500, 0.618, 0.660, 0.786];
+        let canonical_extension: [f64; 4] = [1.272, 1.618, 2.000, 2.618];
+        let fib_coeffs: &[f64] = if retracement_coeffs.len() == canonical_retracement.len() {
+            retracement_coeffs
+        } else {
+            &canonical_retracement
+        };
+        let ext_coeffs: &[f64] = if extension_coeffs.len() == canonical_extension.len() {
+            extension_coeffs
+        } else {
+            &canonical_extension
+        };
+        let fib_levels = calculate_fib_levels(swing_low, swing_high, fib_coeffs);
+        let ext_levels = calculate_fib_levels(swing_high, swing_low, ext_coeffs);
 
         Self {
             swing_high: Some(swing_high),

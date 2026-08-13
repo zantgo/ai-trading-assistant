@@ -265,7 +265,7 @@ pub async fn build_pipelines(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: state.latency_tracker.clone(),
     });
@@ -608,7 +608,12 @@ async fn spawn_tasks(
         // Derivatives-warmup history locks. Bootstrapped from prior
         // `market_snapshots` rows by `populate_buffers` (or default-empty
         // on cold DB).
-        let a_oi_history = active_pair.oi_history.clone();
+        // AUDIT-AIU-051: each TF pipeline gets its OWN clone of the
+        // timestamped OI history so the 3600 s delta window is evaluated
+        // against that TF's candle cadence (a shared deque would let a
+        // fast TF's frequent samples dominate a slow TF's delta).
+        let a_oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> =
+            Arc::new(RwLock::new(active_pair.oi_history.read().await.clone()));
         let a_funding_history = active_pair.funding_history.clone();
         let a_liquidity_config = liquidity_config.clone();
         let a_heatmap_config = heatmap_config.clone();

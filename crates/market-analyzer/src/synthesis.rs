@@ -1287,9 +1287,39 @@ fn compute_opportunity(
         .map(|s| s.label.clone())
         .collect();
 
+    // Invalidation note — side-aware, and must reference the SAME level
+    // the actionable bracket surfaces:
+    //   - directional bias → the active side's invalidation
+    //     (long: "Close below", short: "Close above").
+    //   - neutral bias → prefer the side whose geometry is consistent
+    //     (long first, then short); fall back to the legacy scalar.
+    // The legacy implementation always formatted the note from the
+    // legacy scalar `invalidation_level`, which under a neutral bias
+    // resolves to the SHORT side (a level ABOVE price) — producing
+    // "Close below 1907.6" notes that contradicted the frontend bracket
+    // (bug D3).
+    let (note_level, note_side) = if bias_bullish {
+        (long_invalidation_level, "below")
+    } else if bias_bearish {
+        (short_invalidation_level, "above")
+    } else if long_geometry_consistent {
+        (long_invalidation_level, "below")
+    } else if short_geometry_consistent {
+        (short_invalidation_level, "above")
+    } else {
+        (
+            invalidation_level,
+            if invalidation_level >= close {
+                "above"
+            } else {
+                "below"
+            },
+        )
+    };
+
     let invalidation_note = format!(
-        "Close below {:.1} invalidates the {:?} thesis.",
-        invalidation_level, primary_opportunity
+        "Close {} {:.1} invalidates the {:?} thesis.",
+        note_side, note_level, primary_opportunity
     );
 
     Some(OpportunityMatrix {
@@ -1327,6 +1357,9 @@ pub fn synthesize_cross_tf(
     tf_snapshots: &[(u64, &MarketSnapshot)],
     liquidity_flow: Option<&LiquidityFlow>,
     cluster: Option<&LiquidationClusterMatrix>,
+    // AUDIT-AIU-062: discrete liquidity signals ride into the L5 cascade
+    // risk dimension (previously computed but unused downstream).
+    liquidity_signals: &[core_domain::liquidity::LiquiditySignal],
     previous_score: Option<f64>,
     previous_regime: Option<core_domain::analysis::MarketRegime>,
     previous_volume_dim: Option<f64>,
@@ -1397,6 +1430,7 @@ pub fn synthesize_cross_tf(
         liquidity_flow,
         cluster,
         close,
+        liquidity_signals,
     );
 
     let opportunity = compute_opportunity(
@@ -1626,7 +1660,7 @@ mod tests {
 
     #[test]
     fn synthesize_empty_returns_neutral() {
-        let result = synthesize_cross_tf("BTC-USD", &[], None, None, None, None, None);
+        let result = synthesize_cross_tf("BTC-USD", &[], None, None, &[], None, None, None);
         assert_eq!(result.alignment.timeframes_present, 0);
         assert_eq!(result.analysis.timeframes_considered, 0);
         assert_eq!(
@@ -1639,7 +1673,7 @@ mod tests {
     fn synthesize_single_tf_works() {
         let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
         let snap = make_snapshot(60, 64000.0, ctx);
-        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, None, None, None);
+        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, &[], None, None, None);
         assert_eq!(result.alignment.timeframes_present, 1);
         assert_eq!(result.alignment.dimensions.len(), 10);
         assert!(result.analysis.state_confidence <= 0.5);
@@ -1662,6 +1696,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1694,6 +1729,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1718,6 +1754,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1809,6 +1846,7 @@ mod tests {
             &[(60, &snap60)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1853,6 +1891,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1890,6 +1929,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1925,6 +1965,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1958,6 +1999,7 @@ mod tests {
             ],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -1999,6 +2041,7 @@ mod tests {
             &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2038,6 +2081,7 @@ mod tests {
             &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2066,6 +2110,7 @@ mod tests {
             &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2123,6 +2168,7 @@ mod tests {
             &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2183,6 +2229,7 @@ mod tests {
             &[(60, &snap1), (180, &snap2), (300, &snap3), (900, &snap4)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2227,6 +2274,7 @@ mod tests {
             &[(60, &snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2271,6 +2319,7 @@ mod tests {
             &[(60, &bull_snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2304,6 +2353,7 @@ mod tests {
             &[(60, &bear_snap)],
             None,
             None,
+            &[],
             None,
             None,
             None,
@@ -2327,5 +2377,133 @@ mod tests {
             "bearish fallback target {} must be < close {close}",
             bear_target.price
         );
+    }
+
+    fn invalidation_note_is_side_aware() {
+        // Regression (D3): the note must reference the ACTIVE side's
+        // invalidation with side-correct wording. Legacy behavior always
+        // formatted the note from the legacy scalar `invalidation_level`,
+        // which under a Neutral bias resolves to the SHORT side (a level
+        // ABOVE price) — producing "Close below 1907.6" notes that
+        // contradicted the frontend bracket.
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias};
+        use std::collections::HashMap;
+
+        let indicators: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        let alignment = AlignmentMatrix::empty("BTC-USD");
+
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+
+        // ATR fallback geometry with close = 100, atr = 1% (1.0):
+        //   long:  entry [99.5, 100], invalidation 99.0  (below)
+        //   short: entry [100, 100.5], invalidation 101.0 (above)
+        let close = 100.0;
+
+        // Neutral bias → long geometry is consistent → "Close below {99.0}".
+        analysis.bias = MarketBias::Neutral;
+        let opp_neutral =
+            compute_opportunity(&analysis, &alignment, &indicators, None, None, close)
+                .expect("neutral opportunity");
+        assert!(
+            opp_neutral
+                .invalidation_note
+                .starts_with("Close below 99.0 invalidates the "),
+            "neutral note was: {}",
+            opp_neutral.invalidation_note
+        );
+
+        // Bearish bias → short side → "Close above {101.0}".
+        analysis.bias = MarketBias::Bearish;
+        let opp_bear = compute_opportunity(&analysis, &alignment, &indicators, None, None, close)
+            .expect("bearish opportunity");
+        assert!(
+            opp_bear
+                .invalidation_note
+                .starts_with("Close above 101.0 invalidates the "),
+            "bearish note was: {}",
+            opp_bear.invalidation_note
+        );
+
+        // Bullish bias → long side → "Close below {99.0}".
+        analysis.bias = MarketBias::Bullish;
+        let opp_bull = compute_opportunity(&analysis, &alignment, &indicators, None, None, close)
+            .expect("bullish opportunity");
+        assert!(
+            opp_bull
+                .invalidation_note
+                .starts_with("Close below 99.0 invalidates the "),
+            "bullish note was: {}",
+            opp_bull.invalidation_note
+        );
+    }
+
+    #[test]
+
+    fn alignment_rows_echo_the_exact_contexts_supplied() {
+        // D4 contract: `AlignmentMatrix.timeframe_alignments` must carry the
+        // per-TF context values bit-for-bit (trend score, overall score,
+        // regime, signal count). The ETH export inconsistency (FAST row
+        // -7/21 signals vs the metrics tab +8/31 for the same candle) was a
+        // pipeline-race feeding a stale snapshot into `synthesize_cross_tf`;
+        // this test locks the derive contract so any future regression is
+        // visible at the matrix level.
+        let ctx_fast = make_context("COMPRESSION", 0.06898435026003727, 0.09, 0.1, 0.1, 8);
+        let ctx_slow = make_context("RANGE", -0.20007980505874928, 0.06, 0.1, 0.1, -9);
+        let snap60 = make_snapshot(
+            60,
+            64000.0,
+            make_context("TRENDING", 0.4656, 0.05, 0.1, 0.1, 25),
+        );
+        let snap180 = make_snapshot(180, 64100.0, ctx_fast.clone());
+        let snap300 = make_snapshot(300, 64200.0, ctx_slow.clone());
+        let snap900 = make_snapshot(
+            900,
+            64300.0,
+            make_context("COMPRESSION", -0.1648, 0.2, 0.1, 0.1, -1),
+        );
+
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[
+                (60, &snap60),
+                (180, &snap180),
+                (300, &snap300),
+                (900, &snap900),
+            ],
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+        );
+
+        let rows = &result.alignment.timeframe_alignments;
+        assert_eq!(rows.len(), 4);
+        let fast = rows
+            .iter()
+            .find(|r| r.timeframe_secs == 180)
+            .expect("fast row");
+        assert!(
+            (fast.trend_score - ctx_fast.trend.score).abs() < 1e-12,
+            "fast trend_score {} must equal the supplied context {}",
+            fast.trend_score,
+            ctx_fast.trend.score
+        );
+        assert_eq!(fast.overall_score, ctx_fast.overall_score);
+        assert_eq!(fast.regime, ctx_fast.regime);
+        let slow = rows
+            .iter()
+            .find(|r| r.timeframe_secs == 300)
+            .expect("slow row");
+        assert!(
+            (slow.trend_score - ctx_slow.trend.score).abs() < 1e-12,
+            "slow trend_score {} must equal the supplied context {}",
+            slow.trend_score,
+            ctx_slow.trend.score
+        );
+        assert_eq!(slow.overall_score, ctx_slow.overall_score);
     }
 }

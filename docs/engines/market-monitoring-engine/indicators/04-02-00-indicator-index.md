@@ -1,12 +1,12 @@
 # Indicator Documentation Index
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 > 51 indicators across 8 functional groups. Registry-verified count: 51 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-05`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry. The registry describes capability and never changes with runtime config.
 >
 > **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/market-analyzer/src/indicators/registry.rs` and updated on every registry change.
 >
-> **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index (01 → 50). The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
+> **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index (01 → 51). The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
 
 ---
 
@@ -102,7 +102,7 @@
 
 ---
 
-## DERIVATIVES DATA (7 indicators)
+## DERIVATIVES DATA (8 indicators)
 
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|---------|----------|
@@ -113,6 +113,7 @@
 | 48 | `04-02-48-order-flow-imbalance.md` | `order_flow_imbalance` | Order Flow Imbalance | Leading | Y | Threshold | [04-02-48-order-flow-imbalance.md](04-02-48-order-flow-imbalance.md) |
 | 49 | `04-02-49-spread.md` | `spread` | Spread | Leading | N (Gate) | Threshold | [04-02-49-spread.md](04-02-49-spread.md) |
 | 50 | `04-02-50-depth-bias.md` | `depth_bias` | Depth Bias | Leading | Y | Threshold | [04-02-50-depth-bias.md](04-02-50-depth-bias.md) |
+| 51 | `04-02-51-mark-index-spread.md` | `mark_index_spread` | Mark-Index Spread | Hybrid | N (Gate) | Threshold | [04-02-51-mark-index-spread.md](04-02-51-mark-index-spread.md) |
 
 > **Note on `oi_price_divergence`:** Unlike the eight `supports_divergence` oscillators (whose divergences are nested `Divergence` signals on the parent key), `oi_price_divergence` is a **standalone registry entry** with its own JSON key — it compares open interest against price rather than an oscillator against price.
 
@@ -122,13 +123,13 @@
 
 | Metric | Count |
 |--------|-------|
-| Authoritative Registry Entries | 50 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) |
-| Files in this directory | 51 (50 entries + this master index) |
+| Authoritative Registry Entries | 51 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives) |
+| Files in this directory | 52 (51 entries + this master index) |
 | Directional (scoring contributors) | 41 |
-| Non-Directional Gates | 9 (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest) |
+| Non-Directional Gates | 10 (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest, Mark-Index Spread) |
 | Divergence-Bearing Indicators (`supports_divergence: true`) | 8 (RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze) |
 | Standalone Divergence Indicators | 1 (`oi_price_divergence` — own registry entry & JSON key) |
-| Total Signal-Kind × Indicator Declarations | **100** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown — registry-verified `2026-08-05`: `Divergence 9`, `Crossover 9`, `Threshold 26`, `Breakout 9`, `BandTouch 4`, `ZeroLineCross 11`, `CompressionRelease 4`, `LevelTest 14`, `TrendFlip 8`, `VolumeClimax 2`, `StackChange 1`, `PatternForming 3` (sum-check: 9+9+26+9+4+11+4+14+8+2+1+3 = 100). The v4.0 docs rename `VolatilityCycle` → `CompressionRelease` to match the registry (the v2.1 rename never propagated to `crates/market-analyzer/src/indicators/registry.rs`). The historical 101 → 100 transition was the v2.1 Aroon `Crossover → TrendFlip` reclassification (1 declaration removed); the historical 102 → 101 transition was a `ZeroLineCross` miscount corrected. The v4.0 figure of 100 is unchanged in total but the per-SignalKind breakdown above is the registry-verified authoritative count. |
+| Total Signal-Kind × Indicator Declarations | **101** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown — registry-verified `2026-08-13`: `Threshold 22`, `LevelTest 14`, `ZeroLineCross 13`, `Crossover 10`, `TrendFlip 10`, `Divergence 9`, `Breakout 9`, `BandTouch 4`, `CompressionRelease 4`, `PatternForming 3`, `VolumeClimax 2`, `StackChange 1` (sum-check: 22+14+13+10+10+9+9+4+4+3+2+1 = 101 ✓). The v4.0 docs rename `VolatilityCycle` → `CompressionRelease` to match the registry (the v2.1 rename never propagated to `crates/market-analyzer/src/indicators/registry.rs`). The historical 101 → 100 transition was the v2.1 Aroon `Crossover → TrendFlip` reclassification (1 declaration removed); the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry (1 `Threshold` declaration gained). |
 | SignalKind Types | 12 (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming) |
 
 Divergence companions do **not** appear as separate rows or JSON keys — a divergence is an `IndicatorSignal { kind: Divergence, ... }` in the parent indicator's `signals` array.

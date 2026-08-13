@@ -417,8 +417,14 @@ impl LiquidityEventAccumulator {
             self.bar_flow.long_liquidations_usd - self.bar_flow.short_liquidations_usd;
 
         // Cascade state: compute from the rolling intensity window.
-        self.bar_flow.cascade_state = self.derive_cascade_state();
+        // AUDIT-AIU-011: `derive_cascade_state()` reads
+        // `bar_flow.cascade_intensity` for the Exhausted branch, so the
+        // intensity MUST be assigned first — the previous ordering computed
+        // the state while `cascade_intensity` was still 0.0 (reset at the
+        // end of the prior flush), making `0.0 > 30.0` always false and the
+        // `CascadeExhausted` signal unreachable in production.
         self.bar_flow.cascade_intensity = self.compute_intensity();
+        self.bar_flow.cascade_state = self.derive_cascade_state();
 
         // Stash this bar's intensity in the rolling window.
         if self.rolling_intensity.len() >= self.cascade_window_candles {
@@ -459,25 +465,54 @@ impl LiquidityEventAccumulator {
     }
 
     fn derive_cascade_state(&self) -> CascadeState {
-        // Count events within the rolling window that exceed the
-        // per-event z-score threshold (heuristic: largest event_usd >
-        // baseline × zscore).
-        let mut significant_events: u32 = 0;
-        let baseline_event_usd: f64 = if self.rolling_intensity.is_empty() {
-            500.0
+        // AUDIT-AIU-052/053: the previous baseline was a log-scale
+        // *inversion* (`mean_intensity × 100 + 1`) of an intensity that is
+        // itself `ln(ratio)×20` — the inversion was mathematically
+        // inconsistent — and `cascade_event_zscore` was used as a plain
+        // ratio multiplier, not a z-score. The baseline is now the mean of
+        // the actual recent event notionals, and an event is significant
+        // when its notional exceeds `mean + zscore × σ` over the same
+        // window — a genuine z-score with the configurable `zscore`
+        // multiplier.
+        let notionals: Vec<f64> = self
+            .events
+            .iter()
+            .rev()
+            .take(50)
+            .map(|ev| {
+                (ev.price.to_string().parse::<f64>().unwrap_or(0.0))
+                    * (ev.size.to_string().parse::<f64>().unwrap_or(0.0))
+            })
+            .collect();
+        let (baseline_event_usd, sigma, count) = if notionals.is_empty() {
+            (500.0f64, 0.0f64, 0usize)
         } else {
-            (self.rolling_intensity.iter().sum::<f64>() / self.rolling_intensity.len() as f64)
-                * 100.0
-                + 1.0
+            let n = notionals.len() as f64;
+            let mean = notionals.iter().sum::<f64>() / n;
+            let var = notionals
+                .iter()
+                .map(|v| {
+                    let d = v - mean;
+                    d * d
+                })
+                .sum::<f64>()
+                / n;
+            (mean, var.sqrt(), notionals.len())
         };
-        let threshold_usd = baseline_event_usd * self.cascade_event_zscore;
-        for ev in self.events.iter().rev().take(50) {
-            let notional = (ev.price.to_string().parse::<f64>().unwrap_or(0.0))
-                * (ev.size.to_string().parse::<f64>().unwrap_or(0.0));
+        let threshold_usd = if sigma > 1e-9 {
+            baseline_event_usd + self.cascade_event_zscore * sigma
+        } else {
+            // Flat window (σ ≈ 0): fall back to the ratio multiplier so a
+            // single outsized event still trips detection.
+            (baseline_event_usd * self.cascade_event_zscore).max(500.0)
+        };
+        let mut significant_events: u32 = 0;
+        for notional in notionals {
             if notional >= threshold_usd {
                 significant_events += 1;
             }
         }
+        let _ = count;
         // >= cascade_sustained_events in the last 50 events = Sustained;
         // 1 to sustained-1 = Detected.
         let sustained_threshold = self.cascade_sustained_events.max(1) as u32;
@@ -1695,6 +1730,43 @@ pub struct SignalInput<'a> {
     pub price_bias: f64,
     /// Previous bar's cascade_state for state-transition detection.
     pub prev_cascade_state: Option<CascadeState>,
+    /// Minimum cluster notional (USD) for MagnetActivated.
+    /// AUDIT-AIU-055: the signal previously hardcoded `100_000` while the
+    /// cluster estimator honors `min_cluster_notional_usd` — the two could
+    /// disagree.
+    pub min_cluster_notional_usd: f64,
+    /// AUDIT-AIU-057: per-signal confidence values (operator-tunable).
+    pub signal_confidences: SignalConfidences,
+}
+
+/// Confidence values for the discrete liquidity signals. Defaults match the
+/// legacy hardcoded constants; operators tune them via
+/// `[liquidity.signal_confidences]` until an empirical calibration lands.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, serde::Deserialize)]
+pub struct SignalConfidences {
+    pub cascade_detected: f64,
+    pub cascade_sustained: f64,
+    pub cascade_exhausted: f64,
+    pub funding_extreme: f64,
+    pub oi_funding_divergence: f64,
+    pub liquidity_vacuum: f64,
+    pub funding_flip: f64,
+    pub oi_price_divergence: f64,
+}
+
+impl Default for SignalConfidences {
+    fn default() -> Self {
+        Self {
+            cascade_detected: 0.8,
+            cascade_sustained: 0.9,
+            cascade_exhausted: 0.7,
+            funding_extreme: 0.95,
+            oi_funding_divergence: 0.7,
+            liquidity_vacuum: 0.6,
+            funding_flip: 0.75,
+            oi_price_divergence: 0.7,
+        }
+    }
 }
 
 impl<'a> Default for SignalInput<'a> {
@@ -1713,6 +1785,8 @@ impl<'a> Default for SignalInput<'a> {
             prev_funding_rate: None,
             price_bias: 0.0,
             prev_cascade_state: None,
+            min_cluster_notional_usd: 100_000.0,
+            signal_confidences: SignalConfidences::default(),
         }
     }
 }
@@ -1736,7 +1810,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                     LiquidityDirection::Bullish
                 },
                 strength: flow.cascade_intensity.clamp(0.0, 100.0),
-                confidence: 0.8,
+                confidence: input.signal_confidences.cascade_detected,
                 evidence: vec![format!(
                     "Single event of ${:.0} in last bar",
                     flow.largest_event_usd
@@ -1744,18 +1818,17 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             });
         }
 
-        // CascadeSustained: fires when state=Sustained and has been sustained
-        // for ≥3 consecutive bars per spec §3 signal #2.
+        // CascadeSustained: fires when state=Sustained for ≥3 consecutive
+        // bars (or a single bar carrying ≥3 significant events).
         if flow.cascade_state == CascadeState::Sustained {
             let sustained_bars = match input.prev_cascade_state {
                 Some(CascadeState::Sustained) => 2,
                 Some(CascadeState::Detected) => 1,
                 _ => 0,
             };
-            if sustained_bars >= 1 {
-                // at least 2 bars total including this one; signal ≥3 once
-                // sustained_bars ≥ 2 means 3+ consecutive candles
-            }
+            // AUDIT-AIU-054: removed the abandoned empty `if sustained_bars
+            // >= 1 {}` block and made the evidence string match the actual
+            // trigger (2 consecutive prior bars OR ≥3 events this bar).
             if sustained_bars >= 2 || flow.event_count >= 3 {
                 out.push(LiquiditySignal {
                     kind: LiquiditySignalKind::CascadeSustained,
@@ -1765,9 +1838,9 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                         LiquidityDirection::Bullish
                     },
                     strength: flow.cascade_intensity.clamp(0.0, 100.0),
-                    confidence: 0.9,
+                    confidence: input.signal_confidences.cascade_sustained,
                     evidence: vec![format!(
-                        "{} liquidation events in rolling window (sustained ≥3 candles)",
+                        "{} liquidation events (sustained ≥2 prior bars or ≥3 events this bar)",
                         flow.event_count
                     )],
                 });
@@ -1782,7 +1855,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 kind: LiquiditySignalKind::CascadeExhausted,
                 direction: LiquidityDirection::Neutral,
                 strength: flow.cascade_intensity.clamp(0.0, 100.0),
-                confidence: 0.7,
+                confidence: input.signal_confidences.cascade_exhausted,
                 evidence: vec!["Cascade intensity declining after elevated state".into()],
             });
         }
@@ -1800,7 +1873,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             kind: LiquiditySignalKind::FundingExtreme,
             direction: dir,
             strength,
-            confidence: 0.95,
+            confidence: input.signal_confidences.funding_extreme,
             evidence: vec![format!(
                 "Funding rate {:.4}% ({} extreme threshold)",
                 input.funding_rate * 100.0,
@@ -1831,7 +1904,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 kind: LiquiditySignalKind::OIFundingDivergence,
                 direction: div_dir,
                 strength,
-                confidence: 0.7,
+                confidence: input.signal_confidences.oi_funding_divergence,
                 evidence: vec![format!(
                     "OI Δ1h = {:.2}%, funding = {:.4}%",
                     input.oi_delta_1h_pct,
@@ -1855,7 +1928,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                     LiquidityDirection::Bullish
                 },
                 strength: 80.0,
-                confidence: 0.6,
+                confidence: input.signal_confidences.liquidity_vacuum,
                 evidence: vec![format!(
                     "Book depth ratio {:.2}, {} events in last bar",
                     depth, flow.event_count
@@ -1872,7 +1945,7 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             .chain(cluster.long_clusters.iter())
         {
             if c.distance_from_mid_pct <= input.magnet_activation_distance_pct
-                && c.notional_usd > 100_000.0
+                && c.notional_usd > input.min_cluster_notional_usd
             {
                 let dir = match c.cluster_kind {
                     ClusterKind::BelowCurrentPrice => LiquidityDirection::Bullish,
@@ -1953,12 +2026,18 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             } else {
                 LiquidityDirection::Bullish
             };
-            let strength = (input.funding_rate.abs() / 0.001).min(1.0) * 100.0;
+            // AUDIT-AIU-056: strength was normalized against a hardcoded
+            // 0.1% denominator unrelated to the extreme threshold — at the
+            // configured 0.05% extreme level a flip scored only 50. Now
+            // scaled against `funding_extreme_pct` (50 at the extreme
+            // threshold, 100 at 2×).
+            let base = input.funding_extreme_pct.max(1e-9);
+            let strength = (input.funding_rate.abs() / base * 50.0).min(100.0);
             out.push(LiquiditySignal {
                 kind: LiquiditySignalKind::FundingFlip,
                 direction: dir,
                 strength: strength.min(100.0),
-                confidence: 0.75,
+                confidence: input.signal_confidences.funding_flip,
                 evidence: vec![format!(
                     "Funding rate flipped from {:.6} to {:.6}",
                     prev, input.funding_rate
@@ -1968,21 +2047,27 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     }
 
     // 9. OI-price divergence: OI delta disagrees with price direction (Phase 3 spec #7).
+    // AUDIT-AIU-007: direction canonicalized to the MME indicator-layer
+    // convention (04-02-47): price-up + OI-down = Bullish (OI_BULLISH_DIV,
+    // +0.7), price-down + OI-up = Bearish (OI_BEARISH_DIV, −0.7). The
+    // previous branch inverted the direction, so the liquidity signal and
+    // the `oi_price_divergence` indicator fired opposite ways on the same
+    // snapshot. 04-02-44 has been reconciled to match 04-02-47.
     let price_bullish = input.price_bias > 0.3;
     let price_bearish = input.price_bias < -0.3;
     let oi_increasing = input.oi_delta_1h_pct > 0.3;
     let oi_decreasing = input.oi_delta_1h_pct < -0.3;
     if (price_bullish && oi_decreasing) || (price_bearish && oi_increasing) {
-        let dir = if oi_decreasing && price_bullish {
-            LiquidityDirection::Bearish
-        } else {
+        let dir = if price_bullish && oi_decreasing {
             LiquidityDirection::Bullish
+        } else {
+            LiquidityDirection::Bearish
         };
         out.push(LiquiditySignal {
             kind: LiquiditySignalKind::OiPriceDivergence,
             direction: dir,
             strength: 70.0,
-            confidence: 0.7,
+            confidence: input.signal_confidences.oi_price_divergence,
             evidence: vec![format!(
                 "OI Δ1h = {:.2}%, price bias = {:.2}",
                 input.oi_delta_1h_pct, input.price_bias
@@ -2229,9 +2314,47 @@ mod signal_tests {
         assert!(!sigs.iter().any(|s| matches!(
             s.kind,
             LiquiditySignalKind::CascadeDetected
-                | LiquiditySignalKind::CascadeSustained
-                | LiquiditySignalKind::CascadeExhausted
         )));
-        let _ = dec!(0.0);
+    }
+
+    /// AUDIT-AIU-007: the liquidity-layer OI-Price divergence direction must
+    /// match the MME indicator layer (`normalize_oi_price_divergence`):
+    /// price-up + OI-down → Bullish; price-down + OI-up → Bearish.
+    #[test]
+    fn oi_price_divergence_direction_matches_mme_convention() {
+        // Price up (+0.5), OI falling (−0.5%) → Bullish.
+        let input = SignalInput {
+            price_bias: 0.5,
+            oi_delta_1h_pct: -0.5,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        let div = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::OiPriceDivergence)
+            .expect("OiPriceDivergence must fire");
+        assert_eq!(div.direction, LiquidityDirection::Bullish);
+
+        // Price down (−0.5), OI rising (+0.5%) → Bearish.
+        let input = SignalInput {
+            price_bias: -0.5,
+            oi_delta_1h_pct: 0.5,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        let div = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::OiPriceDivergence)
+            .expect("OiPriceDivergence must fire");
+        assert_eq!(div.direction, LiquidityDirection::Bearish);
+
+        // Aligned (price up + OI up) → no signal.
+        let input = SignalInput {
+            price_bias: 0.5,
+            oi_delta_1h_pct: 0.5,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        assert!(!sigs.iter().any(|s| s.kind == LiquiditySignalKind::OiPriceDivergence));
     }
 }

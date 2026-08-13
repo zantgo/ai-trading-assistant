@@ -254,6 +254,8 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
     let workspace_state = WorkspaceState::new(workspace);
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
     let (recharge_tx, _) = broadcast::channel::<api_gateway::RechargeNotice>(8);
+    let snapshot_export_runtime = Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default()));
+    let snapshot_export_manual_tick = Arc::new(tokio::sync::Notify::new());
     let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(8);
 
     Arc::new(AppState {
@@ -273,6 +275,8 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx,
+        snapshot_export: snapshot_export_runtime.clone(),
+        snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
     })
 }
 

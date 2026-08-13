@@ -111,6 +111,12 @@ pub struct NormalizeParams<'a> {
     pub ema_medium: Option<Decimal>,
     pub ema_slow: Option<Decimal>,
     pub ema_long: Option<Decimal>,
+    /// Configured EMA periods `(fast, medium, slow, long)`. Used by
+    /// `inject_ema_values` (AUDIT-V8-001) to gate each ribbon line on
+    /// `bar_count >= period`, so sub-minute TFs surface a partial ribbon
+    /// (fast@10, medium@50, slow@100, long@200) instead of nothing until
+    /// 200 bars accumulate.
+    pub ema_periods: (usize, usize, usize, usize),
     pub rvol: Option<Decimal>,
     pub volume: Option<Decimal>,
     pub average_volume: Option<Decimal>,
@@ -140,6 +146,8 @@ pub struct NormalizeParams<'a> {
     pub awesome_oscillator: Option<crate::indicators::AoOutput>,
     /// Force Index reading for this bar.
     pub force_index: Option<Decimal>,
+    /// Rolling mean of |FI| — scale-relative extreme baseline (AUDIT-AIU-043).
+    pub force_index_mean_abs: Option<Decimal>,
     /// Hull MA reading for this bar.
     pub hull_ma: Option<Decimal>,
     /// StdDev Channel reading for this bar.
@@ -149,6 +157,9 @@ pub struct NormalizeParams<'a> {
     /// Smart Money Concepts reading for this bar.
     pub smc: Option<crate::indicators::SmcOutput>,
     pub prev: PreviousBarState,
+    /// RVOL institutional/climax thresholds from config (AUDIT-AIU-071).
+    pub rvol_institutional_threshold: f64,
+    pub rvol_climax_threshold: f64,
 }
 
 /// Convert a generic series-divergence direction into a (potential) engine
@@ -350,6 +361,8 @@ pub fn build_indicator_map(
         bb_lower: p.bb.map(|b| d2f(b.2)),
         ema_fast: od2f(p.ema_fast),
         ema_medium: od2f(p.ema_medium),
+        ema_slow: od2f(p.ema_slow),
+        ema_long: od2f(p.ema_long),
         pivot: p.pivot_levels.map(|lv| d2f(lv.pivot)),
         pivot_r1: p.pivot_levels.map(|lv| d2f(lv.r1)),
         pivot_r2: p.pivot_levels.map(|lv| d2f(lv.r2)),
@@ -375,6 +388,7 @@ pub fn build_indicator_map(
         awesome_oscillator: p.awesome_oscillator.as_ref().map(|a| d2f(a.value)),
         ao_rising: p.awesome_oscillator.map(|a| a.rising).unwrap_or(false),
         force_index: od2f(p.force_index),
+        force_index_mean_abs: od2f(p.force_index_mean_abs),
         hull_ma: od2f(p.hull_ma),
         stddev_upper: p.stddev_channel.as_ref().map(|s| d2f(s.upper)),
         stddev_center: p.stddev_channel.as_ref().map(|s| d2f(s.center)),
@@ -433,6 +447,8 @@ pub fn build_indicator_map(
         rvol: od2f(p.rvol),
         adx_consecutive_deceleration: p.adx_consecutive_deceleration,
         prev: p.prev,
+        rvol_institutional_threshold: p.rvol_institutional_threshold,
+        rvol_climax_threshold: p.rvol_climax_threshold,
     };
 
     let mut map = NormalizationEngine::normalize_all(&inputs, &ctx, shadow);
@@ -442,9 +458,13 @@ pub fn build_indicator_map(
     // path close-only indicators are already absent (`normalize_all` skips
     // them in the WARMING fill), so the `bars_required` gate still
     // applies to the tick-safe ones we kept.
+    // (AUDIT-V8-001: ema_stack carries bars_required = 1 so it always
+    // survives; per-line availability is enforced inside inject_ema_values.)
     map.retain(|key, _| ready(key));
     inject_ema_values(
         &mut map,
+        bar_count,
+        p.ema_periods,
         od2f(p.ema_fast),
         od2f(p.ema_medium),
         od2f(p.ema_slow),
@@ -510,26 +530,44 @@ pub fn build_indicator_map(
 
 /// Attach the raw EMA ribbon line values to the `ema_stack` entry so chart
 /// consumers can still render the ribbon.
+///
+/// AUDIT-V8-001 (per-line warm-up): each line is injected only once the
+/// pipeline has accumulated at least `period` completed bars. A sub-minute
+/// TF therefore surfaces a partial ribbon — `fast` from candle 10, `medium`
+/// from 50, `slow` from 100, `long` from 200 (or the configured periods) —
+/// so the chart lines start at different x positions instead of all waiting
+/// for the longest period. Consumers treat a missing sub-key as `None`.
 fn inject_ema_values(
     map: &mut HashMap<String, NormalizedIndicatorValue>,
+    bar_count: u32,
+    periods: (usize, usize, usize, usize),
     fast: Option<f64>,
     medium: Option<f64>,
     slow: Option<f64>,
     long: Option<f64>,
 ) {
+    let bc = bar_count as usize;
     if let Some(entry) = map.get_mut("ema_stack") {
         let mut vals = entry.values.take().unwrap_or_default();
         if let Some(f) = fast {
-            vals.insert("fast".to_string(), f);
+            if bc >= periods.0 {
+                vals.insert("fast".to_string(), f);
+            }
         }
         if let Some(m) = medium {
-            vals.insert("medium".to_string(), m);
+            if bc >= periods.1 {
+                vals.insert("medium".to_string(), m);
+            }
         }
         if let Some(s) = slow {
-            vals.insert("slow".to_string(), s);
+            if bc >= periods.2 {
+                vals.insert("slow".to_string(), s);
+            }
         }
         if let Some(l) = long {
-            vals.insert("long".to_string(), l);
+            if bc >= periods.3 {
+                vals.insert("long".to_string(), l);
+            }
         }
         entry.values = Some(vals);
     }
@@ -544,8 +582,12 @@ fn inject_volume(
     avg_volume: Option<f64>,
 ) {
     if let Some(vol) = volume {
+        // AUDIT-AIU-037: the climax band was `>= 2.0×` but the canonical
+        // Exhaustion-Climax threshold (05-02-10 §3, 04-02-18 §2.2,
+        // 04-02-19) is RVOL ≥ 3.0 — the volume producer was firing
+        // VolumeClimax earlier than the rvol producer. Aligned to 3.0×.
         let label = match avg_volume {
-            Some(avg) if avg > 0.0 && vol >= avg * 2.0 => "VOLUME_CLIMAX",
+            Some(avg) if avg > 0.0 && vol >= avg * 3.0 => "VOLUME_CLIMAX",
             Some(avg) if avg > 0.0 && vol >= avg * 1.5 => "HIGH_PARTICIPATION",
             Some(avg) if avg > 0.0 && vol < avg * 0.5 => "LOW_PARTICIPATION",
             _ => "NORMAL_PARTICIPATION",
@@ -651,7 +693,18 @@ pub fn build_indicator_map_from_scalars(
     };
 
     let mut map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
-    inject_ema_values(&mut map, s.ema_fast, s.ema_medium, s.ema_slow, s.ema_long);
+    // DB-reconstruction path: the persisted row carries all four EMA
+    // columns (already period-gated when they were written), so every
+    // line passes unconditionally (AUDIT-V8-001).
+    inject_ema_values(
+        &mut map,
+        u32::MAX,
+        (0, 0, 0, 0),
+        s.ema_fast,
+        s.ema_medium,
+        s.ema_slow,
+        s.ema_long,
+    );
     map
 }
 

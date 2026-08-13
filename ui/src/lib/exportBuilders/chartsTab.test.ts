@@ -81,6 +81,17 @@ describe('buildPositionsTabExport', () => {
     expect(Array.isArray(p.slots)).toBe(true);
   });
 
+  it('SHORT at leverage 1 emits the same liq price the screen shows (2× entry)', () => {
+    const app = makeMockApp({
+      paperDirection: 'SHORT',
+      paperLeverage: 1,
+      activePaperPosition: { symbol: 'BTC-USDT', size: 0.05, average_entry_price: 64000 },
+    });
+    const p = JSON.parse(buildPositionsTabExport(app)) as PositionsPayload;
+    // Shared calcLiqPrice: short + lev 1 → entry * (1 + 1/1) = 2× entry.
+    expect(p.position?.liq_price).toBeCloseTo(128000);
+  });
+
   it('emits slots array even when empty', () => {
     const p = JSON.parse(buildPositionsTabExport(makeMockApp())) as PositionsPayload;
     expect(p.slots).toEqual([]);
@@ -196,6 +207,16 @@ describe('buildHistoryTabExport', () => {
     expect(p.history[0].realized_pnl_display).toBe('+$125.00');
     expect(p.history[0].exit_timestamp_display).toMatch(/^\d{2}:\d{2}$/);
   });
+
+  it('history symbol is raw — null (never the activeTab fallback) when absent', () => {
+    const app = makeMockApp({
+      paperHistory: [
+        { exit_timestamp: 1753940000, direction: 'SHORT', entry_price: 100, exit_price: 90 },
+      ],
+    });
+    const p = JSON.parse(buildHistoryTabExport(app)) as HistoryPayload;
+    expect(p.history[0].symbol).toBeNull();
+  });
 });
 
 describe('buildPlanTabExport', () => {
@@ -230,6 +251,31 @@ describe('buildPlanTabExport', () => {
   it('always emits account block consistently', () => {
     const p = JSON.parse(buildPlanTabExport(makeMockApp())) as PlanPayload;
     expect(p.account.leverage).toBe(10);
+  });
+
+  it('exports the console-edited plan rows via override (screen parity)', () => {
+    // The console's plan inputs are local state; the export must carry the
+    // values the user sees, not the stale app.activePlan.
+    const app = makeMockApp({
+      activePlan: {
+        targets: [{ label: 'TP1', price: 66000, sizePct: 40 }],
+        stop: { price: 62800, distancePct: 1.0 },
+      },
+    });
+    const p = JSON.parse(buildPlanTabExport(app, {
+      targets: [
+        { label: 'TP1', price: 66200, sizePct: 45 },
+        { label: 'TP2', price: 68500, sizePct: 30 },
+      ],
+      stop: { label: 'SL', price: 62500, distancePct: 1.5 },
+      visible: true,
+    })) as PlanPayload;
+    expect(p.plan_visible).toBe(true);
+    expect(p.targets).toEqual([
+      { label: 'TP1', price: 66200, size_pct: 45 },
+      { label: 'TP2', price: 68500, size_pct: 30 },
+    ]);
+    expect(p.stop).toEqual({ label: 'SL', price: 62500, distance_pct: 1.5 });
   });
 });
 

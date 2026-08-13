@@ -11,12 +11,12 @@
     //      slot hosts the UTC clock + scan strip + panel title.
     //   2. RecommendationHero (TRADE / WAIT / STAND ASIDE)
     //   3. Header KPI strip (6 cards)
-    //   4. 4-up card row: Trade Opportunities, Risk Distribution,
-    //      Signal Quality, Direction
+    //   4. 5-up card row: Trade Opportunities, Risk Distribution,
+    //      Signal Quality, Direction, Market Alignment
     //   5. Market Health card (4 sub-dim bars)
     //   6. Regime Distribution (ASCII bars)
-    //   7. Asset Rankings table (9-column leaderboard)
-    //   8. Watchlist runner button (CTA)
+    //   7. Asset Rankings table (11-column leaderboard incl. MTF cols)
+    //   8. Bottom CTA row: SnapshotScheduler (left) | WatchlistRunner (right)
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import LayerHeader from './LayerHeader.svelte';
@@ -24,6 +24,7 @@
     import styles from './GeneralDashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import WatchlistRunnerButton from './WatchlistRunnerButton.svelte';
+    import SnapshotSchedulerButton from './SnapshotSchedulerButton.svelte';
     import UtcClockBadge from './dashboard/UtcClockBadge.svelte';
     import ScanStatusStrip from './dashboard/ScanStatusStrip.svelte';
     import RecommendationHero from './dashboard/RecommendationHero.svelte';
@@ -32,9 +33,12 @@
     import RiskDistributionCard from './dashboard/RiskDistributionCard.svelte';
     import SignalQualityCard from './dashboard/SignalQualityCard.svelte';
     import DirectionDistributionCard from './dashboard/DirectionDistributionCard.svelte';
+    import MarketAlignmentCard from './dashboard/MarketAlignmentCard.svelte';
     import MarketHealthCard from './dashboard/MarketHealthCard.svelte';
     import RegimeDistributionCard from './dashboard/RegimeDistributionCard.svelte';
     import AssetRankingsTable from './dashboard/AssetRankingsTable.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import { buildOverviewTabExport } from '../lib/exportBuilders/overviewTab';
 
     interface Props {
         wssMap: Record<string, WsState>;
@@ -57,6 +61,19 @@
             pollIntervalMs: 3000,
         },
     ));
+
+    // EXPORT DATA — mirrors the panel 1:1 via the
+    // `lib/exportBuilders/overviewTab.ts` builder (see that file for
+    // the block ↔ sub-component mapping).
+    const buildExport = $derived(() => {
+        const instances = Object.values(app.instancesMap);
+        return buildOverviewTabExport({
+            overviewMatrix: app.overviewMatrix,
+            instances,
+            headerSpec,
+            nowMs: Date.now(),
+        });
+    });
 </script>
 
 <div class={styles.dashboardView}>
@@ -80,6 +97,7 @@
                         </div>
                         <ScanStatusStrip />
                     </div>
+                    <ExportDataButton onExport={buildExport} title="Copy all Overview data as JSON" />
                 {/snippet}
             </LayerHeader>
 
@@ -87,11 +105,12 @@
 
             <HeaderKpiStrip />
 
-            <div class={styles.grid4}>
+            <div class={styles.grid5}>
                 <TradeOpportunitiesCard />
                 <RiskDistributionCard />
                 <SignalQualityCard />
                 <DirectionDistributionCard />
+                <MarketAlignmentCard />
             </div>
 
             <MarketHealthCard />
@@ -101,6 +120,9 @@
             <AssetRankingsTable />
         {/if}
 
-        <WatchlistRunnerButton {wssMap} />
+        <div class={styles.runnerBar}>
+            <SnapshotSchedulerButton />
+            <WatchlistRunnerButton {wssMap} />
+        </div>
     </div>
 </div>

@@ -1,10 +1,10 @@
 # Overview Matrix Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.3 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 7 — Overview Layer
-**Purpose:** This document defines the physical schema of the **Overview Matrix** — the global market-synthesis object. It aggregates every symbol's Decision Matrix plus instance metadata into cross-market breadth indices, asset rankings, synchronization measures, and a single Systemic Risk Score.
+**Purpose:** This document defines the physical schema of the **Overview Matrix** — the global market-synthesis object. It aggregates every symbol's Decision Matrix plus per-symbol Alignment Matrices plus instance metadata into cross-market breadth indices, cross-timeframe alignment aggregates, asset rankings, synchronization measures, and a single Systemic Risk Score.
 
 ---
 
@@ -17,9 +17,10 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.17, **Market
 [Decision Matrix: ETH-USDT]─┼──► OVERVIEW LAYER (L7) ──► [Overview Matrix]
 [Decision Matrix: SOL-USDT]─┘   compute_overview()      (global synthesis)
         + [Instance Metadata]
+        + [Alignment Matrix per symbol]    (v6.10.3+ — cross-TF aggregate)
 ```
 
-L7 aggregates each instance's slow-tier (300 s) Decision Matrix; the tier is a documented constant, not currently configurable.
+L7 aggregates each instance's slow-tier (300 s) Decision Matrix; the tier is a documented constant, not currently configurable. The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's slow-tier `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below).
 
 Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced by `compute_overview()`.
 
@@ -43,6 +44,9 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `asset_ranking` | `AssetRank[]` | Assets ranked by composite score (§5). |
 | `market_synchronization` | `SyncLevel` | Cross-asset correlation of direction (§3.3). |
 | `market_health` | `HealthLevel` | Overall market health (§3.4). |
+| `alignment_distribution` | `map<string, u32>` (v6.10.3+) | Count of assets per `AlignmentMatrix.mtf_overall_label` — `STRONG_BULL_MTF`, `WEAK_BULL_MTF`, `NEUTRAL_MTF`, `WEAK_BEAR_MTF`, `STRONG_BEAR_MTF`, `NO_DATA`. `u32` because an asset can satisfy at most one label (§3.5). |
+| `alignment_consensus_index` | `f64 ∈ [-100, 100]` (v6.10.3+) | Mean of all per-symbol `AlignmentMatrix.mtf_overall_score` — the cross-timeframe counterpart to `breadth_pct` (§3.5). |
+| `multi_tf_agreement_pct` | `f64 ∈ [0, 100]` (v6.10.3+) | Mean of all per-symbol `AlignmentMatrix.trend_agreement_pct` — "how well do timeframes within each symbol agree?" (§3.5). Distinct from `market_synchronization`, which is cross-symbol and derived from `breadth_pct`. |
 | `global_summary` | `string` | Natural-language synthesis. |
 | `instance_count` | `u32` | Active monitoring instances. |
 | `active_symbols` | `string[]` | Sorted list of active symbols. |
@@ -59,6 +63,8 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `confidence` | `f64` | Decision Matrix `confidence_assessment` value (mirror, in `[0, 100]`). |
 | `regime` | `string` | Strategy environment label. |
 | `risk_level` | `string` | Risk band. |
+| `mtf_score` | `f64 ∈ [-100, 100]` (v6.10.3+) | `AlignmentMatrix.mtf_overall_score` for this symbol. `0.0` when no alignment is available for the symbol. |
+| `mtf_label` | `string` (v6.10.3+) | `AlignmentMatrix.mtf_overall_label` for this symbol — `STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`. |
 
 ### 2.3 RiskDistribution
 
@@ -142,6 +148,59 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 
 ---
 
+## 3.5 Alignment Aggregation (v6.10.3+)
+
+Three fields synthesize cross-timeframe alignment data from every symbol's [Alignment Matrix](./02-01-alignment-matrix.md) into a single system-wide view. They are computed by `compute_overview()` from the per-symbol `AlignmentMatrix` slice and are **independent** of the L6-derived breadth / bias / sync fields above — alignment is a higher-order, per-TF lens that complements (rather than replaces) the per-symbol bias tally.
+
+### 3.5.1 `alignment_distribution` — count per `mtf_overall_label`
+
+```python
+for aln in alignments:
+    alignment_distribution[aln.mtf_overall_label] += 1
+```
+
+An asset satisfies exactly one of the 6-state vocabulary — see [Alignment Matrix §3.1](./02-01-alignment-matrix.md) — so the map is a count, not a fraction (entries do not sum to 1.0). When `alignments` is empty, the map is empty. UI consumers typically render this as a stacked horizontal bar where each segment's width is proportional to `count / total_symbols`.
+
+### 3.5.2 `alignment_consensus_index` — mean of `mtf_overall_score`
+
+```
+alignment_consensus_index = mean(aln.mtf_overall_score for aln in alignments) ∈ [-100, 100]
+```
+
+This is the cross-timeframe counterpart to `breadth_pct` (which is cross-symbol). Whereas `breadth_pct` answers "what fraction of symbols are bullish vs bearish?", `alignment_consensus_index` answers "across the timeframes of every symbol, what is the net directional bias?". When `alignments` is empty, the value is `0.0`.
+
+UI consumers typically render this as a signed horizontal gauge with a centerline at `0`. The same color convention as `breadth_pct` applies: green for `> +20`, red for `< -20`, amber in the `[-20, +20]` neutral band.
+
+### 3.5.3 `multi_tf_agreement_pct` — mean of `trend_agreement_pct`
+
+```
+multi_tf_agreement_pct = mean(aln.trend_agreement_pct for aln in alignments) ∈ [0, 100]
+```
+
+Answers "how well do the timeframes within each symbol agree on direction?". This is distinct from `market_synchronization` (which is **cross-symbol** and derived from `breadth_pct`): two markets with 100% agreement within each symbol can have very different `market_synchronization` values, and vice versa.
+
+UI consumers typically render this as a large numeric with a 3-bucket classifier:
+
+| Range | Label |
+|-------|-------|
+| `≥ 75` | `STRONG` — "Strong consensus" |
+| `[50, 75)` | `PARTIAL` — "Partial consensus" |
+| `< 50` | `CONFLICTED` — "Conflicted" |
+
+### 3.5.4 Empty / partial-input semantics
+
+When no instance has yet produced a slow-tier Alignment Matrix (`alignments.is_empty()`) but the L6 inputs (advisories + active instances) are populated:
+
+- `alignment_distribution` → empty map.
+- `alignment_consensus_index` → `0.0` (not NaN).
+- `multi_tf_agreement_pct` → `0.0` (not NaN).
+
+This is the dashboard's "Awaiting alignment data…" state — the Market Alignment card detects this and renders a single muted placeholder rather than a misleading neutral gauge. The remaining breadth / bias / sync / risk aggregates are unaffected; they continue to be computed from L6 advisories.
+
+When an alignment is missing for a specific symbol but other symbols have alignments (e.g. cold-start with a single symbol lagging), that symbol's `AssetRank.mtf_score` defaults to `0.0` and `AssetRank.mtf_label` defaults to `"NO_DATA"` — see §2.2.
+
+---
+
 ## 4. Risk Distribution & Systemic Risk Score
 
 The `risk_distribution` bins assets by their Decision Matrix `confidence_assessment` (in `[0, 100]`; high confidence ⇒ low risk):
@@ -207,10 +266,13 @@ Rankings sort descending, producing a leaderboard of relative strength/weakness 
   "risk_distribution": { "low_pct": 60.0, "moderate_pct": 40.0, "high_pct": 0.0, "risk_environment": "LOW_RISK" },
   "systemic_risk_score": 0.0,
   "asset_ranking": [
-    { "symbol": "BTC-USDT", "score": 87.5, "bias": "STRONG_LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
+    { "symbol": "BTC-USDT", "score": 87.5, "bias": "STRONG_LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE", "mtf_score": 65.0, "mtf_label": "STRONG_BULL_MTF" }
   ],
   "market_synchronization": "SYNCHRONIZED",
   "market_health": "HEALTHY",
+  "alignment_distribution": { "STRONG_BULL_MTF": 2, "WEAK_BULL_MTF": 1, "NEUTRAL_MTF": 2 },
+  "alignment_consensus_index": 35.5,
+  "multi_tf_agreement_pct": 72.0,
   "global_summary": "5 active instances across 5 symbols. Global bias: BULLISH with positive market breadth.",
   "instance_count": 5,
   "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT", "AVAX-USDT", "MATIC-USDT"]

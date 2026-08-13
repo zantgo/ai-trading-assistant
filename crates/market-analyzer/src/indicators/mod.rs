@@ -1,3 +1,32 @@
+//! # Indicator Calculators
+//!
+//! ## Per-timeframe scope contract (v6.11 audit)
+//!
+//! **Every indicator in this module is per-timeframe pure state.** Each
+//! calculator owns its own internal history buffers (`VecDeque`,
+//! `Vec<f64>`, running sums, etc.) and is instantiated once per pipeline
+//! slot (`Micro`/`Fast`/`Slow`/`Macro`) by `analyzer::run_single` and the
+//! warm-up path. No indicator reads from a sibling timeframe's state, a
+//! shared `Arc<RwLock<...>>`, `ActivePair`, or any cross-TF snapshot.
+//!
+//! The only cross-TF data flow in the crate is the **synthesis layer**
+//! (`crates/market-analyzer/src/synthesis.rs`, invoked from
+//! `analyzer/mod.rs::synthesize_cross_tf`), which consumes the finished
+//! per-TF `MarketSnapshot`s to build the L2–L6 Alignment/Analysis/Risk/
+//! Advisory matrices. That is an intentional product-level aggregation of
+//! *already-computed* per-TF indicators — it never feeds back into the
+//! per-bar indicator math.
+//!
+//! The one intentional shared exception is the derivatives trio
+//! (`open_interest` / `funding_rate` / `mark_index_spread`): exchange-level
+//! data is not timeframe-derived, so `latest_oi` / `latest_funding` /
+//! `latest_mark_px` / `latest_index_px` are shared per-pair by design.
+//!
+//! Audit date: v6.11 — verified across all 50 indicators, both supported
+//! exchanges (Hyperliquid + Bitget), and every timeframe (1s/3s/5s/15s and
+//! 60s/180s/300s/900s). Regression pins: `crates/market-analyzer/tests/
+//! sub_minute_indicator_cadence.rs`.
+
 pub mod adx;
 pub mod anchored_vwap;
 pub mod aroon;
@@ -31,6 +60,7 @@ pub mod patterns;
 pub mod pivot_points;
 pub mod psar;
 pub mod registry;
+pub mod rma;
 pub mod rsi;
 pub mod sma;
 pub mod smart_money;
@@ -47,6 +77,7 @@ pub use adx::{Adx, AdxOutput, DiCrossoverDir, TrendRegime};
 pub use anchored_vwap::{AnchoredVwap, AvwapOutput};
 pub use aroon::{Aroon, AroonOutput};
 pub use atr::{Atr, AtrOutput, VolatilityRegime};
+pub use rma::WilderRma;
 pub use awesome_oscillator::{AoOutput, AwesomeOscillator};
 pub use bbwp::Bbwp;
 pub use bollinger::BollingerBands;

@@ -68,6 +68,10 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
+
+        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+
+        snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
 
     let router = api_gateway::build_router(state.clone());

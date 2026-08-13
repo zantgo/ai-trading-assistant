@@ -1,16 +1,8 @@
 // Recommendation tab builder — scoped export payload mirroring the panel.
 //
-// The Recommendation panel renders:
-//   1. Environment header (directional_guidance, market_stance, strategy_environment,
-//      opportunity_classification, confidence, readiness, entry_danger)
-//   2. Verdict hero (TOP CALL + headline + long/short/hold probabilities)
-//   3. Runner-ups (winner excluded, sorted by probability desc)
-//   4. Top Setup card (highest-scored qualifying profile with zones)
-//   5. Safety Flags (readiness, internal R:R, risk-adj R:R, stop-loss %, confidence)
-//   6. Why (top-3 rationale bullets)
-//   7. Price Levels (per-direction; both scenarios when HOLD)
-//   8. Strategy (entry, exit, protection, target)
-//   9. Final Verdict (final_recommendation text)
+// v7.0-audit: rewrites the payload to use the new shared envelope (no
+// filter_state, single current_price, structured header chrome) and the
+// new R:R availability helper (replaces `rr: null` with `{available, value, reason}`).
 
 import type {
   AdvisoryMatrix,
@@ -21,11 +13,18 @@ import type {
 } from '../../types';
 import {
   computeDecisionRank,
-  selectProfileSide,
-  profileZones,
+  topSetupSummary,
+  entryDangerLevel,
 } from '../../lib/decisionRank';
-import { buildMeta } from './shared';
-import type { MetaEnvelope, FilterStateBlock } from './shared';
+import {
+  buildPriceBlock,
+  buildHeaderBlock,
+  buildRrBlock,
+  type MetaEnvelope,
+  type HeaderBlock,
+  type RrBlock,
+} from './shared';
+import type { LayerHeaderSpec } from '../layerHeader';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -36,108 +35,168 @@ export interface RecommendationEnvironmentBlock {
   opportunity_classification: string;
   confidence_pct: number;
   readiness: string;
-  entry_danger: {
-    score: number;
-    level: string;
-    state: string;
-    confidence: number;
-  };
+  entry_danger_score: number;
+  entry_danger_level: string;
 }
 
 export interface RecommendationVerdictBlock {
   top: 'LONG' | 'SHORT' | 'HOLD';
-  top_prob_pct: number;
-  headline: {
-    action: string;
-    label: string;
-    state: string;
-    confidence_pct: number;
-  };
   long_probability: number;
   short_probability: number;
   hold_probability: number;
 }
 
-export interface RunnerUpRow {
-  action: 'LONG' | 'SHORT' | 'HOLD';
-  prob_pct: number;
-}
-
 export interface TopSetupBlock {
   opportunity_type: string;
+  viability: string;
+  badge_text: string;
   score: number;
   preconditions_met: number;
   preconditions_total: number;
-  direction: 'long' | 'short' | 'neutral';
   direction_label: string;
   entry_zone: { low: number; high: number } | null;
   target_zone: { low: number; high: number } | null;
   invalidation: number | null;
-  rr: number | null;
-  notes: string;
+  /** Display strings — verbatim copies of the screen card values. */
+  entry_zone_display: string;
+  target_zone_display: string;
+  invalidation_display: string;
+  rr_display: string;
+  rr_available: boolean;
+  rr_value: number | null;
+  rr_reason: string | null;
+  rationale: string;
+}
+
+function viabilityBadgeText(viability: string, top: string): string {
+  // Mirrors `RecommendationPanel.svelte:281-287` — emits the same literal
+  // badge text the screen shows. Empty string when the screen shows
+  // nothing (e.g. Actionable + HOLD verdict).
+  if (viability === 'Actionable' && top !== 'HOLD') return 'ACTIONABLE';
+  if (viability === 'DirectionalNeutral') return 'HOLD · NO DIRECTIONAL EDGE';
+  if (viability === 'GeometryInverted') return 'GEOMETRY INVERTED';
+  if (viability === 'NoClear') return 'NO CLEAR SETUP';
+  return '';
 }
 
 export interface SafetyFlagsBlock {
   readiness: string;
-  internal_rr: number;
-  risk_adj_rr: number;
+  rr_available: boolean;
+  rr_value: number | null;
+  rr_reason: string | null;
   stop_loss_pct: number;
   confidence_pct: number;
+  entry_danger_score: number;
+  entry_danger_level: string;
+  /** Display strings — verbatim copies of the screen KPI chips. */
+  rr_display: string;
+  stop_loss_display: string;
+  confidence_display: string;
+  entry_danger_display: string;
 }
 
-export interface PriceLevelsBlock {
-  side: 'long' | 'short' | 'hold';
-  entry_zone: { low: number; high: number } | null;
-  target_zone: { low: number; high: number } | null;
-  invalidation: number | null;
-  horizon: string;
-  scenarios: {
-    long: { entry_zone: { low: number; high: number } | null; target_zone: { low: number; high: number } | null; invalidation: number | null };
-    short: { entry_zone: { low: number; high: number } | null; target_zone: { low: number; high: number } | null; invalidation: number | null };
-  } | null;
+export interface GaugeBlock {
+  net_bias_pct: number;
+  bias_direction: string;
+  long_pct: number;
+  short_pct: number;
+  hold_pct: number;
+  /** Verbatim copy of the gauge needle label ("+37%" / "0%" / "-14%"). */
+  net_bias_display: string;
 }
 
-export interface StrategyBlock {
-  entry: string;
-  exit: string;
-  protection: string;
-  target: string;
+export interface NoClearCardBlock {
+  title: string;
+  body: string;
 }
 
 export interface RecommendationPayload {
   source_tab: 'recommendation';
   meta: MetaEnvelope;
+  header: HeaderBlock;
+  gauge: GaugeBlock;
   environment: RecommendationEnvironmentBlock;
   verdict: RecommendationVerdictBlock;
-  runner_ups: RunnerUpRow[];
   top_setup: TopSetupBlock | null;
+  /** Verbatim section-meta caption shown when no qualifying setup exists
+   *  ("no qualifying setup yet") — null when a setup renders. */
+  top_setup_empty_text: string | null;
+  no_clear_card: NoClearCardBlock | null;
   safety_flags: SafetyFlagsBlock;
+  why_note: string | null;
   why: string[];
-  price_levels: PriceLevelsBlock;
-  strategy: StrategyBlock;
+  price_levels: {
+    side: 'long' | 'short' | 'hold';
+    entry_zone: { low: number; high: number } | null;
+    target_zone: { low: number; high: number } | null;
+    invalidation: number | null;
+    horizon: string;
+    hold_placeholder: string | null;
+  };
+  strategy: {
+    entry: string;
+    exit: string;
+    protection: string;
+    target: string;
+  };
   final_verdict: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function readEntryDanger(decisionContext: DecisionContext | null): {
-  score: number;
-  level: string;
-  state: string;
-  confidence: number;
-} {
-  if (!decisionContext) return { score: 0, level: 'UNKNOWN', state: 'UNKNOWN', confidence: 0 };
+function sanitizeLabel(s: string): string {
+  // Screen renders "—" for falsy input — mirror it.
+  if (!s) return '\u2014';
+  let cleaned = s.replace(/([a-z])([A-Z])/g, '$1 $2');
+  cleaned = cleaned.replace(/_/g, ' ');
+  cleaned = cleaned.trim().replace(/\s+/g, ' ');
+  return cleaned
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function prettifyEnum(s: string): string {
+  // Screen renders "—" for falsy input — mirror it.
+  if (!s) return '\u2014';
+  let cleaned = s.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+  cleaned = cleaned.replace(/([a-z])([A-Z])/g, '$1 $2');
+  cleaned = cleaned.replace(/_/g, ' ');
+  cleaned = cleaned.trim().replace(/\s+/g, ' ');
+  cleaned = cleaned
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  cleaned = cleaned.replace(/\sBased$/i, '-Based');
+  cleaned = cleaned
+    .replace(/^Atr\b/i, 'ATR')
+    .replace(/^Sr\b/i, 'S/R')
+    .replace(/^Rr\b/i, 'R:R')
+    .replace(/^Sl\b/i, 'SL');
+  return cleaned;
+}
+
+function readEntryDangerScore(decisionContext: DecisionContext | null): number {
+  if (!decisionContext) return 50;
   const danger = decisionContext.entry_danger;
-  if (typeof danger === 'number') {
-    return { score: danger, level: 'UNKNOWN', state: 'UNKNOWN', confidence: 0 };
-  }
-  const d = danger as RiskDimension;
-  return {
-    score: d?.score ?? 0,
-    level: d?.level ?? 'UNKNOWN',
-    state: d?.state ?? 'UNKNOWN',
-    confidence: d?.confidence ?? 0,
-  };
+  // Screen default: missing entry_danger reads 50 (MODERATE).
+  if (typeof danger === 'number') return danger;
+  return (danger as RiskDimension | null)?.score ?? 50;
+}
+
+/** Price formatter — mirrors `RecommendationPanel.svelte::fmtPriceScale`. */
+function fmtPriceScale(n: number, mp: number): string {
+  if (mp >= 1000) return n.toFixed(0);
+  if (mp >= 1) return n.toFixed(2);
+  if (mp >= 0.01) return n.toFixed(4);
+  if (mp >= 0.0001) return n.toFixed(6);
+  return n.toFixed(8);
+}
+
+/** Risk-Adjusted R:R KPI string — mirrors the screen chip exactly. */
+function rrKpiDisplay(rrRaw: number, isNA: boolean): string {
+  if (isNA) return 'N/A';
+  if (Number.isNaN(rrRaw) || rrRaw <= 0) return 'R:R \u2014';
+  const norm = rrRaw >= 9.99 ? '9.99+' : rrRaw >= 5 ? rrRaw.toFixed(1) : rrRaw.toFixed(2);
+  return `R:R 1 : ${norm}`;
 }
 
 function buildEnvironmentBlock(
@@ -145,15 +204,16 @@ function buildEnvironmentBlock(
   decisionContext: DecisionContext | null,
   readiness: string,
 ): RecommendationEnvironmentBlock {
-  const danger = readEntryDanger(decisionContext);
+  const score = readEntryDangerScore(decisionContext);
   return {
-    directional_guidance: advisory?.directional_guidance ?? '—',
-    market_stance: advisory?.market_stance ?? '—',
-    strategy_environment: advisory?.strategy_environment ?? '—',
-    opportunity_classification: advisory?.opportunity_classification ?? '—',
+    directional_guidance: advisory?.directional_guidance ?? '',
+    market_stance: advisory?.market_stance ?? '',
+    strategy_environment: advisory?.strategy_environment ?? '',
+    opportunity_classification: advisory?.opportunity_classification ?? '',
     confidence_pct: advisory?.confidence_assessment ?? 0,
     readiness,
-    entry_danger: danger,
+    entry_danger_score: score,
+    entry_danger_level: entryDangerLevel(score),
   };
 }
 
@@ -162,118 +222,185 @@ function buildVerdictBlock(
 ): RecommendationVerdictBlock {
   return {
     top: rank.top,
-    top_prob_pct: rank.top_prob,
-    headline: {
-      action: rank.headline.action,
-      label: rank.headline.label,
-      state: rank.headline.state,
-      confidence_pct: rank.headline.confidence_pct,
-    },
     long_probability: rank.long.probability,
     short_probability: rank.short.probability,
     hold_probability: rank.hold.probability,
   };
 }
 
-function buildRunnerUpsBlock(
+function buildGaugeBlock(
   rank: ReturnType<typeof computeDecisionRank>,
-): RunnerUpRow[] {
-  const all: RunnerUpRow[] = [
-    { action: 'LONG', prob_pct: rank.long.probability },
-    { action: 'SHORT', prob_pct: rank.short.probability },
-    { action: 'HOLD', prob_pct: rank.hold.probability },
-  ];
-  return all
-    .filter((r) => r.action !== rank.top)
-    .sort((a, b) => b.prob_pct - a.prob_pct);
+): GaugeBlock {
+  const netBias = rank.long.probability - rank.short.probability;
+  return {
+    net_bias_pct: netBias,
+    bias_direction: rank.long.probability > rank.short.probability
+      ? 'LONG'
+      : rank.short.probability > rank.long.probability
+        ? 'SHORT'
+        : 'NEUTRAL',
+    long_pct: rank.long.probability,
+    short_pct: rank.short.probability,
+    hold_pct: rank.hold.probability,
+    net_bias_display: netBias === 0 ? '0%' : `${netBias > 0 ? '+' : ''}${netBias}%`,
+  };
 }
 
 function buildTopSetupBlock(
   opportunity: OpportunityMatrix | null,
   analysis: AnalysisMatrix | null,
+  decisionContext: DecisionContext | null,
+  markPrice: number,
+  top: 'LONG' | 'SHORT' | 'HOLD',
 ): TopSetupBlock | null {
   if (!opportunity) return null;
-  const profiles = opportunity.profiles ?? [];
-  const qualifying = profiles
-    .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
-    .slice()
-    .sort((a, b) => b.score - a.score);
-  const top = qualifying[0];
-  if (!top) return null;
-  const side = selectProfileSide(top, analysis?.bias ?? null);
-  const cardDir: 'long' | 'short' | 'neutral' =
-    side === 'LONG' ? 'long' : side === 'SHORT' ? 'short' : 'neutral';
-  const directionLabel = cardDir === 'long' ? 'LONG' : cardDir === 'short' ? 'SHORT' : 'NEUTRAL';
-  const zones = side === 'NEUTRAL' ? null : profileZones(top, side);
-  if (!zones) {
-    return {
-      opportunity_type: top.opportunity_type,
-      score: top.score,
-      preconditions_met: top.preconditions_met,
-      preconditions_total: top.preconditions_total,
-      direction: cardDir,
-      direction_label: directionLabel,
-      entry_zone: null,
-      target_zone: null,
-      invalidation: null,
-      rr: null,
-      notes: top.notes,
-    };
+  // The panel passes the real decisionContext so the aggregate-fallback
+  // side resolution (net_bias_pct) matches what the screen shows.
+  const summary = topSetupSummary(opportunity, analysis, decisionContext);
+  if (!summary) return null;
+  const z = summary.zones;
+  const viability =
+    summary.viability === 'Actionable'
+      ? 'Actionable'
+      : summary.viability === 'DirectionalNeutral'
+        ? 'DirectionalNeutral'
+        : summary.viability === 'GeometryInverted'
+          ? 'GeometryInverted'
+          : 'NoClear';
+  const rr = buildRrBlock(summary.rr, 'no_actionable_setup');
+  const entryDisplay = z
+    ? `$${fmtPriceScale(z.entry.low, markPrice)}–$${fmtPriceScale(z.entry.high, markPrice)}`
+    : '\u2014';
+  const targetDisplay = z
+    ? (z.target.low > 0
+        ? `$${fmtPriceScale(z.target.low, markPrice)}–$${fmtPriceScale(z.target.high, markPrice)}`
+        : `$${fmtPriceScale(z.target.high, markPrice)}`)
+    : '\u2014';
+  const invalidationDisplay =
+    z && z.invalidation > 0
+      ? `$${fmtPriceScale(z.invalidation, markPrice)}`
+      : '\u2014';
+  // R:R display derives from the canonical `summary.rr` (wire-side
+  // `long_/short_expected_rr_internal`, target-mid geometry) with the
+  // same formatting as the header chip — never a third, independently
+  // recomputed geometry (the legacy `computeRiskReward` call here
+  // disagreed with both the chip and the setup cards).
+  let rrDisplay: string;
+  if (summary.rr == null) {
+    rrDisplay = 'R:R N/A';
+  } else {
+    rrDisplay = rrKpiDisplay(summary.rr, false);
   }
   return {
-    opportunity_type: top.opportunity_type,
-    score: top.score,
-    preconditions_met: top.preconditions_met,
-    preconditions_total: top.preconditions_total,
-    direction: cardDir,
-    direction_label: directionLabel,
-    entry_zone: { low: zones.entry.low, high: zones.entry.high },
-    target_zone: { low: zones.target.low, high: zones.target.high },
-    invalidation: zones.invalidation,
-    rr: zones.rr,
-    notes: top.notes,
+    opportunity_type: sanitizeLabel(summary.opportunity_type),
+    viability,
+    badge_text: viabilityBadgeText(viability, top),
+    score: summary.score,
+    preconditions_met: summary.preconditions_met,
+    preconditions_total: summary.preconditions_total,
+    direction_label:
+      summary.direction === 'LONG' ? 'LONG'
+      : summary.direction === 'SHORT' ? 'SHORT' : 'NEUTRAL',
+    entry_zone: z ? { low: z.entry.low, high: z.entry.high } : null,
+    target_zone: z ? { low: z.target.low, high: z.target.high } : null,
+    invalidation: z?.invalidation ?? null,
+    entry_zone_display: entryDisplay,
+    target_zone_display: targetDisplay,
+    invalidation_display: invalidationDisplay,
+    rr_display: rrDisplay,
+    rr_available: rr.available,
+    rr_value: rr.value,
+    rr_reason: rr.reason,
+    rationale: summary.rationale,
   };
 }
 
 function buildSafetyFlagsBlock(
-  opportunity: OpportunityMatrix | null,
   decisionContext: DecisionContext | null,
   advisory: AdvisoryMatrix | null,
   readiness: string,
-  activeSideRr: number,
+  topAction: 'LONG' | 'SHORT' | 'HOLD',
 ): SafetyFlagsBlock {
+  const rrRaw = decisionContext?.expected_reward_risk_ratio ?? 0;
+  const rrNotApplicable = topAction === 'HOLD' && rrRaw === 0;
+  const rr = rrNotApplicable
+    ? { available: false, value: null, reason: 'no_directional_bias' as string | null }
+    : buildRrBlock(rrRaw > 0 ? rrRaw : null, 'no_wire_rr');
+  const score = readEntryDangerScore(decisionContext);
+  const stopLossPct = advisory?.stop_loss_distance_pct ?? 0;
+  const confidence = advisory?.confidence_assessment ?? 0;
+  const entryDangerLevelVal = entryDangerLevel(score);
   return {
     readiness,
-    internal_rr: activeSideRr,
-    risk_adj_rr: decisionContext?.expected_reward_risk_ratio ?? 0,
-    stop_loss_pct: advisory?.stop_loss_distance_pct ?? 0,
-    confidence_pct: advisory?.confidence_assessment ?? 0,
+    rr_available: rr.available,
+    rr_value: rr.value,
+    rr_reason: rr.reason,
+    stop_loss_pct: stopLossPct,
+    confidence_pct: confidence,
+    entry_danger_score: score,
+    entry_danger_level: entryDangerLevelVal,
+    // Verbatim screen chips:
+    rr_display: rrKpiDisplay(rrRaw, rrNotApplicable),
+    stop_loss_display: stopLossPct > 0 ? `${stopLossPct.toFixed(2)}%` : '\u2014',
+    confidence_display: `${confidence.toFixed(0)}%`,
+    entry_danger_display: `${score.toFixed(0)} (${entryDangerLevelVal})`,
   };
+}
+
+function buildWhyNote(
+  rank: ReturnType<typeof computeDecisionRank>,
+  noClearCard: boolean,
+): string | null {
+  if (rank.headline.action === 'STAND_ASIDE' || noClearCard) {
+    return 'No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.';
+  }
+  return null;
+}
+
+function buildNoClearCard(
+  advisory: AdvisoryMatrix | null,
+  opportunity: OpportunityMatrix | null,
+  topSetup: TopSetupBlock | null,
+): NoClearCardBlock | null {
+  // Mirrors the panel: the No Clear Setup card renders only when the top
+  // setup is absent AND the primary opportunity is NoClearOpportunity.
+  const hasNoClear =
+    topSetup === null
+      && !!opportunity
+      && !!advisory
+      && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity';
+  if (!hasNoClear) return null;
+  const body =
+    advisory?.final_recommendation ??
+    opportunity?.invalidation_note ??
+    'No qualifying setup; market conditions do not currently favor a directional trade.';
+  return { title: 'No Clear Setup', body };
 }
 
 function buildPriceLevelsBlock(
   opportunity: OpportunityMatrix | null,
   topAction: 'LONG' | 'SHORT' | 'HOLD',
-): PriceLevelsBlock {
-  if (topAction === 'LONG' || topAction === 'SHORT') {
-    const side = topAction === 'LONG'
-      ? {
-          entry: opportunity?.long_entry_zone,
-          target: opportunity?.long_target_zone,
-          inval: opportunity?.long_invalidation_level,
-        }
-      : {
-          entry: opportunity?.short_entry_zone,
-          target: opportunity?.short_target_zone,
-          inval: opportunity?.short_invalidation_level,
-        };
+): RecommendationPayload['price_levels'] {
+  if (topAction === 'LONG' || topAction === 'HOLD' as unknown as 'HOLD') {
+    if (topAction === 'LONG') {
+      return {
+        side: 'long',
+        entry_zone: opportunity?.long_entry_zone ?? null,
+        target_zone: opportunity?.long_target_zone ?? null,
+        invalidation: opportunity?.long_invalidation_level ?? null,
+        horizon: opportunity?.time_horizon ?? '\u2014',
+        hold_placeholder: null,
+      };
+    }
+  }
+  if (topAction === 'SHORT') {
     return {
-      side: topAction === 'LONG' ? 'long' : 'short',
-      entry_zone: side.entry ?? null,
-      target_zone: side.target ?? null,
-      invalidation: side.inval ?? null,
-      horizon: opportunity?.time_horizon ?? '—',
-      scenarios: null,
+      side: 'short',
+      entry_zone: opportunity?.short_entry_zone ?? null,
+      target_zone: opportunity?.short_target_zone ?? null,
+      invalidation: opportunity?.short_invalidation_level ?? null,
+      horizon: opportunity?.time_horizon ?? '\u2014',
+      hold_placeholder: null,
     };
   }
   return {
@@ -281,28 +408,21 @@ function buildPriceLevelsBlock(
     entry_zone: null,
     target_zone: null,
     invalidation: null,
-    horizon: opportunity?.time_horizon ?? '—',
-    scenarios: {
-      long: {
-        entry_zone: opportunity?.long_entry_zone ?? null,
-        target_zone: opportunity?.long_target_zone ?? null,
-        invalidation: opportunity?.long_invalidation_level ?? null,
-      },
-      short: {
-        entry_zone: opportunity?.short_entry_zone ?? null,
-        target_zone: opportunity?.short_target_zone ?? null,
-        invalidation: opportunity?.short_invalidation_level ?? null,
-      },
-    },
+    horizon: opportunity?.time_horizon ?? '\u2014',
+    hold_placeholder:
+      'No active setup — verdict is HOLD. Top Setup card above carries the Neutral primary bracket (entry = target = invalidation = close; R:R = 0.00).',
   };
 }
 
-function buildStrategyBlock(advisory: AdvisoryMatrix | null): StrategyBlock {
+function buildStrategyBlock(advisory: AdvisoryMatrix | null): RecommendationPayload['strategy'] {
+  // Entry/Exit use the sanitizeLabel title-casing the screen renders;
+  // Protection/Target use prettifyEnum with the -Based / ATR / S-R /
+  // R:R / SL overrides.
   return {
-    entry: advisory?.entry_guidance ?? '—',
-    exit: advisory?.exit_guidance ?? '—',
-    protection: advisory?.protection_strategy ?? '—',
-    target: advisory?.target_strategy ?? '—',
+    entry: sanitizeLabel(advisory?.entry_guidance ?? ''),
+    exit: sanitizeLabel(advisory?.exit_guidance ?? ''),
+    protection: prettifyEnum(advisory?.protection_strategy ?? ''),
+    target: prettifyEnum(advisory?.target_strategy ?? ''),
   };
 }
 
@@ -314,10 +434,13 @@ export interface RecommendationTabInputs {
   opportunity: OpportunityMatrix | null;
   analysis: AnalysisMatrix | null;
   symbol: string;
+  exchange?: string;
   tfSecs?: number | null;
   timestamp?: number | null;
   markPrice?: number | null;
-  filterState?: FilterStateBlock;
+  isCompleted?: boolean;
+  terms?: import('./shared').InstanceTermsLike;
+  headerSpec: LayerHeaderSpec;
 }
 
 /**
@@ -325,13 +448,14 @@ export interface RecommendationTabInputs {
  * `RecommendationPanel.svelte` 1:1.
  */
 export function buildRecommendationTabExport(args: RecommendationTabInputs): string {
-  const meta = buildMeta({
-    sourceTab: 'recommendation',
+  const { meta } = buildPriceBlock({
     symbol: args.symbol,
-    tfSecs: args.tfSecs ?? null,
-    timestamp: args.timestamp ?? null,
-    markPrice: args.markPrice ?? null,
-    filterState: args.filterState,
+    exchange: args.exchange,
+    terms: args.terms,
+    fallbackMarkPrice: args.markPrice,
+    tfSecs: args.tfSecs,
+    timestamp: args.timestamp,
+    isCompleted: args.isCompleted,
   });
   const rank = computeDecisionRank({
     advisory: args.advisory,
@@ -339,39 +463,27 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     opportunity: args.opportunity,
     analysis: args.analysis,
   });
-  // Active-side R:R (per-side, gated on macro bias). The legacy
-  // matrix-level `opportunity.expected_rr_internal` was removed in
-  // v6.9; we now read the per-side value that matches the active
-  // bias.
-  const activeSideRr = (() => {
-    if (!args.opportunity) return 0;
-    const bias = args.analysis?.bias ?? 'Neutral';
-    if (bias === 'Bullish' || bias === 'StrongBullish') {
-      return args.opportunity.long_expected_rr_internal ?? 0;
-    }
-    if (bias === 'Bearish' || bias === 'StrongBearish') {
-      return args.opportunity.short_expected_rr_internal ?? 0;
-    }
-    return 0;
-  })();
+  const topSetup = buildTopSetupBlock(args.opportunity, args.analysis, args.decisionContext, args.markPrice ?? 0, rank.top);
+  const noClearCard = buildNoClearCard(args.advisory, args.opportunity, topSetup);
+  const header = buildHeaderBlock(args.headerSpec);
   const payload: RecommendationPayload = {
     source_tab: 'recommendation',
     meta,
+    header,
+    gauge: buildGaugeBlock(rank),
     environment: buildEnvironmentBlock(args.advisory, args.decisionContext, rank.headline.state),
     verdict: buildVerdictBlock(rank),
-    runner_ups: buildRunnerUpsBlock(rank),
-    top_setup: buildTopSetupBlock(args.opportunity, args.analysis),
-    safety_flags: buildSafetyFlagsBlock(
-      args.opportunity,
-      args.decisionContext,
-      args.advisory,
-      rank.headline.state,
-      activeSideRr,
-    ),
+    top_setup: topSetup,
+    // Verbatim section-meta caption the panel renders when no qualifying
+    // setup exists (top_setup null and no NoClear card).
+    top_setup_empty_text: topSetup ? null : 'no qualifying setup yet',
+    no_clear_card: noClearCard,
+    safety_flags: buildSafetyFlagsBlock(args.decisionContext, args.advisory, rank.headline.state, rank.top),
+    why_note: buildWhyNote(rank, !!noClearCard),
     why: rank.rationale.slice(0, 3),
     price_levels: buildPriceLevelsBlock(args.opportunity, rank.top),
     strategy: buildStrategyBlock(args.advisory),
-    final_verdict: args.advisory?.final_recommendation ?? '',
+    final_verdict: args.advisory?.final_recommendation ?? '\u2014',
   };
   return JSON.stringify(payload, null, 2);
 }

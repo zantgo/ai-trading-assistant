@@ -252,6 +252,15 @@ pub struct IndicatorsConfig {
     pub rvol_threshold_institutional: f64,
     #[serde(default = "default_rvol_threshold_climax")]
     pub rvol_threshold_climax: f64,
+    /// AUDIT-AIU-072: the pivot-points method (classic/fibonacci/camarilla/
+    /// woodie) was declared in the registry `config_params` but never wired —
+    /// the analyzer hardcoded `Classic`.
+    #[serde(default = "default_pivot_points_method")]
+    pub pivot_points_method: String,
+    /// AUDIT-AIU-073: the minimum candlestick-pattern confidence gate was
+    /// hardcoded 0.3 in the analyzer; registry-declared config now exists.
+    #[serde(default = "default_candlestick_min_confidence")]
+    pub candlestick_min_confidence: f64,
     #[serde(default = "default_ichimoku_tenkan")]
     pub ichimoku_tenkan: usize,
     #[serde(default = "default_ichimoku_kijun")]
@@ -334,6 +343,8 @@ impl Default for IndicatorsConfig {
             volume_average_period: default_volume_average_period(),
             rvol_threshold_institutional: default_rvol_threshold_institutional(),
             rvol_threshold_climax: default_rvol_threshold_climax(),
+            pivot_points_method: default_pivot_points_method(),
+            candlestick_min_confidence: default_candlestick_min_confidence(),
             ichimoku_tenkan: default_ichimoku_tenkan(),
             ichimoku_kijun: default_ichimoku_kijun(),
             ichimoku_senkou_b: default_ichimoku_senkou_b(),
@@ -494,6 +505,12 @@ fn default_rvol_threshold_institutional() -> f64 {
 fn default_rvol_threshold_climax() -> f64 {
     3.0
 }
+fn default_pivot_points_method() -> String {
+    "classic".to_string()
+}
+fn default_candlestick_min_confidence() -> f64 {
+    0.3
+}
 fn default_ichimoku_tenkan() -> usize {
     9
 }
@@ -610,7 +627,13 @@ fn default_ob_imbalance_threshold() -> f64 {
     0.3
 }
 fn default_ob_wall_threshold() -> f64 {
-    5.0
+    // AUDIT-AIU-012: the previous default 5.0 made wall detection
+    // unreachable in production — the detector compares a level's volume
+    // against the total top-N volume (a ratio mathematically ≤ 1.0), so any
+    // threshold > 1.0 can never fire. 0.5 = a wall holding ≥ 50% of the
+    // top-of-book volume. Unit tests used 0.15–0.5; production now uses a
+    // sane default and the config is overridable via `[order_book]`.
+    0.5
 }
 fn default_ob_spread_warning() -> f64 {
     0.1
@@ -1191,6 +1214,11 @@ pub struct LiquidityConfig {
     /// does not regress for existing operators.
     #[serde(default = "default_min_cluster_notional_usd")]
     pub min_cluster_notional_usd: f64,
+    /// AUDIT-AIU-057: per-signal confidence defaults. These were hardcoded
+    /// in `derive_liquidity_signals`; they are now operator-tunable until
+    /// an empirical calibration study replaces them (CHANGELOG note).
+    #[serde(default = "default_signal_confidences")]
+    pub signal_confidences: LiquiditySignalConfidences,
     /// Hyperliquid user address (0x-prefixed 40-hex-char string).
     /// Retained for backward compatibility with existing `config.toml`
     /// entries, but no longer required: as of the trades-channel
@@ -1222,9 +1250,77 @@ impl Default for LiquidityConfig {
             liquidity_vacuum_threshold: default_liquidity_vacuum_threshold(),
             oi_funding_divergence_pct: default_oi_funding_divergence_pct(),
             min_cluster_notional_usd: default_min_cluster_notional_usd(),
+            signal_confidences: default_signal_confidences(),
             hyperliquid_user_address: String::new(),
         }
     }
+}
+
+/// AUDIT-AIU-057: per-signal confidence defaults for the liquidity layer.
+/// Values match the legacy hardcoded constants; operators may tune them
+/// via `[liquidity.signal_confidences]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquiditySignalConfidences {
+    #[serde(default = "default_conf_cascade_detected")]
+    pub cascade_detected: f64,
+    #[serde(default = "default_conf_cascade_sustained")]
+    pub cascade_sustained: f64,
+    #[serde(default = "default_conf_cascade_exhausted")]
+    pub cascade_exhausted: f64,
+    #[serde(default = "default_conf_funding_extreme")]
+    pub funding_extreme: f64,
+    #[serde(default = "default_conf_oi_funding_divergence")]
+    pub oi_funding_divergence: f64,
+    #[serde(default = "default_conf_liquidity_vacuum")]
+    pub liquidity_vacuum: f64,
+    #[serde(default = "default_conf_funding_flip")]
+    pub funding_flip: f64,
+    #[serde(default = "default_conf_oi_price_divergence")]
+    pub oi_price_divergence: f64,
+}
+
+impl Default for LiquiditySignalConfidences {
+    fn default() -> Self {
+        default_signal_confidences()
+    }
+}
+
+fn default_signal_confidences() -> LiquiditySignalConfidences {
+    LiquiditySignalConfidences {
+        cascade_detected: default_conf_cascade_detected(),
+        cascade_sustained: default_conf_cascade_sustained(),
+        cascade_exhausted: default_conf_cascade_exhausted(),
+        funding_extreme: default_conf_funding_extreme(),
+        oi_funding_divergence: default_conf_oi_funding_divergence(),
+        liquidity_vacuum: default_conf_liquidity_vacuum(),
+        funding_flip: default_conf_funding_flip(),
+        oi_price_divergence: default_conf_oi_price_divergence(),
+    }
+}
+
+fn default_conf_cascade_detected() -> f64 {
+    0.8
+}
+fn default_conf_cascade_sustained() -> f64 {
+    0.9
+}
+fn default_conf_cascade_exhausted() -> f64 {
+    0.7
+}
+fn default_conf_funding_extreme() -> f64 {
+    0.95
+}
+fn default_conf_oi_funding_divergence() -> f64 {
+    0.7
+}
+fn default_conf_liquidity_vacuum() -> f64 {
+    0.6
+}
+fn default_conf_funding_flip() -> f64 {
+    0.75
+}
+fn default_conf_oi_price_divergence() -> f64 {
+    0.7
 }
 
 fn default_liquidity_enabled() -> bool {
@@ -1931,4 +2027,77 @@ impl Default for ExecutionConfig {
 
 fn default_slippage_ceiling_pct() -> f64 {
     0.5
+}
+
+// ─── Snapshot Export (periodic JSON dump for offline data science) ─
+
+/// Configuration for the snapshot-export scheduler. Lives at the
+/// top level of `config.toml` under `[snapshot_export]` so the
+/// operator can configure the export folder / cadence without
+/// touching the workspace file.
+///
+/// Every snapshot writes one JSON file per (instance, tab) pair to
+/// `<output_path>/<YYYY-MM-DD>/<HHhMMmSS>/<pairKey>.<tab>.json`.
+/// See `crates/execution-daemon/src/snapshot_export.rs` for the
+/// implementation and `docs/operations-and-compliance/08-09-snapshot-export.md`
+/// for the operator manual.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SnapshotExportConfig {
+    /// Master toggle — when `false` the scheduler task idles and
+    /// writes nothing.
+    #[serde(default = "default_snapshot_export_enabled")]
+    pub enabled: bool,
+
+    /// Destination directory. Created at startup if missing. Relative
+    /// paths are resolved against the daemon's CWD (the project root
+    /// in the standard deployment).
+    #[serde(default = "default_snapshot_export_output_path")]
+    pub output_path: String,
+
+    /// Seconds between snapshots. Floor 5s, ceiling 3600s — values
+    /// outside this range are clamped at task startup.
+    #[serde(default = "default_snapshot_export_interval_secs")]
+    pub interval_secs: u64,
+
+    /// Hard upper bound on the number of timestamped snapshot
+    /// directories retained. When exceeded, the oldest (lexicographic)
+    /// directory is removed at the end of each tick.
+    #[serde(default = "default_snapshot_export_max_snapshots_retained")]
+    pub max_snapshots_retained: u32,
+
+    /// Per-tab opt-in list. When `None` (the canonical default) all
+    /// nine tabs are written: `metrics`, `mtf`, `alignment`,
+    /// `opportunity`, `risk`, `analysis`, `advisory`, `decision`,
+    /// `recommendation`. When `Some`, only the listed tab IDs are
+    /// emitted (unknown IDs are silently dropped at task startup).
+    #[serde(default)]
+    pub tabs: Option<Vec<String>>,
+}
+
+impl Default for SnapshotExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_snapshot_export_enabled(),
+            output_path: default_snapshot_export_output_path(),
+            interval_secs: default_snapshot_export_interval_secs(),
+            max_snapshots_retained: default_snapshot_export_max_snapshots_retained(),
+            tabs: None,
+        }
+    }
+}
+
+fn default_snapshot_export_enabled() -> bool {
+    false
+}
+
+fn default_snapshot_export_output_path() -> String {
+    "./snapshots".to_string()
+}
+
+fn default_snapshot_export_interval_secs() -> u64 {
+    60
+}
+
+fn default_snapshot_export_max_snapshots_retained() -> u32 {
+    1000
 }

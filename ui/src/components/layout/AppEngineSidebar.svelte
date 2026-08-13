@@ -18,7 +18,7 @@
 
     const ENGINES_SIDEBAR: { key: EngineKey; label: string; status?: 'live' | 'wip'; divider?: boolean }[] = [
         { key: 'data_infra',        label: 'Data Infrastructure',    status: 'live' },
-        { key: 'market_monitor',    label: 'Market Monitoring',      status: 'live' },
+        { key: 'market_monitor',    label: 'Market Monitor',         status: 'live' },
         { key: 'trade_automation',  label: 'Trade Automation',       status: 'wip' },
         { key: 'portfolio',         label: 'Portfolio Management',   status: 'wip' },
         { key: 'performance',       label: 'Performance Analytics',  status: 'wip' },

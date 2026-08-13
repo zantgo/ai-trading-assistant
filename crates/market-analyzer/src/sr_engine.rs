@@ -5,6 +5,59 @@ use std::collections::HashMap;
 /// Tracks marked horizontal S/R levels and automatically flips their roles
 /// when a 5-minute candle closes decisively beyond the level.
 
+/// AUDIT-AIU-006: levels are keyed on **4 significant digits** (scale-aware)
+/// instead of `(price × 100.0) as i64`, which collapsed every level below
+/// $0.01 to key 0 (one level for sub-cent assets like SHIB) and truncated-
+/// merged any two levels within the same cent. The relative tolerance for
+/// proximity checks (`is_support` / `is_resistance`) is 0.05% of the level,
+/// also scale-aware.
+const MIN_LEVEL_GAP_PCT: f64 = 0.0005;
+
+/// Scale-aware dedup key: rounds `price` to 4 significant digits.
+fn level_key(price: f64) -> i64 {
+    if !price.is_finite() || price <= 0.0 {
+        return 0;
+    }
+    let mag = price.abs().log10().floor() as i32;
+    let scale = 10f64.powi(4 - mag);
+    (price * scale).round() as i64
+}
+
+/// Merge levels closer than 0.05% relative: keeps the first registered level
+/// (supports before resistances) and drops the duplicate.
+fn merge_proximate(levels: &mut Vec<TrackedLevel>) {
+    if levels.len() < 2 {
+        return;
+    }
+    levels.sort_by(|a, b| {
+        a.price
+            .partial_cmp(&b.price)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut i = 0;
+    while i + 1 < levels.len() {
+        let a = levels[i].price;
+        let b = levels[i + 1].price;
+        if b - a <= a * MIN_LEVEL_GAP_PCT {
+            // Keep the stronger entry: prefer the one with the higher flip
+            // count (longer-confirmed role); on ties keep the first.
+            let keep = if levels[i + 1].flip_count > levels[i].flip_count {
+                i + 1
+            } else {
+                i
+            };
+            let drop = if keep == i { i + 1 } else { i };
+            if drop == i {
+                i += 1; // removed the earlier entry; re-check position
+            } else {
+                levels.remove(drop);
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LevelRole {
     Support,
@@ -48,7 +101,7 @@ impl SrRoleTracker {
         let mut new_levels: HashMap<i64, TrackedLevel> = HashMap::new();
 
         for &price in support_prices {
-            let key = (price * 100.0) as i64;
+            let key = level_key(price);
             new_levels.entry(key).or_insert(TrackedLevel {
                 price,
                 role: LevelRole::Support,
@@ -59,7 +112,7 @@ impl SrRoleTracker {
         }
 
         for &price in resistance_prices {
-            let key = (price * 100.0) as i64;
+            let key = level_key(price);
             new_levels.entry(key).or_insert(TrackedLevel {
                 price,
                 role: LevelRole::Resistance,
@@ -71,7 +124,7 @@ impl SrRoleTracker {
 
         // Merge with existing: keep tracked flip state
         for existing in &self.levels {
-            let key = (existing.price * 100.0) as i64;
+            let key = level_key(existing.price);
             if let std::collections::hash_map::Entry::Vacant(e) = new_levels.entry(key) {
                 e.insert(existing.clone());
             } else if let Some(entry) = new_levels.get_mut(&key) {
@@ -82,7 +135,10 @@ impl SrRoleTracker {
             }
         }
 
-        self.levels = new_levels.into_values().collect();
+        let mut merged: Vec<TrackedLevel> = new_levels.into_values().collect();
+        // AUDIT-AIU-006: collapse levels within the relative merge gap.
+        merge_proximate(&mut merged);
+        self.levels = merged;
         self.levels.sort_by(|a, b| {
             a.price
                 .partial_cmp(&b.price)
@@ -159,17 +215,19 @@ impl SrRoleTracker {
     }
 
     /// Check if a specific price is currently acting as support.
+    /// AUDIT-AIU-006: relative 0.05% tolerance (was a fixed $0.01).
     pub fn is_support(&self, price: f64) -> bool {
         self.levels
             .iter()
-            .any(|l| (l.price - price).abs() < 0.01 && l.role == LevelRole::Support)
+            .any(|l| (l.price - price).abs() <= l.price * MIN_LEVEL_GAP_PCT && l.role == LevelRole::Support)
     }
 
     /// Check if a specific price is currently acting as resistance.
+    /// AUDIT-AIU-006: relative 0.05% tolerance (was a fixed $0.01).
     pub fn is_resistance(&self, price: f64) -> bool {
         self.levels
             .iter()
-            .any(|l| (l.price - price).abs() < 0.01 && l.role == LevelRole::Resistance)
+            .any(|l| (l.price - price).abs() <= l.price * MIN_LEVEL_GAP_PCT && l.role == LevelRole::Resistance)
     }
 }
 
@@ -222,5 +280,35 @@ mod tests {
 
         tracker.register_levels(&[100.0, 105.0], &[110.0]);
         assert!(tracker.is_support(110.0));
+    }
+
+    #[test]
+    fn test_sub_cent_levels_do_not_collapse() {
+        // AUDIT-AIU-006: prices below $0.01 previously all keyed to 0.
+        let mut tracker = SrRoleTracker::new(0.005);
+        tracker.register_levels(&[0.00001, 0.00002, 0.00003], &[]);
+        let levels = tracker.get_supports();
+        assert_eq!(levels.len(), 3, "sub-cent levels must stay distinct");
+        assert!(levels.contains(&0.00001));
+        assert!(levels.contains(&0.00002));
+        assert!(levels.contains(&0.00003));
+    }
+
+    #[test]
+    fn test_same_cent_levels_merge_within_gap() {
+        // Two levels 0.002% apart (< 0.05% gap) collapse to one.
+        let mut tracker = SrRoleTracker::new(0.005);
+        tracker.register_levels(&[100.004, 100.006], &[]);
+        assert_eq!(tracker.get_supports().len(), 1);
+    }
+
+    #[test]
+    fn test_relative_proximity_for_sub_cent() {
+        let mut tracker = SrRoleTracker::new(0.005);
+        tracker.register_levels(&[0.00001], &[]);
+        // 0.000010001 is within 0.05% of 0.00001.
+        assert!(tracker.is_support(0.000010001));
+        // 0.00002 is far outside the 0.05% gap.
+        assert!(!tracker.is_support(0.00002));
     }
 }

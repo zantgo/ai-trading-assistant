@@ -1,0 +1,73 @@
+{
+  "source_tab": "analysis",
+  "meta": {
+    "datetime_utc": "2026-08-13T13:51:27.005Z",
+    "exchange": "Hyperliquid",
+    "pair": "ETH-USDC",
+    "timeframe_secs": 60,
+    "current_price": 1890.3,
+    "prev_day_price": 1900.8,
+    "price_change": -0.55239898989899,
+    "price_change_direction": "down",
+    "timestamp": 1786629060,
+    "is_completed": false
+  },
+  "header": {
+    "layer_name": "Analysis",
+    "badge": {"label": "Neutral", "sublabel": "", "tone": "warn"},
+    "chips": [
+      {"label": "Quality", "value": "Average"},
+      {"label": "Confidence", "value": 42},
+      {"label": "Regime", "value": "Expansion"}
+    ],
+    "status": "live"
+  },
+  "body": {
+    "bias": "Neutral",
+    "confidence_pct": 42,
+    "state_confidence": 0.4186154703276399,
+    "market_regime": "Expansion",
+    "market_quality": "Average",
+    "cycle_phase": "UNKNOWN"
+  },
+  "signal_lean_hero": {
+    "label_html": "Net bullish (4\u2191 vs 0\u2193)",
+    "meta_html": "4:1 signal ratio",
+    "bullish_pct": 100,
+    "bearish_pct": 0,
+    "tone": "bull"
+  },
+  "signals": {
+    "supporting": [],
+    "contradicting": [
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "MICRO", "score": 21, "score_display": "+21", "regime": "EXPANSION", "signals_count": 22, "raw": "MICRO (bullish): score +21, EXPANSION regime, 22 signals"},
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "FAST", "score": 18, "score_display": "+18", "regime": "TRENDING", "signals_count": 26, "raw": "FAST (bullish): score +18, TRENDING regime, 26 signals"},
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "SLOW", "score": 21, "score_display": "+21", "regime": "TRENDING", "signals_count": 25, "raw": "SLOW (bullish): score +21, TRENDING regime, 25 signals"},
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "MACRO", "score": 19, "score_display": "+19", "regime": "TRENDING", "signals_count": 30, "raw": "MACRO (bullish): score +19, TRENDING regime, 30 signals"}
+    ],
+    "list": [
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "MICRO", "score": 21, "score_display": "+21", "regime": "EXPANSION", "signals_count": 22, "raw": "MICRO (bullish): score +21, EXPANSION regime, 22 signals", "bucket": "contradicting"},
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "FAST", "score": 18, "score_display": "+18", "regime": "TRENDING", "signals_count": 26, "raw": "FAST (bullish): score +18, TRENDING regime, 26 signals", "bucket": "contradicting"},
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "SLOW", "score": 21, "score_display": "+21", "regime": "TRENDING", "signals_count": 25, "raw": "SLOW (bullish): score +21, TRENDING regime, 25 signals", "bucket": "contradicting"},
+      {"key": "unknown", "period": null, "display_name": "UNKNOWN", "timeframe": "MACRO", "score": 19, "score_display": "+19", "regime": "TRENDING", "signals_count": 30, "raw": "MACRO (bullish): score +19, TRENDING regime, 30 signals", "bucket": "contradicting"}
+    ],
+    "lean": {"label": "Net bullish \u00b7 4\u2191 vs 0\u2193", "bullish": 4, "bearish": 0, "tone": "bull"}
+  },
+  "qualitative_assessment": {
+    "trend": "Developing",
+    "momentum": "Weakening",
+    "structure": "Weak",
+    "volatility": "Normal",
+    "volume": "Normal",
+    "cycle_phase": "UNKNOWN"
+  },
+  "per_timeframe_alignment": [
+    {"name": "MICRO", "active": true, "trend": 0.29019269463197006, "trend_display": "+0.29", "momentum": 0.0819168375833447, "momentum_display": "+0.08", "overall": 21, "overall_display": "+21.0", "regime": "EXPANSION"},
+    {"name": "FAST", "active": true, "trend": 0.3057083352129776, "trend_display": "+0.31", "momentum": -0.002457405643544202, "momentum_display": "-0.00", "overall": 18, "overall_display": "+18.0", "regime": "TRENDING"},
+    {"name": "SLOW", "active": true, "trend": 0.3048466009820931, "trend_display": "+0.30", "momentum": 0.07294571535407912, "momentum_display": "+0.07", "overall": 21, "overall_display": "+21.0", "regime": "TRENDING"},
+    {"name": "MACRO", "active": true, "trend": 0.33097543903762594, "trend_display": "+0.33", "momentum": -0.02349681107830989, "momentum_display": "-0.02", "overall": 19, "overall_display": "+19.0", "regime": "TRENDING"}
+  ],
+  "interpretation": "Expanding market with developing trend, weakening momentum, weak structure, normal volatility, and normal volume participation. Pullback opportunity forming.",
+  "interpretation_display": "<strong>Expanding</strong> market with <strong>developing</strong> trend, <strong>weakening</strong> momentum, <strong>weak</strong> structure, <strong>normal</strong> volatility, and <strong>normal</strong> volume participation. Pullback opportunity forming.",
+  "rationale": "MTF overall score 17/100 \u2192 NEUTRAL. Majority of 4 timeframes agree (100%). BBWP=87 ADX=31. Regime: EXPANSION 31 signals across multiple timeframes."
+}

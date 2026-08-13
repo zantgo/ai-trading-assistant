@@ -3,7 +3,6 @@
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
     import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
-    import { buildFilterStateBlock } from '../lib/exportBuilders/shared';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL2AlignmentHeader, type LayerHeaderSpec } from '../lib/layerHeader';
@@ -32,12 +31,13 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
-            filterState: buildFilterStateBlock({
-                activeOnly: false,
-                confirmedPlusOnly: false,
-                hideGates: false,
-                hideOverlays: false,
-            }),
+            headerSpec,
+            terms: {
+                microTerm: instance?.microTerm as any,
+                fastTerm: instance?.fastTerm as any,
+                slowTerm: instance?.slowTerm as any,
+                macroTerm: instance?.macroTerm as any,
+            },
         });
     }
 
@@ -56,7 +56,7 @@
         const s = state.toUpperCase();
         if (s === 'STRONG_BULLISH') return 'STRONG';
         if (s === 'STRONG_BEARISH') return 'STRONG';
-        if (s === 'NODATA') return 'NO DATA';
+        if (s === 'NODATA' || s === 'NO_DATA') return 'NO DATA';
         return s;
     }
     function scoreClass(s: number): string {

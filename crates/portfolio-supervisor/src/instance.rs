@@ -290,7 +290,7 @@ impl Instance {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))), // AUDIT-AIU-051: (timestamp_secs, value)
             funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
             latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         });

@@ -1,6 +1,6 @@
 # Target Architecture Roadmap
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical home for "Target Architecture (Not Yet Implemented)" callouts scattered across the corpus. It enumerates each target state, its current status, blocking requirements, and target version. Future revisions update this single document instead of duplicating target notes across layer docs.
 
@@ -12,7 +12,7 @@
 
 | Target | Current status | Blocking requirement | Target version | Owner |
 |--------|----------------|----------------------|----------------|-------|
-| **DOD hot-path (≥ 50,000 events/sec)** | **Staged migration started (v6.5).** The `Indicator` trait contract (`traits.rs`) declares `BarInput` as `f64`. Per-indicator `update()` methods remain `Decimal`-signatured; the conversion happens at the trait boundary (`Indicator::update()` converts `&BarInput` (f64) → Decimal → calls specialized `update()`) until each indicator's per-migration commit lands. Tracking: `AUDIT-V8-400` through `AUDIT-V8-407`. | Per-indicator migration of `update()` signatures from Decimal to f64 (42 modules, ~50-70 line changes each); SoA layout for MME Layer 1 per `docs/engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md` (target: `[IndicatorEvaluation; 50]` flat array). | Progressive (v6.6: staged indicator commits) | MME team |
+| **DOD hot-path (≥ 50,000 events/sec)** | **Staged migration started (v6.5).** The `Indicator` trait contract (`traits.rs`) declares `BarInput` as `f64`. Per-indicator `update()` methods remain `Decimal`-signatured; the conversion happens at the trait boundary (`Indicator::update()` converts `&BarInput` (f64) → Decimal → calls specialized `update()`) until each indicator's per-migration commit lands. Tracking: `AUDIT-V8-400` through `AUDIT-V8-407`. | Per-indicator migration of `update()` signatures from Decimal to f64 (51 modules, ~50-70 line changes each); SoA layout for MME Layer 1 per `docs/engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md` (target: `[IndicatorEvaluation; 51]` flat array). | Progressive (v6.6: staged indicator commits) | MME team |
 | **AoS → SoA candle history** | Not started. History is `Vec<NormalizedCandle>` (AoS). | Decide per-indicator strategy: SIMD-vectorize on SoA, or accept AoS for indicators that can't vectorize. | Unscheduled | MME team |
 | **Zero-copy MME distribution** | Not started. Internal distribution uses cloned `MarketSnapshot` structs. | Establish a stable ABI between DIE and MME; introduce a binary-serialised intermediate format. | Unscheduled | DIE + MME |
 | **Multi-venue failover** | Not supported. `SymbolMapper` binds each internal symbol to exactly one venue. | Define a "primary venue" model with N-second failover timeout; introduce cross-venue reconciliation (currently listed in [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) as `cross_venue_offset` but not implemented). | Unscheduled | DIE team |

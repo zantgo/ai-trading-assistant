@@ -14,7 +14,7 @@
     import type { IndicatorDto, IndicatorMeta, IndicatorNormalizationMode, IndicatorSignal, TimeframeTelemetry } from '../../types';
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { filterRegistry, filterSignals, type FilterState } from '../../lib/filtering';
-    import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn } from '../../lib/telemetry';
+    import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn, buildEmaRibbonCellView } from '../../lib/telemetry';
     import { confPct, normColor, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
     import IndicatorStatusBadge from './IndicatorStatusBadge.svelte';
     import styles from './IndicatorsView.module.css';
@@ -39,6 +39,12 @@
     const filteredRegistry = $derived(
         filterRegistry(registry, filters, (k) => tf.indicators?.[k]?.signals ?? []),
     );
+
+    /** Build the on-screen micro-grid for the `ema_stack` collapsed
+     *  `raw_value` cell. Reads the SAME record (`tf.indicators["ema_stack"].values.*`)
+     *  as the chart overlay and the per-TF Metrics export body's
+     *  `body.ema` block — see `docs/engines/market-monitoring-engine/indicators/04-02-01-ema-stack.md`. */
+    const emaRibbonCell = $derived(buildEmaRibbonCellView(tf, parseFloat(tf.priceText ?? '0') || 0));
 
     /** Per-key quick-lookup for `updates_on_shadow` from the full registry. */
     const shadowMeta = $derived.by(() => {
@@ -445,7 +451,25 @@
                                         {#if m.supports_divergence}<span class={styles.divMarker} title="Supports divergence">△</span>{/if}
                                     </span>
                                     <span class="{styles.colClass} {styles[`class_${m.class}`]}">{m.class}</span>
-                                    <span class={styles.colRaw}>{formatRaw(m)}</span>
+                                    <span class={styles.colRaw}>
+                                        {#if m.key === 'ema_stack'}
+                                            <span class={styles.emaRibbon}
+                                                  title="EMA Ribbon: 4-line overlay (F=fast, M=medium, S=slow, L=long). Values mirror the chart overlay and the export body's body.ema block.">
+                                                {#each emaRibbonCell.rows as row (row.role)}
+                                                    <span class={styles.emaRibbonRow}>
+                                                        <span class={styles.emaRibbonLabel}>{row.label}</span>
+                                                        <span class={styles.emaRibbonValue}>{row.valueText}</span>
+                                                        <span class={styles.emaRibbonDist}>{row.distanceText}</span>
+                                                    </span>
+                                                {/each}
+                                                <span class={styles.emaRibbonSpread}>
+                                                    spread ↔ {emaRibbonCell.spreadText}
+                                                </span>
+                                            </span>
+                                        {:else}
+                                            {formatRaw(m)}
+                                        {/if}
+                                    </span>
                                     <span
                                         class={styles.colNorm}
                                         style="color: {normBg}; font-weight: 700;"

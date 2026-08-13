@@ -1,11 +1,11 @@
 <script lang="ts">
-    // AssetRankingsTable — 9-column leaderboard with sortable column
+    // AssetRankingsTable — 11-column leaderboard with sortable column
     // headers. Default sort is by `opportunityScore` descending — the
     // operator's first question after a glance at the hero is "which
     // pair is best?"
     //
     // Columns: Symbol, Price, Bias, Signal, Direction, R:R, Score,
-    //          Confidence, Risk, Updated.
+    //          Confidence, MTF Score, MTF Label, Risk, Updated.
     import { useAppStore } from '../../state.svelte';
     import { formatRelativeTime } from '../../lib/relTime';
     import {
@@ -22,7 +22,7 @@
 
     const app = useAppStore();
 
-    type SortKey = 'symbol' | 'price' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'risk' | 'updated';
+    type SortKey = 'symbol' | 'price' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label' | 'risk' | 'updated';
     type SortDir = 'asc' | 'desc';
     let sortKey = $state<SortKey>('score');
     let sortDir = $state<SortDir>('desc');
@@ -42,9 +42,38 @@
         rr: number;
         score: number;
         confidence: number;
+        mtf_score: number;
+        mtf_label: string;
         risk: number;
         updatedMs: number | null;
         connected: boolean;
+    }
+
+    /**
+     * Color for an `AlignmentMatrix.mtf_overall_label`. The label is
+     * SCREAMING_SNAKE_CASE (`STRONG_BULL_MTF` / `WEAK_BULL_MTF` /
+     * `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`).
+     * Returns muted gray for missing / `NO_DATA` rows.
+     */
+    function mtfLabelColor(label: string): string {
+        const l = (label ?? '').toUpperCase();
+        if (l.startsWith('STRONG_BULL')) return '#22c55e';
+        if (l.startsWith('WEAK_BULL')) return '#4ade80';
+        if (l.startsWith('STRONG_BEAR')) return '#dc2626';
+        if (l.startsWith('WEAK_BEAR')) return '#f87171';
+        if (l === 'NEUTRAL_MTF') return '#f59e0b';
+        return 'rgba(255,255,255,0.35)';
+    }
+
+    /**
+     * Color for `mtf_overall_score` ∈ [-100, 100]. Same scale as the
+     * MarketAlignmentCard gauge — green when bullish, red when bearish,
+     * amber in the neutral band.
+     */
+    function mtfScoreColor(score: number): string {
+        if (score >= 20) return '#4ade80';
+        if (score <= -20) return '#f87171';
+        return '#f59e0b';
     }
 
     const rows = $derived.by((): Row[] => {
@@ -55,6 +84,7 @@
             const adv = inst.advisory;
             const analysis = inst.analysis;
             const risk = inst.risk;
+            const aln = inst.alignment;
             const guidance = adv?.directional_guidance ?? null;
             const direction = directionLabel(guidance);
             const signal = signalLabel(guidance);
@@ -74,6 +104,8 @@
                 : (opp?.long_expected_rr_internal ?? 0);
             const confidence = adv?.confidence_assessment ?? 0;
             const riskScore = risk?.overall_risk?.score ?? 0;
+            const mtfScore = aln?.mtf_overall_score ?? 0;
+            const mtfLabel = aln?.mtf_overall_label ?? 'NO_DATA';
             const snap = inst.microTerm?.latestSnapshot as { timestamp?: number } | null;
             const ts = snap?.timestamp ?? null;
             out.push({
@@ -85,6 +117,8 @@
                 rr,
                 score,
                 confidence,
+                mtf_score: mtfScore,
+                mtf_label: mtfLabel,
                 risk: riskScore,
                 updatedMs: ts,
                 connected: inst.isConnected,
@@ -111,7 +145,7 @@
             sortDir = sortDir === 'asc' ? 'desc' : 'asc';
         } else {
             sortKey = k;
-            sortDir = k === 'symbol' || k === 'bias' ? 'asc' : 'desc';
+            sortDir = k === 'symbol' || k === 'bias' || k === 'mtf_label' ? 'asc' : 'desc';
         }
     }
 
@@ -144,6 +178,8 @@
                     <th class={styles.th} onclick={() => toggleSort('rr')}>R:R{arrow('rr')}</th>
                     <th class={styles.th} onclick={() => toggleSort('score')}>Score{arrow('score')}</th>
                     <th class={styles.th} onclick={() => toggleSort('confidence')}>Confidence{arrow('confidence')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('mtf_score')}>MTF Score{arrow('mtf_score')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('mtf_label')}>MTF Label{arrow('mtf_label')}</th>
                     <th class={styles.th} onclick={() => toggleSort('risk')}>Risk{arrow('risk')}</th>
                     <th class={styles.th} onclick={() => toggleSort('updated')}>Updated{arrow('updated')}</th>
                 </tr>
@@ -171,6 +207,12 @@
                             </span>
                         </td>
                         <td class={styles.td}>{r.confidence.toFixed(0)}%</td>
+                        <td class={styles.td} style="color: {mtfScoreColor(r.mtf_score)}">
+                            {r.mtf_score > 0 ? '+' : ''}{r.mtf_score.toFixed(0)}
+                        </td>
+                        <td class={styles.td} style="color: {mtfLabelColor(r.mtf_label)}; font-weight: 700; font-size: 10px; letter-spacing: 0.04em">
+                            {r.mtf_label.replace(/_MTF$/, '').replaceAll('_', ' ')}
+                        </td>
                         <td class={styles.td} style="color: {r.risk >= 60 ? '#ef4444' : r.risk >= 40 ? '#f59e0b' : '#22c55e'}">
                             {r.risk.toFixed(0)}
                         </td>

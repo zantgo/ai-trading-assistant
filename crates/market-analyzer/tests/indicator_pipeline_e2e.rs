@@ -542,6 +542,7 @@ fn build_rsi_alone_inputs(
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         cci: Some(50.0),
         ..Default::default()
@@ -678,6 +679,7 @@ fn build_cci_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normal
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         ..Default::default()
     };
@@ -739,6 +741,7 @@ fn build_ao_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normali
         ema_fast: Some(cl - 0.3),
         ema_medium: Some(cl - 0.6),
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         ..Default::default()
     };
@@ -758,6 +761,7 @@ fn build_force_index_inputs(
     let fi = (cl - 100.0) * v * 0.5;
     let inputs = IndicatorInputs {
         force_index: Some(fi),
+        force_index_mean_abs: Some(fi.abs()),
         rsi: Some(50.0 + (fi * 0.001).clamp(-25.0, 25.0)),
         stoch_k: Some(50.0 + (fi * 0.001).clamp(-25.0, 25.0)),
         stoch_d: Some(50.0 + (fi * 0.001).clamp(-25.0, 25.0)),
@@ -806,6 +810,7 @@ fn build_hull_ma_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, No
         awesome_oscillator: Some((cl - 100.0) * 0.5),
         ao_rising: cl > 100.0,
         force_index: Some((cl - 100.0) * 50.0),
+        force_index_mean_abs: Some(100.0),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
         psar_flipped: false,
@@ -850,6 +855,7 @@ fn build_psar_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Norma
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         ..Default::default()
     };
     (inputs, ctx)
@@ -1020,6 +1026,7 @@ fn build_ichimoku_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, N
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         ..Default::default()
     };
@@ -1208,6 +1215,7 @@ fn build_aroon_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Norm
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1262,6 +1270,7 @@ fn build_choppiness_inputs(
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1312,6 +1321,7 @@ fn build_hv_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normali
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1422,6 +1432,7 @@ fn build_linreg_slope_inputs(
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1466,6 +1477,7 @@ fn build_zscore_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Nor
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1549,6 +1561,7 @@ fn build_ema_stack_inputs(
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1624,6 +1637,7 @@ fn build_atr_inputs(c: &NormalizedCandle, _i: usize) -> (IndicatorInputs, Normal
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         psar_sar: Some(cl - 0.5),
         psar_direction: Some(1),
@@ -1737,9 +1751,9 @@ probe_indicator_test!(hull_ma_pipeline, "hull_ma", 14, build_hull_ma_inputs);
 probe_indicator_test!(psar_pipeline, "psar", 1, build_psar_inputs);
 
 // ── Momentum group (12) ─────────────────────────────────────────
-probe_indicator_test!(rsi_pipeline, "rsi", 14, build_rsi_alone_inputs);
+probe_indicator_test!(rsi_pipeline, "rsi", 15, build_rsi_alone_inputs);
 probe_indicator_test!(macd_pipeline, "macd", 26, build_macd_inputs);
-probe_indicator_test!(stochastic_pipeline, "stochastic", 14, build_stochastic_inputs);
+probe_indicator_test!(stochastic_pipeline, "stochastic", 30, build_stochastic_inputs);
 probe_indicator_test!(chandemo_pipeline, "chandemo", 14, build_chandemo_inputs);
 probe_indicator_test!(mfi_pipeline, "mfi", 20, build_mfi_inputs);
 probe_indicator_test!(cci_pipeline, "cci", 20, build_cci_inputs);
@@ -1752,11 +1766,11 @@ probe_indicator_test!(zscore_pipeline, "zscore", 14, build_zscore_inputs);
 
 // ── Volatility group (8) ────────────────────────────────────────
 probe_indicator_test!(bollinger_pipeline, "bollinger", 20, build_bollinger_inputs);
-probe_indicator_test!(bbwp_pipeline, "bbwp", 20, build_bbwp_inputs);
+probe_indicator_test!(bbwp_pipeline, "bbwp", 200, build_bbwp_inputs);
 probe_indicator_test!(atr_pipeline, "atr", 14, build_atr_inputs);
-probe_indicator_test!(squeeze_pipeline, "squeeze", 20, build_squeeze_inputs);
+probe_indicator_test!(squeeze_pipeline, "squeeze", 39, build_squeeze_inputs);
 probe_indicator_test!(stddev_channel_pipeline, "stddev_channel", 20, build_stddev_channel_inputs);
-probe_indicator_test!(hv_pipeline, "hv", 20, build_hv_inputs);
+probe_indicator_test!(hv_pipeline, "hv", 21, build_hv_inputs);
 probe_indicator_test!(choppiness_pipeline, "choppiness", 14, build_choppiness_inputs);
 probe_indicator_test!(aroon_pipeline, "aroon", 25, build_aroon_inputs);
 
@@ -2067,6 +2081,7 @@ fn build_all_oscillator_divergence_inputs(
         awesome_oscillator: Some(1.0),
         ao_rising: cl > 100.0,
         force_index: Some(100.0),
+        force_index_mean_abs: Some(100.0),
         hull_ma: Some(cl - 0.5),
         cci: Some(50.0),
         vwap: Some(cl),

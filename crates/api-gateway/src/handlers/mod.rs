@@ -15,5 +15,6 @@ pub mod overview;
 pub mod pre_dispatch;
 pub mod profiles;
 pub mod session;
+pub mod snapshot_export;
 pub mod system;
 pub mod trades;

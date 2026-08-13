@@ -1,6 +1,6 @@
 # Performance Analytics Engine — Overview Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; the PAE backend (`crates/performance-analytics/`) is implemented and the `PerformanceDashboard` Overview/Strategy/Risk/Regimes/Trades panels render real data from `/api/analytics/*`. The **Backtesting panel is a UI-only mock** (no `/api/backtest/*` route) and the in-process backtest runner + equity-curve visualization are pending. See [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
 **Engine:** Performance Analytics Engine (PAE)
 **Purpose:** This document specifies the boundaries, performance database, scheduled tasks, and report templates of the Performance Analytics Engine — the engine that evaluates historical trading records to isolate strategy efficacy and identify system drag.

@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -16,6 +16,8 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md), the Metrics Mat
 
 1. **Indicators** — continuous quantitative measurements, each projected across the 8 **Indicator Evaluation Axes**.
 2. **Signals** — discrete technical events, each projected across the 10 **Signal Evaluation Axes**.
+
+These two categories, together with the attached telemetry sub-objects (`liquidity`, `cluster`, `liquidity_signals`, derivatives/orderbook data), form the platform's **Analytical Input Universe** — the collective term for everything the `MarketSnapshot` envelope carries into MME Layers 2–7. Canonical definition and membership rules: [Ontology §3.9.1](../conceptual-foundations/01-01-ontology.md). The Metrics Matrix itself is the **delivery vehicle**; the universe is the vocabulary.
 
 The Metrics Matrix is **strategy-agnostic**: it describes what the market *is*, not what a strategy *should do*. It does not compare timeframes (that is the Alignment Matrix) and does not interpret bias (that is the Analysis Matrix).
 
@@ -44,7 +46,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 
 > **Target Architecture (Not Yet Implemented).** The Metrics Matrix is intended to have a **dual representation**:
 >
-> - **Hot-path representation (`FastTelemetryFrame`):** a contiguous, binary, `#[repr(C)]` C-struct layout (enum-indexed `[IndicatorEvaluation; 50]`, `f64` fields) optimized for CPU caches and SIMD, used internally across MME Layers 1–5.
+> - **Hot-path representation (`FastTelemetryFrame`):** a contiguous, binary, `#[repr(C)]` C-struct layout (enum-indexed `[IndicatorEvaluation; 51]`, `f64` fields) optimized for CPU caches and SIMD, used internally across MME Layers 1–5.
 > - **Egress representation:** the serialized JSON-RPC 2.0 payload matching the schema below, used for API distribution and frontend rendering.
 >
 > *Current implementation:* a single representation — the `MarketSnapshot` struct with `Decimal` OHLCV and `indicators: HashMap<String, NormalizedIndicatorValue>` — serves both the internal broadcast and the JSON egress.
@@ -68,9 +70,9 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `open_interest` | `Decimal` | Yes | Open interest at snapshot time. |
 | `oi_delta_1h` | `Decimal` | Yes | 1-hour rolling open-interest change. |
 | `prev_day_px` | `Decimal` | Yes | Prior-day reference price (from asset context). |
-| `mark_price` | `Decimal` | Yes | Mark price at snapshot time. `null` until writers land in Phase 3 (AUDIT-V6-301). |
+| `mark_price` | `Decimal` | Yes | Mark price at snapshot time. In-memory writer live (AUDIT-AIU-091); `null` until the first WS mark push. |
 | `index_price` | `Decimal` | Yes | Index price at snapshot time. `null` until Phase 3. |
-| `mark_index_spread_pct` | `f64` | Yes | Mark/index spread as percentage. Writers land in Phase 3 (AUDIT-V6-301); `null` until then. |
+| `mark_index_spread_pct` | `f64` | Yes | Mark/index spread as percentage. Computed live from the in-memory mark/index writers (AUDIT-AIU-091); `null` until both are available. |
 | `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). `None` when liquidity extension disabled. |
 | `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). `None` when liquidity extension disabled. |
 | `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Always serialized** as an empty array (`[]`) when liquidity extension is disabled or no signals fired in this snapshot. Never omitted via `skip_serializing_if`. |
@@ -86,11 +88,22 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `risk_profile` | `i64` | Yes | Associated risk-profile identifier (the integer primary key of the `risk_profiles` table per [06-02-database-schema-spec.md §3.3](../integration-and-api/06-02-database-schema-spec.md)). Serialized as JSON `null` when no profile is bound. |
 | `metrics_config` | `Option<MetricsConfig>` | Yes | **Configurable Data Activation** (added v6.2). Optional block recording the active indicator/signal set the cascade considered. **Omitted entirely** when the active set is the registry default (all enabled). Canonical form, semantics, and gating rules: [03-02-12-mme-configurable-activation.md §3](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). `metrics_config.config_version` joins PAE attribution. |
 
-> #### 2.1.1 Single Source of Truth
->
+> #### 2.1.1 Single Source of Truth — v6.11 EMA Ribbon unification
 > The `indicators` map is the **single canonical source of truth** for all indicator readings across the platform. The per-TF pipeline produces this map on every completed candle (`build_indicator_map()`) and refreshes it on shadow ticks via clone-based tick-safe recomputation. On the frontend, `TimeframeTelemetry.indicators` accumulates every incoming snapshot via per-key spread-merge (`{ ...prev, ...incoming }`) so close-dependent indicators (Fibonacci, patterns, S/R zones, Ichimoku, etc.) persist across shadow ticks. **Every downstream consumer — all 35 chart components, all 6 Metrics-tab facets, the MarketContextStrip, GroupConfluenceGrid, StructuralAnchorsStrip, ScoreChart, export JSON, and the L2–L7 synthesis layers — reads indicator values from this single accumulated map.** No consumer derives indicator values from raw OHLCV, `latestSnapshot` fields, or any secondary source. The companion `indicator_lifecycle` map (per-key `IndicatorLifecycleStatus`) is the operational sidecar that drives the Loading/Live/Stale/Failed lifecycle badges — it is always co-emitted with the indicators map as a pair, never accessed independently for valuation purposes.
 >
 > See the [Layer 1 Metrics spec §9.3](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) for the production-side accumulation contract, and the [Consumer Onboarding doc §3.1](../integration-and-api/06-00-consumer-onboarding.md) for consumer-side usage rules.
+>
+> **EMA Ribbon consumers (v6.11+).** The four surfaces that read the EMA values all share the SAME record — `MarketSnapshot.indicators["ema_stack"].values.{fast, medium, slow, long}`. There is no second computation, no second cache, no second configuration lookup. The surfaces are:
+>
+> | Surface | Read | Path |
+> |---|---|---|
+> | Metrics Layer (L1, Rust) | writes the record | `crates/market-analyzer/src/analyzer/{mod.rs:694-697, 1713-1716}` (via `inject_ema_values` in `normalize.rs:521-546`) |
+> | Metrics Matrix | the record itself | `MarketSnapshot.indicators["ema_stack"].values.*` |
+> | Charts tab overlay | reads per-bar series | `ui/src/components/PriceChart.svelte:336-340, 811-846` |
+> | Metrics tab on-screen micro-grid | reads for collapsed `raw_value` cell on `ema_stack` row | `ui/src/components/facets/IndicatorsView.svelte` (via `buildEmaRibbonCellView` in `ui/src/lib/telemetry.ts:323-348`) |
+> | Metrics tab export body `body.ema` | reads for top-level block in JSON | `ui/src/lib/exportBuilders/metricsTab.ts` → `buildEmaBlock` in `ui/src/lib/exportBuilders/shared.ts` |
+>
+> The `per-line distance_from_price = (close − ema) / close` and the cross-line `spread_pct = (fast − long) / close` are computed once in `ui/src/lib/telemetry.ts` (`distFromPrice`, `emaSpreadPct`) and consumed by both the on-screen cell and the export body. The 4 raw prices are shown inline on screen (collapsed `raw_value` cell — `F`/`M`/`S`/`L` rows) and in `body.ema.{fast,medium,slow,long}.value` in the export. See [04-02-01-ema-stack.md §Unified Ribbon Export](../engines/market-monitoring-engine/indicators/04-02-01-ema-stack.md) for the full contract.
 
 > **Composite envelope.** Although the higher-order matrices (Alignment → Decision) are conceptually produced by later layers, they are attached to the completed Metrics Matrix envelope so that a single WebSocket frame carries the per-instance analytical cascade for one `(Symbol × Timeframe)` Market Instance. The composite envelope is **per-instance** (one `(symbol, timeframe_secs)` at a time); portfolio-wide aggregates (the Overview Matrix L7) are surfaced through a separate path and never ride a per-instance WS frame. The canonical sources of the attached fields are their respective layer matrices (Alignment, Analysis, Risk, Advisory, DecisionContext, StatisticalContext); the Metrics Matrix envelope is a delivery vehicle, not the canonical store.
 
@@ -142,7 +155,7 @@ Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry 
 | `signal_types` | The `SignalKind`s this indicator may emit. |
 | `default_weight` | Baseline scoring weight. |
 
-See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, **100 signal-kind declarations** — post-v2.1; the 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../conceptual-foundations/01-01-ontology.md)).
+See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (51 entries, **101 signal-kind declarations** — post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry).
 
 ### 3.4 `StatisticalContext` Schema
 

@@ -1,6 +1,6 @@
 # Williams %R (14)
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function
@@ -15,10 +15,9 @@ Where n = period (default 14).
 ## 3. Normalization
 The normalized score in [-1, 1] is computed from the %R value:
 ```
-%R ≥ -20 (overbought):  norm = -((%R + 20) / 80)        → [-1.0, 0]
-%R ≤ -80 (oversold):    norm = (-(%R + 80) / 20)         → [0, 1.0]
--80 < %R < -20:         norm = -%R / 100 × 1.2
+norm = clamp((%R + 50) / 50)                            → [-1.0, 1.0]
 ```
+AUDIT-AIU-020: the previous piecewise (`-((%R+20)/80)` / `(-(%R+80)/20)` / `-%R/100×1.2`) was non-monotonic and discontinuous — at %R = −80 it jumped from ~0.96 to 0.0, and the midline (−50) scored +0.6 (a spurious strong-bullish vote at the neutral point). The corrected mapping is a single continuous ramp: %R = 0 → +1.0 (price pinned at period high), %R = −50 → 0.0 (neutral), %R = −100 → −1.0 (price pinned at period low).
 Labels: `WILLIAMS_R_OVERBOUGHT`, `WILLIAMS_R_OVERSOLD`, `WILLIAMS_R_BULLISH_BIAS` (%R > -50), `WILLIAMS_R_BEARISH_BIAS` (%R ≤ -50).
 
 ## 4. Signals

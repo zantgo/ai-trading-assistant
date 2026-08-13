@@ -10,19 +10,31 @@ proptest! {
     ) {
         let mut sqz = SqueezeMomentum::new(20);
         let mut prev_on_known: Option<bool> = None;
+        let mut last_on_duration = 0u32;
 
         for (i, &p) in prices.iter().enumerate() {
             let high = p + (i as f64 * 0.1);
             let low = p - (i as f64 * 0.1);
             if let Some(out) = sqz.update(high, low, p) {
-                if !out.squeeze_on {
+                if out.squeeze_on {
+                    last_on_duration = out.squeeze_duration;
+                } else {
                     // Squeeze OFF → duration must be 0
                     prop_assert_eq!(out.squeeze_duration, 0,
                         "Duration must drop to 0 when squeeze is OFF");
+                    // AUDIT-AIU-036: the release trigger fires on an ON→OFF
+                    // transition only if the squeeze lasted >= min_duration
+                    // (default 5) consecutive ON candles. The previous code
+                    // fired on ANY transition.
                     if prev_on_known == Some(true) {
-                        prop_assert!(out.squeeze_release_trigger,
-                            "Release trigger must fire on ON→OFF transition");
+                        prop_assert_eq!(
+                            out.squeeze_release_trigger,
+                            last_on_duration >= 5,
+                            "Release must require >= min_duration consecutive ON candles (last run was {})",
+                            last_on_duration
+                        );
                     }
+                    last_on_duration = 0;
                 }
                 prev_on_known = Some(out.squeeze_on);
             }

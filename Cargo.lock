@@ -342,6 +342,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -388,6 +389,7 @@ name = "core-domain"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "market-analyzer",
  "proptest",
  "rust_decimal",
@@ -612,6 +614,7 @@ version = "0.1.0"
 dependencies = [
  "api-gateway",
  "axum",
+ "chrono",
  "config-models",
  "core-domain",
  "database-storage",
@@ -628,6 +631,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tokio-util",
+ "toml",
 ]
 
 [[package]]

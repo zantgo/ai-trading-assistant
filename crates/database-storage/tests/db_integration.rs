@@ -27,7 +27,10 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         "macd".to_string(),
         NormalizationEngine::normalize_macd(-12.4, -17.6, 5.2, 8.0, Some(1)),
     );
-    indicators.insert("rvol".to_string(), NormalizationEngine::normalize_rvol(2.0));
+    indicators.insert(
+        "rvol".to_string(),
+        NormalizationEngine::normalize_rvol(2.0, 1.5, 3.0),
+    );
     indicators.insert(
         "adx".to_string(),
         NormalizationEngine::normalize_adx(30.0, 30.0, 10.0, 1.0, false),

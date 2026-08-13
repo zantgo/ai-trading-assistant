@@ -1,8 +1,8 @@
-# Documentation Consistency Manifest — v6.10.1
+# Documentation Consistency Manifest — v6.10.5
 
-**Generated:** 2026-08-05
-**Audit run:** v6.10.1 — opportunity-score activation-vs-viability bug fix (1 line in `crates/market-analyzer/src/synthesis.rs:117-120` + 4 unit tests + 4 doc updates; release-gate remediation). Prior run: v6.10 — MME hardening audit (12 major bugs, 9 internal inconsistencies, 4 user-requested architecture extensions; back-end remediation across 5 crates, ~45 new tests). Prior run: v6.8 implementation-status register + WIP banner pass (1 new doc + 18 status-banners + version stamps + status-header rename + stale claim corrections). Prior run: v6.7 per-tab 1:1 export payload architecture (5 new docs + 8 updates; docs-only remediation). v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
-**Scope:** `docs/` — **150 markdown files** at v6.10.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 1 ROADMAP + 146 numbered docs)
+**Generated:** 2026-08-13
+**Audit run:** v6.10.5 — Sub-minute EMA ribbon fix + idle-bucket heartbeat + stale-mid guard (AUDIT-V8-001…004, shipped; backend-only). Prior run: v6.10.4 — Snapshot Export scheduler + Interactive CLI setup. 3 new docs: `01-09-cli-setup-flow.md` (interactive CLI flow + rationale), `06-03-snapshot-export-schema.md` (on-disk JSON schema reference), `08-09-snapshot-export.md` (operator manual). Prior run: v6.10.3 — Cross-timeframe alignment aggregation in the Overview Matrix (L7): `OverviewMatrix` gains `alignment_distribution` / `alignment_consensus_index` / `multi_tf_agreement_pct`; `AssetRank` gains per-asset `mtf_score` / `mtf_label` mirrors. New `MarketAlignmentCard` in the system-wide Market Overview dashboard; AssetRankingsTable grows from 9 to 11 columns. Prior run: v6.10.2 — Analytical Input Universe correctness audit (AUDIT-AIU-001 … 091); prior run: v6.10.1 — opportunity-score activation-vs-viability bug fix (1 line in `crates/market-analyzer/src/synthesis.rs:117-120` + 4 unit tests + 4 doc updates; release-gate remediation). Prior run: v6.10 — MME hardening audit (12 major bugs, 9 internal inconsistencies, 4 user-requested architecture extensions; back-end remediation across 5 crates, ~45 new tests). Prior run: v6.8 implementation-status register + WIP banner pass (1 new doc + 18 status-banners + version stamps + status-header rename + stale claim corrections). Prior run: v6.7 per-tab 1:1 export payload architecture (5 new docs + 8 updates; docs-only remediation). v6.5 standardized candle formation + unified indicator lifecycle refactor (5 new docs + 8 updates; code work tracked as AUDIT-V7-300 … AUDIT-V7-334). Prior run: v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation).
+**Scope:** `docs/` — **156 markdown files** at v6.10.5 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 1 ROADMAP + 152 numbered docs)
 **Source code:** **Inspected.** v6.8 is the first manifest version where the doc audit covers the **WIP** engines (TAE, PME, PAE) by reconciling the docs against the actual frontend-backend delivery state. Audit IDs AUDIT-V6-401 … V6-407 are the new items opened specifically by this alignment.
 **v6.8 source-of-truth:** `docs/ROADMAP.md` (introduced in v6.8). All implementation-status claims and per-engine WIP markers are verified against that document. The phased delivery plan (§3) and the verification checklist (§6) are the canonical contract for retiring the WIP labels.
 **v6.5 source-of-truth:** `docs/operations-and-compliance/08-08-candle-buffer-spec.md` (introduced in v6.5). All single-source-of-truth claims for candle buffer size, sub-minute / ≥ 1 minute behavior split, per-TF state machine, and per-indicator lifecycle are verified against that document and its four companion specs (`03-01-06`, `03-01-07`, `03-02-15`, `01-08`).
@@ -24,26 +24,26 @@ docs/
 ├── README.md                                       (1)
 ├── CHANGELOG.md                                    (1)
 ├── DOCS-CONSISTENCY-MANIFEST.md                    (1)
-├── conceptual-foundations/                        (9)   01-00 … 01-08
+├── conceptual-foundations/                        (10)  01-00 … 01-09
 ├── matrices/                                       (17)  02-00, 02-00b, 02-01 … 02-15
 ├── engines/
 │   ├── data-infrastructure-engine/                 (8)   03-01-00 … 03-01-07
 │   ├── market-monitoring-engine/                   (15)  03-02-01 … 03-02-15
-│   │   ├── indicators/                             (51)   ← 1 master index + 50 indicator specs
+│   │   ├── indicators/                             (52)   ← 1 master index + 51 indicator specs
 │   │   └── signals/                                (13)   ← 1 master index + 12 SignalKinds
 │   ├── trade-automation-engine/                    (6)   03-03-01 … 03-03-06
 │   ├── portfolio-management-engine/                (5)   03-04-01 … 03-04-05
 │   └── performance-analytics-engine/               (5)   03-05-01 … 03-05-05
-├── integration-and-api/                           (3)   06-00, 06-01, 06-02
+├── integration-and-api/                           (4)   06-00 … 06-03
 ├── ui-ux/                                          (4)   07-01 … 07-04
-└── operations-and-compliance/                      (8)   08-01 … 08-08
+└── operations-and-compliance/                      (9)   08-01 … 08-09
 ```
 
-**Total: 152 markdown files** = 149 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 149 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 148 spec files.
+**Total: 156 markdown files** = 153 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 153 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 152 spec files.
 Engine specs: 39 = 8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE.
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → v6.5 = 147 → v6.6 = 147 (Bitget V2 derivatives + UI feed-state) → v6.7 = 147 (per-tab 1:1 export payload) → **v6.8 = 150** (+00-ROADMAP, +07-05-export-data-payload-schema, +01-08 corrections) (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.5 stamping pass (2026-07-24) synchronized all 146 numbered docs; the v6.8 stamping pass (2026-08-03) re-stamped all 146 numbered docs + ROADMAP.md to v6.8. Zero remaining v6.4.x or earlier stamps.
 
 ---
 
@@ -56,7 +56,7 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 | **2** | 15 matrix specs | H-6, H-7, H-9, H-10, H-11, H-12, M-1, M-9, M-16, M-20, M-25, M-26, M-27, AUDIT-V4-001 … AUDIT-V4-011 |
 | **3** | 32 engine layer specs | H-1, M-7, M-8, M-10, M-11, M-12, M-13, M-22, AUDIT-V4-012 … AUDIT-V4-016, AUDIT-V4-018, AUDIT-V4-019, AUDIT-V4-020, AUDIT-V4-056 … AUDIT-V4-061 |
 | **4** | 6 ops docs + 6 ops index | H-2, D-1, D-3, D-4, D-5, D-8, D-9, D-10, D-11, D-13, D-14, D-15, D-16, AUDIT-V4-021 … AUDIT-V4-028 |
-| **5** | 50 indicator specs + 1 master index + 12 signal specs + 1 master index | H-13 → resolved (no arithmetic conflict — `×N` clarified), H-14, H-15, H-16, H-17, AUDIT-V4-071, AUDIT-V4-072 |
+| **5** | 51 indicator specs + 1 master index + 12 signal specs + 1 master index | H-13 → resolved (no arithmetic conflict — `×N` clarified), H-14, H-15, H-16, H-17, AUDIT-V4-071, AUDIT-V4-072 |
 | **6** | Liquidity cross-cuts (subset of Phase 3 — `03-02-11`) | cascade invariant table fix, AUDIT-V4-062, AUDIT-V4-063, AUDIT-V4-064, AUDIT-V4-065, AUDIT-V4-066 |
 | **7** | 4 UI/UX specs | H-3, C-1, C-2, C-3, C-4, C-5, C-6, C-7, C-8, C-9 → resolves H-3, C-10, C-11, C-12, AUDIT-V4-029 … AUDIT-V4-039 |
 | **8** | `06-01-api-gateway-contract.md` | H-18 (A-1), A-2, A-3, A-4, A-5, A-6, A-7, A-8, AUDIT-V4-047 … AUDIT-V4-055 |
@@ -69,7 +69,7 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 
 ## 4. Phase-12 Verification Checklist Results
 
-### 12.0 Release gates (G1–G16)
+### 12.0 Release gates (G1–G17)
 
 The following gates run on every release. The v6.4 result column is filled in by the orchestrator after each gate run.
 
@@ -91,6 +91,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 | G14 | Relative-link existence: every internal markdown link resolves | link checker | PASS (2026-07-17) |
 | G15 | DDL ↔ index-name agreement (`06-02` §2 index catalog vs §3.x DDL `CREATE INDEX` statements) | scripted name diff | PASS (2026-07-17) |
 | G16 | Open-item target validity: every CHANGELOG §Open Items row carries a target ≥ current corpus version or the literal word "Unscheduled" | parse CHANGELOG §Open Items table | PASS (2026-07-17) |
+| G17 | Export payload schema (`07-05` ⇄ `ui/src/lib/exportBuilders`): every JSON-fence field in `07-05-export-data-payload-schema.md` exists in the MME export builders / store types, and every MME builder field is documented; the §1 builder-file map resolves | scripted bidirectional key diff (additions verified 2026-08-13 against the v7 export builders) | PASS (2026-08-13) |
 
 ### 12.1 Cross-reference integrity
 - [x] Every internal markdown link resolves. (Manual scan; broken-link detector passes for the 18 file-tree spanning the corpus.)
@@ -98,10 +99,11 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] Every cross-doc rename usage is `state_confidence`, `forecast_confidence`, `score_confidence`, `confidence_assessment`, `entry_danger`, `long_expected_rr_internal`, `short_expected_rr_internal`, `expected_reward_risk_ratio`, `invalidation_level`, `execution_liquidity_risk`, `cascade_risk`, `tradability_dim`, `CompressionRelease` — verified by per-term grep counts (§4 below). The legacy matrix-level `expected_rr_internal` was removed in v6.9.
 
 ### 12.2 Numerical counts (registry-verified, `crates/market-analyzer/src/indicators/registry.rs` at `2026-07-16`)
-- [x] **50 indicators / 8 groups** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives)
-- [x] **100 signal-kind declarations** (sum-check: 9+9+26+9+4+11+4+14+8+2+1+3 = 100)
+- [x] **51 indicators / 8 groups** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives). Note: pre-v6.6 corpus claimed 50 indicators in 7 Derivatives; `mark_index_spread` gained a registry entry in v6.6, shifting the group to 8 entries and the total to 51.
+- [x] **101 signal-kind declarations** (post-v6.6; `mark_index_spread` contributed 1 `Threshold` declaration. The previous claim "100" reflected the pre-v6.6 50-indicator registry; per-SignalKind breakdown in `01-01-ontology.md` Appendix B §B.3).
 - [x] **12 distinct SignalKinds** (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming)
 - [x] **9 Divergence declarations** (8 nested `supports_divergence: true` + 1 standalone `oi_price_divergence`)
+- [x] **10 Non-Directional Gate indicators** (`volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`, `open_interest`, `mark_index_spread`); registry-asserted at `crates/market-analyzer/src/indicators/registry.rs::test_directional_and_gate_counts`. (Pre-v6.6: 9 gates.)
 - [x] **8 Risk sub-dimensions + `overall_risk`** = 9 fields (Weights: `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C` = `0.70 + 0.30 = 1.00`)
 - [x] **10 alignment dimensions**; dim 9 = `tradability` (renamed from `opportunity`)
 - [x] **8 MarketRegime / 5 MarketBias / 4 MarketPhase phases + UNKNOWN sentinel / 5 QualityLevel** — MarketPhase serializes 4 phases; UNKNOWN is the empty-state sentinel, not a fifth phase. The four assessment enums (Trend / Momentum / Volatility / Volume Assessment) each include an UNKNOWN empty value; StructureAssessment's empty value is UNKNOWN.
@@ -184,7 +186,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
 
-- [x] Every numbered doc carries `**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
+- [x] Every numbered doc carries `**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
 - [x] Exactly three files are permitted to carry a version marker outside the numbered-doc stamp convention: `docs/README.md` (stats line; the corpus entry point), `docs/CHANGELOG.md` (the canonical single version history), and this MANIFEST (the title line). All four coherence points must read the current corpus version.
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 
@@ -196,7 +198,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Config-format consistency.** Every prose `config.json` reference that describes CURRENT operating config has been rewritten to `config.toml` (89 substitutions). The 2 historical AUDIT entries in `CHANGELOG.md` AUDIT-V4-016 / AUDIT-V4-028 that document pre-migration config decisions are intentionally preserved. Every rewrite notes the legacy `config.json` fallback.
 - [x] **Binary name updated.** `cargo run --` → `cargo run --bin execution-daemon --` across `AGENTS.md`, `README.md`, and `manage.sh`.
 - [x] **manage.sh `destroy` command fixed.** Was scaffolding `config.toml` from `config.default.json` (cross-format copy). Now scaffolds from `config.default.toml`.
-- [x] **No contradiction with v4.0 corpus.** v4.0's registry-verified counts (50 indicators, 100 signal-kind declarations, 12 SignalKinds) are unchanged by the workspace split — verified by spot-check of `crates/market-analyzer/src/indicators/registry.rs`.
+- [x] **No contradiction with v4.0 corpus.** v4.0's registry-verified counts (51 indicators, 101 signal-kind declarations, 12 SignalKinds — these are v6.6+ numbers; the pre-v6.6 v4.0 baseline was 50/100) are unchanged by the workspace split — verified by spot-check of `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 

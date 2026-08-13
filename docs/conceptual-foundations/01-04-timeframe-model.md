@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -145,7 +145,7 @@ Both behaviors are uniform across exchanges — Hyperliquid and Bitget implement
 
 | Metric | Target |
 |--------|--------|
-| Per-pipeline indicator computation (50 indicators) | < 10 ms |
+| Per-pipeline indicator computation (51 indicators) | < 10 ms |
 | Cross-TF synthesis (L2–L6) | < 5 ms |
 | End-to-end observation loop (DIE + MME) | < 25 ms |
 

@@ -44,13 +44,25 @@ pub struct VolumeProfileOutput {
 }
 
 impl VolumeProfile {
+    /// AUDIT-AIU-009: `num_bins` is clamped to ≥ 1 so a misconfigured
+    /// `volume_profile_bins = 0` (or a typo) cannot reach the
+    /// `range / num_bins` division and panic the analyzer task. `window_size`
+    /// is likewise floored at 2 so the `window_size / 2` warmup gate stays
+    /// meaningful.
     pub fn new(window_size: usize, num_bins: usize, value_area_pct: f64) -> Self {
         Self {
-            window_size,
-            num_bins,
+            window_size: window_size.max(2),
+            num_bins: num_bins.max(1),
             value_area_pct,
-            bars: VecDeque::with_capacity(window_size + 1),
+            bars: VecDeque::with_capacity(window_size.max(2) + 1),
         }
+    }
+
+    /// The configured value-area target (fraction of total volume the VA
+    /// must contain). Consumed by the snapshot builder so the chart overlay
+    /// and the POC/VAH/VAL summary never desync (AUDIT-AIU-045).
+    pub fn value_area_pct(&self) -> f64 {
+        self.value_area_pct
     }
 
     /// Feed a completed candle. Returns the profile once the window is full.
@@ -381,6 +393,32 @@ mod tests {
         let mut vp = VolumeProfile::new(100, 30, 0.70);
         let out = vp.update(110.0, 90.0, 100.0, 1000.0);
         assert!(out.is_none());
+    }
+
+    #[test]
+    fn test_zero_num_bins_does_not_panic() {
+        // AUDIT-AIU-009: `num_bins = 0` previously hit `range / 0` in
+        // `compute_inner` and panicked the pipeline.
+        let mut vp = VolumeProfile::new(20, 0, 0.70);
+        for _ in 0..20 {
+            let out = vp.update(110.0, 90.0, 100.0, 200.0);
+            // Must never panic; once warm the clamped bin count yields a
+            // valid profile.
+            let _ = out;
+        }
+        let out = vp.update(110.0, 90.0, 100.0, 200.0);
+        assert!(out.is_some());
+    }
+
+    #[test]
+    fn test_zero_window_size_does_not_panic() {
+        // AUDIT-AIU-009: `window_size = 0` previously made the warmup gate
+        // `window_size / 2 = 0`, trivially passing (and could feed a
+        // capacity-0 deque). The constructor floors it at 2, so a single
+        // candle (1 ≥ 2/2) yields a valid profile instead of a panic.
+        let mut vp = VolumeProfile::new(0, 30, 0.70);
+        let out = vp.update(110.0, 90.0, 100.0, 200.0);
+        assert!(out.is_some());
     }
 
     #[test]

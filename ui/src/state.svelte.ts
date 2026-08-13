@@ -8,6 +8,7 @@ import type {
     CurrentView,
     AlignmentMatrix, AnalysisMatrix, OverviewMatrix,
     ExchangeAccount,
+    SnapshotExportStatus, SnapshotExportConfigPatch,
 } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
@@ -235,6 +236,80 @@ export class AppStore {
             this.lastOverviewErrorMs = Date.now();
         } finally {
             this._overviewFetchInFlight = false;
+        }
+    }
+
+    // ── Snapshot Export polling ─────────────────────────────────────────
+    // Reads `GET /api/snapshot-export/status` (which serves the live
+    // `SnapshotExportRuntime` shared with the periodic task). Polled at
+    // 3s by the bottom-CTA `SnapshotSchedulerButton`. Stays cheap when
+    // the modal is closed (no WebSocket — just a single JSON GET).
+    private _snapshotExportTimer: ReturnType<typeof setInterval> | null = null;
+    private _snapshotExportFetchInFlight = false;
+    snapshotExportStatus = $state<SnapshotExportStatus | null>(null);
+    lastSnapshotExportFetchMs = $state<number | null>(null);
+    lastSnapshotExportErrorMs = $state<number | null>(null);
+
+    async fetchSnapshotExportStatus(): Promise<void> {
+        if (this._snapshotExportFetchInFlight) return;
+        this._snapshotExportFetchInFlight = true;
+        try {
+            const res = await fetch('/api/snapshot-export/status', {
+                headers: { Accept: 'application/json' },
+            });
+            if (res.ok) {
+                this.snapshotExportStatus = (await res.json()) as SnapshotExportStatus;
+                this.lastSnapshotExportFetchMs = Date.now();
+                this.lastSnapshotExportErrorMs = null;
+            } else {
+                this.lastSnapshotExportErrorMs = Date.now();
+            }
+        } catch (_e) {
+            this.lastSnapshotExportErrorMs = Date.now();
+        } finally {
+            this._snapshotExportFetchInFlight = false;
+        }
+    }
+
+    async updateSnapshotExportConfig(patch: Partial<SnapshotExportConfigPatch>): Promise<SnapshotExportStatus | null> {
+        try {
+            const res = await fetch('/api/snapshot-export/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(patch),
+            });
+            if (res.ok) {
+                const next = (await res.json()) as SnapshotExportStatus;
+                this.snapshotExportStatus = next;
+                return next;
+            }
+            return null;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    async runSnapshotExportNow(): Promise<boolean> {
+        try {
+            const res = await fetch('/api/snapshot-export/run-now', { method: 'POST' });
+            return res.ok;
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    startSnapshotExportPolling(intervalMs = 3000): void {
+        if (this._snapshotExportTimer != null) return;
+        void this.fetchSnapshotExportStatus();
+        this._snapshotExportTimer = setInterval(() => {
+            void this.fetchSnapshotExportStatus();
+        }, intervalMs);
+    }
+
+    stopSnapshotExportPolling(): void {
+        if (this._snapshotExportTimer != null) {
+            clearInterval(this._snapshotExportTimer);
+            this._snapshotExportTimer = null;
         }
     }
 

@@ -23,6 +23,7 @@
         TimeframeTelemetry,
     } from '../types';
     import { formatTimeframeLabel } from '../lib/telemetry';
+    import { fibStatusString, vpPositionLabel } from '../lib/structuralStrings';
     import LiquidityPanel from './LiquidityPanel.svelte';
     import styles from './StructuralAnchorsStrip.module.css';
 
@@ -75,18 +76,15 @@
         };
     });
 
-    const vpPosition = $derived.by<{ inVa: boolean; rangePos: number }>(() => {
-        if (!vp || !isFinite(markPrice) || markPrice <= 0) return { inVa: false, rangePos: 0 };
-        const inVa = markPrice >= vp.value_area_low && markPrice <= vp.value_area_high;
-        const range = vp.range_high - vp.range_low;
-        const rangePos = range > 0 ? (markPrice - vp.range_low) / range : 0;
-        return { inVa, rangePos };
-    });
-
     const vpRefreshAge = $derived.by<number | null>(() => {
         if (!vp) return null;
         return Math.max(0, Date.now() - vp.timestamp_ms);
     });
+
+    /** Canonical position sentence (shared with Levels facet + JSON export). */
+    const vpPositionLabelText = $derived.by<string>(() =>
+        vp ? vpPositionLabel(vp, isFinite(markPrice) && markPrice > 0 ? markPrice : null) : ''
+    );
 
     // ── Fibonacci ──
     const fibVals = $derived.by<Record<string, number | undefined>>(() => {
@@ -110,20 +108,9 @@
 
     const fibStatus = $derived.by<string>(() => {
         const { top, bottom } = fibGp;
-        if (top == null || bottom == null || !isFinite(markPrice) || markPrice <= 0) return 'NO DATA';
-        const lo = Math.min(top, bottom);
-        const hi = Math.max(top, bottom);
-        if (markPrice >= lo && markPrice <= hi) {
-            const halfRange = (hi - lo) / 2;
-            const dist = Math.abs(markPrice - (lo + halfRange)) / Math.max(halfRange, 1e-9);
-            return `INSIDE GP (-${(dist * 100).toFixed(2)}% from center)`;
-        }
-        const ref = markPrice > hi ? hi : lo;
-        const pct = ((markPrice - ref) / ref) * 100;
-        const sign = pct >= 0 ? '+' : '';
-        return markPrice > hi
-            ? `${sign}${pct.toFixed(2)}% ABOVE GP`
-            : `${pct.toFixed(2)}% BELOW GP`;
+        // Shared canonical string (also emitted by the JSON export and the
+        // Levels facet) — one source of truth for the GP position sentence.
+        return fibStatusString(top, bottom, isFinite(markPrice) && markPrice > 0 ? markPrice : null);
     });
 
     const fibSwing = $derived.by<'BULL' | 'BEAR' | 'NEUTRAL'>(() => {
@@ -161,18 +148,20 @@
     const shortClusters = $derived<LiquidationCluster[]>(cluster?.short_clusters ?? []);
     const longClusters = $derived<LiquidationCluster[]>(cluster?.long_clusters ?? []);
 
-    /** Top 3 above-side clusters, sorted by closeness to current price. */
+    /** Top 4 above-side clusters, sorted by magnet strength (canonical —
+     *  same selection as the Levels facet "Liquidation Magnets" and the
+     *  JSON export). */
     const topAbove = $derived.by<LiquidationCluster[]>(() => {
         return [...shortClusters]
-            .sort((a: LiquidationCluster, b: LiquidationCluster) => Math.abs(a.distance_from_mid_pct) - Math.abs(b.distance_from_mid_pct))
-            .slice(0, 3);
+            .sort((a: LiquidationCluster, b: LiquidationCluster) => (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0))
+            .slice(0, 4);
     });
 
-    /** Top 3 below-side clusters, sorted by closeness to current price. */
+    /** Top 4 below-side clusters, sorted by magnet strength (canonical). */
     const topBelow = $derived.by<LiquidationCluster[]>(() => {
         return [...longClusters]
-            .sort((a: LiquidationCluster, b: LiquidationCluster) => Math.abs(a.distance_from_mid_pct) - Math.abs(b.distance_from_mid_pct))
-            .slice(0, 3);
+            .sort((a: LiquidationCluster, b: LiquidationCluster) => (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0))
+            .slice(0, 4);
     });
 
     const oiSplit = $derived.by<{ longPct: number; shortPct: number } | null>(() => {
@@ -280,8 +269,8 @@
                         <dd class={styles.v}>{fmtPx(vp.range_low)} – {fmtPx(vp.range_high)}</dd>
                     </div>
                 </dl>
-                <div class={styles.positionBadge + ' ' + (vpPosition.inVa ? styles.inVa ?? '' : styles.outVa ?? '')}>
-                    {vpPosition.inVa ? 'INSIDE VALUE AREA' : `OUTSIDE VA · ${(vpPosition.rangePos * 100).toFixed(0)}% of range`}
+                <div class="{styles.positionBadge} {vpPositionLabelText === 'INSIDE VALUE AREA' ? styles.inVa ?? '' : styles.outVa ?? ''}">
+                    {vpPositionLabelText || '\u2014'}
                 </div>
 
                 {#if vpOpen}
@@ -484,7 +473,7 @@
 
     <footer class={styles.footer}>
         <span class={styles.footerHint}>
-            Source: {tf ? formatTimeframeLabel(tf.barDurationSec) : '—'} (volume profile / fibonacci) · active TF (clusters / flow)
+            Source: micro (volume profile) · {tf ? formatTimeframeLabel(tf.barDurationSec) : '—'} (fibonacci / clusters / flow)
         </span>
     </footer>
 </section>

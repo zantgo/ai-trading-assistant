@@ -23,6 +23,7 @@ import type {
     OpportunityProfile,
     TradeViability,
 } from '../types';
+import { normalizeViability } from './viability';
 
 export type HeroState = 'TRADE' | 'WAIT' | 'STAND_ASIDE';
 
@@ -122,7 +123,7 @@ export function collectActiveSetups(
             out.push({
                 symbol: inst.symbol,
                 profile: p,
-                viability: (p.trade_viability ?? 'NoClear') as TradeViability,
+                viability: normalizeViability(p.trade_viability ?? 'NoClear') as TradeViability,
                 direction,
                 opportunityScore: p.score ?? opp.opportunity_score ?? 0,
                 rr: profileRR(p, direction, aggregated > 0 ? aggregated : null),

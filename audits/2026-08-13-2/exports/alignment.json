@@ -1,0 +1,74 @@
+{
+  "source_tab": "alignment",
+  "meta": {
+    "datetime_utc": "2026-08-13T13:52:20.823Z",
+    "exchange": "Hyperliquid",
+    "pair": "ETH-USDC",
+    "timeframe_secs": 60,
+    "current_price": 1890.55,
+    "prev_day_price": 1900.8,
+    "price_change": -0.539246632996633,
+    "price_change_direction": "down",
+    "timestamp": 1786629120,
+    "is_completed": false
+  },
+  "header": {
+    "layer_name": "Alignment",
+    "badge": {"label": "NEUTRAL MTF", "sublabel": "", "tone": "warn"},
+    "chips": [
+      {"label": "Score", "value": 17.33},
+      {"label": "Agreement", "value": 100},
+      {"label": "TFs", "value": "4/4"}
+    ],
+    "status": "live"
+  },
+  "hero": {
+    "mtf_overall_score": 17.32600403148872,
+    "mtf_overall_label": "NEUTRAL_MTF",
+    "mtf_overall_label_display": "NEUTRAL",
+    "timeframes_present": 4,
+    "signal_cross_tf_count": 33,
+    "trend_agreement_pct": 100
+  },
+  "breakdown_meta": "T:0.30 M:0.01 Vt:0.05 Vm:0.15",
+  "dimensions": [
+    {"name": "Trend", "score": 65, "state": "BULLISH", "confidence": 30},
+    {"name": "Momentum", "score": 50, "state": "NEUTRAL", "confidence": 1},
+    {"name": "Volume", "score": 53, "state": "NEUTRAL", "confidence": 5},
+    {"name": "Volatility", "score": 58, "state": "NEUTRAL", "confidence": 15},
+    {"name": "Structure", "score": 50, "state": "NEUTRAL", "confidence": 50},
+    {"name": "Signal", "score": 100, "state": "STRONGBULLISH", "confidence": 100},
+    {"name": "Regime", "score": 100, "state": "STRONGBULLISH", "confidence": 100},
+    {"name": "Confidence", "score": 100, "state": "STRONGBULLISH", "confidence": 100},
+    {"name": "Liquidity", "score": 11, "state": "STRONGBEARISH", "confidence": 11},
+    {"name": "Tradability", "score": 100, "state": "STRONGBULLISH", "confidence": 100}
+  ],
+  "consensus": {
+    "trend_agreement_pct": 100,
+    "label": "strong_consensus",
+    "label_display": "Strong consensus \u2014 timeframes aligned",
+    "polarization": [
+      {"key": "T", "label": "Trend", "value": 0.3002183083468573, "value_display": "+0.30"},
+      {"key": "M", "label": "Momentum", "value": 0.007587513247807828, "value_display": "+0.01"},
+      {"key": "Vt", "label": "Volume", "value": 0.05490016782500791, "value_display": "+0.05"},
+      {"key": "Vm", "label": "Volatility", "value": 0.15384615384615383, "value_display": "+0.15"}
+    ]
+  },
+  "per_timeframe": [
+    {"timeframe": "MICRO", "trend_score": 0.13322880696816772, "trend_score_display": "0.13", "momentum_score": 0.06412371692596296, "momentum_score_display": "0.06", "overall_score": 11, "overall_score_display": "11.0", "regime": "TRENDING", "active_signals": 28},
+    {"timeframe": "FAST", "trend_score": 0.3057083352129776, "trend_score_display": "0.31", "momentum_score": -0.002457405643544202, "momentum_score_display": "-0.00", "overall_score": 18, "overall_score_display": "18.0", "regime": "TRENDING", "active_signals": 26},
+    {"timeframe": "SLOW", "trend_score": 0.3048466009820931, "trend_score_display": "0.30", "momentum_score": 0.07294571535407912, "momentum_score_display": "+0.07", "overall_score": 21, "overall_score_display": "21.0", "regime": "TRENDING", "active_signals": 25},
+    {"timeframe": "MACRO", "trend_score": 0.33097543903762594, "trend_score_display": "0.33", "momentum_score": -0.02349681107830989, "momentum_score_display": "-0.02", "overall_score": 19, "overall_score_display": "19.0", "regime": "TRENDING", "active_signals": 30}
+  ],
+  "score_calculation": {
+    "weights": [
+      {"key": "T", "label": "Trend", "pct": 50, "color": "#22c55e", "value": 0.3002183083468573, "value_display": "+0.30", "contribution": 0.15010915417342865, "contribution_display": "+0.15"},
+      {"key": "M", "label": "Momentum", "pct": 30, "color": "#3b82f6", "value": 0.007587513247807828, "value_display": "+0.01", "contribution": 0.0022762539743423483, "contribution_display": "+0.00"},
+      {"key": "Vt", "label": "Vol.trend", "pct": 10, "color": "#a78bfa", "value": 0.05490016782500791, "value_display": "+0.05", "contribution": 0.005490016782500791, "contribution_display": "+0.01"},
+      {"key": "Vm", "label": "Vol.market", "pct": 10, "color": "#f59e0b", "value": 0.15384615384615383, "value_display": "+0.15", "contribution": 0.015384615384615384, "contribution_display": "+0.02"}
+    ],
+    "formula": "0.5 * (0.30) + 0.3 * (0.01) + 0.1 * (0.05) + 0.1 * (0.15) = 17.3"
+  },
+  "interpretation": "Multi-timeframe alignment shows <strong>strong directional consensus</strong> (100% agreement across 4/4 timeframes). The composite score of 17.3 is classified as <strong>NEUTRAL</strong>. 33 cross-timeframe signals reinforce the current bias.",
+  "consensus_conflict_banner": ""
+}

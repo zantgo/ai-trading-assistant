@@ -110,10 +110,12 @@ fn detect_triangle(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<Patter
     let first_gap = recent_highs.last().unwrap().price - recent_lows.last().unwrap().price;
     let last_gap = recent_highs.first().unwrap().price - recent_lows.first().unwrap().price;
 
-    if last_gap >= first_gap {
+    if last_gap >= first_gap || first_gap == Decimal::ZERO {
         return None;
     }
 
+    // AUDIT-AIU-046: `first_gap == 0` (equal top-pivot prices) previously
+    // reached the division below and panicked on Decimal division by zero.
     let convergence_pct = (first_gap - last_gap) / first_gap;
     let confidence = (convergence_pct.to_f64().unwrap_or(0.0) * 100.0).min(100.0);
 
@@ -174,7 +176,8 @@ fn detect_wedge(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<PatternRe
     let first_gap = (recent_highs.last().unwrap().price - recent_lows.last().unwrap().price).abs();
     let last_gap = (recent_highs.first().unwrap().price - recent_lows.first().unwrap().price).abs();
 
-    if last_gap >= first_gap {
+    // AUDIT-AIU-046: `first_gap == 0` guard (Decimal division-by-zero panic).
+    if last_gap >= first_gap || first_gap == Decimal::ZERO {
         return None;
     }
 
@@ -298,14 +301,34 @@ fn detect_channel(
 }
 
 /// Compute price-change slope from pivot sequence (price change per bar).
+/// Least-squares linear regression slope through the pivot prices vs their
+/// bar indices.
+/// AUDIT-AIU-046: the previous implementation was a two-point slope
+/// `(last − first) / bars` — the doc (04-02-34 §2) specifies a least-squares
+/// regression, and a two-point fit is dominated by outlier pivots.
 fn compute_slope(pivots: &[&PivotPoint]) -> Decimal {
-    if pivots.len() < 2 {
+    let n = pivots.len();
+    if n < 2 {
         return Decimal::ZERO;
     }
-    let first = pivots.last().unwrap();
-    let last = pivots.first().unwrap();
-    let bars = (last.index.saturating_sub(first.index)).max(1) as i64;
-    (last.price - first.price) / Decimal::from(bars)
+    let mut sum_x = 0.0f64;
+    let mut sum_y = 0.0f64;
+    let mut sum_xy = 0.0f64;
+    let mut sum_xx = 0.0f64;
+    for p in pivots {
+        let x = p.index as f64;
+        let y = p.price.to_f64().unwrap_or(0.0);
+        sum_x += x;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_xx += x * x;
+    }
+    let nf = n as f64;
+    let denom = nf * sum_xx - sum_x * sum_x;
+    if denom.abs() < f64::EPSILON {
+        return Decimal::ZERO;
+    }
+    Decimal::from_f64_retain((nf * sum_xy - sum_x * sum_y) / denom).unwrap_or(Decimal::ZERO)
 }
 
 /// Interpolate the line value at a given index.

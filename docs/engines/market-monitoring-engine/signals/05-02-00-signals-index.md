@@ -1,6 +1,6 @@
 # Signal Specification Index
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 > Index of 12 canonical `SignalKind` types. Each has a dedicated specification file documenting detection semantics, confirmation lifecycle, and contributing indicators. The registry describes capability and never changes with runtime config.
 >
@@ -87,6 +87,6 @@ Every signal is an `IndicatorSignal` nested inside its parent indicator's `signa
 
 - [MME Signals Guide](../../../engines/market-monitoring-engine/03-02-10-mme-signals-guide.md) — Readable rulebook for all 12 SignalKinds
 - [MME Indicators Guide](../../../engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md) — Indicator configuration and threshold reference
-- [Indicator Index](../indicators/04-02-00-indicator-index.md) — Complete 50-entry indicator registry (sibling index)
+- [Indicator Index](../indicators/04-02-00-indicator-index.md) — Complete 51-entry indicator registry (sibling index)
 - [Metrics Matrix](../../../matrices/02-07-metrics-matrix.md) — IndicatorEvaluation and IndicatorSignal schemas
 - [Ontology](../../../conceptual-foundations/01-01-ontology.md) — Formal terminology, acronyms, and evaluation-axis definitions

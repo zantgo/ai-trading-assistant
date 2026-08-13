@@ -33,7 +33,7 @@ pub fn normalize_open_interest(oi: f64) -> NormalizedIndicatorValue {
     }
 }
 
-pub fn normalize_oi_delta(delta: f64) -> NormalizedIndicatorValue {
+pub fn normalize_oi_delta(delta: f64, prev_delta: Option<f64>) -> NormalizedIndicatorValue {
     let normalized = (delta / 1000.0).clamp(-1.0, 1.0);
     let dir = if normalized > 0.1 {
         SignalDirection::Bullish
@@ -43,6 +43,13 @@ pub fn normalize_oi_delta(delta: f64) -> NormalizedIndicatorValue {
         SignalDirection::Neutral
     };
     let has_signal = delta.abs() > 500.0;
+    // AUDIT-AIU-039: the ZeroLineCross was previously emitted on EVERY
+    // snapshot with 0 < |delta| < 100 — a band, not a cross — so it fired
+    // persistently in quiet markets. It now fires only on a genuine sign
+    // change (delta crossing zero) versus the previous bar.
+    let zero_cross = prev_delta
+        .map(|pd| (pd <= 0.0 && delta > 0.0) || (pd >= 0.0 && delta < 0.0))
+        .unwrap_or(false);
     NormalizedIndicatorValue {
         raw_value: delta,
         normalized,
@@ -71,7 +78,7 @@ pub fn normalize_oi_delta(delta: f64) -> NormalizedIndicatorValue {
                     points: None,
                 });
             }
-            if delta.abs() < 100.0 && delta != 0.0 {
+            if zero_cross {
                 sigs.push(IndicatorSignal {
                     kind: SignalKind::ZeroLineCross,
                     direction: if delta > 0.0 {
@@ -92,8 +99,12 @@ pub fn normalize_oi_delta(delta: f64) -> NormalizedIndicatorValue {
     }
 }
 
-pub fn normalize_funding_rate(f: f64) -> NormalizedIndicatorValue {
-    let extreme = f.abs() > 0.001;
+pub fn normalize_funding_rate(f: f64, extreme_threshold: f64) -> NormalizedIndicatorValue {
+    // AUDIT-AIU-074: the extreme threshold was hardcoded 0.001 while the
+    // liquidity layer used the configured `funding_extreme_pct` (0.0005) —
+    // two different "extreme" definitions. The configured threshold is now
+    // threaded in.
+    let extreme = f.abs() > extreme_threshold.max(1e-9);
     let ann_pct = f * 1095.0 * 100.0;
     // Per the canonical contract in
     // `docs/engines/market-monitoring-engine/indicators/04-02-46-funding-rate.md`,
@@ -185,24 +196,23 @@ pub fn normalize_oi_price_divergence(delta: f64, ema_bias: f64) -> NormalizedInd
 }
 
 pub fn normalize_mark_index_spread(spread: f64, mark_px: Option<f64>) -> NormalizedIndicatorValue {
+    // AUDIT-AIU-024: the registry declares `mark_index_spread` as
+    // `normalization_mode: Some(ContextOnly)` — the contract is `normalized
+    // = 0.0` (Norm column N/A; the entry is a non-directional gate, like
+    // funding_rate / open_interest / spread). The previous code set a
+    // nonzero `normalized = spread.clamp(-1,1)` and a directional Threshold
+    // signal, leaking a directional vote from a declared gate into any
+    // consumer reading `normalized` without the registry check.
     let abs_spread = spread.abs();
     let wide = abs_spread > 0.3;
     let extreme = abs_spread > 1.0;
-    let norm = (spread / 1.0).clamp(-1.0, 1.0);
-    let dir = if norm > 0.1 {
-        SignalDirection::Bullish
-    } else if norm < -0.1 {
-        SignalDirection::Bearish
-    } else {
-        SignalDirection::Neutral
-    };
     let label = if extreme {
         "SPREAD_EXTREME"
     } else if wide {
         "SPREAD_WIDE"
-    } else if norm > 0.0 {
+    } else if spread > 0.0 {
         "PREMIUM"
-    } else if norm < 0.0 {
+    } else if spread < 0.0 {
         "DISCOUNT"
     } else {
         "ALIGNED"
@@ -210,10 +220,10 @@ pub fn normalize_mark_index_spread(spread: f64, mark_px: Option<f64>) -> Normali
     let signals = if wide {
         vec![IndicatorSignal {
             kind: SignalKind::Threshold,
-            direction: dir,
+            direction: SignalDirection::Neutral,
             status: SignalStatus::Active,
             label: format!("MARK_INDEX_{}", label),
-            strength: norm.abs(),
+            strength: abs_spread.clamp(0.0, 1.0),
             age_bars: 0,
             points: None,
         }]
@@ -226,7 +236,7 @@ pub fn normalize_mark_index_spread(spread: f64, mark_px: Option<f64>) -> Normali
     }
     NormalizedIndicatorValue {
         raw_value: spread,
-        normalized: norm,
+        normalized: 0.0,
         state_label: label.to_string(),
         values: Some(vals),
         signals,

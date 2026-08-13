@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -165,6 +165,19 @@ An Indicator is a continuous quantitative measurement derived from market data. 
 A Signal is a discrete technical event detected from market telemetry. Rather than returning a binary state, a signal is represented as a structured telemetry object projected across multiple **Signal Evaluation Axes** to supply structural, risk-based, and transactional context.
 
 > **Target Architecture (Not Yet Implemented).** Like indicators, signals on the target hot path are detected over contiguous `f64` primitive arrays and only lifted to `Decimal` at the execution boundary. *Current implementation:* signals are emitted as nested `IndicatorSignal` objects within the `Decimal`/`HashMap`-based `MarketSnapshot`.
+
+### 3.9.1 Analytical Input Universe
+The **Analytical Input Universe** is the collective term for everything emitted into the `MarketSnapshot` (Metrics Matrix envelope) that MME Layers 2–7 consume. It groups three sub-streams under one umbrella so subsequent specifications can refer to "the universe" without enumerating the parts:
+
+1. **Indicators** — the registry-listed continuous quantitative measurements (§3.8). 51 entries as of v6.6+ (51, not the legacy 50, because `mark_index_spread` gained a registry entry in v6.6; see Appendix B §B.1 and the registry-verified count in `DOCS-CONSISTENCY-MANIFEST.md §12.2`).
+2. **Signals** — discrete technical events (§3.9), in two sub-bands:
+    - *Indicator signals* — `IndicatorSignal`s nested on a parent's `signals` array (per §3.9 contract).
+    - *Liquidity signals* — the 11 `LiquiditySignalKind` variants emitted in `liquidity_signals` (`CascadeDetected` … `OiPriceDivergence`). Live in the same envelope, but on a separate array because they are derived from the L2.5 liquidity synthesis, not from a candle-based oscillator.
+3. **Telemetry data sub-objects** — non-indicator, non-signal data attached to the envelope: `liquidity` (`LiquidityFlow`), `cluster` (`LiquidationClusterMatrix`), plus the L1.5 derivatives/orderbook feeds (`funding_rate`, `open_interest`, `oi_delta_1h`, `mark_price`, `index_price`, `book_depth`).
+
+> **Boundary.** "Analytical Input Universe" is a *vocabulary* term. No Rust struct, registry entry, or serialized field is named that — the existing `MarketSnapshot` envelope remains the storage form. It exists so the rest of the corpus (and downstream engines) can refer to "everything L1 carries" in one phrase. The two categories of "first-class analytical entities" keep their exact §3.8 / §3.9 meanings inside the universe; signals + indicators are still distinct concepts. Telemetry data sub-objects are *data carriers*, not entities.
+
+> **Cross-references.** Usage examples: [02-07-metrics-matrix.md §1](../matrices/02-07-metrics-matrix.md), [02-07-metrics-matrix.md §2.1.1](../matrices/02-07-metrics-matrix.md) (single-source-of-truth contract), [03-02-11 liquidity extension](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md), [04-02-00 indicator index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md).
 
 ### 3.10 Evaluation Axis
 An Evaluation Axis is a standardized analytical dimension used to contextualize an indicator or signal. Projecting flat telemetry onto multiple axes transforms raw measurements into high-fidelity, multidimensional features, separating the raw value from its strength, direction, environmental context, and reliability.
@@ -1494,11 +1507,13 @@ $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penal
 
 ## Appendix B — Complete Indicator, Signal, and SignalKind Manifest
 
-This appendix provides the definitive registry-verified manifest of all 50 indicators, **100 signal-kind declarations** (post-v2.1 — the 101 → 100 transition is documented in §B.3's editor's note and §B.2's count row), and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/market-analyzer/src/indicators/registry.rs`.
+This appendix provides the definitive registry-verified manifest of all 51 indicators, **101 signal-kind declarations** (post-v6.6 — the historical 101 → 100 transition is documented in §B.3's editor's note and §B.2's count row, and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry), and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 
-### B.1 Complete Indicator Registry (50 entries, 8 groups)
+### B.1 Complete Indicator Registry (51 entries, 8 groups)
+
+> **51, not 50.** The registry contains 51 entries (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + **8** Derivatives). The previous "50" count predates v6.6's `mark_index_spread` registry tagging — the row is listed in the Derivatives table below. The canonical count is registry-verified at every commit (`crates/market-analyzer/src/indicators/registry.rs`).
 
 #### TREND (10)
 
@@ -1569,7 +1584,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 |
 | `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross |
 
-> **Aroon Crossover removed.** Aroon's `Crossover` signals were reclassified to `TrendFlip`. The `TrendFlip` multiplicity is unchanged at `×2` (the existing bullish/bearish flip pair absorbs the dropped crossover events). See `04-02-36-aroon.md §4` and `05-02-02-crossover.md §2`. The registry verifies `Crossover = 9` and `TrendFlip = 8` in the current count.
+> **Aroon Crossover removed.** Aroon's `Crossover` signals were reclassified to `TrendFlip`. The `TrendFlip` multiplicity is unchanged at `×2` (the existing bullish/bearish flip pair absorbs the dropped crossover events). See `04-02-36-aroon.md §4` and `05-02-02-crossover.md §2`. The registry verifies `Crossover = 10` and `TrendFlip = 10` in the current count (post-v6.6, after the `mark_index_spread` Threshold addition).
 
 #### INSTITUTIONAL (4)
 
@@ -1580,7 +1595,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | `smc_fvg` | SMC Fair Value Gap | Leading | Y | LevelTest |
 | `smc_order_blocks` | SMC Order Blocks | Leading | Y | LevelTest×2, TrendFlip×2 |
 
-#### DERIVATIVES DATA (7)
+#### DERIVATIVES DATA (8)
 
 | Key | Display Name | Class | Dir | SignalKinds |
 |-----|-------------|-------|-----|-------------|
@@ -1591,6 +1606,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | `order_flow_imbalance` | Order Flow Imbalance | Leading | Y | Threshold |
 | `spread` | Spread | Leading | N (Gate) | Threshold |
 | `depth_bias` | Depth Bias | Leading | Y | Threshold |
+| `mark_index_spread` | Mark-Index Spread | Hybrid | N (Gate) | Threshold |
 
 ---
 
@@ -1598,11 +1614,11 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 
 | Metric | Count |
 |--------|-------|
-| Total Registry Entries | **50** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) |
+| Total Registry Entries | **51** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives) |
 | Directional (scoring contributors) | **41** |
-| Non-Directional Gates | **9** (`volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`, `open_interest`) |
+| Non-Directional Gates | **10** (`volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`, `open_interest`, `mark_index_spread`) |
 | Indicators Supporting Divergence | **8** (`rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) |
-| Total Signal-Kind × Indicator Declarations | **100** (one declaration per `(indicator, SignalKind)` pair; `×N` in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Registry-verified at `2026-07-16`; per-SignalKind breakdown in §B.3. |
+| Total Signal-Kind × Indicator Declarations | **101** (one declaration per `(indicator, SignalKind)` pair; `×N` in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Registry-verified. The earlier "100 → 101" transition reflects the v6.6 `mark_index_spread` registry entry; the historical `101 → 100` reduction is preserved in Appendix B §B.3 editor's note. |
 | SignalKind Types | **12** |
 
 **Important:** Divergence companions (e.g., `rsi_divergence`, `macd_divergence`) are **NOT** separate registry entries and produce **NO** separate JSON keys. A divergence is an `IndicatorSignal { kind: Divergence, ... }` emitted on the parent indicator's `signals` array. Eight parent indicators are annotated with `supports_divergence: true` in the registry.
@@ -1631,7 +1647,7 @@ Canonical counts — registry-verified against `crates/market-analyzer/src/indic
 
 > The registry is the authoritative source of truth (`crates/market-analyzer/src/indicators/registry.rs`). Any disagreement between this table and the registry is resolved in favor of the registry.
 
-**×N notation.** The `×N` suffix on per-indicator manifest rows (e.g. `PatternForming×2` for `patterns` and `candlestick`) counts **internal event multiplicity within a single declaration**, not declaration count. For example, `patterns` has exactly one `(patterns, PatternForming)` declaration in the registry, but emits multiple PatternForming event subtypes — the `×2` reflects that internal multiplicity. It does **not** mean "2 declarations of `(patterns, PatternForming)`". The 100-declaration total above is the sum of distinct `(indicator, SignalKind)` pairs across all 50 indicators.
+**×N notation.** The `×N` suffix on per-indicator manifest rows (e.g. `PatternForming×2` for `patterns` and `candlestick`) counts **internal event multiplicity within a single declaration**, not declaration count. For example, `patterns` has exactly one `(patterns, PatternForming)` declaration in the registry, but emits multiple PatternForming event subtypes — the `×2` reflects that internal multiplicity. It does **not** mean "2 declarations of `(patterns, PatternForming)`". The 101-declaration total above is the sum of distinct `(indicator, SignalKind)` pairs across all 51 indicators.
 
 ---
 

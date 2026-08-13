@@ -1,159 +1,188 @@
-// Tests for the Alignment tab builder.
+// Regression tests for the v7.0-audit Alignment tab export.
 
 import { describe, it, expect } from 'vitest';
-import { buildAlignmentTabExport, ALIGNMENT_DIMENSION_NAMES, type AlignmentPayload } from './alignmentTab';
-import type { AlignmentMatrix, AlignmentDimension, TfAlignmentInfo } from '../../types';
+import { buildAlignmentTabExport } from './alignmentTab';
+import type { LayerHeaderSpec } from '../layerHeader';
+import type { AlignmentMatrix } from '../../types';
 
-function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
-  const dims: AlignmentDimension[] = [
-    { score: 75, state: 'BULLISH', confidence: 80 },
-    { score: 60, state: 'BULLISH', confidence: 70 },
-    { score: 50, state: 'NEUTRAL', confidence: 65 },
-    { score: 40, state: 'NEUTRAL', confidence: 60 },
-    { score: 55, state: 'BULLISH', confidence: 70 },
-    { score: 65, state: 'BULLISH', confidence: 75 },
-    { score: 70, state: 'BULLISH', confidence: 80 },
-    { score: 80, state: 'BULLISH', confidence: 85 },
-    { score: 45, state: 'NEUTRAL', confidence: 60 },
-    { score: 60, state: 'BULLISH', confidence: 70 },
-  ];
-  const tfs: TfAlignmentInfo[] = [
-    { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.5, momentum_score: 0.3, overall_score: 30, regime: 'TRENDING_BULL', active_signals: 3, price: 65000 },
-    { timeframe: 'FAST',  timeframe_secs: 180, trend_score: 0.4, momentum_score: 0.2, overall_score: 20, regime: 'TRENDING_BULL', active_signals: 2, price: 65000 },
-    { timeframe: 'SLOW',  timeframe_secs: 300, trend_score: 0.1, momentum_score: 0.0, overall_score: 10, regime: 'RANGE', active_signals: 1, price: 65000 },
-    { timeframe: 'MACRO', timeframe_secs: 900, trend_score: -0.1, momentum_score: -0.2, overall_score: -10, regime: 'TRENDING_BEAR', active_signals: 4, price: 65000 },
-  ];
+const headerSpec: LayerHeaderSpec = {
+  layerNumber: 2,
+  layerName: 'Alignment',
+  badge: { label: 'STRONG BULL', color: '#22c55e', background: 'rgba(34,197,94,0.08)', state: 'valid' },
+  meta: [],
+  status: 'live',
+};
+
+function makeAlignment(): AlignmentMatrix {
   return {
-    symbol: 'BTC-USDT',
+    mtf_overall_score: 75,
+    mtf_overall_label: 'STRONG_BULLISH',
     timeframes_present: 4,
-    dimensions: dims,
-    mtf_trend_alignment: 0.5,
+    signal_cross_tf_count: 3,
+    trend_agreement_pct: 75,
+    mtf_trend_alignment: 0.45,
     mtf_momentum_alignment: 0.3,
     mtf_volume_alignment: 0.1,
     mtf_volatility_alignment: 0.2,
-    mtf_overall_score: 40,
-    mtf_overall_label: 'WEAK_BULL_MTF',
-    timeframe_alignments: tfs,
-    signal_cross_tf_count: 5,
-    trend_agreement_pct: 75,
-    ...overrides,
-  };
+    timeframe_alignments: [
+      { timeframe: 'MICRO', trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING_BULL', active_signals: 5 },
+    ],
+    dimensions: [
+      // Confidence is 0..100 on the wire (Rust `alignment.rs`),
+      // mirroring the screen's `confidence.toFixed(0)%` reading.
+      { score: 75, state: 'STRONG_BULLISH', confidence: 78 },
+      { score: 60, state: 'BULLISH', confidence: 72 },
+      { score: 45, state: 'NEUTRAL', confidence: 65 },
+      { score: 30, state: 'BEARISH', confidence: 58 },
+      { score: 70, state: 'STRONG_BULLISH', confidence: 75 },
+      { score: 65, state: 'BULLISH', confidence: 70 },
+      { score: 80, state: 'STRONG_BULLISH', confidence: 82 },
+      { score: 70, state: 'BULLISH', confidence: 70 },
+      { score: 55, state: 'NEUTRAL', confidence: 62 },
+      { score: 65, state: 'BULLISH', confidence: 68 },
+    ],
+  } as unknown as AlignmentMatrix;
 }
 
 describe('buildAlignmentTabExport', () => {
-  it('produces a valid payload with all expected top-level fields', () => {
-    const json = buildAlignmentTabExport({
+  it('consensus exposes label_display and integer-rounded agreement', () => {
+    const p = JSON.parse(buildAlignmentTabExport({
       alignment: makeAlignment(),
       symbol: 'BTC-USDT',
-      tfSecs: 60,
-    });
-    const p = JSON.parse(json) as AlignmentPayload;
-    expect(p.source_tab).toBe('alignment');
-    expect(p.meta.symbol).toBe('BTC-USDT');
-    expect(p.hero).toBeDefined();
-    expect(p.dimensions).toBeDefined();
-    expect(p.consensus).toBeDefined();
-    expect(p.per_timeframe).toBeDefined();
-    expect(p.score_calculation).toBeDefined();
-    expect(p.interpretation).toBeDefined();
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.consensus.trend_agreement_pct).toBe(75);
+    expect(p.consensus.label).toBe('strong_consensus');
+    expect(p.consensus.label_display).toBe('Strong consensus — timeframes aligned');
   });
 
-  it('captures hero block correctly', () => {
+  it('polarization values carry sign-prefixed display strings', () => {
     const p = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment(), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p.hero.mtf_overall_score).toBe(40);
-    expect(p.hero.mtf_overall_label).toBe('WEAK_BULL_MTF');
-    expect(p.hero.timeframes_present).toBe(4);
-    expect(p.hero.signal_cross_tf_count).toBe(5);
-    expect(p.hero.trend_agreement_pct).toBe(75);
-  });
-
-  it('captures all 10 named dimensions in canonical order', () => {
-    const p = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment(), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p.dimensions.length).toBe(10);
-    p.dimensions.forEach((dim, i) => {
-      expect(dim.name).toBe(ALIGNMENT_DIMENSION_NAMES[i]);
-    });
-  });
-
-  it('classifies consensus label correctly', () => {
-    const p1 = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment({ trend_agreement_pct: 80 }), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p1.consensus.label).toBe('strong_consensus');
-
-    const p2 = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment({ trend_agreement_pct: 60 }), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p2.consensus.label).toBe('partial_consensus');
-
-    const p3 = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment({ trend_agreement_pct: 40 }), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p3.consensus.label).toBe('conflict');
-  });
-
-  it('polarization captures 4-axis values', () => {
-    const p = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment(), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p.consensus.polarization.length).toBe(4);
-    expect(p.consensus.polarization[0].key).toBe('T');
-    expect(p.consensus.polarization[0].value).toBe(0.5);
-    expect(p.consensus.polarization[1].key).toBe('M');
-    expect(p.consensus.polarization[2].key).toBe('Vt');
-    expect(p.consensus.polarization[3].key).toBe('Vm');
-  });
-
-  it('per_timeframe is sorted MICRO→FAST→SLOW→MACRO', () => {
-    const p = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment({
-        timeframe_alignments: [
-          { timeframe: 'MACRO', timeframe_secs: 900, trend_score: -0.1, momentum_score: -0.2, overall_score: -10, regime: 'TRENDING_BEAR', active_signals: 4, price: 65000 },
-          { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.5, momentum_score: 0.3, overall_score: 30, regime: 'TRENDING_BULL', active_signals: 3, price: 65000 },
-          { timeframe: 'SLOW',  timeframe_secs: 300, trend_score: 0.1, momentum_score: 0.0, overall_score: 10, regime: 'RANGE', active_signals: 1, price: 65000 },
-          { timeframe: 'FAST',  timeframe_secs: 180, trend_score: 0.4, momentum_score: 0.2, overall_score: 20, regime: 'TRENDING_BULL', active_signals: 2, price: 65000 },
-        ],
-      }),
+      alignment: makeAlignment(),
       symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p.per_timeframe.map((t) => t.timeframe)).toEqual(['MICRO', 'FAST', 'SLOW', 'MACRO']);
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const trend = p.consensus.polarization.find((x: { key: string }) => x.key === 'T');
+    expect(trend.value).toBe(0.45);
+    expect(trend.value_display).toBe('+0.45');
+    expect(trend.label).toBe('Trend');
   });
 
-  it('score_calculation captures the formula string', () => {
+  it('dimensions use short state labels and percentage confidence', () => {
     const p = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment(), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p.score_calculation.formula).toContain('0.5');
-    expect(p.score_calculation.formula).toContain('0.3');
-    expect(p.score_calculation.formula).toContain('0.1');
-    expect(p.score_calculation.weights.length).toBe(4);
-    expect(p.score_calculation.weights[0].pct).toBe(50);
-    expect(p.score_calculation.weights[1].pct).toBe(30);
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.dimensions[0].state).toBe('STRONG');
+    expect(p.dimensions[0].score).toBe(75);
+    // `confidence` is already 0..100 on the wire — the export mirrors the
+    // screen's `confidence.toFixed(0)%` (no ×100 inflation).
+    expect(p.dimensions[0].confidence).toBe(78);
+    expect(p.dimensions[1].confidence).toBe(72);
   });
 
-  it('interpretation reflects consensus level', () => {
-    const p1 = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment({ trend_agreement_pct: 80 }), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p1.interpretation).toContain('strong directional consensus');
-
-    const p2 = JSON.parse(buildAlignmentTabExport({
-      alignment: makeAlignment({ trend_agreement_pct: 40 }), symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p2.interpretation).toContain('conflict');
-  });
-
-  it('produces a valid payload when alignment is null', () => {
+  it('per-timeframe rows carry display variants', () => {
     const p = JSON.parse(buildAlignmentTabExport({
-      alignment: null, symbol: 'BTC-USDT',
-    })) as AlignmentPayload;
-    expect(p.hero.mtf_overall_score).toBe(0);
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.per_timeframe[0].trend_score_display).toBe('0.45');
+    expect(p.per_timeframe[0].overall_score_display).toBe('1.0');
+  });
+
+  it('empty state still carries meta identity', () => {
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.meta.pair).toBe('BTC-USDT');
+    expect(p.hero.mtf_overall_label).toBe('NO_DATA');
     expect(p.dimensions).toEqual([]);
-    expect(p.per_timeframe).toEqual([]);
-    expect(p.interpretation).toContain('Awaiting alignment data');
+  });
+
+  it('emits breakdown_meta caption and conflict banner when applicable', () => {
+    const conflictAlignment = {
+      ...makeAlignment(),
+      trend_agreement_pct: 30,
+    } as AlignmentMatrix;
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: conflictAlignment,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.breakdown_meta).toContain('T:');
+    expect(p.breakdown_meta).toContain('M:');
+    expect(p.breakdown_meta).toContain('Vt:');
+    expect(p.breakdown_meta).toContain('Vm:');
+    expect(p.consensus_conflict_banner).toContain('TIMEFRAME CONFLICT');
+    expect(p.hero.mtf_overall_label_display).toMatch(/STRONG|WEAK|NEUTRAL/);
+  });
+
+  it('null state mirrors the screen placeholders (—%, — verdict, +0.00, — weights)', () => {
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    // Consensus: screen renders "—%" + em-dash verdict — JSON carries the
+    // same null-state instead of a fabricated "Conflict" verdict.
+    expect(p.consensus.trend_agreement_pct).toBeNull();
+    expect(p.consensus.label).toBeNull();
+    expect(p.consensus.label_display).toBe('—');
+    // Polarization: screen renders "+0.00" for the zero fallbacks.
+    for (const axis of p.consensus.polarization) {
+      expect(axis.value_display).toBe('+0.00');
+    }
+    // Score calculation: screen renders "—" for values, contributions and
+    // the formula.
+    for (const w of p.score_calculation.weights) {
+      expect(w.value_display).toBe('—');
+      expect(w.contribution_display).toBe('—');
+    }
+    expect(p.score_calculation.formula).toBe('—');
+    expect(p.dimensions).toEqual([]);
+  });
+
+  it('NO_DATA dimension state renders "NO DATA" on both surfaces', () => {
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: {
+        ...makeAlignment(),
+        dimensions: [
+          { score: 0, state: 'NO_DATA', confidence: 0 },
+          { score: 60, state: 'BULLISH', confidence: 72 },
+        ],
+      } as unknown as AlignmentMatrix,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.dimensions[0].state).toBe('NO DATA');
+    expect(p.dimensions[1].state).toBe('BULLISH');
+  });
+
+  it('consensus trend_agreement_pct keeps raw float precision (bar width parity)', () => {
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: {
+        ...makeAlignment(),
+        trend_agreement_pct: 71.6,
+      } as AlignmentMatrix,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    // Screen text uses toFixed(0) → "72%", bar width toFixed(1) → "71.6%".
+    expect(p.consensus.trend_agreement_pct).toBe(71.6);
+    expect(p.consensus.label).toBe('partial_consensus');
+    expect(p.hero.trend_agreement_pct).toBe(71.6);
   });
 });

@@ -107,10 +107,10 @@ mod cap_trim_tests {
 }
 
 /// Hard cap on the per-pipeline OI history replay length. The live
-/// `oi_history: VecDeque<f64>` used for `OI Delta` and the rolling-1h
-/// math is bounded to 60 entries at runtime (`analyzer/mod.rs:864`); we
-/// replay the same cap during warmup so the warmed state matches what the
-/// live runtime will see.
+/// `oi_history: VecDeque<(u64, f64)>` used for `OI Delta` is time-bounded
+/// to a 3600 s window at runtime (AUDIT-AIU-051); the cap here bounds the
+/// warmup replay so the seeded deque stays within a reasonable memory
+/// footprint (one sample per stored candle).
 pub const OI_HISTORY_MAX: usize = 60;
 
 /// Hard cap on the per-pipeline funding-rate history replay length.
@@ -130,9 +130,10 @@ pub const FUNDING_HISTORY_MAX: usize = 8;
 /// behaviour after this warmup change.
 #[derive(Clone, Default)]
 pub struct DerivativesWarmedState {
-    /// Replayed OI history (oldest → newest), used to seed
-    /// `oi_delta`'s rolling math. Length ≤ `OI_HISTORY_MAX`.
-    pub oi_history: VecDeque<f64>,
+    /// Replayed OI history (oldest → newest) as `(timestamp_secs, value)`,
+    /// used to seed `oi_delta`'s rolling 3600 s window (AUDIT-AIU-051).
+    /// Length ≤ `OI_HISTORY_MAX`.
+    pub oi_history: VecDeque<(u64, f64)>,
     /// Replayed funding rate history (oldest → newest), used to seed
     /// `OI_FUNDING_DIVERGENCE` and `FUNDING_FLIP` signals. Length ≤
     /// `FUNDING_HISTORY_MAX`.
@@ -245,10 +246,13 @@ pub fn warm_derivatives_from_snapshots(
     }
 
     // Take the most-recent `oi_cap` snapshots for the OI replay window.
+    // AUDIT-AIU-051: samples are stored as `(timestamp_secs, value)` so the
+    // live 3600 s window can be seeded and evaluated per-TF.
     let oi_window_start = snapshots.len().saturating_sub(oi_cap);
     for snap in &snapshots[oi_window_start..] {
         if let Some(oi) = snap.open_interest.and_then(|d| d.to_f64()) {
-            out.oi_history.push_back(oi);
+            out.oi_history
+                .push_back((snap.timestamp, oi));
         }
     }
 
@@ -370,12 +374,13 @@ pub fn warm_indicators_for_timeframe(
     let mut vwap_sum_tp_vol = Decimal::ZERO;
     let mut vwap_sum_vol = Decimal::ZERO;
     let mut last_day_index: Option<u64> = None;
-    let mut volume_history: VecDeque<Decimal> = VecDeque::with_capacity(20);
+    let mut volume_history: VecDeque<Decimal> =
+        VecDeque::with_capacity(active_indicators.volume_average_period);
     // S/R role-reversal tracker, warmed through the full history so live
     // ingestion inherits accurate flip-state (matches run_single tolerance).
     let mut sr_tracker = SrRoleTracker::new(0.003);
     // Session Pivot Points, warmed so live ingestion inherits published levels.
-    let mut pivot_points_indicator = PivotPoints::new(PivotMethod::Classic);
+    let mut pivot_points_indicator = PivotPoints::new(PivotMethod::from_str_lenient(&active_indicators.pivot_points_method)); // AUDIT-AIU-072
     // Candlestick recognizer, warmed so its pending-confirmation buffer is live.
     let mut candlestick_indicator = Candlestick::new(CandlestickConfig::default());
     // Ichimoku Cloud, warmed so live ingestion inherits the 52-bar window.
@@ -446,9 +451,12 @@ pub fn warm_indicators_for_timeframe(
         // 52 bars. With min_bars=9 (the smallest configured window),
         // `update_with_min_bars` produces a partial reading that converges
         // to the strict result once the live path takes over.
-        let ichimoku_reading = ichimoku_indicator
-            .update(high_f, low_f, close_f)
-            .or_else(|| ichimoku_indicator.update_with_min_bars(high_f, low_f, close_f, 9));
+        // AUDIT-AIU-004: single soft-floor call — the previous
+        // `.update().or_else(|| update_with_min_bars(…))` chain double-pushed
+        // the same bar during warmup (update() pushes before returning None),
+        // corrupting the ichimoku rolling windows until the deque cycled.
+        let ichimoku_reading =
+            ichimoku_indicator.update_with_min_bars(high_f, low_f, close_f, 9);
 
         // CCI (warmed through history).
         let cci_reading = cci_indicator.update(high_f, low_f, close_f);
@@ -466,9 +474,9 @@ pub fn warm_indicators_for_timeframe(
         // (sqrt(period) ≈ 5 for period=21) so the seeded history produces a
         // partial Hull MA reading that converges to the strict reading once
         // the live path takes over and `values.len() >= period`.
-        let hma_reading = hma_indicator
-            .update(close_f)
-            .or_else(|| hma_indicator.update_with_min_bars(close_f, 5));
+        // AUDIT-AIU-005: single soft-floor call (fixes the same double-push
+        // corruption class as ichimoku above).
+        let hma_reading = hma_indicator.update_with_min_bars(close_f, 5);
         let ao_reading = ao_indicator.update(high_f, low_f);
         let fi_reading = fi_indicator.update(close_f, volume_f);
         let sdc_reading = sdc_indicator.update(close_f);
@@ -499,6 +507,7 @@ pub fn warm_indicators_for_timeframe(
                 .compute_bins_with_min_bars(25)
                 .as_ref(),
             completed.start_time_ms,
+            volume_profile_indicator.value_area_pct(),
         );
         let smc_reading = smc_indicator.update(open_f, high_f, low_f, close_f);
 
@@ -618,7 +627,10 @@ pub fn warm_indicators_for_timeframe(
         let macd_divergence = crate::analyzer::normalize::macd_divergence_state(&div_result);
 
         volume_history.push_back(completed.volume);
-        if volume_history.len() > 20 {
+        // AUDIT-AIU-070: honor the configured `volume_average_period`
+        // window (was hardcoded 20).
+        let vol_window = active_indicators.volume_average_period.max(1);
+        while volume_history.len() > vol_window {
             volume_history.pop_front();
         }
 
@@ -636,6 +648,13 @@ pub fn warm_indicators_for_timeframe(
             final_ema_slow,
             final_ema_long,
             ema_stack_state,
+            // AUDIT-V8-001: configured EMA periods for per-line ribbon gating.
+            (
+                active_indicators.ema_fast,
+                active_indicators.ema_medium,
+                active_indicators.ema_slow,
+                active_indicators.ema_long,
+            ),
             final_rsi,
             &final_macd,
             final_adx.as_ref(),
@@ -782,6 +801,9 @@ fn build_historical_snapshot(
     final_ema_slow: Decimal,
     final_ema_long: Decimal,
     ema_stack_state: Option<String>,
+    // Configured EMA periods `(fast, medium, slow, long)` — per-line
+    // ribbon availability gate (AUDIT-V8-001).
+    ema_periods: (usize, usize, usize, usize),
     final_rsi: Option<Decimal>,
     final_macd: &crate::indicators::MacdOutput,
     final_adx: Option<&crate::indicators::AdxOutput>,
@@ -899,6 +921,7 @@ fn build_historical_snapshot(
             ema_medium: Some(final_ema_medium),
             ema_slow: Some(final_ema_slow),
             ema_long: Some(final_ema_long),
+            ema_periods,
             rvol,
             volume: Some(completed.volume),
             average_volume: avg_vol,
@@ -913,6 +936,7 @@ fn build_historical_snapshot(
             pivot_levels,
             pivot_proximity_pct: 0.0015,
             candlestick,
+            // AUDIT-AIU-073: config default (historical builder has no config).
             candlestick_min_confidence: 0.3,
             ichimoku,
             cci,
@@ -920,11 +944,16 @@ fn build_historical_snapshot(
             williams_r: wr,
             awesome_oscillator: ao,
             force_index: fi,
+            force_index_mean_abs: None,
             hull_ma: hma,
             stddev_channel: sdc,
             volume_profile,
             smc,
             prev: PreviousBarState::default(),
+            // AUDIT-AIU-071: rvol thresholds — config defaults (this
+            // historical-snapshot builder carries no tf_config).
+            rvol_institutional_threshold: 1.5,
+            rvol_climax_threshold: 3.0,
         },
         all_candles.len() as u32,
         false,
@@ -1111,15 +1140,19 @@ mod tests {
         );
         // The most-recent 60 snapshots. The 99th sample corresponds to
         // 100_000_000 + 99_000 = 100_099_000; the 40th (= 100 - 60) is
-        // 100_040_000.
+        // 100_040_000. `snap.timestamp` is in seconds (see
+        // `make_snap_with_derivs` line ~1059: `timestamp: ts_ms / 1000`),
+        // so the 99th-sample timestamp is `1_700_000_000 + 99 * 60 =
+        // 1_700_005_940` and the 40th is `1_700_000_000 + 40 * 60 =
+        // 1_700_002_400`.
         assert_eq!(
             state.oi_history.back().copied(),
-            Some(100_099_000.0),
+            Some((1_700_005_940_u64, 100_099_000.0)),
             "back of oi_history should be the most recent sample"
         );
         assert_eq!(
             state.oi_history.front().copied(),
-            Some(100_040_000.0),
+            Some((1_700_002_400_u64, 100_040_000.0)),
             "front of oi_history should be the (len-60)th sample"
         );
         assert!(state.latest_oi.is_some(), "latest_oi should be populated");
@@ -1156,7 +1189,14 @@ mod tests {
             .collect();
         let state = warm_derivatives_from_snapshots(&snapshots, 10);
         assert_eq!(state.oi_history.len(), 10);
-        assert_eq!(state.oi_history.front().copied(), Some(100_090.0));
+        // The first kept sample is the 90th (i = 100 - 10), so
+        // `snap.timestamp = (1_700_000_000_000 + 90 * 60_000) / 1000 =
+        // 1_700_005_400` seconds and the OI value is `100_000 + 90 =
+        // 100_090`.
+        assert_eq!(
+            state.oi_history.front().copied(),
+            Some((1_700_005_400_u64, 100_090.0))
+        );
     }
 
     #[test]

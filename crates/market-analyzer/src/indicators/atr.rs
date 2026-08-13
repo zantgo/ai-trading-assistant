@@ -1,4 +1,4 @@
-use super::ema::Ema;
+use super::rma::WilderRma;
 use super::traits::{BarInput, Indicator};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -25,11 +25,18 @@ pub struct AtrOutput {
 ///
 /// Maintains a 5-value history buffer for regime classification
 /// and tracks previous ATR for slope calculation.
+///
+/// AUDIT-AIU-003: ATR now uses Wilder's RMA (`rma.rs`) — SMA seed over the
+/// first `period` TRs, then `(prev × (period-1) + TR) / period`. The
+/// previous implementation used a plain EMA (α = 2/(N+1), seed on the first
+/// TR), which contradicted the canonical definition and this module's own
+/// spec (04-02-25 §2) and silently poisoned supertrend, keltner and the
+/// TTM Squeeze Keltner channel.
 #[derive(Debug, Clone)]
 pub struct Atr {
     period: usize,
     prev_close: Option<Decimal>,
-    tr_ema: Ema,
+    tr_rma: WilderRma,
     atr_history: VecDeque<Decimal>,
     prev_atr: Option<Decimal>,
     regime_history_len: usize,
@@ -40,7 +47,7 @@ impl Atr {
         Self {
             period,
             prev_close: None,
-            tr_ema: Ema::new(period),
+            tr_rma: WilderRma::new(period),
             atr_history: VecDeque::with_capacity(5),
             prev_atr: None,
             regime_history_len: 5,
@@ -61,7 +68,10 @@ impl Atr {
             }
         };
         self.prev_close = Some(close);
-        let atr = self.tr_ema.update(tr.to_f64().unwrap_or(0.0));
+        // Wilder RMA: SMA seed over the first `period` TRs (the value is the
+        // running mean until the seed window fills), then the Wilder
+        // recursion. Decimal precision end-to-end.
+        let atr = self.tr_rma.update_seeded(tr.to_f64().unwrap_or(0.0));
 
         // Maintain ATR history for regime classification
         self.atr_history.push_back(atr);

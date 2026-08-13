@@ -1,0 +1,67 @@
+{
+  "source_tab": "opportunity",
+  "meta": {
+    "datetime_utc": "2026-08-13T13:52:10.005Z",
+    "exchange": "Hyperliquid",
+    "pair": "ETH-USDC",
+    "timeframe_secs": 60,
+    "current_price": 1890.3,
+    "prev_day_price": 1900.8,
+    "price_change": -0.55239898989899,
+    "price_change_direction": "down",
+    "timestamp": 1786629120,
+    "is_completed": false
+  },
+  "header": {
+    "layer_name": "Opportunity",
+    "badge": {"label": "Pullback", "sublabel": "Moderate", "tone": "neutral"},
+    "chips": [
+      {"label": "Score", "value": 58.9},
+      {"label": "R:R", "value": "1:4.48"},
+      {"label": "Horizon", "value": "SWING"}
+    ],
+    "status": "live"
+  },
+  "directional_bars": {"bullish_pct": 1, "bearish_pct": 58, "hold_pct": 41, "sort": "desc"},
+  "header_block": {"opportunity_class": "Pullback", "lean": "Lean: neutral", "setup_score": 58.90257142857143, "setup_quality": "MODERATE"},
+  "trade_setups": [
+    {
+      "opportunity_type": "Pullback",
+      "viability": "DirectionalNeutral",
+      "badge_text": "NEUTRAL \u00b7 HOLD",
+      "side": "NEUTRAL",
+      "rank_idx": 0,
+      "is_top": false,
+      "geometry_consistent": true,
+      "entry_mid": 1891.3171731799248,
+      "entry_zone": {"low": 1890.9, "high": 1891.7343463598493},
+      "tp1": 1888.3969609204523,
+      "tp2": 1886.7282682007537,
+      "invalidation": 1892.155,
+      "rr_available": true,
+      "rr_value": 3.49,
+      "rr_reason": null,
+      "score": 58.90257142857143,
+      "preconditions_met": 2,
+      "preconditions_total": 2,
+      "notes": "Pullback"
+    }
+  ],
+  "no_clear_strip": {"badge": "NO CLEAR OPPORTUNITY", "preconditions_met": 0, "preconditions_total": 1, "meta": "0/1 preconditions met \u00b7 informational only"},
+  "hold_scenario_note": "HOLD / NO CLEAR \u2014 No directional call. The cards below show each qualifying profile's aggregated bracket \u2014 when geometry is inverted (entry/target/SL on the wrong side of close, or zero-bound contamination), R:R reads N/A and the bracket is non-actionable. None are active.",
+  "rr_internal": {"expected_rr_available": false, "expected_rr_value": null, "expected_rr_reason": "no_directional_bias", "time_horizon": "SWING"},
+  "invalidation_note": "Close below 1876.8 invalidates the Pullback thesis.",
+  "evaluated_setups": [
+    {"opportunity_type": "Liquidity Squeeze", "viability": "NoClear", "score": 58.90257142857143, "preconditions_met": 0, "preconditions_total": 3, "trade_viability": null, "notes": "Liquidity Squeeze"},
+    {"opportunity_type": "Scalp", "viability": "NoClear", "score": 58.90257142857143, "preconditions_met": 0, "preconditions_total": 3, "trade_viability": null, "notes": "Scalp"},
+    {"opportunity_type": "Trend Continuation", "viability": "NoClear", "score": 58.90257142857143, "preconditions_met": 0, "preconditions_total": 3, "trade_viability": null, "notes": "Trend Continuation"},
+    {"opportunity_type": "Breakout", "viability": "NoClear", "score": 58.90257142857143, "preconditions_met": 0, "preconditions_total": 2, "trade_viability": null, "notes": "Breakout"},
+    {"opportunity_type": "Reversal", "viability": "NoClear", "score": 58.90257142857143, "preconditions_met": 0, "preconditions_total": 3, "trade_viability": null, "notes": "Reversal"},
+    {"opportunity_type": "Pullback", "viability": "DIRECTIONAL_NEUTRAL", "score": 58.90257142857143, "preconditions_met": 2, "preconditions_total": 2, "trade_viability": "DIRECTIONAL_NEUTRAL", "notes": "Pullback"},
+    {"opportunity_type": "Mean Reversion", "viability": "NoClear", "score": 58.90257142857143, "preconditions_met": 0, "preconditions_total": 2, "trade_viability": null, "notes": "Mean Reversion"}
+  ],
+  "confluent_entry_levels": [{"price": 1892.155, "sources": ["VP"], "strength": 30}],
+  "confluent_target_levels": [{"price": 1877.585, "sources": ["VP"], "strength": 30}],
+  "market_position": {"bias": "Neutral", "regime": "Accumulation", "trend": "Developing", "quality": "Average"},
+  "environment": {"timeframes_considered": 4, "timeframes_considered_display": "4/4 TFs considered", "confidence_pct": 42, "confidence_display": "42%"}
+}

@@ -138,12 +138,13 @@ pub struct ActivePair {
     pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     /// Latest Index Price (shared across all timeframes).
     pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
-    /// Rolling OI history (shared across all timeframes) — bounded to 60
-    /// samples by `read_derivative_snapshot_state`. Promoted from a
-    /// per-`run_single` local (analyzer/mod.rs:868) so warmup can
-    /// restore historical samples and the first candle after boot has
-    /// `OI Delta` math anchored to real data.
-    pub oi_history: Arc<RwLock<VecDeque<f64>>>,
+    /// Rolling OI history — `(timestamp_secs, value)` samples, time-bounded
+    /// to a 3600 s window (AUDIT-AIU-051). Promoted from a
+    /// per-`run_single` local so warmup can restore historical samples and
+    /// the first candle after boot has `OI Delta` math anchored to real
+    /// data. Each TF pipeline owns a clone of this at spawn; the window is
+    /// evaluated per-TF against each TF's own candle cadence.
+    pub oi_history: Arc<RwLock<VecDeque<(u64, f64)>>>,
     /// Rolling funding-rate history (shared across all timeframes) —
     /// bounded to 8 samples. Restored from history at boot so
     /// `OI_FUNDING_DIVERGENCE` and `FUNDING_FLIP` have non-zero
@@ -632,11 +633,11 @@ pub async fn run_single(
     latest_funding: Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     latest_index_px: Arc<RwLock<Option<Decimal>>>,
-    // Per-pair shared rolling OI history (bounded to 60). Owned by
-    // `ActivePair`; the bootstrap warmup path pre-seeds this with
-    // historical samples and live WS events mutate it via
-    // `read_derivative_snapshot_state`.
-    oi_history: Arc<RwLock<VecDeque<f64>>>,
+    // Per-TF rolling OI history `(timestamp_secs, value)` — time-bounded to
+    // a 3600 s window (AUDIT-AIU-051). Each run_single owns a per-TF clone
+    // of the pair-level deque; warmup pre-seeds it and live WS events
+    // mutate it via `read_derivative_snapshot_state`.
+    oi_history: Arc<RwLock<VecDeque<(u64, f64)>>>,
     // Per-pair shared rolling funding-rate history (bounded to 8).
     funding_history: Arc<RwLock<VecDeque<f64>>>,
     // Per-timeframe cluster-matrix handle (Phase 2). Each TF pipeline
@@ -892,8 +893,10 @@ pub async fn run_single(
         vwap_sum_tp_vol = Decimal::ZERO;
         vwap_sum_vol = Decimal::ZERO;
         last_day_index = None;
-        volume_history = VecDeque::with_capacity(20);
-        pivot_points_indicator = PivotPoints::new(PivotMethod::Classic);
+        // AUDIT-AIU-070: honor the configured `volume_average_period`.
+        volume_history =
+            VecDeque::with_capacity(active_indicators.volume_average_period.max(1));
+        pivot_points_indicator = PivotPoints::new(PivotMethod::from_str_lenient(&active_indicators.pivot_points_method)); // AUDIT-AIU-072
         candlestick_indicator = Candlestick::new(CandlestickConfig::default());
         ichimoku_indicator = Ichimoku::new(
             active_indicators.ichimoku_tenkan,
@@ -939,13 +942,14 @@ pub async fn run_single(
     let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
     let mut prev_volume_dim: Option<f64> = None;
 
-    // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
-    // Now sourced from the per-pair shared `oi_history: Arc<RwLock<VecDeque<f64>>>`
-    // so the bootstrap warmup can pre-seed it with historical samples. The
-    // shared lock is read in `read_derivative_snapshot_state` (which also
-    // appends the live sample) and replaced by the warmup seeding path
-    // during `populate_buffers`.
-    let oi_history: Arc<RwLock<VecDeque<f64>>> = oi_history;
+    // OI delta tracking: rolling 3600 s time window of OI values
+    // `(timestamp_secs, value)` (AUDIT-AIU-051). Sourced from the per-TF
+    // `oi_history` clone so the bootstrap warmup can pre-seed it with
+    // historical samples. The shared lock is read in
+    // `read_derivative_snapshot_state` (which also appends the live sample
+    // with its timestamp) and replaced by the warmup seeding path during
+    // `populate_buffers`.
+    let oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> = oi_history;
     let funding_history: Arc<RwLock<VecDeque<f64>>> = funding_history;
 
     // Phase 1: real liquidation event accumulator. Per-candle aggregation
@@ -1028,6 +1032,18 @@ pub async fn run_single(
     #[allow(unused_assignments)]
     let mut shadow_exchange: Option<Exchange> = None;
     let mut shadow_prev_day_px: Option<Decimal> = None;
+    // AUDIT-V8-002 (stale-mid guard): wall-clock timestamp of the last
+    // order-book event. The force-close / doji-fill paths only use the
+    // bid/ask mid as the close price while the book is fresh; otherwise
+    // they fall back to the last trade close so indicators never react
+    // to a phantom stale-mid price.
+    let mut last_ob_ms: u64 = 0;
+    // AUDIT-V8-003 (idle-bucket heartbeat): last known close price. When
+    // the market goes quiet (no current candle, no events), the stale
+    // check synthesizes one doji per elapsed empty bucket at this price
+    // so the chart + indicator lines stay continuous per wall-clock
+    // second instead of leaving gaps.
+    let mut last_close: Decimal = Decimal::ZERO;
 
     let stale_check_interval_ms: u64 = (timeframe_secs * 1000 / 2).max(500);
     let grace_period_ms: u64 = duration_ms;
@@ -1107,11 +1123,27 @@ pub async fn run_single(
 
                 if needs_close {
                     if let Some(forced) = candle_gen.force_close() {
-                        let mid = if shadow_bid > Decimal::ZERO && shadow_ask > Decimal::ZERO {
+                        // AUDIT-V8-002: only use the order-book mid while the
+                        // book is fresh (≤ grace period). A stale mid (quiet
+                        // book, one-way flow) would otherwise become the
+                        // candle close — and, through the doji heartbeat
+                        // below, up to 60 synthetic closes at a phantom price,
+                        // dragging EMA/RSI into the "reacting to price that
+                        // isn't there" distortion. Fall back to the last
+                        // trade close instead.
+                        let ob_fresh =
+                            last_ob_ms > 0 && now_ms.saturating_sub(last_ob_ms) <= grace_period_ms;
+                        let mid = if ob_fresh
+                            && shadow_bid > Decimal::ZERO
+                            && shadow_ask > Decimal::ZERO
+                        {
                             (shadow_bid + shadow_ask) / Decimal::from(2)
                         } else {
                             forced.close
                         };
+                        // AUDIT-V8-003: last known close for the idle-bucket
+                        // heartbeat (and the doji fill below).
+                        last_close = mid;
                         let live = core_domain::normalized::NormalizedCandle {
                             exchange: forced.exchange,
                             symbol: forced.symbol.clone(),
@@ -1125,66 +1157,137 @@ pub async fn run_single(
                             trades_count: forced.trades_count,
                             reconstructed: forced.reconstructed,
                         };
-                        bar_count = bar_count.saturating_add(1);
-                        broadcast_live_snapshot(
-                            &broadcast_tx,
+
+                        // ── Force-close: advance every stateful indicator
+                        // on the FORCED candle. Without this, the EMA/RSI/
+                        // MACD/etc. state lags the wall clock by every
+                        // second the sub-minute pipeline spent without a
+                        // trade crossing a boundary. (See the regression
+                        // pins in `tests/sub_minute_indicator_cadence.rs`.)
+                        let candle_close_sec = forced.start_time_ms / 1000;
+                        let day_index = candle_close_sec / 86400;
+                        if let Some(prev_day) = last_day_index {
+                            if day_index > prev_day {
+                                vwap_sum_tp_vol = Decimal::ZERO;
+                                vwap_sum_vol = Decimal::ZERO;
+                            }
+                        }
+                        last_day_index = Some(day_index);
+                        let force_close_readings = apply_candle_to_indicators(
                             &symbol,
+                            slot,
+                            timeframe_secs,
                             &live,
+                            day_index,
+                            &mut pivot_points_indicator,
+                            &mut candlestick_indicator,
+                            &mut ichimoku_indicator,
+                            &mut cci_indicator,
+                            &mut psar_indicator,
+                            &mut wr_indicator,
+                            &mut hma_indicator,
+                            &mut ao_indicator,
+                            &mut fi_indicator,
+                            &mut sdc_indicator,
+                            &mut volume_profile_indicator,
+                            &mut smc_indicator,
+                            &mut anchored_vwap_indicator,
+                            &mut ema_fast,
+                            &mut ema_medium,
+                            &mut ema_slow,
+                            &mut ema_long,
+                            &mut rsi_14,
+                            &mut macd,
+                            &mut adx_14,
+                            &mut sqz_mom,
+                            &mut bollinger,
+                            &mut atr_standalone,
+                            &mut bbwp_indicator,
+                            &mut stochastic_indicator,
+                            &mut chandemo_indicator,
+                            &mut supertrend_indicator,
+                            &mut keltner_indicator,
+                            &mut donchian_indicator,
+                            &mut obv_indicator,
+                            &mut cmf_indicator,
+                            &mut mfi_indicator,
+                            &mut hv_indicator,
+                            &mut aroon_indicator,
+                            &mut choppiness_indicator,
+                            &mut linreg_indicator,
+                            &mut zscore_indicator,
+                            &mut vwap_sum_tp_vol,
+                            &mut vwap_sum_vol,
+                        );
+
+                        bar_count = bar_count.saturating_add(1);
+
+                        // ── Broadcast the completed force-close snapshot
+                        // built from the JUST-computed readings. We do NOT
+                        // use `broadcast_live_snapshot` here: that helper
+                        // internally re-runs `indicator.clone().update()`,
+                        // which would double-apply the same candle close to
+                        // every stateful indicator. The readings are the
+                        // post-mutation truth; build the snapshot directly.
+                        let avg_vol = if !volume_history.is_empty() {
+                            let sum: Decimal = volume_history.iter().sum();
+                            Some(sum / Decimal::from(volume_history.len()))
+                        } else {
+                            None
+                        };
+                        let rvol = match (live.volume, avg_vol) {
+                            (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+                            _ => None,
+                        };
+                        let completed_snapshot = build_completed_snapshot_from_readings(
+                            &force_close_readings,
+                            &live,
+                            &symbol,
+                            &pair_key,
+                            slot,
+                            timeframe_secs,
+                            bar_count,
                             shadow_exchange,
                             shadow_bid,
                             shadow_ask,
-                            slot,
-                            &ema_fast,
-                            &ema_medium,
-                            &ema_slow,
-                            &ema_long,
-                            &rsi_14,
-                            &macd,
-                            &adx_14,
-                            &sqz_mom,
-                            &bollinger,
-                            &atr_standalone,
-                            &bbwp_indicator,
-                            &stochastic_indicator,
-                            &chandemo_indicator,
-                            &supertrend_indicator,
-                            &keltner_indicator,
-                            &donchian_indicator,
-                            &obv_indicator,
-                            &cmf_indicator,
-                            &mfi_indicator,
-                            &hv_indicator,
-                            &aroon_indicator,
-                            &choppiness_indicator,
-                            &linreg_indicator,
-                            &zscore_indicator,
-                            &vwap_sum_tp_vol,
-                            &vwap_sum_vol,
-                            &volume_history,
-                            timeframe_secs,
-                            shadow_prev_day_px,
-                            bar_count,
-                                                        derive_pipeline_state(bar_count as usize, buffer_size),
+                            (
+                                active_indicators.ema_fast,
+                                active_indicators.ema_medium,
+                                active_indicators.ema_slow,
+                                active_indicators.ema_long,
+                            ),
                             &active_set,
-                            true,
+                            derive_pipeline_state(bar_count as usize, buffer_size),
+                            avg_vol,
+                            rvol,
                         );
+                        let _ = broadcast_tx.send(completed_snapshot.clone());
+                        // AUDIT-V8-004: force-closed candles are real OHLCV —
+                        // keep them in the in-memory snapshot history so
+                        // `/api/history` serves the sub-minute chart
+                        // continuously (they are real candles, so the
+                        // wire carries no `reconstructed` flag).
+                        {
+                            let mut snap_hist = snapshot_history.write().await;
+                            snap_hist.push_back(completed_snapshot);
+                            while snap_hist.len() > HIST_BUFFER_MAX {
+                                snap_hist.pop_front();
+                            }
+                        }
                         last_completed_start_ms = Some(forced.start_time_ms);
 
                         // ── Doji heartbeat: fill any intervals between this
                         // candle's end and `now_ms` with flat doji candles
-                        // (O=H=L=C=close from the just-closed bar).  This
-                        // keeps the sub-minute chart continuous when volume
-                        // drops to zero for several intervals.  The fill is
-                        // capped so a single tick never floods the broadcast
-                        // channel — follow-up ticks catch the next batch.
+                        // (O=H=L=C=close from the just-closed bar). Each
+                        // reconstructed doji is fed through the indicator
+                        // pipeline so EMA/RSI/etc. advance once per wall-
+                        // clock second even when no trade fired. The
+                        // broadcast is capped at MAX_GAP_FILL_BARS so a
+                        // single stale tick can never flood the channel;
+                        // subsequent ticks pick up the next batch.
                         let mut fill_cursor = forced.start_time_ms + duration_ms;
                         let max_fill = now_ms.saturating_sub(fill_cursor) / duration_ms;
-                        let fill_n = max_fill.min(
-                            // At most 3 missing bars per stale-check tick so
-                            // the broadcast channel stays uncongested.  The
-                            // next tick picks up where this one left off.
-                            3,
-                        );
+                        let fill_n = max_fill.min(MAX_GAP_FILL_BARS);
                         for _ in 0..fill_n {
                             let doji = core_domain::normalized::NormalizedCandle {
                                 exchange: forced.exchange,
@@ -1201,15 +1304,253 @@ pub async fn run_single(
                                     core_domain::normalized::ReconstructionMethod::Synthetic,
                                 ),
                             };
-                            let gap_snap = build_gapfill_snapshot(
+
+                            // Advance every stateful indicator for this
+                            // reconstructed doji bucket. Without this, the
+                            // indicators stay frozen on the previous
+                            // bucket's reading while the wall clock moves
+                            // forward — the symptom the user reported on
+                            // Bitget 1s / 3s / 5s / 15s charts.
+                            let doji_readings = apply_candle_to_indicators(
+                                &symbol,
+                                slot,
+                                timeframe_secs,
+                                &doji,
+                                day_index,
+                                &mut pivot_points_indicator,
+                                &mut candlestick_indicator,
+                                &mut ichimoku_indicator,
+                                &mut cci_indicator,
+                                &mut psar_indicator,
+                                &mut wr_indicator,
+                                &mut hma_indicator,
+                                &mut ao_indicator,
+                                &mut fi_indicator,
+                                &mut sdc_indicator,
+                                &mut volume_profile_indicator,
+                                &mut smc_indicator,
+                                &mut anchored_vwap_indicator,
+                                &mut ema_fast,
+                                &mut ema_medium,
+                                &mut ema_slow,
+                                &mut ema_long,
+                                &mut rsi_14,
+                                &mut macd,
+                                &mut adx_14,
+                                &mut sqz_mom,
+                                &mut bollinger,
+                                &mut atr_standalone,
+                                &mut bbwp_indicator,
+                                &mut stochastic_indicator,
+                                &mut chandemo_indicator,
+                                &mut supertrend_indicator,
+                                &mut keltner_indicator,
+                                &mut donchian_indicator,
+                                &mut obv_indicator,
+                                &mut cmf_indicator,
+                                &mut mfi_indicator,
+                                &mut hv_indicator,
+                                &mut aroon_indicator,
+                                &mut choppiness_indicator,
+                                &mut linreg_indicator,
+                                &mut zscore_indicator,
+                                &mut vwap_sum_tp_vol,
+                                &mut vwap_sum_vol,
+                            );
+
+                            // Broadcast the doji as a completed snapshot
+                            // with a fully-populated indicators map (built
+                            // from the just-computed readings). The old
+                            // `build_gapfill_snapshot` emitted an empty
+                            // indicators map, which left the chart's
+                            // overlay lines (EMA/RSI/etc.) frozen across
+                            // sub-minute doji-fill seconds.
+                            bar_count = bar_count.saturating_add(1);
+                            let avg_vol = if !volume_history.is_empty() {
+                                let sum: Decimal = volume_history.iter().sum();
+                                Some(sum / Decimal::from(volume_history.len()))
+                            } else {
+                                None
+                            };
+                            let rvol = match (doji.volume, avg_vol) {
+                                (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+                                _ => None,
+                            };
+                            let doji_snap = build_completed_snapshot_from_readings(
+                                &doji_readings,
                                 &doji,
                                 &symbol,
-                                timeframe_secs,
+                                &pair_key,
                                 slot,
+                                timeframe_secs,
+                                bar_count,
+                                shadow_exchange,
+                                shadow_bid,
+                                shadow_ask,
+                                (
+                                    active_indicators.ema_fast,
+                                    active_indicators.ema_medium,
+                                    active_indicators.ema_slow,
+                                    active_indicators.ema_long,
+                                ),
+                                &active_set,
+                                derive_pipeline_state(bar_count as usize, buffer_size),
+                                avg_vol,
+                                rvol,
                             );
-                            let _ = broadcast_tx.send(gap_snap);
+                            let _ = broadcast_tx.send(doji_snap.clone());
+                            // AUDIT-V8-004 (history continuity): synthetic
+                            // dojis are pushed to the in-memory snapshot
+                            // history (NOT the DB) so `/api/history` and the
+                            // chart's EMA/indicator series stay continuous
+                            // across quiet buckets. The `quality_envelope`
+                            // `is_gap_filled` flag lets the API mark them
+                            // `reconstructed` on the wire so the frontend
+                            // keeps them out of its persistent candle cache.
+                            {
+                                let mut snap_hist = snapshot_history.write().await;
+                                snap_hist.push_back(doji_snap);
+                                while snap_hist.len() > HIST_BUFFER_MAX {
+                                    snap_hist.pop_front();
+                                }
+                            }
                             last_completed_start_ms = Some(fill_cursor);
                             fill_cursor += duration_ms;
+                        }
+                    }
+                } else if timeframe_secs < 60 && candle_gen.current_candle.is_none() {
+                    // ── AUDIT-V8-003: idle-bucket heartbeat ──
+                    // After the current candle closes (force-close or
+                    // trade-triggered) the generator has NO current candle
+                    // until the next event arrives. Without this branch, a
+                    // quiet market leaves every elapsed bucket empty: the
+                    // chart shows gaps (frontend flat-Doji bridges), the
+                    // EMA lines connect real points with straight segments,
+                    // and the "1s candle" visually stays open for seconds.
+                    // Synthesize one doji per elapsed empty bucket at the
+                    // last known close, advance every stateful indicator,
+                    // and broadcast — so candles + indicator lines advance
+                    // once per wall-clock bucket even in total silence.
+                    if last_close > Decimal::ZERO {
+                        if let Some(last_ts) = last_completed_start_ms {
+                            let buckets_elapsed =
+                                now_ms.saturating_sub(last_ts + duration_ms) / duration_ms;
+                            let fill_n = buckets_elapsed.min(MAX_GAP_FILL_BARS);
+                            for _ in 0..fill_n {
+                                let idle_start = last_ts + duration_ms;
+                                let idle_close_sec = idle_start / 1000;
+                                let day_index = idle_close_sec / 86400;
+                                if let Some(prev_day) = last_day_index {
+                                    if day_index > prev_day {
+                                        vwap_sum_tp_vol = Decimal::ZERO;
+                                        vwap_sum_vol = Decimal::ZERO;
+                                    }
+                                }
+                                last_day_index = Some(day_index);
+                                let idle_doji = core_domain::normalized::NormalizedCandle {
+                                    exchange: shadow_exchange.unwrap_or(Exchange::Hyperliquid),
+                                    symbol: symbol.clone(),
+                                    start_time_ms: idle_start,
+                                    duration_ms,
+                                    open: last_close,
+                                    high: last_close,
+                                    low: last_close,
+                                    close: last_close,
+                                    volume: Decimal::ZERO,
+                                    trades_count: 0,
+                                    reconstructed: Some(
+                                        core_domain::normalized::ReconstructionMethod::Synthetic,
+                                    ),
+                                };
+                                let idle_readings = apply_candle_to_indicators(
+                                    &symbol,
+                                    slot,
+                                    timeframe_secs,
+                                    &idle_doji,
+                                    day_index,
+                                    &mut pivot_points_indicator,
+                                    &mut candlestick_indicator,
+                                    &mut ichimoku_indicator,
+                                    &mut cci_indicator,
+                                    &mut psar_indicator,
+                                    &mut wr_indicator,
+                                    &mut hma_indicator,
+                                    &mut ao_indicator,
+                                    &mut fi_indicator,
+                                    &mut sdc_indicator,
+                                    &mut volume_profile_indicator,
+                                    &mut smc_indicator,
+                                    &mut anchored_vwap_indicator,
+                                    &mut ema_fast,
+                                    &mut ema_medium,
+                                    &mut ema_slow,
+                                    &mut ema_long,
+                                    &mut rsi_14,
+                                    &mut macd,
+                                    &mut adx_14,
+                                    &mut sqz_mom,
+                                    &mut bollinger,
+                                    &mut atr_standalone,
+                                    &mut bbwp_indicator,
+                                    &mut stochastic_indicator,
+                                    &mut chandemo_indicator,
+                                    &mut supertrend_indicator,
+                                    &mut keltner_indicator,
+                                    &mut donchian_indicator,
+                                    &mut obv_indicator,
+                                    &mut cmf_indicator,
+                                    &mut mfi_indicator,
+                                    &mut hv_indicator,
+                                    &mut aroon_indicator,
+                                    &mut choppiness_indicator,
+                                    &mut linreg_indicator,
+                                    &mut zscore_indicator,
+                                    &mut vwap_sum_tp_vol,
+                                    &mut vwap_sum_vol,
+                                );
+                                bar_count = bar_count.saturating_add(1);
+                                let avg_vol = if !volume_history.is_empty() {
+                                    let sum: Decimal = volume_history.iter().sum();
+                                    Some(sum / Decimal::from(volume_history.len()))
+                                } else {
+                                    None
+                                };
+                                let rvol = match (idle_doji.volume, avg_vol) {
+                                    (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+                                    _ => None,
+                                };
+                                let idle_snap = build_completed_snapshot_from_readings(
+                                    &idle_readings,
+                                    &idle_doji,
+                                    &symbol,
+                                    &pair_key,
+                                    slot,
+                                    timeframe_secs,
+                                    bar_count,
+                                    shadow_exchange,
+                                    shadow_bid,
+                                    shadow_ask,
+                                    (
+                                        active_indicators.ema_fast,
+                                        active_indicators.ema_medium,
+                                        active_indicators.ema_slow,
+                                        active_indicators.ema_long,
+                                    ),
+                                    &active_set,
+                                    derive_pipeline_state(bar_count as usize, buffer_size),
+                                    avg_vol,
+                                    rvol,
+                                );
+                                let _ = broadcast_tx.send(idle_snap.clone());
+                                {
+                                    let mut snap_hist = snapshot_history.write().await;
+                                    snap_hist.push_back(idle_snap);
+                                    while snap_hist.len() > HIST_BUFFER_MAX {
+                                        snap_hist.pop_front();
+                                    }
+                                }
+                                last_completed_start_ms = Some(idle_start);
+                            }
                         }
                     }
                 }
@@ -1270,6 +1611,17 @@ pub async fn run_single(
                 let (completed_opt, live_candle) =
                     candle_gen.process_trade_at(trade, core_domain::LatencyTracker::now_ms());
                 let mut completed_opt = completed_opt.filter(|c| c.start_time_ms > t_last_hist);
+
+                // v6.11 (sub-minute indicator-cadence fix): a trade-triggered
+                // close whose bucket was already completed by the stale-check
+                // `force_close` / doji-fill path must not advance the
+                // indicators a second time. `last_completed_start_ms` tracks
+                // the newest bucket already processed by ANY completion path;
+                // late/reordered trades (exchange-batched timestamps) that
+                // land on an already-processed bucket are deduped here.
+                if let Some(prev_done) = last_completed_start_ms {
+                    completed_opt = completed_opt.filter(|c| c.start_time_ms > prev_done);
+                }
 
                 // ── DIE L3 §4.2: quarantine + REST refetch on validity failure.
                 // An invalid candle never reaches L4; a REST replacement is
@@ -1453,6 +1805,9 @@ pub async fn run_single(
 
                 if let Some(completed) = completed_opt {
                     last_completed_start_ms = Some(completed.start_time_ms);
+                    // AUDIT-V8-003: last known close feeds the idle-bucket
+                    // heartbeat when the market subsequently goes quiet.
+                    last_close = completed.close;
                     reliability.increment_candles(1).await;
                     println!(
                         "[CANDLE CLOSE] slot={:?} tf={}s pair={} {}",
@@ -1525,147 +1880,112 @@ pub async fn run_single(
                     }
                     last_day_index = Some(day_index);
 
-                    // ── f64 batch inputs for indicator update calls ──
-                    let open_f = completed.open.to_f64().unwrap_or(0.0);
-                    let high_f = completed.high.to_f64().unwrap_or(0.0);
-                    let low_f = completed.low.to_f64().unwrap_or(0.0);
-                    let close_f = completed.close.to_f64().unwrap_or(0.0);
-                    let volume_f = completed.volume.to_f64().unwrap_or(0.0);
-
-                    // Session Pivot Points: accumulate this session's H/L/C and
-                    // recompute levels on UTC-day rollover.
-                    let pivot_levels =
-                        pivot_points_indicator.update(high_f, low_f, close_f, day_index);
-
-                    // Candlestick recognition (Stage 1 geometry + Stage 3 confirm).
-                    let candlestick_reading =
-                        candlestick_indicator.update(open_f, high_f, low_f, close_f);
-
-                    // Ichimoku Cloud (Tenkan/Kijun/Senkou A/B/Chikou).
-                    // Soft-floor (min_bars=9) mirrors the warm path and the
-                    // Volume Profile / Hull MA precedents: the strict
-                    // `update()` returns `None` until `senkou_b_period=52`
-                    // candles are accumulated. With min_bars=9 the indicator
-                    // flips to Live as soon as the Tenkan window fills and
-                    // the partial cloud color converges to the textbook
-                    // value once the buffer reaches 52.
-                    let ichimoku_reading = ichimoku_indicator
-                        .update(high_f, low_f, close_f)
-                        .or_else(|| {
-                            ichimoku_indicator
-                                .update_with_min_bars(high_f, low_f, close_f, 9)
-                        });
-
-                    // CCI (Commodity Channel Index).
-                    let cci_reading = cci_indicator.update(high_f, low_f, close_f);
-
-                    // Parabolic SAR.
-                    let psar_reading = psar_indicator.update(high_f, low_f);
-
-                    let wr_reading = wr_indicator.update(high_f, low_f, close_f);
-                    // Hull MA soft-floor: same pattern as warm.rs and the
-                    // Volume Profile precedent below. Strict `update()` returns
-                    // `None` until `hull_ma_period` bars are accumulated; the
-                    // soft-floor variant surfaces a partial reading once
-                    // `sqrt(period)` (≈5 for the default period=21) values
-                    // are available, so sub-minute TFs (where the live
-                    // pipeline can take 5–20 minutes to fill the strict gate)
-                    // stop showing `WARMING (20/200)` on the dashboard.
-                    let hma_reading = hma_indicator
-                        .update(close_f)
-                        .or_else(|| hma_indicator.update_with_min_bars(close_f, 5));
-                    let ao_reading = ao_indicator.update(high_f, low_f);
-                    let fi_reading = fi_indicator.update(close_f, volume_f);
-                    let sdc_reading = sdc_indicator.update(close_f);
-
-                    let volume_profile_reading = volume_profile_indicator
-                        .update_with_open(high_f, low_f, open_f, close_f, volume_f);
-
-                    // Build the bin-level VolumeProfileSnapshot for chart rendering.
-                    // Live path uses the same soft floor (25 bars) as the
-                    // seeded warm-up path — otherwise sub-minute TFs would
-                    // see a 1–2 hour gap (250 bars × 15 s / 30 s) where no
-                    // profile paints at all, since the venue-capped warm-up
-                    // (26 / 51 bars) never gets to the strict gate itself.
-                    let live_reading: Option<crate::indicators::VolumeProfileOutput> =
-                        if volume_profile_reading.is_some() {
-                            volume_profile_reading.clone()
-                        } else {
-                            volume_profile_indicator.compute_with_min_bars(25)
-                        };
-                    let volume_profile_snapshot = build_volume_profile_snapshot(
+                    // ── Apply the candle to every stateful indicator ──
+                    // The single source of truth for "what the indicators
+                    // become after a candle close of `duration_ms`". Called
+                    // identically from the trade-triggered boundary-cross
+                    // path, the stale-check `force_close` path, and the
+                    // doji-fill path so all 30+ indicators (EMA/RSI/MACD/
+                    // Bollinger/ATR/ADX/Stochastic/Keltner/Donchian/OBV/
+                    // CMF/MFI/HV/Aroon/Choppiness/LinRegSlope/ZScore/
+                    // HullMA/AO/FI/WilliamsR/CCI/PSAR/StdDev/VolumeProfile/
+                    // Pivot/Candlestick/Ichimoku/SMC/AnchoredVWAP) advance
+                    // on every wall-clock second. See
+                    // `tests/sub_minute_indicator_cadence.rs` for the bug
+                    // pins that motivated this extraction.
+                    let CandleIndicatorReadings {
+                        open_f: _,
+                        high_f: _,
+                        low_f: _,
+                        close_f,
+                        volume_f,
+                        pivot_levels,
+                        candlestick_reading,
+                        ichimoku_reading,
+                        cci_reading,
+                        psar_reading,
+                        wr_reading,
+                        hma_reading,
+                        ao_reading,
+                        fi_reading,
+                        fi_mean_abs,
+                        sdc_reading,
+                        volume_profile_reading,
+                        volume_profile_snapshot,
+                        smc_reading,
+                        final_vwap,
+                        avwap_reading,
+                        final_ema_fast,
+                        final_ema_medium,
+                        final_ema_slow,
+                        final_ema_long,
+                        ema_stack_state,
+                        final_rsi,
+                        final_macd,
+                        final_adx,
+                        final_sqz,
+                        final_bb,
+                        final_atr,
+                        final_bbwp,
+                        final_stoch,
+                        final_cmo,
+                        final_supertrend,
+                        final_keltner,
+                        final_donchian,
+                        final_obv,
+                        final_cmf,
+                        final_mfi,
+                        final_hv,
+                        final_aroon,
+                        final_chop,
+                        final_linreg,
+                        final_zscore,
+                    } = apply_candle_to_indicators(
                         &symbol,
                         slot,
                         timeframe_secs,
-                        &live_reading,
-                        volume_profile_indicator
-                            .compute_bins_with_min_bars(25)
-                            .as_ref(),
-                        completed.start_time_ms,
-                    );
-                    let smc_reading = smc_indicator.update(open_f, high_f, low_f, close_f);
-
-                    let typical_price =
-                        (completed.high + completed.low + completed.close) / Decimal::from(3);
-                    vwap_sum_tp_vol += typical_price * completed.volume;
-                    vwap_sum_vol += completed.volume;
-
-                    let final_vwap = if vwap_sum_vol > Decimal::ZERO {
-                        Some(vwap_sum_tp_vol / vwap_sum_vol)
-                    } else {
-                        None
-                    };
-
-                    let avwap_reading = anchored_vwap_indicator.update(
-                        high_f,
-                        low_f,
-                        close_f,
-                        volume_f,
+                        &completed,
                         day_index,
-                        final_vwap.unwrap_or(Decimal::ZERO).to_f64().unwrap_or(0.0),
+                        &mut pivot_points_indicator,
+                        &mut candlestick_indicator,
+                        &mut ichimoku_indicator,
+                        &mut cci_indicator,
+                        &mut psar_indicator,
+                        &mut wr_indicator,
+                        &mut hma_indicator,
+                        &mut ao_indicator,
+                        &mut fi_indicator,
+                        &mut sdc_indicator,
+                        &mut volume_profile_indicator,
+                        &mut smc_indicator,
+                        &mut anchored_vwap_indicator,
+                        &mut ema_fast,
+                        &mut ema_medium,
+                        &mut ema_slow,
+                        &mut ema_long,
+                        &mut rsi_14,
+                        &mut macd,
+                        &mut adx_14,
+                        &mut sqz_mom,
+                        &mut bollinger,
+                        &mut atr_standalone,
+                        &mut bbwp_indicator,
+                        &mut stochastic_indicator,
+                        &mut chandemo_indicator,
+                        &mut supertrend_indicator,
+                        &mut keltner_indicator,
+                        &mut donchian_indicator,
+                        &mut obv_indicator,
+                        &mut cmf_indicator,
+                        &mut mfi_indicator,
+                        &mut hv_indicator,
+                        &mut aroon_indicator,
+                        &mut choppiness_indicator,
+                        &mut linreg_indicator,
+                        &mut zscore_indicator,
+                        &mut vwap_sum_tp_vol,
+                        &mut vwap_sum_vol,
                     );
-
-                    let final_ema_fast = ema_fast.update(close_f);
-                    let final_ema_medium = ema_medium.update(close_f);
-                    let final_ema_slow = ema_slow.update(close_f);
-                    let final_ema_long = ema_long.update(close_f);
-
-                    let ema_stack_state = if final_ema_fast > final_ema_medium
-                        && final_ema_medium > final_ema_slow
-                        && final_ema_slow > final_ema_long
-                        && completed.close > final_ema_fast
-                    {
-                        Some("bullish".to_string())
-                    } else if final_ema_fast < final_ema_medium
-                        && final_ema_medium < final_ema_slow
-                        && final_ema_slow < final_ema_long
-                        && completed.close < final_ema_fast
-                    {
-                        Some("bearish".to_string())
-                    } else {
-                        Some("tangled".to_string())
-                    };
-
-                    let final_rsi = rsi_14.update(close_f);
-                    let final_macd = macd.update(close_f);
-                    let final_adx = adx_14.update(high_f, low_f, close_f);
-                    let final_sqz = sqz_mom.update(high_f, low_f, close_f);
-                    let final_bb = bollinger.update(close_f);
-                    let final_atr = atr_standalone.update(high_f, low_f, close_f);
-                    let final_bbwp = bbwp_indicator.update(close_f);
-                    let final_stoch = stochastic_indicator.update(high_f, low_f, close_f);
-                    let final_cmo = chandemo_indicator.update(close_f);
-                    let final_supertrend = supertrend_indicator.update(high_f, low_f, close_f);
-                    let final_keltner = keltner_indicator.update(high_f, low_f, close_f);
-                    let final_donchian = donchian_indicator.update(high_f, low_f);
-                    let final_obv = obv_indicator.update(close_f, volume_f);
-                    let final_cmf = cmf_indicator.update(high_f, low_f, close_f, volume_f);
-                    let final_mfi = mfi_indicator.update(high_f, low_f, close_f, volume_f);
-                    let final_hv = hv_indicator.update(close_f);
-                    let final_aroon = aroon_indicator.update(high_f, low_f);
-                    let final_chop = choppiness_indicator.update(high_f, low_f, close_f);
-                    let final_linreg = linreg_indicator.update(close_f);
-                    let final_zscore = zscore_indicator.update(close_f);
 
                     // ── Generalized divergence detection ──
                     // Each oscillator's SeriesDivergence is updated every bar
@@ -1698,7 +2018,9 @@ pub async fn run_single(
                         .await;
 
                     volume_history.push_back(completed.volume);
-                    if volume_history.len() > 20 {
+                    // AUDIT-AIU-070: configured `volume_average_period` window.
+                    let vol_window = active_indicators.volume_average_period.max(1);
+                    while volume_history.len() > vol_window {
                         volume_history.pop_front();
                     }
                     let avg_vol = if !volume_history.is_empty() {
@@ -1759,17 +2081,27 @@ pub async fn run_single(
                     // the candle close decisively breaks the nearest S/R level.
                     // check_divergence_confirmation is a &self method on the
                     // DivergenceDetector — we lock it again briefly.
+                    //
+                    // AUDIT-AIU-002: a bullish confirmation requires
+                    // `close < support` (close breaks BELOW the level), and a
+                    // bearish confirmation requires `close > resistance`.
+                    // The previous selection (`support <= close` / `resistance
+                    // >= close`) made both checks unsatisfiable by
+                    // construction, so RSI/MACD divergences could never reach
+                    // Confirmed in the live path. We now select the nearest
+                    // level on the break side: support ABOVE close, resistance
+                    // BELOW close — mirroring `series_divergence_confirmed`.
                     {
                         let near_sup = sr_supports
                             .iter()
                             .copied()
-                            .filter(|s| *s > 0.0 && *s <= close_f)
-                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            .filter(|s| *s > 0.0 && *s > close_f)
+                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                         let near_res = sr_resistances
                             .iter()
                             .copied()
-                            .filter(|r| *r > 0.0 && *r >= close_f)
-                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            .filter(|r| *r > 0.0 && *r < close_f)
+                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                         if near_sup.is_some() || near_res.is_some() {
                             let det = divergence_detector.lock().await;
                             div_result = det.check_divergence_confirmation(
@@ -1926,6 +2258,14 @@ pub async fn run_single(
                             ema_medium: Some(final_ema_medium),
                             ema_slow: Some(final_ema_slow),
                             ema_long: Some(final_ema_long),
+                            // AUDIT-V8-001: configured periods for per-line
+                            // ribbon gating (fast@10, medium@50, slow@100, long@200).
+                            ema_periods: (
+                                active_indicators.ema_fast,
+                                active_indicators.ema_medium,
+                                active_indicators.ema_slow,
+                                active_indicators.ema_long,
+                            ),
                             rvol,
                             volume: Some(completed.volume),
                             average_volume: avg_vol,
@@ -1948,18 +2288,25 @@ pub async fn run_single(
                             pivot_levels,
                             pivot_proximity_pct: 0.0015,
                             candlestick: Some(candlestick_reading),
-                            candlestick_min_confidence: 0.3,
+                            // AUDIT-AIU-073: configured min-confidence gate.
+                            candlestick_min_confidence: active_indicators
+                                .candlestick_min_confidence,
                             ichimoku: ichimoku_reading,
                             cci: cci_reading,
                             psar: psar_reading,
                             williams_r: wr_reading,
                             awesome_oscillator: ao_reading,
                             force_index: fi_reading,
+                            force_index_mean_abs: fi_mean_abs,
                             hull_ma: hma_reading,
                             stddev_channel: sdc_reading,
                             volume_profile: volume_profile_reading,
                             smc: smc_reading,
                             prev: prev_bar_state,
+                            // AUDIT-AIU-071: rvol thresholds from config.
+                            rvol_institutional_threshold: active_indicators
+                                .rvol_threshold_institutional,
+                            rvol_climax_threshold: active_indicators.rvol_threshold_climax,
                         },
                         bar_count,
                         false,
@@ -2000,6 +2347,9 @@ pub async fn run_single(
                         price: Some(close_f),
                         ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
                         ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
+                        // AUDIT-AIU-030: carried for the StackChange detector.
+                        ema_slow: Some(final_ema_slow.to_f64().unwrap_or(0.0)),
+                        ema_long: Some(final_ema_long.to_f64().unwrap_or(0.0)),
                         supertrend_line: final_supertrend
                             .as_ref()
                             .map(|s| s.line.to_f64().unwrap_or(0.0)),
@@ -2056,7 +2406,8 @@ pub async fn run_single(
                     // Reads from the per-pair shared `oi_history` and
                     // `funding_history` Arc locks, which the bootstrap
                     // path pre-seeds from historical snapshots and live
-                    // WS events keep mutating.
+                    // WS events keep mutating. `candle_close_sec` is the
+                    // window anchor for the 3600 s OI delta.
                     let deriv = read_derivative_snapshot_state(
                         &latest_oi,
                         &latest_funding,
@@ -2064,6 +2415,7 @@ pub async fn run_single(
                         &latest_index_px,
                         &oi_history,
                         &funding_history,
+                        candle_close_sec,
                     )
                     .await;
                     let DerivativeSnapshot {
@@ -2073,7 +2425,14 @@ pub async fn run_single(
                         index_px: _idx_f,
                         spread_pct,
                         oi_delta: oi_delta_f,
+                        prev_oi_delta: prev_oi_delta_f,
                     } = deriv;
+                    // AUDIT-AIU-074: unify the funding "extreme" definition
+                    // between the indicator and liquidity layers.
+                    let funding_extreme_pct = liquidity_config
+                        .as_ref()
+                        .map(|c| c.funding_extreme_pct)
+                        .unwrap_or(0.0005);
                     inject_derivatives_indicators(
                         &mut indicators,
                         oi_f,
@@ -2081,6 +2440,8 @@ pub async fn run_single(
                         oi_delta_f,
                         mark_f,
                         spread_pct,
+                        prev_oi_delta_f,
+                        funding_extreme_pct,
                     );
 
                     // Inject order book depth analysis indicators
@@ -2193,6 +2554,51 @@ pub async fn run_single(
                         }
                     }
 
+                    // D4 (cross-TF freshness): the other pipelines publish
+                    // their `latest_snapshot` handles at THEIR OWN candle
+                    // closes. When this TF's close lands on a boundary that
+                    // a slower TF shares (e.g. a micro close at 02:48:00
+                    // coincides with the fast 180s close), the slower
+                    // pipeline may not have written its just-closed snapshot
+                    // yet — the cross-TF synthesis then consumes the
+                    // PREVIOUS close, so the alignment/analysis/risk layers
+                    // lag the per-TF context the dashboards show (observed:
+                    // ETH FAST alignment row scored -7 with 21 signals while
+                    // the metrics tab showed +8 / 31 for the same candle).
+                    // Retry with a short bounded wait until every handle that
+                    // was due to close at this boundary has advanced.
+                    {
+                        let mut spins = 0u32;
+                        loop {
+                            let stale_at_boundary = cross_tf_snaps.iter().any(|(secs, snap)| {
+                                *secs != timeframe_secs
+                                    && snap.timeframe_secs > 0
+                                    && candle_close_sec % snap.timeframe_secs == 0
+                                    && snap.timestamp < candle_close_sec
+                            });
+                            if !stale_at_boundary || spins >= 5 {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            spins += 1;
+                            for arc in [
+                                &cross_tf_snapshot_a,
+                                &cross_tf_snapshot_b,
+                                &cross_tf_snapshot_c,
+                            ] {
+                                if let Some(s) = arc.read().await.clone() {
+                                    let idx = cross_tf_snaps.iter().position(|(_, existing)| {
+                                        existing.timeframe_secs == s.timeframe_secs
+                                    });
+                                    match idx {
+                                        Some(i) => cross_tf_snaps[i].1 = s,
+                                        None => cross_tf_snaps.push((s.timeframe_secs, s)),
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let cross_refs: Vec<(u64, &MarketSnapshot)> =
                         cross_tf_snaps.iter().map(|(secs, s)| (*secs, s)).collect();
 
@@ -2262,6 +2668,29 @@ pub async fn run_single(
                                 .get("depth_ratio")
                                 .map(|v| v.raw_value)
                                 .filter(|v| v.is_finite() && *v > 0.0),
+                            // AUDIT-AIU-055/057: thread the configured
+                            // cluster-notional floor and per-signal
+                            // confidences.
+                            min_cluster_notional_usd: liquidity_config
+                                .as_ref()
+                                .map(|c| c.min_cluster_notional_usd)
+                                .unwrap_or(100_000.0),
+                            signal_confidences: liquidity_config
+                                .as_ref()
+                                .map(|c| {
+                                    let sc = &c.signal_confidences;
+                                    core_domain::liquidity::SignalConfidences {
+                                        cascade_detected: sc.cascade_detected,
+                                        cascade_sustained: sc.cascade_sustained,
+                                        cascade_exhausted: sc.cascade_exhausted,
+                                        funding_extreme: sc.funding_extreme,
+                                        oi_funding_divergence: sc.oi_funding_divergence,
+                                        liquidity_vacuum: sc.liquidity_vacuum,
+                                        funding_flip: sc.funding_flip,
+                                        oi_price_divergence: sc.oi_price_divergence,
+                                    }
+                                })
+                                .unwrap_or_default(),
                         },
                     );
 
@@ -2270,6 +2699,7 @@ pub async fn run_single(
                         &cross_refs,
                         Some(&liquidity_flow),
                         cluster_guard.as_ref(),
+                        &liquidity_signals,
                         prev_mtf_score,
                         prev_regime,
                         prev_volume_dim,
@@ -2553,7 +2983,13 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
-                                                        derive_pipeline_state(bar_count as usize, buffer_size),
+                            (
+                                active_indicators.ema_fast,
+                                active_indicators.ema_medium,
+                                active_indicators.ema_slow,
+                                active_indicators.ema_long,
+                            ),
+                            derive_pipeline_state(bar_count as usize, buffer_size),
                             &active_set,
                             false,
                         );
@@ -2563,6 +2999,9 @@ pub async fn run_single(
 
             NormalizedEvent::OrderBook(ref book) => {
                 shadow_exchange = Some(book.exchange);
+                // AUDIT-V8-002: stamp the order-book freshness used by the
+                // stale-check force-close mid guard.
+                last_ob_ms = core_domain::LatencyTracker::now_ms();
                 if let (Some(best_bid), Some(best_ask)) = (book.bids.first(), book.asks.first()) {
                     shadow_bid = best_bid.0;
                     shadow_ask = best_ask.0;
@@ -2644,7 +3083,13 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
-                                                        derive_pipeline_state(bar_count as usize, buffer_size),
+                            (
+                                active_indicators.ema_fast,
+                                active_indicators.ema_medium,
+                                active_indicators.ema_slow,
+                                active_indicators.ema_long,
+                            ),
+                            derive_pipeline_state(bar_count as usize, buffer_size),
                             &active_set,
                             false,
                         );
@@ -2733,15 +3178,24 @@ struct DerivativeSnapshot {
     index_px: Option<f64>,
     spread_pct: Option<f64>,
     oi_delta: Option<f64>,
+    /// Previous bar's OI delta — for the ZeroLineCross transition detector
+    /// (AUDIT-AIU-039).
+    prev_oi_delta: Option<f64>,
 }
+
+/// True 1-hour window in seconds for the OI delta (AUDIT-AIU-051). The
+/// previous implementation capped the deque at 60 *samples*, so at a 15 s TF
+/// the "1h" delta was really 15 minutes, and at a 5 m TF it was 5 hours.
+pub const OI_DELTA_WINDOW_SECS: u64 = 3600;
 
 async fn read_derivative_snapshot_state(
     latest_oi: &Arc<RwLock<Option<Decimal>>>,
     latest_funding: &Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: &Arc<RwLock<Option<Decimal>>>,
     latest_index_px: &Arc<RwLock<Option<Decimal>>>,
-    oi_history: &Arc<RwLock<VecDeque<f64>>>,
+    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
+    now_secs: u64,
 ) -> DerivativeSnapshot {
     let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
     let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
@@ -2751,29 +3205,42 @@ async fn read_derivative_snapshot_state(
         (Some(m), Some(i)) if i > 0.0 => Some((m - i) / i * 100.0),
         _ => None,
     };
-    let oi_delta_f = match oi_f {
+    // AUDIT-AIU-051: OI history is now `(timestamp_secs, value)` and the
+    // window is a TRUE 3600 s time window — samples older than one hour are
+    // pruned before the delta is computed, and each TF evaluates the window
+    // against its own candle cadence (per-TF deque clone).
+    let (oi_delta_f, prev_oi_delta_f) = match oi_f {
         Some(cur) => {
-            // Append to the shared rolling history (bounded to 60) so
-            // warmup can pre-seed the deque and live updates keep
-            // mutating the same buffer. Live cap mirrors the historical
-            // warmup cap (warm.rs::OI_HISTORY_MAX = 60).
-            {
-                let mut hist = oi_history.write().await;
-                hist.push_back(cur);
-                if hist.len() > 60 {
-                    hist.pop_front();
-                }
-                if hist.len() > 1 {
-                    // Only return a delta once we have ≥ 2 samples so the
-                    // very first WS push after boot doesn't emit a bogus
-                    // "delta vs warmup prior" reading.
-                    Some(cur - hist.front().copied().unwrap_or(cur))
+            let mut hist = oi_history.write().await;
+            hist.push_back((now_secs, cur));
+            let cutoff = now_secs.saturating_sub(OI_DELTA_WINDOW_SECS);
+            while hist.front().map(|(t, _)| *t < cutoff).unwrap_or(false) {
+                hist.pop_front();
+            }
+            // Prune stale entries at the tail that could arrive out of
+            // order (WS push after a clock-sync edge case).
+            while hist.back().map(|(t, _)| *t > now_secs).unwrap_or(false) {
+                hist.pop_back();
+            }
+            let n = hist.len();
+            if n >= 2 {
+                // delta = current value minus the oldest value inside the
+                // 3600 s window.
+                let delta = cur - hist.front().copied().unwrap_or((now_secs, cur)).1;
+                // Previous bar's delta = second-newest sample vs the same
+                // anchor (for the zero-line transition detector).
+                let prev_delta = if n >= 3 {
+                    let prev_val = hist.get(n - 2).copied().unwrap_or((now_secs, cur)).1;
+                    Some(prev_val - hist.front().copied().unwrap_or((now_secs, cur)).1)
                 } else {
                     None
-                }
+                };
+                (Some(delta), prev_delta)
+            } else {
+                (None, None)
             }
         }
-        None => None,
+        None => (None, None),
     };
 
     // Append current funding rate to the shared rolling funding_history
@@ -2795,6 +3262,7 @@ async fn read_derivative_snapshot_state(
         index_px: idx_f,
         spread_pct,
         oi_delta: oi_delta_f,
+        prev_oi_delta: prev_oi_delta_f,
     }
 }
 
@@ -2811,6 +3279,9 @@ pub fn inject_derivatives_indicators(
     oi_delta: Option<f64>,
     mark_px: Option<f64>,
     spread_pct: Option<f64>,
+    prev_oi_delta: Option<f64>,
+    // AUDIT-AIU-074: unified funding "extreme" threshold from config.
+    funding_extreme_pct: f64,
 ) {
     use crate::indicators::normalized::derivatives;
 
@@ -2824,14 +3295,17 @@ pub fn inject_derivatives_indicators(
 
     // OI Delta (1h change)
     if let Some(delta) = oi_delta {
-        indicators.insert("oi_delta".into(), derivatives::normalize_oi_delta(delta));
+        indicators.insert(
+            "oi_delta".into(),
+            derivatives::normalize_oi_delta(delta, prev_oi_delta),
+        );
     }
 
     // Funding Rate (non-directional gate)
     if let Some(f) = funding {
         indicators.insert(
             "funding_rate".into(),
-            derivatives::normalize_funding_rate(f),
+            derivatives::normalize_funding_rate(f, funding_extreme_pct),
         );
     }
 
@@ -2878,10 +3352,15 @@ pub fn inject_orderbook_indicators(
     }
 
     // Spread (non-directional gate)
+    // AUDIT-AIU-001: `spread_pct` is ALREADY a percentage (order_book.rs
+    // computes (ask-bid)/mid*100). The previous `* 100.0` double-scaled the
+    // value, making a real 0.015% spread render as 1.5% and firing
+    // SPREAD_WIDE on every snapshot, which permanently inflated the
+    // execution-risk dimensions in the Risk Matrix (core-domain/risk.rs).
     if let Some(spread) = ob.spread_pct() {
         indicators.insert(
             "spread".into(),
-            derivatives::normalize_spread(spread * 100.0, spread_wide_threshold_pct),
+            derivatives::normalize_spread(spread, spread_wide_threshold_pct),
         );
     }
 
@@ -2981,6 +3460,12 @@ pub(super) fn build_volume_profile_snapshot(
     reading: &Option<crate::indicators::VolumeProfileOutput>,
     bins: Option<&Vec<crate::indicators::volume_profile::BinAggregate>>,
     candle_start_time_ms: u64,
+    // AUDIT-AIU-045: the value-area target was hardcoded at 0.70 while the
+    // profile's `compute()` honored the configurable
+    // `volume_profile_value_area` — the two desynced when operators changed
+    // the config, so the chart overlay's VAH/VAL disagreed with the POC
+    // summary. Thread the configured value through.
+    value_area_pct: f64,
 ) -> Option<VolumeProfileSnapshot> {
     let reading = reading.as_ref()?;
     let bins = bins?;
@@ -3030,7 +3515,7 @@ pub(super) fn build_volume_profile_snapshot(
         }
     }
     out_bins[poc_idx].is_poc = true;
-    let target_vol = total_volume * 0.70;
+    let target_vol = total_volume * value_area_pct.clamp(0.05, 0.95);
     let mut lo = poc_idx;
     let mut hi = poc_idx;
     let mut va_vol = out_bins[poc_idx].volume;
@@ -3106,6 +3591,576 @@ fn stamp_signal_ages(
     tracker.retain(|k, _| seen.contains(k));
 }
 
+/// Per-candle indicator readings produced by
+/// [`apply_candle_to_indicators`]. The struct exists so the same code path
+/// drives the trade-triggered completed-candle handler, the stale-check
+/// `force_close` path, and the doji-fill path. Every indicator value in
+/// here was just computed by the per-pipeline indicator state; no field
+/// is read from a sibling TF's state. (See `tests/sub_minute_indicator_cadence.rs`
+/// for the regression pins.)
+pub(super) struct CandleIndicatorReadings {
+    // `open_f` / `high_f` / `low_f` are exposed for callers that need them
+    // to build the `MarketSnapshot` (the trade-triggered path uses
+    // `close_f` directly). They're computed once and held here so the
+    // helper has a single return type.
+    #[allow(dead_code)]
+    pub open_f: f64,
+    #[allow(dead_code)]
+    pub high_f: f64,
+    #[allow(dead_code)]
+    pub low_f: f64,
+    pub close_f: f64,
+    pub volume_f: f64,
+    pub pivot_levels: Option<crate::indicators::PivotLevels>,
+    pub candlestick_reading: crate::indicators::CandlestickResult,
+    pub ichimoku_reading: Option<crate::indicators::IchimokuOutput>,
+    pub cci_reading: Option<Decimal>,
+    pub psar_reading: Option<crate::indicators::PsarOutput>,
+    pub wr_reading: Option<Decimal>,
+    pub hma_reading: Option<Decimal>,
+    pub ao_reading: Option<crate::indicators::AoOutput>,
+    pub fi_reading: Option<Decimal>,
+    /// Rolling mean of |FI| — scale-relative extreme-threshold baseline
+    /// (AUDIT-AIU-043).
+    pub fi_mean_abs: Option<Decimal>,
+    pub sdc_reading: Option<crate::indicators::SdChannelOutput>,
+    pub volume_profile_reading: Option<crate::indicators::VolumeProfileOutput>,
+    pub volume_profile_snapshot: Option<core_domain::volume_profile::VolumeProfileSnapshot>,
+    pub smc_reading: Option<crate::indicators::SmcOutput>,
+    pub final_vwap: Option<Decimal>,
+    pub avwap_reading: crate::indicators::AvwapOutput,
+    pub final_ema_fast: Decimal,
+    pub final_ema_medium: Decimal,
+    pub final_ema_slow: Decimal,
+    pub final_ema_long: Decimal,
+    pub ema_stack_state: Option<String>,
+    pub final_rsi: Option<Decimal>,
+    pub final_macd: crate::indicators::MacdOutput,
+    pub final_adx: Option<crate::indicators::AdxOutput>,
+    pub final_sqz: Option<crate::indicators::SqueezeOutput>,
+    pub final_bb: Option<(Decimal, Decimal, Decimal)>,
+    pub final_atr: Option<crate::indicators::AtrOutput>,
+    pub final_bbwp: Option<Decimal>,
+    pub final_stoch: Option<crate::indicators::StochasticOutput>,
+    pub final_cmo: Option<Decimal>,
+    pub final_supertrend: Option<crate::indicators::SupertrendOutput>,
+    pub final_keltner: Option<crate::indicators::KeltnerOutput>,
+    pub final_donchian: Option<crate::indicators::DonchianOutput>,
+    pub final_obv: Option<crate::indicators::ObvOutput>,
+    pub final_cmf: Option<Decimal>,
+    pub final_mfi: Option<Decimal>,
+    pub final_hv: Option<f64>,
+    pub final_aroon: Option<crate::indicators::AroonOutput>,
+    pub final_chop: Option<Decimal>,
+    pub final_linreg: Option<f64>,
+    pub final_zscore: Option<f64>,
+}
+
+/// Apply a candle (real OR reconstructed doji) to **every** stateful
+/// indicator in the per-TF pipeline. Returns the freshly-computed
+/// readings so the caller can build a `MarketSnapshot` (for live or
+/// completed broadcasts) without losing the mutation that lets the next
+/// candle compute correctly.
+///
+/// This function is the single source of truth for "what the indicators
+/// become after a candle of duration `duration_ms`". It must be called
+/// from every path that closes a candle for this TF — trade-triggered
+/// boundary crossing, stale-check `force_close`, and the doji-fill loop —
+/// otherwise the EMA (and every other mutating indicator) lags the
+/// wall-clock by however many wall-clock seconds elapsed without a
+/// candle close. (See `tests/sub_minute_indicator_cadence.rs`.)
+#[allow(clippy::too_many_arguments)]
+fn apply_candle_to_indicators(
+    symbol: &str,
+    slot: TimeframeSlot,
+    timeframe_secs: u64,
+    completed: &NormalizedCandle,
+    day_index: u64,
+    pivot_points_indicator: &mut PivotPoints,
+    candlestick_indicator: &mut Candlestick,
+    ichimoku_indicator: &mut Ichimoku,
+    cci_indicator: &mut Cci,
+    psar_indicator: &mut ParabolicSar,
+    wr_indicator: &mut WilliamsR,
+    hma_indicator: &mut HullMA,
+    ao_indicator: &mut AwesomeOscillator,
+    fi_indicator: &mut ForceIndex,
+    sdc_indicator: &mut StdDevChannel,
+    volume_profile_indicator: &mut VolumeProfile,
+    smc_indicator: &mut SmartMoney,
+    anchored_vwap_indicator: &mut AnchoredVwap,
+    ema_fast: &mut Ema,
+    ema_medium: &mut Ema,
+    ema_slow: &mut Ema,
+    ema_long: &mut Ema,
+    rsi_14: &mut Rsi,
+    macd: &mut Macd,
+    adx_14: &mut Adx,
+    sqz_mom: &mut SqueezeMomentum,
+    bollinger: &mut BollingerBands,
+    atr_standalone: &mut Atr,
+    bbwp_indicator: &mut Bbwp,
+    stochastic_indicator: &mut Stochastic,
+    chandemo_indicator: &mut ChandeMO,
+    supertrend_indicator: &mut Supertrend,
+    keltner_indicator: &mut Keltner,
+    donchian_indicator: &mut Donchian,
+    obv_indicator: &mut Obv,
+    cmf_indicator: &mut Cmf,
+    mfi_indicator: &mut Mfi,
+    hv_indicator: &mut HistoricalVolatility,
+    aroon_indicator: &mut Aroon,
+    choppiness_indicator: &mut Choppiness,
+    linreg_indicator: &mut LinRegSlope,
+    zscore_indicator: &mut ZScore,
+    vwap_sum_tp_vol: &mut Decimal,
+    vwap_sum_vol: &mut Decimal,
+) -> CandleIndicatorReadings {
+    let open_f = completed.open.to_f64().unwrap_or(0.0);
+    let high_f = completed.high.to_f64().unwrap_or(0.0);
+    let low_f = completed.low.to_f64().unwrap_or(0.0);
+    let close_f = completed.close.to_f64().unwrap_or(0.0);
+    let volume_f = completed.volume.to_f64().unwrap_or(0.0);
+
+    let pivot_levels = pivot_points_indicator.update(high_f, low_f, close_f, day_index);
+
+    let candlestick_reading =
+        candlestick_indicator.update(open_f, high_f, low_f, close_f);
+
+    // AUDIT-AIU-004/005: single soft-floor call — the previous
+    // `.update().or_else(|| update_with_min_bars(…))` chain double-pushed the
+    // same bar (update() pushes before returning None, then the fallback
+    // pushed again), corrupting ichimoku/hull_ma windows during warmup.
+    // update_with_min_bars collapses to the strict output once the buffer
+    // reaches the configured period, so one call is sufficient.
+    let ichimoku_reading = ichimoku_indicator.update_with_min_bars(high_f, low_f, close_f, 9);
+
+    let cci_reading = cci_indicator.update(high_f, low_f, close_f);
+    let psar_reading = psar_indicator.update(high_f, low_f);
+    let wr_reading = wr_indicator.update(high_f, low_f, close_f);
+    let hma_reading = hma_indicator.update_with_min_bars(close_f, 5);
+    let ao_reading = ao_indicator.update(high_f, low_f);
+    let fi_reading = fi_indicator.update(close_f, volume_f);
+    let fi_mean_abs = fi_indicator.mean_abs();
+    let sdc_reading = sdc_indicator.update(close_f);
+
+    let volume_profile_reading = volume_profile_indicator
+        .update_with_open(high_f, low_f, open_f, close_f, volume_f);
+
+    let live_reading: Option<crate::indicators::VolumeProfileOutput> = if volume_profile_reading
+        .is_some()
+    {
+        volume_profile_reading.clone()
+    } else {
+        volume_profile_indicator.compute_with_min_bars(25)
+    };
+    let volume_profile_snapshot = build_volume_profile_snapshot(
+        symbol,
+        slot,
+        timeframe_secs,
+        &live_reading,
+        volume_profile_indicator
+            .compute_bins_with_min_bars(25)
+            .as_ref(),
+        completed.start_time_ms,
+        volume_profile_indicator.value_area_pct(),
+    );
+
+    let smc_reading = smc_indicator.update(open_f, high_f, low_f, close_f);
+
+    let typical_price = (completed.high + completed.low + completed.close) / Decimal::from(3);
+    *vwap_sum_tp_vol += typical_price * completed.volume;
+    *vwap_sum_vol += completed.volume;
+
+    let final_vwap = if *vwap_sum_vol > Decimal::ZERO {
+        Some(*vwap_sum_tp_vol / *vwap_sum_vol)
+    } else {
+        None
+    };
+
+    let avwap_reading = anchored_vwap_indicator.update(
+        high_f,
+        low_f,
+        close_f,
+        volume_f,
+        day_index,
+        final_vwap.unwrap_or(Decimal::ZERO).to_f64().unwrap_or(0.0),
+    );
+
+    let final_ema_fast = ema_fast.update(close_f);
+    let final_ema_medium = ema_medium.update(close_f);
+    let final_ema_slow = ema_slow.update(close_f);
+    let final_ema_long = ema_long.update(close_f);
+
+    let ema_stack_state = if final_ema_fast > final_ema_medium
+        && final_ema_medium > final_ema_slow
+        && final_ema_slow > final_ema_long
+        && completed.close > final_ema_fast
+    {
+        Some("bullish".to_string())
+    } else if final_ema_fast < final_ema_medium
+        && final_ema_medium < final_ema_slow
+        && final_ema_slow < final_ema_long
+        && completed.close < final_ema_fast
+    {
+        Some("bearish".to_string())
+    } else {
+        Some("tangled".to_string())
+    };
+
+    let final_rsi = rsi_14.update(close_f);
+    let final_macd = macd.update(close_f);
+    let final_adx = adx_14.update(high_f, low_f, close_f);
+    let final_sqz = sqz_mom.update(high_f, low_f, close_f);
+    let final_bb = bollinger.update(close_f);
+    let final_atr = atr_standalone.update(high_f, low_f, close_f);
+    let final_bbwp = bbwp_indicator.update(close_f);
+    let final_stoch = stochastic_indicator.update(high_f, low_f, close_f);
+    let final_cmo = chandemo_indicator.update(close_f);
+    let final_supertrend = supertrend_indicator.update(high_f, low_f, close_f);
+    let final_keltner = keltner_indicator.update(high_f, low_f, close_f);
+    let final_donchian = donchian_indicator.update(high_f, low_f);
+    let final_obv = obv_indicator.update(close_f, volume_f);
+    let final_cmf = cmf_indicator.update(high_f, low_f, close_f, volume_f);
+    let final_mfi = mfi_indicator.update(high_f, low_f, close_f, volume_f);
+    let final_hv = hv_indicator.update(close_f);
+    let final_aroon = aroon_indicator.update(high_f, low_f);
+    let final_chop = choppiness_indicator.update(high_f, low_f, close_f);
+    let final_linreg = linreg_indicator.update(close_f);
+    let final_zscore = zscore_indicator.update(close_f);
+
+    CandleIndicatorReadings {
+        open_f,
+        high_f,
+        low_f,
+        close_f,
+        volume_f,
+        pivot_levels,
+        candlestick_reading,
+        ichimoku_reading,
+        cci_reading,
+        psar_reading,
+        wr_reading,
+        hma_reading,
+        ao_reading,
+        fi_reading,
+        fi_mean_abs,
+        sdc_reading,
+        volume_profile_reading,
+        volume_profile_snapshot,
+        smc_reading,
+        final_vwap,
+        avwap_reading,
+        final_ema_fast,
+        final_ema_medium,
+        final_ema_slow,
+        final_ema_long,
+        ema_stack_state,
+        final_rsi,
+        final_macd,
+        final_adx,
+        final_sqz,
+        final_bb,
+        final_atr,
+        final_bbwp,
+        final_stoch,
+        final_cmo,
+        final_supertrend,
+        final_keltner,
+        final_donchian,
+        final_obv,
+        final_cmf,
+        final_mfi,
+        final_hv,
+        final_aroon,
+        final_chop,
+        final_linreg,
+        final_zscore,
+    }
+}
+
+/// Build a `MarketSnapshot` for a closed candle (real OR reconstructed
+/// doji) using the readings returned by [`apply_candle_to_indicators`].
+/// The produced snapshot has `is_completed = Some(true)` and a populated
+/// `indicators` map (so the chart's EMAs/Rsi/etc. lines advance per
+/// wall-clock second), but skips the heavier matrix payloads
+/// (alignment/analysis/risk/advisory/opportunity/decision_context/
+/// statistical_context/context) — those require the full synthesis
+/// pipeline that runs in the trade-triggered path. See the regression
+/// pins in `tests/sub_minute_indicator_cadence.rs` for why this matters.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_completed_snapshot_from_readings(
+    readings: &CandleIndicatorReadings,
+    candle: &NormalizedCandle,
+    symbol: &str,
+    _pair_key: &str,
+    slot: TimeframeSlot,
+    timeframe_secs: u64,
+    bar_count: u32,
+    shadow_exchange: Option<Exchange>,
+    shadow_bid: Decimal,
+    shadow_ask: Decimal,
+    // Configured EMA periods `(fast, medium, slow, long)` — per-line
+    // ribbon availability gate (AUDIT-V8-001).
+    ema_periods: (usize, usize, usize, usize),
+    active_set: &crate::active_set::ActiveSet,
+    pipeline_state: CandlePipelineState,
+    avg_vol: Option<Decimal>,
+    rvol: Option<Decimal>,
+) -> MarketSnapshot {
+    let close_f = readings.close_f;
+    let ema_stack_str = readings.ema_stack_state.as_deref();
+
+    let indicators = normalize::build_indicator_map(
+        normalize::NormalizeParams {
+            close: candle.close,
+            rsi: readings.final_rsi,
+            rsi_divergence: crate::indicators::DivergenceState::None,
+            macd_divergence: crate::indicators::DivergenceState::None,
+            stoch_k: readings.final_stoch.as_ref().map(|s| s.k_value),
+            stoch_d: readings.final_stoch.as_ref().map(|s| s.d_value),
+            chandemo: readings.final_cmo,
+            supertrend_line: readings.final_supertrend.as_ref().map(|s| s.line),
+            supertrend_dir: readings.final_supertrend.as_ref().map(|s| s.direction),
+            keltner: readings.final_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
+            donchian: readings.final_donchian.as_ref().map(|d| (d.upper, d.middle, d.lower)),
+            obv: readings.final_obv.as_ref().map(|o| o.obv),
+            obv_sma: readings.final_obv.as_ref().map(|o| o.obv_sma),
+            cmf: readings.final_cmf,
+            mfi: readings.final_mfi,
+            hv: readings.final_hv,
+            aroon_up: readings.final_aroon.as_ref().map(|a| a.up),
+            aroon_down: readings.final_aroon.as_ref().map(|a| a.down),
+            choppiness: readings.final_chop,
+            linreg_slope: readings.final_linreg,
+            zscore: readings.final_zscore,
+            extra_div: normalize::ExtraDivergence::default(),
+            macd: &readings.final_macd,
+            sqz: readings.final_sqz.as_ref(),
+            adx: readings.final_adx.as_ref(),
+            bb: readings.final_bb,
+            atr: readings.final_atr.as_ref(),
+            bbwp: readings.final_bbwp,
+            vwap: readings.final_vwap,
+            anchored_vwap: Some(readings.avwap_reading.clone()),
+            ema_stack_state: ema_stack_str,
+            ema_fast: Some(readings.final_ema_fast),
+            ema_medium: Some(readings.final_ema_medium),
+            ema_slow: Some(readings.final_ema_slow),
+            ema_long: Some(readings.final_ema_long),
+            ema_periods,
+            rvol,
+            volume: Some(candle.volume),
+            average_volume: avg_vol,
+            fib: None,
+            pattern: None,
+            support_levels: &[],
+            resistance_levels: &[],
+            active_position: None,
+            adx_consecutive_deceleration: false,
+            supertrend_flipped: readings
+                .final_supertrend
+                .as_ref()
+                .map(|s| s.flipped)
+                .unwrap_or(false),
+            adx_di_crossover: readings.final_adx.as_ref().and_then(|a| {
+                a.di_crossover.map(|c| match c {
+                    crate::indicators::DiCrossoverDir::Bullish => 1i8,
+                    crate::indicators::DiCrossoverDir::Bearish => -1i8,
+                })
+            }),
+            pivot_levels: readings.pivot_levels,
+            pivot_proximity_pct: 0.0015,
+            candlestick: Some(readings.candlestick_reading.clone()),
+            // AUDIT-AIU-073: config default (helper path carries no config).
+            candlestick_min_confidence: 0.3,
+            ichimoku: readings.ichimoku_reading,
+            cci: readings.cci_reading,
+            psar: readings.psar_reading,
+            williams_r: readings.wr_reading,
+            awesome_oscillator: readings.ao_reading,
+            force_index: readings.fi_reading,
+            force_index_mean_abs: readings.fi_mean_abs,
+            hull_ma: readings.hma_reading,
+            stddev_channel: readings.sdc_reading,
+            volume_profile: readings.volume_profile_reading.clone(),
+            smc: readings.smc_reading.clone(),
+            prev: PreviousBarState::default(),
+            // AUDIT-AIU-071: config defaults (no tf_config in this helper).
+            rvol_institutional_threshold: 1.5,
+            rvol_climax_threshold: 3.0,
+        },
+        bar_count,
+        false,
+        active_set,
+    );
+
+    // Stamp a basic prev-bar state so cross-bar detection has something to
+    // diff against on the next candle. Full synthesis (which has access
+    // to fib/pattern/SR) is not wired into this helper — that's the
+    // trade-triggered path's job. The chart still gets a complete
+    // indicators map including ema_stack, rsi, macd, etc.
+    let prev_bar_state = PreviousBarState {
+        rsi: readings.final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
+        stoch_k: readings
+            .final_stoch
+            .as_ref()
+            .map(|s| s.k_value.to_f64().unwrap_or(0.0)),
+        stoch_d: readings
+            .final_stoch
+            .as_ref()
+            .map(|s| s.d_value.to_f64().unwrap_or(0.0)),
+        cmf: readings.final_cmf.map(|d| d.to_f64().unwrap_or(0.0)),
+        chandemo: readings.final_cmo.map(|d| d.to_f64().unwrap_or(0.0)),
+        aroon_up: readings
+            .final_aroon
+            .as_ref()
+            .map(|a| a.up.to_f64().unwrap_or(0.0)),
+        aroon_down: readings
+            .final_aroon
+            .as_ref()
+            .map(|a| a.down.to_f64().unwrap_or(0.0)),
+        macd_line: Some(readings.final_macd.macd_line.to_f64().unwrap_or(0.0)),
+        macd_histogram: Some(readings.final_macd.histogram.to_f64().unwrap_or(0.0)),
+        linreg_slope: readings.final_linreg,
+        zscore: readings.final_zscore,
+        obv: readings
+            .final_obv
+            .as_ref()
+            .map(|o| o.obv.to_f64().unwrap_or(0.0)),
+        obv_sma: readings
+            .final_obv
+            .as_ref()
+            .map(|o| o.obv_sma.to_f64().unwrap_or(0.0)),
+        mfi: readings.final_mfi.map(|d| d.to_f64().unwrap_or(0.0)),
+        adx_plus_di: readings
+            .final_adx
+            .as_ref()
+            .map(|a| a.plus_di.to_f64().unwrap_or(0.0)),
+        adx_minus_di: readings
+            .final_adx
+            .as_ref()
+            .map(|a| a.minus_di.to_f64().unwrap_or(0.0)),
+        price: Some(close_f),
+        ema_fast: Some(readings.final_ema_fast.to_f64().unwrap_or(0.0)),
+        ema_medium: Some(readings.final_ema_medium.to_f64().unwrap_or(0.0)),
+        // AUDIT-AIU-030: carried for the StackChange detector.
+        ema_slow: Some(readings.final_ema_slow.to_f64().unwrap_or(0.0)),
+        ema_long: Some(readings.final_ema_long.to_f64().unwrap_or(0.0)),
+        supertrend_line: readings
+            .final_supertrend
+            .as_ref()
+            .map(|s| s.line.to_f64().unwrap_or(0.0)),
+        pivot_active_level: readings.pivot_levels.map(|lv| {
+            let p = lv.pivot.to_f64().unwrap_or(0.0);
+            if close_f >= p {
+                1.0
+            } else {
+                -1.0
+            }
+        }),
+        ichimoku_tenkan: readings.ichimoku_reading.map(|r| r.tenkan.to_f64().unwrap_or(0.0)),
+        ichimoku_kijun: readings.ichimoku_reading.map(|r| r.kijun.to_f64().unwrap_or(0.0)),
+        price_vs_cloud: readings.ichimoku_reading.map(|r| {
+            let top = r
+                .senkou_a_current
+                .to_f64()
+                .unwrap_or(0.0)
+                .max(r.senkou_b_current.to_f64().unwrap_or(0.0));
+            let bot = r
+                .senkou_a_current
+                .to_f64()
+                .unwrap_or(0.0)
+                .min(r.senkou_b_current.to_f64().unwrap_or(0.0));
+            let px = close_f;
+            if px > top {
+                1.0
+            } else if px < bot {
+                -1.0
+            } else {
+                0.0
+            }
+        }),
+        ichimoku_future_bias: readings
+            .ichimoku_reading
+            .map(|r| (r.senkou_a - r.senkou_b).to_f64().unwrap_or(0.0).signum()),
+        hull_ma: readings.hma_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        awesome_oscillator: readings.ao_reading.map(|d| d.value.to_f64().unwrap_or(0.0)),
+        force_index: readings.fi_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        williams_r: readings.wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        cci: readings.cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        psar_sar: readings.psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
+        funding_rate: None,
+        cascade_state: None,
+    };
+    let _ = prev_bar_state; // future cross-bar detection hook
+
+    let indicator_lifecycle = build_indicator_lifecycle_map(
+        &indicators,
+        &IndicatorLifecycleMap::new(),
+        300,
+        bar_count,
+        false,
+        core_domain::LatencyTracker::now_ms(),
+        bar_count > 0,
+    );
+
+    MarketSnapshot {
+        timeframe_slot: Some(slot),
+        exchange: shadow_exchange,
+        timeframe_secs,
+        timestamp: candle.start_time_ms / 1000,
+        symbol: symbol.to_string(),
+        is_completed: Some(true),
+        mid_price: candle.close,
+        bid_price: shadow_bid,
+        ask_price: shadow_ask,
+        bid_size: Some(candle.volume),
+        ask_size: Some(candle.volume),
+        funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
+        prev_day_px: None,
+        open: Some(candle.open),
+        high: Some(candle.high),
+        low: Some(candle.low),
+        close: Some(candle.close),
+        volume: Some(candle.volume),
+        average_volume: avg_vol,
+        pipeline_state,
+        indicator_lifecycle,
+        context: None,
+        decision_context: None,
+        statistical_context: None,
+        indicators,
+        alignment: None,
+        risk: None,
+        analysis: None,
+        advisory: None,
+        opportunity: None,
+        risk_profile: None,
+        liquidity: None,
+        cluster: None,
+        volume_profile: readings.volume_profile_snapshot.clone(),
+        liquidity_signals: vec![],
+        metrics_config: active_set.to_metrics_config(),
+        quality_envelope: Some(CandleQualityEnvelope {
+            quality_score: 100.0,
+            is_valid: true,
+            is_gap_filled: candle.reconstructed.is_some(),
+            had_outliers_rejected: false,
+            spike_detected: false,
+            is_stale: false,
+            sequence_integrity: SequenceIntegrity::Valid,
+            gap_since_last: candle.duration_ms / 1000,
+            validated_at: candle.start_time_ms + candle.duration_ms,
+        }),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn broadcast_live_snapshot(
     broadcast_tx: &broadcast::Sender<MarketSnapshot>,
@@ -3147,6 +4202,9 @@ fn broadcast_live_snapshot(
     // Number of completed candles for this TF.  Passed through to
     // `build_indicator_map` so the shadow path uses the real count.
     bar_count: u32,
+    // Configured EMA periods `(fast, medium, slow, long)` — per-line
+    // ribbon availability gate (AUDIT-V8-001).
+    ema_periods: (usize, usize, usize, usize),
     // Pipeline lifecycle state derived from buffer fill.  Carried on the
     // shadow snapshot so the frontend never sees a spurious `Initializing`
     // state that would flash the pipeline banner.
@@ -3269,6 +4327,7 @@ fn broadcast_live_snapshot(
             ema_medium: Some(val_ema_medium),
             ema_slow: Some(val_ema_slow),
             ema_long: Some(val_ema_long),
+            ema_periods,
             rvol,
             volume: Some(candle.volume),
             average_volume: avg_vol,
@@ -3283,6 +4342,7 @@ fn broadcast_live_snapshot(
             pivot_levels: None,
             pivot_proximity_pct: 0.0015,
             candlestick: None,
+            // AUDIT-AIU-073: config default (shadow path carries no config).
             candlestick_min_confidence: 0.3,
             ichimoku: None,
             cci: None,
@@ -3290,11 +4350,15 @@ fn broadcast_live_snapshot(
             williams_r: None,
             awesome_oscillator: None,
             force_index: None,
+            force_index_mean_abs: None,
             hull_ma: None,
             stddev_channel: None,
             volume_profile: None,
             smc: None,
             prev: PreviousBarState::default(),
+            // AUDIT-AIU-071: config defaults (shadow path carries no config).
+            rvol_institutional_threshold: 1.5,
+            rvol_climax_threshold: 3.0,
         },
         bar_count as u32,
         true,
@@ -3334,7 +4398,14 @@ fn broadcast_live_snapshot(
             bar_count,
             true,
             core_domain::LatencyTracker::now_ms(),
-            false,
+            // AUDIT-AIU-013: the previous hardcoded `false` made every
+            // indicator report `Loading` on shadow ticks even when the
+            // pipeline is `Live` (the ILS Live gate requires
+            // `pipeline_is_live`), so the dashboard badge could never show
+            // Live on live ticks. The pipeline state passed in is already
+            // derived from the buffer fill, so a Live pipeline now surfaces
+            // Live badges on shadow snapshots too.
+            pipeline_state == CandlePipelineState::Live,
         ),
         context: None,
         decision_context: None,

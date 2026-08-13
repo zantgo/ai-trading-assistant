@@ -17,7 +17,7 @@ fn sample_indicators() -> HashMap<String, NormalizedIndicatorValue> {
     );
     map.insert(
         "rvol".to_string(),
-        NormalizationEngine::normalize_rvol(1.25),
+        NormalizationEngine::normalize_rvol(1.25, 1.5, 3.0),
     );
     map
 }

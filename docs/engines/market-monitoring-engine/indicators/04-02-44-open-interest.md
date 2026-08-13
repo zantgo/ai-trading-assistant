@@ -1,6 +1,6 @@
 # Open Interest
 
-**Version:** 6.10 (2026-08-05) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## Fundamental Mechanism
@@ -19,9 +19,11 @@ OI is a **non-directional gate** by itself. Its meaning emerges when combined wi
 | Price + OI | Interpretation |
 |------------|----------------|
 | Price ⬆ + OI ⬆ | Strong uptrend — new capital confirming the move. |
-| Price ⬆ + OI ⬇ | Weakening uptrend — covering/liquidation, not new buying. |
-| Price ⬇ + OI ⬆ | Strong downtrend — fresh shorts entering. |
+| Price ⬆ + OI ⬇ | **Bullish** (AUDIT-AIU-007, canonical with 04-02-47): shorts closing into strength; the uptrend is intact (OI_PRIC-Divergence emits Bullish `OI_BULLISH_DIV`). |
+| Price ⬇ + OI ⬆ | **Bearish** (AUDIT-AIU-007, canonical with 04-02-47): fresh shorts entering (OI-Price divergence emits Bearish `OI_BEARISH_DIV`). |
 | Price ⬇ + OI ⬇ | Weakening downtrend — longs liquidating, shorts covering. |
+
+> **Direction convention (AUDIT-AIU-007).** The OI-Price divergence direction is canonicalized on the MME indicator layer (`04-02-47`): price-up + OI-down = **Bullish**; price-down + OI-up = **Bearish**. This table previously implied the opposite; the liquidity-layer `OiPriceDivergence` signal now matches the indicator layer on the same snapshot.
 
 ## Standard Thresholds
 

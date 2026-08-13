@@ -46,10 +46,21 @@
     font-feature-settings: "tnum" 1;
 }
 
-.grid4 {
+.grid5 {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 12px;
+}
+
+.runnerBar {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.runnerBar > * {
+    flex: 1;
+    min-width: 0;
 }
 
 .grid2 {
@@ -58,12 +69,16 @@
     gap: 12px;
 }
 
-@media (max-width: 1400px) {
-    .grid4 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 1600px) {
+    .grid5 { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 1100px) {
+    .grid5 { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 800px) {
-    .grid4 { grid-template-columns: 1fr; }
+    .grid5 { grid-template-columns: 1fr; }
     .grid2 { grid-template-columns: 1fr; }
     .header {
         flex-direction: column;
