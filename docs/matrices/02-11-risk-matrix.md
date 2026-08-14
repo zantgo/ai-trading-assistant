@@ -14,6 +14,8 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.15, **Risk**
 
 Crucially, Risk is a property of an *interpretation*, not of raw observations: you cannot evaluate how risky a bullish trend is until you have first determined that a bullish trend exists. The Risk Matrix therefore consumes the [Analysis Matrix](02-02-analysis-matrix.md) plus the underlying [Metrics Matrix](02-07-metrics-matrix.md) indicators.
 
+**R:R exclusion (v6.10.12, RR-001).** L5 is direction-independent danger and **never** surfaces an R:R — reward synthesis belongs to L4 (geometric) and L6 (risk-adjusted) only.
+
 **L4/L5 strict orthogonality (institutional redesign).** L5 does **not** consume the L4 Opportunity Matrix. The Layer 4 (Opportunity) and Layer 5 (Risk) branches are strictly orthogonal at the matrix boundary: each reads L3 directly and runs in parallel. **Reward evaluation is a synthesis** and has been moved to the [Decision Matrix (L6)](02-04-decision-matrix.md) as the new `entry_danger` field. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate) — nine fields total — no reward synthesis.
 
 ```

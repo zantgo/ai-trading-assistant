@@ -129,10 +129,13 @@ describe('computeOpportunityBars', () => {
     expect(bars.bearish + bars.bullish + bars.hold).toBe(100);
   });
 
-  it('NO CLEAR SETUP (score 0) with a valid bracket renders pure hold', () => {
+  it('NO CLEAR SETUP (score 0) with a valid bracket shows the MIN_ACTIVE_FLOOR conviction (v6.10.12)', () => {
     // After the primary-selection fix the same 60s market headlines
-    // NoClearOpportunity with score 0 — the score cap floors any
-    // residual conviction to 0.
+    // NoClearOpportunity with score 0. The old hard cap floored any
+    // conviction to 0 — 0/0/100 beside a Recommendation gauge showing a
+    // real directional distribution. A valid active-side bracket now
+    // always carries at least MIN_ACTIVE_FLOOR (30) directional
+    // conviction; the remainder stays Hold.
     const bars = computeOpportunityBars(
       opp({
         primary_opportunity: 'NoClearOpportunity',
@@ -142,7 +145,9 @@ describe('computeOpportunityBars', () => {
       }),
       'Bearish',
     );
-    expect(bars).toEqual({ bullish: 0, bearish: 0, hold: 100 });
+    expect(bars.bearish).toBe(30);
+    expect(bars.bullish).toBe(0);
+    expect(bars.hold).toBe(70);
   });
 
   it('REGRESSION (real 1s sample): inverted geometry + StrongBullish + qualifying setup shows a modest bullish lean', () => {

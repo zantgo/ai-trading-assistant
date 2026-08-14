@@ -134,7 +134,8 @@ Both `OpportunitiesPanel` (Market Monitoring → Opportunities) and `Recommendat
 - The Opportunities panel renders **one actionable card per qualifying profile** (the leaderboard).
 - The Recommendation panel renders **only the highest-scored qualifying profile** as the operator's actionable decision.
 - The Trade Setups cards' entry/target/SL/R:R on the Opportunities panel match the Top Setup card's per-profile zones on the Recommendation panel for the same profile.
-- The directional conviction bars, the L4 header badge tone + R:R chip, and the `R:R (Internal)` block resolve their direction through the same shared helper (`selectProfileSide` + `topQualifyingProfile`) — the bars weight **only the active side's** R:R (`exp(RR·3)` vs a hold floor, capped by `opportunity_score`), so they can never contradict the panel's own lean chip, header, or cards (v6.10.6).
+- The directional conviction bars, the L4 header badge tone + R:R chip, and the `R:R (Internal)` block resolve their direction through the same shared helper (`selectProfileSide` + `topQualifyingProfile`) — the bars weight **only the active side's** R:R (`exp(RR·3)` vs a hold floor, capped by `opportunity_score`, floored at 30% — `MIN_ACTIVE_FLOOR` (v6.10.12) — so a `NO CLEAR SETUP` matrix with a real bracket still shows visible directional conviction), so they can never contradict the panel's own lean chip, header, or cards (v6.10.6).
+- **R:R ownership (v6.10.12, RR-001).** `R:R` (the geometric bracket reward/risk, `compute_side_rr_v2` with `target_mid`) is owned by L4 and appears on the Opportunity panel (header chip, `R:R (Internal)`, setup cards) and the L4 setup cards wherever they render. The risk-adjusted decision value (`geometric × (1 − L5.overall_risk/100)`) is owned by L6 and appears **only** as `Risk-Adj R:R` on the Recommendation panel and plan strip. L1/L2/L3/L5 never surface R:R. Every surface resolves through the shared `resolveActiveRr` chain (profile wire → matrix wire → aligned zones fallback with the identical `target_mid` formula).
 
 ---
 
@@ -272,7 +273,7 @@ Enum values serialize as `SCREAMING_SNAKE_CASE`.
 | **Strategy-agnostic** | No strategy assumptions (scalping, swing, arbitrage) leak into the profiling. |
 | **Explainability** | Every score decomposes into its four weighted factors and precondition fractions. |
 | **Bounded** | `opportunity_score` and all profile scores clamp to `[0, 100]`. |
-| **Canonical OpportunityType** | This matrix is the **only** producer of the *primary* `OpportunityType` classification consumed by the dashboards. The Analysis Matrix's `opportunity_analysis` field is retained only for backward compatibility (it mirrors the L4 selection with a coarser derivation); the UI reads `primary_opportunity`, never the L3 label, so the badge can't contradict the L4 verdict (v6.10.6). |
+| **Canonical OpportunityType** | This matrix is the **only** producer of the *primary* `OpportunityType` classification consumed by the dashboards. The Analysis Matrix's `opportunity_analysis` field is retained only for backward compatibility (it mirrors the L4 selection with a coarser derivation); the UI reads `primary_opportunity`, never the L3 label, so the badge can't contradict the L4 verdict (v6.10.6). Its scope is bounded (v6.10.13, M-6): `Reversal` (needs divergence signals), `Scalp` (needs BBWP+regime detail), and `LiquiditySqueeze` (needs L1.5 cascade data) are NOT derivable from the L2 alignment alone — in those cases the L3 field reports `NoClearOpportunity` while L4 may classify differently. |
 
 ---
 

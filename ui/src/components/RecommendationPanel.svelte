@@ -55,15 +55,16 @@
     }));
 
     // ── Unified net bias (single gauge replacing the two runner bars) ────
+    // v6.10.12 (GAUGE-001): the needle IS the final single number (net
+    // bias long − short); no percentage split is rendered under the dial.
+    // The raw probabilities remain in the export (`gauge.long_pct` /
+    // `hold_pct` / `short_pct`) for data consumers.
     const longPct = $derived(rank.long.probability);
     const shortPct = $derived(rank.short.probability);
-    const holdPct = $derived(rank.hold.probability);
     // R1: the needle is the VERDICT-consistent directional indicator.
     // When the verdict is HOLD (hold probability dominates), the needle
     // renders neutral — a green "+44%" needle under an amber HOLD badge
-    // contradicted the verdict. The raw net bias (long − short) remains
-    // in the export (`gauge.net_bias_pct`); the percentage split is
-    // rendered below the dial so no information is lost.
+    // contradicted the verdict.
     const gaugeNeutral = $derived(rank.top === 'HOLD');
     const displayNet = $derived(gaugeNeutral ? 0 : longPct - shortPct);
     const netAbs = $derived(Math.abs(displayNet));
@@ -105,10 +106,13 @@
     const netColor = $derived(displayNet > 0 ? '#22c55e' : displayNet < 0 ? '#ef4444' : '#f59e0b');
 
     // ── L6 LayerHeader — single authoritative verdict ────────────────────
+    // The opportunity matrix is passed so the Risk-Adj R:R chip can
+    // explain its discount in the tooltip (RR-001, v6.10.12).
     const headerSpec = $derived<LayerHeaderSpec>(buildL6DecisionHeader({
         rank,
         decisionContext: decisionCtx,
         advisory,
+        opportunity,
     }));
 
     function buildExport() {
@@ -273,15 +277,6 @@
                 <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
                 <span class="{styles.gaugeLong} {biasDirection !== 'LONG' ? styles.dim : ''}">LONG</span>
             </div>
-            <!-- R1: the probability split under the dial — the needle
-                 neutralizes under a HOLD verdict, so the raw long/hold/
-                 short split stays visible and the operator never loses
-                 the underlying probabilities. -->
-            <div class={styles.gaugeSplit}>
-                <span class={styles.gaugeSplitItem}><span class={styles.gaugeSplitLong}>LONG</span> {longPct}%</span>
-                <span class={styles.gaugeSplitItem}><span class={styles.gaugeSplitHold}>HOLD</span> {holdPct}%</span>
-                <span class={styles.gaugeSplitItem}><span class={styles.gaugeSplitShort}>SHORT</span> {shortPct}%</span>
-            </div>
         </div>
     </div>
 
@@ -356,7 +351,7 @@
                                     {topSetup.rr >= 9.99 ? 'R:R 1 : 9.99+' : topSetup.rr >= 5 ? `R:R 1 : ${topSetup.rr.toFixed(1)}` : `R:R 1 : ${topSetup.rr.toFixed(2)}`}
                                 </span>
                             {:else}
-                                <span class={styles.rrNa}>R:R N/A</span>
+                                <span class={styles.rrNa} title={topSetup.rr_reason ?? 'R:R not available'}>R:R N/A</span>
                             {/if}
                         </span>
                     </div>

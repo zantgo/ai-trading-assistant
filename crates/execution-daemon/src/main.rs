@@ -1353,6 +1353,16 @@ async fn main() {
                         timeframe_secs: 300,
                         timeframe_label: "slow300".into(),
                         is_active,
+                        // L7-A (v6.10.13): the per-symbol L5 overall risk —
+                        // the canonical aggregate the L7 risk distribution
+                        // bins on. Falls back to 50 (moderate) when the
+                        // slow snapshot has no risk matrix yet.
+                        overall_risk: snapshots
+                            .2
+                            .as_ref()
+                            .and_then(|s| s.risk.as_ref())
+                            .map(|r| r.overall_risk.score)
+                            .unwrap_or(50.0),
                     });
                 }
                 let overview =

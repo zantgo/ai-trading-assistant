@@ -16,8 +16,7 @@ import type {
 import {
   computeDecisionRank,
   profileSummary,
-  selectProfileSide,
-  topQualifyingProfile,
+  resolveActiveRr,
 } from '../../lib/decisionRank';
 import {
   buildPriceBlock,
@@ -28,7 +27,7 @@ import {
   type InstanceTermsLike,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
-import { computeOpportunityBars, RR_MEANINGFUL_FLOOR } from '../../lib/opportunityBars';
+import { computeOpportunityBars } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 
 // ── Payload types ────────────────────────────────────────────────────────
@@ -384,28 +383,11 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
   const opp = args.opportunity;
   const activeSideRr = (() => {
     if (!opp) return null;
-    // R4: the macro bias prefers the DecisionContext mirror (same candle
-    // as the verdict/probabilities) so the export can never contradict
-    // the panels that key off the decision rank.
-    const bias = args.decisionContext?.bias ?? args.analysis?.bias ?? 'Neutral';
-    // Mirror the panel's R:R (Internal) block: the top qualifying
-    // profile's resolved side first, then the macro bias side.
-    const top = topQualifyingProfile(opp);
-    const side = top ? selectProfileSide(top, bias) : 'NEUTRAL';
-    let v: number;
-    if (side === 'LONG') {
-      v = top?.long_expected_rr_internal ?? opp.long_expected_rr_internal ?? 0;
-    } else if (side === 'SHORT') {
-      v = top?.short_expected_rr_internal ?? opp.short_expected_rr_internal ?? 0;
-    } else if (bias === 'Bullish' || bias === 'StrongBullish') {
-      v = opp.long_expected_rr_internal ?? 0;
-    } else if (bias === 'Bearish' || bias === 'StrongBearish') {
-      v = opp.short_expected_rr_internal ?? 0;
-    } else {
-      v = 0;
-    }
-    // B3 defensive floor: degenerate near-zero ratios read as no R:R.
-    return v < RR_MEANINGFUL_FLOOR ? 0 : v;
+    // RR-002 (v6.10.12): mirror the panel's R:R (Internal) block through
+    // the shared resolver — the same chain (profile wire → matrix wire →
+    // aligned zones fallback) the screen uses.
+    const resolved = resolveActiveRr(opp, args.decisionContext, args.analysis);
+    return resolved.available ? resolved.value : 0;
   })();
   const expectedRrBlock =
     rank.top === 'HOLD' && (activeSideRr === null || activeSideRr === 0)

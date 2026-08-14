@@ -7,8 +7,8 @@
     import LayerHeader from './LayerHeader.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile } from '../lib/decisionRank';
-import { computeOpportunityBars, type DirectionalBars, RR_MEANINGFUL_FLOOR } from '../lib/opportunityBars';
+    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, resolveActiveRr } from '../lib/decisionRank';
+import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunityBars';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -182,38 +182,22 @@ import { computeOpportunityBars, type DirectionalBars, RR_MEANINGFUL_FLOOR } fro
     );
 
     // Active-side R:R (per-side, gated on the panel's own effective
-    // direction — the top qualifying profile's resolved side, falling
-    // back to the macro bias). The legacy matrix-level
-    // `expected_rr_internal` was removed in v6.9; the canonical R:R is
-    // now the per-side field. When the bias is Neutral (no active
-    // side), surface "N/A — no directional bias" instead of a
-    // misleading "0.00" that operators read as "this trade has 0 R:R".
-    // Degenerate near-zero ratios (< RR_MEANINGFUL_FLOOR) also read N/A.
-    const rrInternalDisplay = $derived.by((): { value: string; isNA: boolean } => {
-        // R4: the macro bias prefers the DecisionContext mirror (same
-        // candle as the verdict/probabilities) so the R:R display can
-        // never contradict the panels that key off the decision rank.
-        const bias = decisionContext?.bias ?? analysis?.bias ?? 'Neutral';
-        const opp = opportunity;
-        let v = 0;
-        if (opp) {
-            const top = topQualifyingProfile(opp);
-            const side = top ? selectProfileSide(top, bias) : 'NEUTRAL';
-            if (side === 'LONG') {
-                v = top?.long_expected_rr_internal ?? opp.long_expected_rr_internal ?? 0;
-            } else if (side === 'SHORT') {
-                v = top?.short_expected_rr_internal ?? opp.short_expected_rr_internal ?? 0;
-            } else if (bias === 'Bullish' || bias === 'StrongBullish') {
-                v = opp.long_expected_rr_internal ?? 0;
-            } else if (bias === 'Bearish' || bias === 'StrongBearish') {
-                v = opp.short_expected_rr_internal ?? 0;
-            }
-            if (v < RR_MEANINGFUL_FLOOR) v = 0;
-        }
-        if (rank.top === 'HOLD' && v === 0) {
-            return { value: 'N/A', isNA: true };
-        }
-        return { value: v.toFixed(2), isNA: false };
+    // direction). RR-002 (v6.10.12): the value flows through the shared
+    // `resolveActiveRr` chain (profile wire → matrix wire → aligned zones
+    // fallback) — the same value the header chip, the setup cards, and
+    // the export show. The legacy matrix-level `expected_rr_internal` was
+    // removed in v6.9. When the verdict is HOLD with no active R:R, or
+    // the bracket is degenerate (below the 0.10 floor / geometry
+    // inverted / no directional bias), the cell reads N/A with the reason
+    // rendered beneath it.
+    const rrInternalDisplay = $derived.by((): { value: string; isNA: boolean; reason: string | null } => {
+        const resolved = resolveActiveRr(opportunity, decisionContext, analysis);
+        const showNA = !resolved.available || (rank.top === 'HOLD' && resolved.value === 0);
+        return {
+            value: showNA ? 'N/A' : resolved.value.toFixed(2),
+            isNA: showNA,
+            reason: showNA ? (resolved.reason ?? 'no directional bias') : null,
+        };
     });
 
     function buildExport() {
@@ -478,9 +462,13 @@ import { computeOpportunityBars, type DirectionalBars, RR_MEANINGFUL_FLOOR } fro
             <div class={styles.zoneGrid}>
                 <div class={styles.zoneCard}>
                     <span class={styles.zoneLabel}>Expected R:R</span>
-                    <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}>
+                    <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}
+                          title={rrInternalDisplay.reason ?? undefined}>
                         {rrInternalDisplay.value}
                     </span>
+                    {#if rrInternalDisplay.isNA && rrInternalDisplay.reason}
+                        <span class={styles.rrReason}>{rrInternalDisplay.reason}</span>
+                    {/if}
                 </div>
                 <div class={styles.zoneCard}>
                     <span class={styles.zoneLabel}>Horizon</span>

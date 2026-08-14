@@ -592,6 +592,155 @@ export interface ProfileZones {
     geometry_consistent: boolean;
 }
 
+// ── R:R vocabulary (v6.10.12, RR-001…006) ──────────────────────────────
+// Platform rule: R:R is owned by exactly two layers.
+//   - L4 (Opportunity): the GEOMETRIC bracket R:R (reward/risk of the
+//     entry/target/invalidation levels). Canonical producer is the
+//     backend `compute_side_rr_v2` (target_mid − entry_mid over
+//     entry_mid − invalidation).
+//   - L6 (Recommendation): the RISK-ADJUSTED decision R:R
+//     (geometric × (1 − overall_risk/100), `DecisionContext`).
+// L1/L2/L3/L5 never surface R:R.
+//
+// `RR_MEANINGFUL_FLOOR` (0.1) is the shared degenerate-ratio floor; the
+// zones fallback below replicates the backend formula exactly (target_mid,
+// not target.low) so a bracket can never display two different R:R values.
+
+/** Minimum economically meaningful R:R (mirror of the backend floor). */
+export const RR_MEANINGFUL_FLOOR = 0.1;
+
+export interface ZoneRrResult {
+    /** R:R computed from the bracket, `null` when degenerate. */
+    rr: number | null;
+    /** Why the zones produce no R:R. */
+    reason: 'geometry_inverted' | 'below_floor' | null;
+}
+
+/**
+ * The geometric bracket R:R — a faithful frontend replica of the backend
+ * `compute_side_rr_v2` (target_mid / entry_mid / invalidation, floor 0.1).
+ * Used as the fallback when the wire R:R is missing or 0, so the fallback
+ * always equals what the wire would have produced for the same bracket.
+ */
+export function geometricRrFromZones(
+    entry: PriceRange,
+    target: PriceRange,
+    invalidation: number,
+    side: 'LONG' | 'SHORT',
+): ZoneRrResult {
+    const entryMid = (entry.low + entry.high) / 2;
+    const targetMid = (target.low + target.high) / 2;
+    // Backend `SlInsideEntry` guard: a stop inside the entry zone is not a
+    // bracket (the backend emits R:R 0 for it — the fallback must too).
+    if (invalidation >= entry.low && invalidation <= entry.high) {
+        return { rr: null, reason: 'geometry_inverted' };
+    }
+    const reward = side === 'LONG' ? targetMid - entryMid : entryMid - targetMid;
+    const risk = side === 'LONG' ? entryMid - invalidation : invalidation - entryMid;
+    if (!isFinite(reward) || !isFinite(risk) || reward <= 0 || risk <= 0) {
+        return { rr: null, reason: 'geometry_inverted' };
+    }
+    const ratio = reward / risk;
+    if (!isFinite(ratio)) {
+        return { rr: null, reason: 'geometry_inverted' };
+    }
+    if (ratio < RR_MEANINGFUL_FLOOR) {
+        return { rr: null, reason: 'below_floor' };
+    }
+    return { rr: Math.round(ratio * 100) / 100, reason: null };
+}
+
+export interface ResolvedRr {
+    /** The geometric (L4) bracket R:R for the resolved active side. */
+    value: number;
+    /** `false` → surfaces render `N/A`. */
+    available: boolean;
+    /** Human-readable N/A reason (rendered as tooltip/sub-line). */
+    reason: string | null;
+    /** Which source produced the value. */
+    source: 'profile_wire' | 'matrix_wire' | 'zones' | null;
+    /** The L6 risk-adjusted decision R:R when real, else `null`. */
+    riskAdjusted: number | null;
+}
+
+/**
+ * The single R:R resolver — every surface (cards, chips, R:R Internal,
+ * exports, plan strip) reads the active side's geometric R:R through this
+ * chain:
+ *
+ *   1. top (or given) profile's wire per-side `expected_rr_internal`,
+ *   2. the matrix-level per-side wire value (bias side),
+ *   3. the zones fallback with the exact backend formula
+ *      (`geometricRrFromZones`), so it always equals the wire value.
+ *
+ * The risk-adjusted L6 value (`DecisionContext.expected_reward_risk_ratio`)
+ * is carried separately — it is the decision number, never a bracket
+ * number.
+ */
+export function resolveActiveRr(
+    opportunity: OpportunityMatrix | null | undefined,
+    decisionContext?: DecisionContext | null,
+    analysis?: AnalysisMatrix | null,
+    profileOverride?: OpportunityProfile | null,
+    biasOverride?: MarketBias | null,
+): ResolvedRr {
+    const riskAdjusted =
+        decisionContext?.expected_reward_risk_ratio != null && decisionContext.expected_reward_risk_ratio > 0
+            ? decisionContext.expected_reward_risk_ratio
+            : null;
+    if (!opportunity) {
+        return { value: 0, available: false, reason: 'no directional bias', source: null, riskAdjusted };
+    }
+    const bias = biasOverride ?? decisionContext?.bias ?? analysis?.bias ?? null;
+    const top = profileOverride ?? topQualifyingProfile(opportunity);
+    const side = top
+        ? selectProfileSide(top, bias)
+        : bias === 'Bullish' || bias === 'StrongBullish'
+          ? 'LONG'
+          : bias === 'Bearish' || bias === 'StrongBearish'
+            ? 'SHORT'
+            : 'NEUTRAL';
+    if (side === 'NEUTRAL') {
+        return { value: 0, available: false, reason: 'no directional bias', source: null, riskAdjusted };
+    }
+    const wireRr =
+        side === 'LONG'
+            ? top?.long_expected_rr_internal ?? opportunity.long_expected_rr_internal ?? 0
+            : top?.short_expected_rr_internal ?? opportunity.short_expected_rr_internal ?? 0;
+    if (wireRr >= RR_MEANINGFUL_FLOOR) {
+        return { value: wireRr, available: true, reason: null, source: top ? 'profile_wire' : 'matrix_wire', riskAdjusted };
+    }
+    if (wireRr > 0) {
+        return { value: 0, available: false, reason: 'below the 0.10 meaningfulness floor', source: top ? 'profile_wire' : 'matrix_wire', riskAdjusted };
+    }
+    const entry =
+        side === 'LONG'
+            ? (top?.long_entry_zone ?? opportunity.long_entry_zone)
+            : (top?.short_entry_zone ?? opportunity.short_entry_zone);
+    const target =
+        side === 'LONG'
+            ? (top?.long_target_zone ?? opportunity.long_target_zone)
+            : (top?.short_target_zone ?? opportunity.short_target_zone);
+    const inv =
+        side === 'LONG'
+            ? (top?.long_invalidation_level ?? opportunity.long_invalidation_level)
+            : (top?.short_invalidation_level ?? opportunity.short_invalidation_level);
+    if (entry && target && entry.low > 0 && entry.high > 0 && target.low > 0 && target.high > 0 && inv > 0) {
+        const zone = geometricRrFromZones(entry, target, inv, side);
+        if (zone.rr != null) {
+            return { value: zone.rr, available: true, reason: null, source: 'zones', riskAdjusted };
+        }
+        return {
+            value: 0,
+            available: false,
+            reason: zone.reason === 'below_floor' ? 'below the 0.10 meaningfulness floor' : 'geometry inverted',
+            source: 'zones',
+            riskAdjusted,
+        };
+    }
+    return { value: 0, available: false, reason: 'no valid bracket', source: null, riskAdjusted };
+}
+
 /**
  * Read the resolved per-side zones directly from an `OpportunityProfile`.
  * Returns `null` when the profile has no zones for that side (legacy
@@ -608,14 +757,15 @@ export function profileZones(
     if (!entry || !target || entry.low <= 0 || entry.high <= 0 || !inv || inv <= 0) {
         return null;
     }
-    const entryMid = (entry.low + entry.high) / 2;
-    const reward = side === 'LONG' ? target.low - entryMid : entryMid - target.high;
-    const risk = side === 'LONG' ? entryMid - inv : inv - entryMid;
+    // B3 (v6.10.12): the zones R:R uses the SAME mid-based formula as the
+    // backend wire (`geometricRrFromZones`) — the legacy target.low-based
+    // recomputation could disagree with the wire for the same bracket.
+    const zone = geometricRrFromZones(entry, target, inv, side);
     // Prefer server-side geometry flag when present; fall back to local check.
     const serverConsistent =
         side === 'LONG' ? profile.long_geometry_consistent : profile.short_geometry_consistent;
-    const geometry_consistent = serverConsistent ?? (reward > 0 && risk > 0);
-    const rr = geometry_consistent ? Math.round((reward / risk) * 100) / 100 : null;
+    const geometry_consistent = serverConsistent ?? zone.reason !== 'geometry_inverted';
+    const rr = geometry_consistent ? zone.rr : null;
     return { side, entry, target, invalidation: inv, rr, geometry_consistent };
 }
 
@@ -652,10 +802,10 @@ export function aggregateZones(
     // Prefer server-side matrix-level geometry flag when present.
     const serverConsistent =
         side === 'LONG' ? opportunity.long_geometry_consistent : opportunity.short_geometry_consistent;
-    const entryMid = (entry.low + entry.high) / 2;
-    const reward = side === 'LONG' ? target.low - entryMid : entryMid - target.high;
-    const risk = side === 'LONG' ? entryMid - inv : inv - entryMid;
-    const geometry_consistent = serverConsistent ?? (reward > 0 && risk > 0);
+    // B3 (v6.10.12): the consistency check uses the SAME mid-based formula
+    // as the backend wire (delegated into profileZones → geometricRrFromZones).
+    const zone = geometricRrFromZones(entry, target, inv, side);
+    const geometry_consistent = serverConsistent ?? zone.reason !== 'geometry_inverted';
     return profileZones(
         {
             opportunity_type: '__aggregate__',
@@ -706,6 +856,8 @@ export interface TopSetupSummary {
     viability: 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
     zones: ProfileZones | null;
     rr: number | null;
+    /** Human-readable N/A reason — rendered as a tooltip on the card. */
+    rr_reason: string | null;
     rationale: string;
 }
 
@@ -741,26 +893,12 @@ export function topSetupSummary(
             : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
-    // Per-side R:R from the wire (canonical). The wire value comes from
-    // the backend's `compute_side_rr_v2` (target-mid geometry) and is the
-    // single source of truth shared with the header chip
-    // (`layerHeader.ts`). Read it from the FINAL resolved side — including
-    // the aggregate fallback side resolved above — so a NEUTRAL-side
-    // setup that falls back to LONG zones still surfaces the wire R:R
-    // instead of the TP1-based `zones.rr` (which uses `target.low` only
-    // and disagrees with the wire). When the wire value is missing or 0,
-    // fall back to the geometric R:R derived from the zones so the
-    // operator always sees a ratio.
-    const finalSide = zones?.side ?? side;
-    const wireRr =
-        finalSide === 'LONG'
-            ? top.long_expected_rr_internal ?? opportunity.long_expected_rr_internal
-            : finalSide === 'SHORT'
-              ? top.short_expected_rr_internal ?? opportunity.short_expected_rr_internal
-              : null;
-    const rr = wireRr != null && wireRr > 0
-        ? Math.round(wireRr * 100) / 100
-        : zones?.rr ?? null;
+    // R:R via the shared resolver (RR-002, v6.10.12): profile wire →
+    // matrix wire → zones fallback with the exact backend formula. The
+    // resolver carries the human-readable N/A reason.
+    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, top);
+    const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+    const rrReason = resolvedRr.available ? null : resolvedRr.reason;
     // Viability — wire-side default to `NoClear` when missing.
     const viability = normalizeViability(top.trade_viability ?? 'NoClear') as TopSetupSummary['viability'];
     // Clean rationale (no raw/ratio debug strings).
@@ -774,6 +912,7 @@ export function topSetupSummary(
         viability,
         zones,
         rr,
+        rr_reason: rrReason,
         rationale,
     };
 }
@@ -811,22 +950,11 @@ export function profileSummary(
             : side;
         zones = aggregateZones(opportunity, fallbackSide);
     }
-    // Per-side R:R from the wire (canonical, target-mid geometry via
-    // `compute_side_rr_v2` — same family as the header chip). Read from
-    // the FINAL resolved side (including the aggregate fallback side) so
-    // NEUTRAL-side profiles that fall back to LONG/SHORT zones surface
-    // the wire value instead of the TP1-based `zones.rr`. Fall back to
-    // the geometric R:R only when the wire value is missing or 0.
-    const finalSide = zones?.side ?? side;
-    const wireRr =
-        finalSide === 'LONG'
-            ? profile.long_expected_rr_internal ?? opportunity?.long_expected_rr_internal
-            : finalSide === 'SHORT'
-              ? profile.short_expected_rr_internal ?? opportunity?.short_expected_rr_internal
-              : null;
-    const rr = wireRr != null && wireRr > 0
-        ? Math.round(wireRr * 100) / 100
-        : zones?.rr ?? null;
+    // R:R via the shared resolver (RR-002, v6.10.12) — the same chain as
+    // the Top Setup card: profile wire → matrix wire → zones fallback
+    // with the exact backend formula.
+    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, profile);
+    const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
     const viability = normalizeViability(profile.trade_viability ?? 'NoClear') as 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
     return { side, zones, rr, viability };
 }

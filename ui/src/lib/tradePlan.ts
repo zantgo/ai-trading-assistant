@@ -19,6 +19,7 @@ import type {
     OpportunityMatrix,
     TimeframeTelemetry,
 } from '../types';
+import { resolveActiveRr } from './decisionRank';
 
 export type SourceTag = 'FIB' | 'VP' | 'PP' | 'SR' | 'LIQ' | 'ATR' | 'NONE';
 
@@ -173,21 +174,12 @@ export function deriveTradePlan(args: DeriveArgs): TradePlan {
 
     const confidencePct = Math.round(advisory?.confidence_assessment ?? 0);
 
-    // Per-side R:R from the selected profile (the legacy scalar
-    // `expected_rr_internal` is suppressed to 0 on Neutral; the per-side
-    // `long_/short_expected_rr_internal` lives on the chosen profile, not
-    // on the OpportunityMatrix).
-    const topProfile = (opportunity?.profiles ?? []).find(
-        (p) => p.opportunity_type === opportunity?.primary_opportunity,
-    );
-    const perSideRr = direction === 'LONG'
-        ? (topProfile?.long_expected_rr_internal ?? 0)
-        : direction === 'SHORT'
-            ? (topProfile?.short_expected_rr_internal ?? 0)
-            : 0;
-    const decisionRr = decisionContext?.expected_reward_risk_ratio
-        ?? (perSideRr > 0 ? perSideRr : 0);
-    const rrRatio = Math.round(decisionRr * 100) / 100;
+    // Plan-level R:R — RR-005 (v6.10.12): the L6 RISK-ADJUSTED decision
+    // value via the shared resolver (risk-adjusted first, geometric
+    // fallback when the decision value is absent). Per-target R:R below
+    // remains per-target economics (same mid-based convention).
+    const planRr = resolveActiveRr(opportunity, decisionContext, analysis);
+    const rrRatio = Math.round((planRr.riskAdjusted ?? planRr.value) * 100) / 100;
 
     // ── Select per-side L4 zones (NOT the legacy single-bias mirror) ──
     const isLong = direction === 'LONG';

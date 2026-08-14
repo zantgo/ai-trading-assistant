@@ -72,7 +72,7 @@
     {#if spec.meta.length > 0}
         <div class={styles.metaList}>
             {#each spec.meta as chip (chip.label)}
-                <div class={styles.metaChip}>
+                <div class={styles.metaChip} title={chip.title}>
                     <span class={styles.metaChipLabel}>{chip.label}:</span>
                     <span
                         class="{styles.metaChipValue} {chipCls[chip.state]}"

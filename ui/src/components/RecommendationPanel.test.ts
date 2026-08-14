@@ -249,7 +249,8 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         // R:R is now reflected via the per-side fields and the L6
         // Risk-Adj R:R. We assert that the legacy label is gone.
         expect(screen.queryByText(/Internal R:R/i)).toBeNull();
-        expect(screen.getByText(/Risk-Adj R:R/i)).toBeTruthy();
+        // Appears on both the header chip and the Safety Flags KPI.
+        expect(screen.getAllByText(/Risk-Adj R:R/i).length).toBeGreaterThanOrEqual(1);
         // R7: the KPI is the advisory's ATR-derived stop-distance guide —
         // relabelled to not collide with the Top Setup card's geometric SL.
         expect(screen.getByText('ATR Stop Guide')).toBeTruthy();
@@ -609,9 +610,10 @@ describe('gauge geometry — active arc is a Dome segment', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// R1: the needle is verdict-consistent — a HOLD verdict (hold probability
-// dominant) neutralizes the needle even when the raw net bias (long −
-// short) is non-zero. The probability split stays visible under the dial.
+// R1 + GAUGE-001: the needle is verdict-consistent — a HOLD verdict (hold
+// probability dominant) neutralizes the needle even when the raw net bias
+// (long − short) is non-zero. The needle IS the single final number: no
+// LONG/HOLD/SHORT percentage split is rendered under the dial (v6.10.12).
 // ─────────────────────────────────────────────────────────────────────────
 describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
     function mountHoldVerdictWithNetBias() {
@@ -649,16 +651,17 @@ describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
         expect(screen.getByText('0%')).toBeTruthy();
     });
 
-    it('renders the long/hold/short probability split under the dial', () => {
+    it('GAUGE-001: no percentage split is rendered under the dial (needle is the single final number)', () => {
         mountHoldVerdictWithNetBias();
-        // The dial labels LONG/HOLD/SHORT also render above the needle,
-        // so the split readout is asserted via the percentages.
+        // The dial labels LONG/HOLD/SHORT exist above the needle, but the
+        // probability readout row must NOT appear — the needle is the
+        // final single number (0 under HOLD).
         expect(screen.getAllByText(/LONG/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText(/HOLD/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText(/SHORT/).length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText('46%')).toBeTruthy();
-        expect(screen.getByText('52%')).toBeTruthy();
-        expect(screen.getByText('2%')).toBeTruthy();
+        expect(screen.queryByText('46%')).toBeNull();
+        expect(screen.queryByText('52%')).toBeNull();
+        expect(screen.queryByText('2%')).toBeNull();
     });
 });
 

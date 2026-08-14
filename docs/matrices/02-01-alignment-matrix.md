@@ -153,12 +153,14 @@ least two timeframes contribute signals.
 ### 4.5 Overall Label
 
 ```
-score ≥  60 → STRONG_BULL_MTF
+score ≥  40 → STRONG_BULL_MTF
 score ≥  20 → WEAK_BULL_MTF
-score ≤ -60 → STRONG_BEAR_MTF
+score ≤ -40 → STRONG_BEAR_MTF
 score ≤ -20 → WEAK_BEAR_MTF
 otherwise   → NEUTRAL_MTF
 ```
+
+> **Band alignment (v6.10.13, M-1).** The strong band uses ±40 to match the canonical L3 `MarketBias` thresholds (`derive_analysis`: `> 40 → StrongBullish`). The legacy ±60 strong band rendered the same `mtf_overall_score` (e.g. 45) as "WEAK BULL" on the Alignment header while the Analysis header said "STRONG BULLISH".
 
 ---
 

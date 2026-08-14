@@ -12,6 +12,7 @@ import {
     aggregateZones,
     topSetupSummary,
     profileSummary,
+    resolveActiveRr,
 } from './decisionRank';
 import type {
     AdvisoryMatrix,
@@ -619,9 +620,9 @@ describe('profileZones', () => {
         expect(z!.target.high).toBe(66500);
         expect(z!.invalidation).toBe(62400);
         expect(z!.geometry_consistent).toBe(true);
-        // entry mid = 63100; reward = 66000 - 63100 = 2900; risk = 63100 - 62400 = 700
-        // R:R = 2900/700 ≈ 4.14
-        expect(z!.rr).toBeCloseTo(4.14, 1);
+        // entry mid = 63100; target mid = 66250; reward = 66250 - 63100 = 3150;
+        // risk = 63100 - 62400 = 700 → R:R = 3150/700 = 4.5 (mid-based, B3)
+        expect(z!.rr).toBeCloseTo(4.5, 1);
     });
 
     it('returns null for SHORT when profile only carries LONG zones', () => {
@@ -666,8 +667,9 @@ describe('profileZones', () => {
         expect(z).not.toBeNull();
         expect(z!.side).toBe('SHORT');
         expect(z!.invalidation).toBe(66000);
-        // entry mid = 64900; reward = 64900 - 62400 = 2500; risk = 66000 - 64900 = 1100
-        expect(z!.rr).toBeCloseTo(2.27, 1);
+        // entry mid = 64900; target mid = 62200; reward = 64900 - 62200 = 2700;
+        // risk = 66000 - 64900 = 1100 → R:R = 2700/1100 ≈ 2.45 (mid-based, B3)
+        expect(z!.rr).toBeCloseTo(2.45, 1);
     });
 });
 
@@ -901,9 +903,9 @@ describe('topSetupSummary', () => {
         expect(t).not.toBeNull();
         expect(t!.zones).not.toBeNull();
         // LONG bracket: entry mid = (63000+63200)/2 = 63100,
-        // target.low = 66000, invalid = 62400 → reward 2900, risk 700
-        // → R:R ≈ 4.14
-        expect(t!.rr).toBeCloseTo(4.14, 1);
+        // target mid = (66000+66500)/2 = 66250, invalid = 62400 →
+        // reward 3150, risk 700 → R:R = 4.5 (mid-based, B3)
+        expect(t!.rr).toBeCloseTo(4.5, 1);
     });
 
     it('resolves side from populated zones even for a Neutral-family profile (zone-presence is the wire truth)', () => {
@@ -928,9 +930,9 @@ describe('topSetupSummary', () => {
         expect(t).not.toBeNull();
         expect(t!.direction).toBe('LONG');
         expect(t!.viability).toBe('DirectionalNeutral');
-        // LONG bracket: entry mid 63100, target.low 66000, invalid 62400
-        // → R:R ≈ 4.14
-        expect(t!.rr).toBeCloseTo(4.14, 1);
+        // LONG bracket: entry mid 63100, target mid 66250, invalid 62400
+        // → R:R = 4.5 (mid-based, B3)
+        expect(t!.rr).toBeCloseTo(4.5, 1);
     });
 
     it('returns null R:R when the geometric triangle is truly degenerate', () => {
@@ -1144,4 +1146,123 @@ describe('profileSummary', () => {
         expect(s.rr).toBeNull();
         expect(s.side).toBe('NEUTRAL');
     });
+
+// ─────────────────────────────────────────────────────────────────────────
+// RR-002 (v6.10.12): the shared R:R resolver — profile wire → matrix wire
+// → aligned zones fallback, with human-readable N/A reasons.
+// ─────────────────────────────────────────────────────────────────────────
+describe('resolveActiveRr', () => {
+    function makeProfile(overrides: any = {}) {
+        return {
+            opportunity_type: 'TrendContinuation',
+            score: 78,
+            preconditions_met: 3,
+            preconditions_total: 3,
+            notes: '',
+            direction_family: 'TrendRiding',
+            long_entry_zone: { low: 63000, high: 63200 },
+            long_target_zone: { low: 66000, high: 66500 },
+            long_invalidation_level: 62400,
+            long_expected_rr_internal: 2.5,
+            short_entry_zone: null,
+            short_target_zone: null,
+            short_invalidation_level: null,
+            short_expected_rr_internal: null,
+            trade_viability: 'Actionable',
+            ...overrides,
+        };
+    }
+    function makeOpportunity(profiles: any[], rrOverride: any = {}) {
+        return {
+            symbol: 'BTC-USDT',
+            primary_opportunity: 'TrendContinuation',
+            opportunity_score: 78,
+            setup_quality: 'Strong',
+            profiles,
+            forecast_confidence: 0.72,
+            contributing_signals: [],
+            invalidation_note: '',
+            entry_zone: { low: 63000, high: 63200 },
+            target_zone: { low: 66000, high: 66500 },
+            invalidation_level: 62400,
+            long_entry_zone: { low: 63000, high: 63200 },
+            long_target_zone: { low: 66000, high: 66500 },
+            long_invalidation_level: 62400,
+            long_expected_rr_internal: 2.5,
+            short_entry_zone: null,
+            short_target_zone: null,
+            short_invalidation_level: null,
+            short_expected_rr_internal: null,
+            time_horizon: 'SWING',
+            confluent_entry_levels: [],
+            confluent_target_levels: [],
+            confluent_invalidation_levels: [],
+            ...rrOverride,
+        } as any;
+    }
+
+    it('prefers the top profile wire R:R over the matrix value', () => {
+        const profile = makeProfile({ long_expected_rr_internal: 3.2 });
+        const opp = makeOpportunity([profile]);
+        const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
+        expect(r.available).toBe(true);
+        expect(r.value).toBe(3.2);
+        expect(r.source).toBe('profile_wire');
+        expect(r.reason).toBeNull();
+    });
+
+    it('falls back to the matrix wire R:R when no profile qualifies', () => {
+        const opp = makeOpportunity([], { long_expected_rr_internal: 1.7 });
+        const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
+        expect(r.available).toBe(true);
+        expect(r.value).toBe(1.7);
+        expect(r.source).toBe('matrix_wire');
+    });
+
+    it('falls back to the aligned zones geometry when the wire is 0', () => {
+        const profile = makeProfile({ long_expected_rr_internal: 0, short_expected_rr_internal: 0 });
+        const opp = makeOpportunity([profile], { long_expected_rr_internal: 0 });
+        const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
+        // entry mid 63100, target mid 66250, inv 62400 → 3150/700 = 4.5.
+        expect(r.available).toBe(true);
+        expect(r.value).toBe(4.5);
+        expect(r.source).toBe('zones');
+    });
+
+    it('returns N/A with a reason when the stop sits inside the entry zone (SlInsideEntry)', () => {
+        // The backend emits R:R 0 for this bracket (inv inside entry) —
+        // the fallback must too, with the reason surfaced.
+        const profile = makeProfile({
+            long_expected_rr_internal: 0,
+            long_entry_zone: { low: 63320, high: 63340 },
+            long_target_zone: { low: 63681, high: 64380 },
+            long_invalidation_level: 63327,
+        });
+        const opp = makeOpportunity([profile], { long_expected_rr_internal: 0 });
+        const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
+        expect(r.available).toBe(false);
+        expect(r.reason).toBe('geometry inverted');
+    });
+
+    it('returns no directional bias for a neutral bias without a qualifying profile', () => {
+        const opp = makeOpportunity([], { long_expected_rr_internal: 2.5 });
+        const r = resolveActiveRr(opp, undefined, { bias: 'Neutral' } as any);
+        expect(r.available).toBe(false);
+        expect(r.reason).toBe('no directional bias');
+    });
+
+    it('carries the risk-adjusted decision R:R when the underlying is real', () => {
+        const opp = makeOpportunity([]);
+        const r = resolveActiveRr(opp, { bias: 'Bullish', expected_reward_risk_ratio: 0.59 } as any);
+        expect(r.available).toBe(true);
+        expect(r.riskAdjusted).toBe(0.59);
+    });
+
+    it('below-floor wire R:R surfaces the floor reason', () => {
+        const opp = makeOpportunity([], { long_expected_rr_internal: 0.0117 });
+        const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
+        expect(r.available).toBe(false);
+        expect(r.reason).toBe('below the 0.10 meaningfulness floor');
+    });
+});
 });

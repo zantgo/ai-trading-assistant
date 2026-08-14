@@ -14,6 +14,7 @@
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor, rrColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import { resolveEffectiveDirection, RR_MEANINGFUL_FLOOR } from './opportunityBars';
+import { resolveActiveRr } from './decisionRank';
 import type {
     AdvisoryMatrix,
     AlignmentMatrix,
@@ -51,6 +52,8 @@ export interface MetaChipSpec {
     /** Text colour for the value when state is `valid`. Ignored otherwise. */
     color: string;
     state: ValueState;
+    /** Optional hover tooltip (RR-001, v6.10.12: e.g. the R:R discount). */
+    title?: string;
 }
 
 export interface LayerHeaderSpec {
@@ -93,6 +96,8 @@ export interface ChipOptions {
     /** Number of fractional digits to render for a numeric `rawValue`.
      *  Defaults to `2` for floats and `0` for integer-valued chips. */
     digits?: number;
+    /** Optional hover tooltip carried on the chip spec (RR-001). */
+    title?: string;
 }
 
 /**
@@ -110,15 +115,15 @@ export function chip(
     opts: ChipOptions = {},
 ): MetaChipSpec {
     if (rawValue === null || rawValue === undefined || rawValue === '') {
-        return { label, value: EMPTY_DASH, color: DASHBOARD_COLORS.inactive, state: 'empty' };
+        return { label, value: EMPTY_DASH, color: DASHBOARD_COLORS.inactive, state: 'empty', title: opts.title };
     }
     if (typeof numericValue === 'number' && numericValue === 0) {
         if (opts.zeroIsGood) {
             // Risk-zero: green "0" — meaningful good news.
             const z = isCount ? '0' : formatChipNumber(0, opts.digits);
-            return { label, value: z, color: '#22c55e', state: 'valid' };
+            return { label, value: z, color: '#22c55e', state: 'valid', title: opts.title };
         }
-        return { label, value: isCount ? '0' : String(rawValue), color: COLORS.neutral, state: 'neutral' };
+        return { label, value: isCount ? '0' : String(rawValue), color: COLORS.neutral, state: 'neutral', title: opts.title };
     }
     const color = colorFn && numericValue != null ? colorFn(numericValue) : COLORS.text;
     const display =
@@ -127,7 +132,7 @@ export function chip(
             : typeof rawValue === 'number'
                 ? formatChipNumber(rawValue, opts.digits)
                 : String(rawValue);
-    return { label, value: display, color, state: 'valid' };
+    return { label, value: display, color, state: 'valid', title: opts.title };
 }
 
 function formatChipNumber(n: number, digits?: number): string {
@@ -300,7 +305,9 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
 
 // L2 — Alignment (cross-TF). The badge label uses the shared `mLabel`
 // mapping so the header can never disagree with the panel body's label
-// ("WEAK BULL", not "WEAK BULL MTF").
+// ("WEAK BULL", not "WEAK BULL MTF"). M-5 (v6.10.13): status follows the
+// same TF-count rule as the L1 MTF header (≥3 live, ≥1 stale, 0 loading)
+// — two headers reading the same alignment can no longer disagree.
 export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): LayerHeaderSpec {
     const label = a?.mtf_overall_label ?? null;
     const score = a?.mtf_overall_score ?? null;
@@ -324,13 +331,18 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
             chip('Agreement', agreement != null ? `${agreement.toFixed(0)}%` : null, agreement, scoreColor),
             chip('TFs', tfs != null ? `${tfs}/4` : null, tfs, null, true),
         ],
-        status: 'live',
+        status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
     };
 }
 
 // L3 — Analysis (no longer leaks into L4-L6).
 // Regime chip is suppressed when redundant with the bias badge
 // (e.g. bias=BULLISH ∧ regime=TRENDING_BULL is one fact, not two).
+// M-2/M-3 (v6.10.13): the warmup sentinel (`timeframes_considered === 0`)
+// renders the empty badge + loading status (the L3 body would otherwise
+// show fabricated Neutral/Poor values), and the confidence chip is
+// renamed "State Conf" to disambiguate from the L6 risk-discounted
+// "Confidence".
 export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): LayerHeaderSpec {
     const bias = a?.bias ?? null;
     const regime = a?.market_regime ?? null;
@@ -338,7 +350,7 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
     const stateConfidence = a?.state_confidence ?? null;
     const confidencePct = stateConfidence != null ? Math.round(stateConfidence * 100) : null;
 
-    if (!a || !bias) {
+    if (!a || !bias || (a.timeframes_considered ?? 0) === 0) {
         return { layerNumber: 3, layerName: 'Analysis', badge: emptyBadge(), meta: [], status: 'loading' };
     }
     const redundant =
@@ -350,7 +362,7 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
 
     const meta: MetaChipSpec[] = [
         chip('Quality', quality, null, () => qualityColor(quality)),
-        chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
+        chip('State Conf', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
     ];
     if (regime && !redundant) {
         meta.push(chip('Regime', prettifyEnum(regime), null, () => COLORS.textMuted));
@@ -410,9 +422,10 @@ export function buildL4OpportunityHeader(
     const resolved = resolveEffectiveDirection(o, bias ?? null);
     const effectiveDir: 'LONG' | 'SHORT' =
         resolved === 'NEUTRAL' ? (longRr >= shortRr ? 'LONG' : 'SHORT') : resolved;
-    const rawActiveRr = effectiveDir === 'LONG' ? longRr : shortRr;
-    // B3 defensive floor: degenerate near-zero ratios read as no R:R.
-    const activeRr = rawActiveRr < RR_MEANINGFUL_FLOOR ? 0 : rawActiveRr;
+    // RR-002 (v6.10.12): the header chip reads the active side's geometric
+    // R:R through the shared resolver (wire → aligned zones fallback), so
+    // it can never disagree with the cards or the R:R (Internal) section.
+    const activeRr = resolveActiveRr(o, undefined, undefined, undefined, bias ?? null).value;
 
     return {
         layerNumber: 4,
@@ -504,8 +517,10 @@ export function buildL6DecisionHeader(input: {
     rank: { top: 'LONG' | 'SHORT' | 'HOLD'; headline: { state: string } };
     decisionContext: DecisionContext | null | undefined;
     advisory: AdvisoryMatrix | null | undefined;
+    /** Opportunity matrix — lets the chip explain the risk discount. */
+    opportunity?: OpportunityMatrix | null | undefined;
 }): LayerHeaderSpec {
-    const { rank, decisionContext, advisory } = input;
+    const { rank, decisionContext, advisory, opportunity } = input;
     const confidence = advisory?.confidence_assessment ?? null;
     const rr = decisionContext?.expected_reward_risk_ratio ?? 0;
     const stance = advisory?.market_stance ?? null;
@@ -526,11 +541,23 @@ export function buildL6DecisionHeader(input: {
         return { layerNumber: 6, layerName: 'Recommendation', badge: emptyBadge(), meta: [], status: 'loading' };
     }
 
+    // RR-001 (v6.10.12): this chip is the L6 RISK-ADJUSTED decision R:R
+    // (geometric × (1 − overall_risk/100)) — named distinctly from the L4
+    // geometric "R:R" the setup cards show, and its discount is explainable
+    // in the tooltip.
+    let rrTitle: string | undefined;
+    if (rr > 0) {
+        const geometric = resolveActiveRr(opportunity, decisionContext).value;
+        if (geometric > 0 && geometric !== rr) {
+            const factor = rr / geometric;
+            rrTitle = `Risk-adjusted: geometric R:R ${geometric.toFixed(2)} × risk factor ${factor.toFixed(2)} = ${rr.toFixed(2)}`;
+        }
+    }
     const meta: MetaChipSpec[] = [
         chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
         rank.top === 'HOLD' && rr === 0
-            ? chip('R:R', 'N/A', null, null)
-            : chip('R:R', rr > 0 ? `1:${rr.toFixed(2)}` : null, rr, rrColor),
+            ? chip('Risk-Adj R:R', 'N/A', null, null, false, { title: rrTitle })
+            : chip('Risk-Adj R:R', rr > 0 ? `1:${rr.toFixed(2)}` : null, rr, rrColor, false, { title: rrTitle }),
     ];
     if (stance && stance !== 'Neutral' && stance !== 'Avoid') {
         meta.push(chip('Stance', prettifyEnum(stance), null, () => COLORS.textMuted));

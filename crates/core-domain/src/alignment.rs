@@ -146,11 +146,16 @@ impl AlignmentMatrix {
     }
 
     fn overall_label(score: f64) -> String {
-        if score >= 60.0 {
+        // M-1 (v6.10.13): the strong band aligns with the canonical L3
+        // `MarketBias` thresholds (±40 strong, ±20 weak — 02-02 §3.1 /
+        // `derive_analysis`). The legacy ±60 strong band meant the SAME
+        // mtf score (e.g. 45) rendered "WEAK BULL" on the Alignment
+        // header while the Analysis header said "STRONG BULLISH".
+        if score >= 40.0 {
             "STRONG_BULL_MTF".into()
         } else if score >= 20.0 {
             "WEAK_BULL_MTF".into()
-        } else if score <= -60.0 {
+        } else if score <= -40.0 {
             "STRONG_BEAR_MTF".into()
         } else if score <= -20.0 {
             "WEAK_BEAR_MTF".into()

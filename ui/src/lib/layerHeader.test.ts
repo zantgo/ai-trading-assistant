@@ -382,7 +382,7 @@ describe('buildL3AnalysisHeader (L3)', () => {
         const spec = buildL3AnalysisHeader(a);
         expect(spec.badge.label).toBe('Bullish');
         expect(spec.meta.some((c) => c.label === 'Quality')).toBe(true);
-        expect(spec.meta.some((c) => c.label === 'Confidence')).toBe(true);
+        expect(spec.meta.some((c) => c.label === 'State Conf')).toBe(true);
         expect(spec.meta.some((c) => c.label === 'Regime')).toBe(false);
     });
 
@@ -396,7 +396,7 @@ describe('buildL3AnalysisHeader (L3)', () => {
     it('confidence 0 renders as 0% amber (neutral)', () => {
         const a = analysisStub({ bias: 'Neutral', state_confidence: 0 });
         const spec = buildL3AnalysisHeader(a);
-        const c = spec.meta.find((m) => m.label === 'Confidence')!;
+        const c = spec.meta.find((m) => m.label === 'State Conf')!;
         expect(c.state).toBe('neutral');
         expect(c.value).toBe('0%');
     });
@@ -527,7 +527,7 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         const advisory = advisoryStub({ directional_guidance: 'Neutral' });
         const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        const rr = spec.meta.find((m) => m.label === 'R:R')!;
+        const rr = spec.meta.find((m) => m.label === 'Risk-Adj R:R')!;
         // The string "N/A" is the canonical sentinel — the chip carries
         // explicit text the operator can never misread as a numeric R:R.
         expect(rr.value).toBe('N/A');
@@ -541,7 +541,7 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         const advisory = advisoryStub({ directional_guidance: 'Neutral' });
         const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        const rr = spec.meta.find((m) => m.label === 'R:R')!;
+        const rr = spec.meta.find((m) => m.label === 'Risk-Adj R:R')!;
         expect(rr.value).toBe('1:1.20');
     });
 });

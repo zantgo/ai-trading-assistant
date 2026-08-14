@@ -203,15 +203,17 @@ When an alignment is missing for a specific symbol but other symbols have alignm
 
 ## 4. Risk Distribution & Systemic Risk Score
 
-The `risk_distribution` bins assets by their Decision Matrix `confidence_assessment` (in `[0, 100]`; high confidence ⇒ low risk):
+The `risk_distribution` bins assets by their L5 **`overall_risk.score`** (v6.10.13 — the canonical aggregate the dashboard's RiskDistributionCard uses):
 
-> **Confidence source clarification.** The `confidence_assessment` used by `risk_distribution` is the L6 Decision Matrix's **risk-attenuated terminal value** (see [02-00b-confidence-hierarchy.md](./02-00b-confidence-hierarchy.md)), not the L3 Analysis Matrix's `state_confidence`. The two are distinct: `state_confidence ∈ [0, 1]` is the L3 *state-interpretation* confidence driven by MTF agreement; `confidence_assessment ∈ [0, 100]` is the L6 *user-facing* confidence, attenuated by `overall_risk` per the formula in [02-04-decision-matrix.md §4](../matrices/02-04-decision-matrix.md). High `confidence_assessment` ⇒ low per-symbol risk ⇒ the asset is binned in `low_pct`.
+> **Overall-risk source (v6.10.13, L7-A).** The distribution, `risk_environment`, and `systemic_risk_score`'s `high_pct` term bin per-asset L5 `overall_risk.score` carried on the active instances (`InstanceMeta.overall_risk`; missing symbols default to 50/moderate). A previous revision binned on `advisory.confidence_assessment` — a confidence value, not a risk measure (high confidence ⇒ low risk is the inverse relationship and broke on low-confidence quiet markets), and an interim implementation used `cascade_risk_score` alone (chosen only because the producer signature carried it), making the L7 export disagree with the dashboard card for the same labelled split. Both are superseded: confidence ≠ risk, and cascade risk is a single dimension of the L5 aggregate.
 
 ```
-low_pct  = % of Decision Matrices with confidence_assessment > 70
-high_pct = % of Decision Matrices with confidence_assessment < 30
+low_pct  = % of assets with overall_risk.score ≤ 30
+high_pct = % of assets with overall_risk.score ≥ 70
 moderate_pct = 100 − low_pct − high_pct
 ```
+
+> **Sys Risk vs AVG RISK (v6.10.13, L7-C).** The dashboard's "Sys Risk" chip is `systemic_risk_score` (`0.6·high_pct + 0.4·sync_penalty`) — a market-wide danger index that adds the bearish-sync penalty on top of the overall-risk high share — while "AVG RISK" is the plain mean of the per-pair `overall_risk.score`. They are two different aggregates by design: Sys Risk is the correlated-downside-adjusted index for the PME safety veto; AVG RISK is the unadjusted mean. `cascade_risk_index` remains the explicit cascade-only aggregate (its `confidence` is the 0-100 coverage fraction — fixed ×100 in v6.10.13).
 
 The **Systemic Risk Score** is the market-wide danger index published for the Portfolio Management Engine's safety veto. It is derived from the risk distribution and synchronization:
 

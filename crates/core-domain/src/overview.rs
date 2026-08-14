@@ -190,6 +190,10 @@ pub struct InstanceMeta {
     pub timeframe_secs: u64,
     pub timeframe_label: String,
     pub is_active: bool,
+    /// Per-symbol L5 `overall_risk.score` — the canonical aggregate the L7
+    /// risk distribution / risk_environment / systemic_risk_score bin on
+    /// (L7-A, v6.10.13).
+    pub overall_risk: f64,
 }
 
 /// Compute the Overview Matrix from all Advisory Matrices, instance
@@ -378,27 +382,31 @@ pub fn compute_overview(
         *opportunity_distribution.entry(opp_key).or_insert(0) += 1;
     }
 
-    // Risk distribution. Bug-fix #9: the legacy implementation filtered
-    // on `advisory.confidence_assessment` (an L6 confidence value), not
-    // L5 risk. The result was that a high-confidence bullish advisory
-    // (e.g. confidence_assessment = 95 with a 1% stop on a quiet
-    // symbol) counted as "low risk" while a low-confidence bearish
-    // advisory counted as "high risk" — the inverse of what the L7
-    // risk distribution should report. We now filter on the L5
-    // `cascade_risk_score` carried on every `AdvisoryMatrix`, which
-    // is the only L5 risk dimension available without changing the
-    // function signature. A score >= 70 means low risk; < 30 means
-    // high risk. The 30-70 band is the moderate middle.
+    // Risk distribution. L7-A (v6.10.13): bins per-asset L5 OVERALL risk
+    // (`overall_risk.score` from the active instances) — the canonical
+    // aggregate the dashboard's RiskDistributionCard uses. The previous
+    // implementation binned on `advisory.cascade_risk_score` (chosen only
+    // because it was the single risk scalar the signature carried), which
+    // made the L7 export disagree with the dashboard card for the same
+    // labelled split; the 02-09 doc's confidence-based definition was
+    // conceptually wrong (confidence ≠ risk). Bands: ≤30 low, ≥70 high,
+    // else moderate — missing symbols fall back to 50 (moderate), the
+    // same default the dashboard card uses.
+    let overall_by_symbol: HashMap<&str, f64> = active_instances
+        .iter()
+        .map(|i| (i.symbol.as_str(), i.overall_risk))
+        .collect();
+    let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied().unwrap_or(50.0);
     let total_adv = advisories.len().max(1) as f64;
     let low_risk = advisories
         .iter()
-        .filter(|a| a.cascade_risk_score <= 30.0)
+        .filter(|a| overall_for(&a.symbol) <= 30.0)
         .count() as f64
         / total_adv
         * 100.0;
     let high_pct = advisories
         .iter()
-        .filter(|a| a.cascade_risk_score >= 70.0)
+        .filter(|a| overall_for(&a.symbol) >= 70.0)
         .count() as f64
         / total_adv
         * 100.0;
@@ -484,7 +492,9 @@ pub fn compute_overview(
         } else {
             RiskLevel::VeryLow
         },
-        confidence: cascade_count as f64 / total_adv.min(1.0),
+        // L7-B (v6.10.13): the fraction must scale to 0-100 (`×100`) —
+        // the legacy `count / total.min(1)` yielded ≈1% for every sample.
+        confidence: (cascade_count as f64 / total_adv * 100.0).min(100.0),
         ..RiskDimension::default()
     };
 
@@ -613,6 +623,7 @@ mod tests {
             timeframe_secs: 300,
             timeframe_label: "slow300".into(),
             is_active: true,
+            overall_risk: 50.0,
         }];
         let o = compute_overview(&[adv], &instances, &[]);
         assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
@@ -697,6 +708,7 @@ mod tests {
             timeframe_secs: 300,
             timeframe_label: "slow300".into(),
             is_active: true,
+            overall_risk: 50.0,
         }];
         let alignment = make_alignment("BTC-USD", 65.5, "STRONG_BULL_MTF", 80.0);
         let o = compute_overview(&[adv], &instances, &[alignment]);
@@ -704,6 +716,52 @@ mod tests {
         assert_eq!(o.asset_ranking[0].symbol, "BTC-USD");
         assert!((o.asset_ranking[0].mtf_score - 65.5).abs() < 1e-9);
         assert_eq!(o.asset_ranking[0].mtf_label, "STRONG_BULL_MTF");
+    }
+
+    #[test]
+    fn risk_distribution_bins_on_overall_risk_not_cascade() {
+        // L7-A (v6.10.13): the risk distribution / risk_environment bin
+        // per-asset L5 OVERALL risk — a symbol with LOW cascade risk but
+        // HIGH overall risk must bin HIGH (the old cascade-based code and
+        // the confidence-based doc disagreed with the dashboard card).
+        let adv_low = AdvisoryMatrix {
+            symbol: "BTC-USD".into(),
+            cascade_risk_score: 10.0,
+            ..AdvisoryMatrix::empty("BTC-USD")
+        };
+        let adv_high = AdvisoryMatrix {
+            symbol: "SOL-USD".into(),
+            cascade_risk_score: 10.0,
+            ..AdvisoryMatrix::empty("SOL-USD")
+        };
+        let instances = vec![
+            InstanceMeta {
+                symbol: "BTC-USD".into(),
+                timeframe_secs: 300,
+                timeframe_label: "slow300".into(),
+                is_active: true,
+                overall_risk: 20.0,
+            },
+            InstanceMeta {
+                symbol: "SOL-USD".into(),
+                timeframe_secs: 300,
+                timeframe_label: "slow300".into(),
+                is_active: true,
+                overall_risk: 85.0,
+            },
+        ];
+        let o = compute_overview(&[adv_low, adv_high], &instances, &[]);
+        // Despite cascade 10 on BOTH symbols, the split follows overall:
+        // BTC low (20), SOL high (85).
+        assert_eq!(o.risk_distribution.low_pct, 50.0);
+        assert_eq!(o.risk_distribution.high_pct, 50.0);
+        assert_eq!(o.risk_distribution.risk_environment, "HIGH_RISK");
+        // L7-B: the cascade index confidence is a 0-100 percentage.
+        assert!(
+            (o.cascade_risk_index.confidence - 100.0).abs() < 1e-9,
+            "cascade_risk_index.confidence must be 100% with a full sample, got {}",
+            o.cascade_risk_index.confidence
+        );
     }
 
     #[test]
@@ -722,6 +780,7 @@ mod tests {
             timeframe_secs: 300,
             timeframe_label: "slow300".into(),
             is_active: true,
+            overall_risk: 50.0,
         }];
         let o = compute_overview(&[adv], &instances, &[]);
         assert_eq!(o.asset_ranking.len(), 1);

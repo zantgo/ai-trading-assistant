@@ -315,11 +315,25 @@ describe('export consistency — Opportunities tab', () => {
         long_expected_rr_internal: 0,
         short_expected_rr_internal: 0,
         // The R:R displays prefer the top profile's per-side values —
-        // zero those too so the screen surfaces N/A.
+        // zero those AND the zones too: the v6.10.12 resolver falls back
+        // to the bracket geometry when the wire is 0, so a "no R:R"
+        // state must also have no usable zones for N/A to surface.
+        long_entry_zone: { low: 0, high: 0 },
+        long_target_zone: { low: 0, high: 0 },
+        long_invalidation_level: 0,
+        short_entry_zone: { low: 0, high: 0 },
+        short_target_zone: { low: 0, high: 0 },
+        short_invalidation_level: 0,
         profiles: entry.opportunity!.profiles.map((p) => ({
           ...p,
           long_expected_rr_internal: 0,
           short_expected_rr_internal: 0,
+          long_entry_zone: null,
+          long_target_zone: null,
+          long_invalidation_level: null,
+          short_entry_zone: null,
+          short_target_zone: null,
+          short_invalidation_level: null,
         })),
       } as any;
     });

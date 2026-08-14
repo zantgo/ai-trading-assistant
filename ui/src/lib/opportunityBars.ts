@@ -1,5 +1,10 @@
 import type { MarketBias, OpportunityMatrix } from '../types';
 import { selectProfileSide, topQualifyingProfile } from './decisionRank';
+// RR-001 (v6.10.12): the R:R floor is owned by `decisionRank` (shared with
+// the R:R resolver + zones formula) and re-exported here for the bars.
+import { RR_MEANINGFUL_FLOOR } from './decisionRank';
+
+export { RR_MEANINGFUL_FLOOR };
 
 export interface DirectionalBars {
   bullish: number;
@@ -8,13 +13,15 @@ export interface DirectionalBars {
 }
 
 /**
- * Minimum economically meaningful R:R. Ratios below this floor (e.g.
- * `0.0117` — reward ≈ 1% of risk) are degenerate noise; the backend
- * rejects them with `NoValueReason::RatioBelowFloor`, and this frontend
- * floor is the second layer of defence for stale snapshots from older
- * engine builds.
+ * Minimum directional conviction a valid active-side bracket always shows
+ * (v6.10.12). The old hard cap (`conviction > score → conviction = score`)
+ * collapsed a NO CLEAR SETUP matrix (score 0) with a real bracket to
+ * 0/0/100 — the bars said "no lean" while the Recommendation gauge showed
+ * a genuine directional distribution. A valid bracket now always carries
+ * at least 30% directional conviction; scores ≥ 30 behave exactly as
+ * before (still capped by the score).
  */
-export const RR_MEANINGFUL_FLOOR = 0.1;
+export const MIN_ACTIVE_FLOOR = 30;
 
 export type EffectiveDirection = 'LONG' | 'SHORT' | 'NEUTRAL';
 
@@ -69,24 +76,24 @@ function roundBars(bullish: number, bearish: number): DirectionalBars {
  * Directional conviction bars (bullish / bearish / hold) for the
  * Opportunities panel.
  *
- * Semantics (v6.10.6+):
+ * Semantics (v6.10.6+; floor added v6.10.12):
  *   - The direction is the panel's own effective direction
  *     (`resolveEffectiveDirection`) — never the bare argmax of both
  *     sides' raw R:R, which previously lit the bars BULLISH under a
  *     bearish panel whenever the countertrend long bracket happened to
  *     have the larger ratio.
  *   - Conviction comes from the ACTIVE side's R:R only, exp-weighted
- *     (`exp(RR·3)`) against a hold floor (`exp(0.25)`), and capped by
- *     `opportunity_score` so the remaining uncertainty stays visible as
- *     a Hold buffer.
+ *     (`exp(RR·3)`) against a hold floor (`exp(0.25)`), capped by
+ *     `opportunity_score` — floored at `MIN_ACTIVE_FLOOR` so a valid
+ *     active-side bracket always carries visible directional conviction,
+ *     even when the primary is NO CLEAR SETUP (score 0).
  *   - When the active side has no valid bracket (geometry inverted /
  *     degenerate) but the bias is directional and a qualifying setup
  *     exists, a modest directional lean (`min(30, score·0.5)`) keeps
  *     the bars aligned with the panel's "Bullish/Bearish setups
  *     dominate" chip without overstating a non-actionable setup.
  *   - Everything else (no opportunity, neutral direction, nothing
- *     qualifying) renders pure Hold — including the NO CLEAR SETUP case
- *     where `opportunity_score = 0` caps any residual conviction to 0.
+ *     qualifying) renders pure Hold.
  *
  * All three bars are ALWAYS rendered, even at 0% — the previous
  * behaviour filtered out zero-value bars which hid the dominant-HOLD
@@ -110,10 +117,15 @@ export function computeOpportunityBars(
   );
 
   if (activeRR >= RR_MEANINGFUL_FLOOR) {
+    // Conviction from the active-side R:R, floored so a real bracket
+    // always shows visible directional conviction (even under NO CLEAR
+    // SETUP with score 0) and capped by the setup score when the score
+    // exceeds the floor — the remaining uncertainty stays visible as a
+    // Hold buffer.
     const wDir = Math.exp(activeRR * 3);
     const wHold = Math.exp(0.25);
-    let conviction = (wDir / (wDir + wHold)) * 100;
-    if (conviction > score) conviction = score;
+    const rawConviction = (wDir / (wDir + wHold)) * 100;
+    const conviction = Math.min(rawConviction, Math.max(score, MIN_ACTIVE_FLOOR));
     return dir === 'LONG' ? roundBars(conviction, 0) : roundBars(0, conviction);
   }
 

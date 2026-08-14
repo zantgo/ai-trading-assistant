@@ -228,6 +228,14 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* ── N/A R:R reason line (RR-004, v6.10.12) ── */
+.rrReason {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.45);
+    font-style: italic;
+    margin-top: 2px;
+}
+
 /* ── Confluence subheader (Entry / Target) ── */
 .confluenceSubheader {
     font-size: 9px;

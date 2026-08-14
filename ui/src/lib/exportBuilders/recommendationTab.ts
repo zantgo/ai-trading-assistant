@@ -285,17 +285,17 @@ function buildTopSetupBlock(
     z && z.invalidation > 0
       ? `$${fmtPriceScale(z.invalidation, markPrice)}`
       : '\u2014';
-  // R:R display derives from the canonical `summary.rr` (wire-side
-  // `long_/short_expected_rr_internal`, target-mid geometry) with the
-  // same formatting as the header chip — never a third, independently
-  // recomputed geometry (the legacy `computeRiskReward` call here
-  // disagreed with both the chip and the setup cards).
+  // R:R display derives from the canonical `summary.rr` (the shared
+  // resolver: profile wire → matrix wire → aligned zones fallback) with
+  // the same formatting as the header chip. When N/A, the resolver's
+  // human-readable reason rides in `rr_reason`.
   let rrDisplay: string;
   if (summary.rr == null) {
     rrDisplay = 'R:R N/A';
   } else {
     rrDisplay = rrKpiDisplay(summary.rr, false);
   }
+  const rrReason = summary.rr != null ? null : (summary.rr_reason ?? 'no actionable setup');
   return {
     opportunity_type: sanitizeLabel(summary.opportunity_type),
     viability,
@@ -315,7 +315,7 @@ function buildTopSetupBlock(
     rr_display: rrDisplay,
     rr_available: rr.available,
     rr_value: rr.value,
-    rr_reason: rr.reason,
+    rr_reason: rrReason,
     rationale: summary.rationale,
   };
 }

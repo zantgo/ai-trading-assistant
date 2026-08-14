@@ -6,6 +6,59 @@
 
 
 
+## v6.10.13 (2026-08-14) — MME final consistency sweep (L2/L3/L7 seams)
+
+The remaining cross-layer inconsistencies from the final MME audit: the L2↔L3 bias-band contradiction, the L3 warmup sentinel, the "Confidence" label collision, the L7 risk-distribution sources, and the last R:R surface off the resolver.
+
+**SWEEP-001 — L2/L3 bias bands aligned (`core-domain`):**
+* `AlignmentMatrix::overall_label` used ±60 for the strong band while L3 `MarketBias` uses ±40 — the same `mtf_overall_score` (e.g. 45) rendered "WEAK BULL" on the Alignment header and "STRONG BULLISH" on the Analysis header. The label bands now match the canonical ±20/±40 thresholds (02-02 §3.1 / `derive_analysis`); the L1 MTF badge, L2 badge, and L3 badge now always agree. 02-01 §4.5 updated.
+
+**SWEEP-002 — L3 warmup sentinel gate (`ui`):**
+* `AnalysisMatrix::empty` (bias Neutral, regime Transition, quality Poor) rendered as real data during the pre-first-candle window while the L2/L4/L5 sentinels are gated. `timeframes_considered === 0` now gates the Analysis panel body, the L3 header (empty badge + loading), and the analysis export (null-state payload).
+
+**SWEEP-003 — "State Conf" chip (`ui`):**
+* The L3 header chip is renamed from "Confidence" to **`State Conf`** — it reads `state_confidence`, distinct from the L6 risk-discounted `Confidence` chip (the same-word-two-values collision).
+
+**SWEEP-004 — L2 header status (`ui`):**
+* `buildL2AlignmentHeader` now uses the same TF-count status rule as the L1 MTF header (≥3 live / ≥1 stale / 0 loading) — two headers reading the same alignment can no longer disagree on status.
+
+**SWEEP-005 — AssetRankings R:R on the resolver (`ui`):**
+* The dashboard R:R column routes through `resolveActiveRr` (floor + aligned zones fallback) — `formatRR` renders "—" for unavailable values instead of a raw "1 : 0.01".
+
+**SWEEP-006 — L7 risk distribution bins on overall risk (`core-domain`):**
+* `risk_distribution` / `risk_environment` / `systemic_risk_score`'s `high_pct` binned on `cascade_risk_score` (chosen only because the producer signature carried it) while the dashboard's RiskDistributionCard computes the same labelled split from `overall_risk`, and the 02-09 doc defined it from `confidence_assessment` — three definitions, screen ≠ export. `InstanceMeta` gains `overall_risk`; the producer (and the execution-daemon) bin on the canonical L5 aggregate with ≤30/≥70 bands (missing → 50/moderate, matching the dashboard card). 02-09 §4 rewritten.
+
+**SWEEP-007 — cascade index confidence unit (`core-domain`):**
+* `cascade_risk_index.confidence` was `count / total.min(1)` — ≈1% for every sample. Now a 0-100 coverage percentage (`×100`).
+
+**SWEEP-008 — doc notes:** 02-08 §8 (the L3 `opportunity_analysis` cannot classify Reversal/Scalp/LiquiditySqueeze — bounded divergence), 02-09 §4 (Sys Risk vs AVG RISK semantics, cascade index scope), 07-05 §3.1 (group counts are raw by design), §3.3/§3.6 (L3 sentinel + State Conf).
+
+## v6.10.12 (2026-08-14) — Gauge single-number, opportunity bars floor, per-layer R:R ownership
+
+**GAUGE-001 — the gauge needle is the single final number (`ui`):**
+* The LONG/HOLD/SHORT percentage readout under the Recommendation dial is removed. The needle (net bias `long − short`, `0` under a HOLD verdict) is the one final number; the raw probabilities remain in the export (`gauge.long_pct` / `hold_pct` / `short_pct`) for data consumers.
+
+**OPP-BARS-001 — opportunity bars keep visible conviction for real brackets (`ui`):**
+* The hard cap (`conviction > score → conviction = score`) collapsed a `NO CLEAR SETUP` matrix (score 0) with a valid active-side bracket to `0/0/100` — the bars said "no lean" while the Recommendation gauge showed a genuine directional distribution. The cap is now `min(conviction, max(score, MIN_ACTIVE_FLOOR))` with `MIN_ACTIVE_FLOOR = 30` — normal setups behave exactly as before; a NO CLEAR SETUP with a real bracket shows a ~30/70 directional split.
+
+**RR-001 — per-layer R:R ownership (`ui` + docs):**
+* Platform rule: `R:R` (geometric bracket reward/risk, `target_mid`-based) is owned by L4; `Risk-Adj R:R` (`geometric × (1 − overall_risk/100)`) is owned by L6. L1/L2/L3/L5 never surface R:R. The L6 header chip is renamed `Risk-Adj R:R` and its tooltip explains the discount (`geometric R:R × risk factor = value`); the plan strip summary label matches; 02-08/02-04/02-11 document the ownership.
+
+**RR-002 — one resolver for every R:R surface (`ui`):**
+* New `resolveActiveRr(opportunity, decisionContext, analysis, profile?, bias?)` in `decisionRank.ts` — the single chain (top-profile wire → matrix wire → aligned zones fallback) with `{ value, available, reason, source, riskAdjusted }`. Consumed by the Opportunity header chip, `R:R (Internal)`, the setup cards, `topSetupSummary`/`profileSummary`, both export builders, the L6 discount tooltip, and the plan strip.
+
+**RR-003 — the zones fallback always equals the wire (`ui`):**
+* `geometricRrFromZones` replicates the backend `compute_side_rr_v2` exactly (target_mid, floor 0.1, geometry checks incl. the `SlInsideEntry` guard) — the legacy `target.low`-based recomputation that could display a different R:R than the wire for the same bracket is gone (unit pins 4.14 → 4.5 etc.).
+
+**RR-004 — visible N/A reasons (`ui`):**
+* The Opportunity `R:R (Internal)` cell and the Recommendation Top Setup card render the resolver's reason ("no directional bias" / "geometry inverted" / "below the 0.10 meaningfulness floor" / "no valid bracket") as tooltips + a muted sub-line, and the exports carry it in `rr_reason`.
+
+**RR-005 — plan strip (`ui`):** the plan-level R:R reads the risk-adjusted decision value via the resolver (geometric fallback when absent); per-target R:R stays per-target economics with the same mid-based convention.
+
+**RR-006 — hygiene:** `RR_MEANINGFUL_FLOOR` now lives with the resolver (`decisionRank.ts`), re-exported from `opportunityBars.ts`; `MetaChipSpec`/`chip` gained an optional `title` tooltip rendered by `LayerHeader`.
+
+**Doc corrections:** 02-08 (bars floor + R:R ownership), 02-04 (`Risk-Adj R:R` label), 02-11 (L5 R:R exclusion), 07-05 §3.4/§3.7 (bars floor, needle-only gauge, Risk-Adj R:R chip + tooltip).
+
 ## v6.10.11 (2026-08-14) — Metrics panel internal consistency
 
 The L1 Metrics view (micro/fast/slow/macro + MTF) now surfaces its own LOCAL synthesis on screen, reads the canonical (non-stale) liquidity source, and shares the regime-tone vocabulary with the Alignment panel.

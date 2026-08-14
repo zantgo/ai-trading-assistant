@@ -12,7 +12,15 @@
     const app = useAppStore();
     let { wssState: _wssState }: { wssState?: WsState } = $props();
     const instance = $derived(app.activeInstance());
-    const analysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
+    // M-2 (v6.10.13): the backend's warmup sentinel (`AnalysisMatrix::empty` —
+    // bias Neutral, regime Transition, quality Poor) must NOT render as real
+    // data. `timeframes_considered === 0` gates the panel body, the L3
+    // header, and the export to their awaiting states — matching the
+    // L2/L4/L5 sentinel pattern.
+    const rawAnalysis = $derived<AnalysisMatrix | null>(instance?.analysis ?? null);
+    const analysis = $derived<AnalysisMatrix | null>(
+        rawAnalysis && (rawAnalysis.timeframes_considered ?? 0) > 0 ? rawAnalysis : null
+    );
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);

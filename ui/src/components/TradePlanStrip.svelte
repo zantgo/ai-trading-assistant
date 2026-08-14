@@ -169,7 +169,7 @@
             {/if}
         </span>
         <span class={styles.summaryItem}>
-            <span class={styles.summaryK}>R:R</span>
+            <span class={styles.summaryK}>Risk-Adj R:R</span>
             <span class="{styles.summaryV} {rrCls(plan.rrRatio)}">{plan.rrRatio.toFixed(2)}</span>
         </span>
         <span class={styles.summaryItem}>

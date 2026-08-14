@@ -8,6 +8,7 @@
     //          Confidence, MTF Score, MTF Label, Risk, Updated.
     import { useAppStore } from '../../state.svelte';
     import { formatRelativeTime } from '../../lib/relTime';
+    import { resolveActiveRr } from '../../lib/decisionRank';
     import {
         biasColor,
         directionColor,
@@ -96,12 +97,11 @@
             } else if (opp?.opportunity_score != null) {
                 score = opp.opportunity_score;
             }
-            // Per-side R:R resolved by bias.
-            const bias = analysis?.bias ?? null;
-            const isBearish = bias === 'Bearish' || bias === 'StrongBearish';
-            const rr = isBearish
-                ? (opp?.short_expected_rr_internal ?? 0)
-                : (opp?.long_expected_rr_internal ?? 0);
+            // Per-side R:R resolved through the shared resolver (RR-002:
+            // profile wire → matrix wire → aligned zones fallback, with the
+            // 0.10 meaningfulness floor). `0` renders "—" in the column.
+            const rrResolved = resolveActiveRr(opp, inst.decisionContext, analysis);
+            const rr = rrResolved.available ? rrResolved.value : 0;
             const confidence = adv?.confidence_assessment ?? 0;
             const riskScore = risk?.overall_risk?.score ?? 0;
             const mtfScore = aln?.mtf_overall_score ?? 0;

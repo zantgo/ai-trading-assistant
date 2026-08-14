@@ -361,7 +361,10 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
     timestamp: args.timestamp,
     isCompleted: args.isCompleted,
   });
-  const analysis = args.analysis;
+  // M-2 (v6.10.13): the backend's warmup sentinel (`AnalysisMatrix::empty`)
+  // renders as the null-state payload — never fabricated Neutral/Poor data.
+  const analysis =
+    args.analysis && (args.analysis.timeframes_considered ?? 0) > 0 ? args.analysis : null;
   const payload: AnalysisPayload = {
     source_tab: 'analysis',
     meta,
