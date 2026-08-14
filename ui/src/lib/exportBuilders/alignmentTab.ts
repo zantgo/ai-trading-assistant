@@ -18,6 +18,7 @@ import {
   type InstanceTermsLike,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
+import { mLabel } from '../layerHeader';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -109,14 +110,14 @@ const SCORE_CALC_WEIGHTS: Array<{
 }> = [
   { label: 'Trend',      key: 'T',  pct: 50, color: '#22c55e' },
   { label: 'Momentum',   key: 'M',  pct: 30, color: '#3b82f6' },
-  { label: 'Vol.trend',  key: 'Vt', pct: 10, color: '#a78bfa' },
-  { label: 'Vol.market', key: 'Vm', pct: 10, color: '#f59e0b' },
+  { label: 'Volume',     key: 'Vt', pct: 10, color: '#a78bfa' },
+  { label: 'Volatility', key: 'Vm', pct: 10, color: '#f59e0b' },
 ];
 
 const CONSENSUS_DISPLAY: Record<'strong_consensus' | 'partial_consensus' | 'conflict', string> = {
   strong_consensus: 'Strong consensus — timeframes aligned',
   partial_consensus: 'Partial consensus — mixed signals',
-  conflict: 'Conflict — time horizons diverging',
+  conflict: 'Mixed consensus — timeframes not aligned',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -136,17 +137,6 @@ function signedStr(n: number, decimals: number): string {
   return n >= 0 ? '+' + s : s;
 }
 
-function mLabel(label: string): string {
-  // Mirrors `lib/layerHeader.ts::mLabel` (the screen-side mapper for
-  // mtf_overall_label tokens).
-  if (label.startsWith('STRONG_BULL')) return 'STRONG BULL';
-  if (label.startsWith('STRONG_BEAR')) return 'STRONG BEAR';
-  if (label.startsWith('WEAK_BULL')) return 'WEAK BULL';
-  if (label.startsWith('WEAK_BEAR')) return 'WEAK BEAR';
-  if (label === 'NEUTRAL_MTF') return 'NEUTRAL';
-  return label;
-}
-
 function buildBreakdownMeta(alignment: AlignmentMatrix | null): string {
   if (!alignment) return 'T:— M:— Vt:— Vm:—';
   return `T:${alignment.mtf_trend_alignment.toFixed(2)} M:${alignment.mtf_momentum_alignment.toFixed(2)} Vt:${alignment.mtf_volume_alignment.toFixed(2)} Vm:${alignment.mtf_volatility_alignment.toFixed(2)}`;
@@ -155,7 +145,7 @@ function buildBreakdownMeta(alignment: AlignmentMatrix | null): string {
 function buildConflictBanner(alignment: AlignmentMatrix | null): string {
   if (!alignment) return '';
   if (alignment.trend_agreement_pct < 50 && alignment.timeframes_present > 0) {
-    return 'TIMEFRAME CONFLICT — time horizons are working against each other';
+    return 'TIMEFRAME MISALIGNMENT — time horizons are not working together';
   }
   return '';
 }
@@ -247,23 +237,32 @@ function buildScoreCalcBlock(alignment: AlignmentMatrix): AlignmentScoreCalcBloc
   const vt = alignment.mtf_volume_alignment.toFixed(2);
   const vm = alignment.mtf_volatility_alignment.toFixed(2);
   const overall = alignment.mtf_overall_score.toFixed(1);
+  // AL-1 (v6.10.10): the backend scales the blend by ×100 — the formula
+  // must carry the factor or the equation never balances (the left side
+  // evaluates on the signed [−1, 1] axes).
   return {
     weights,
-    formula: `0.5 * (${t}) + 0.3 * (${m}) + 0.1 * (${vt}) + 0.1 * (${vm}) = ${overall}`,
+    formula: `(0.5 * (${t}) + 0.3 * (${m}) + 0.1 * (${vt}) + 0.1 * (${vm})) × 100 = ${overall}`,
   };
 }
 
 function buildInterpretation(alignment: AlignmentMatrix | null): string {
-  if (!alignment) return 'Awaiting alignment data — this section will synthesize a human-readable interpretation of multi-timeframe consensus once indicators populate.';
+  if (!alignment || alignment.timeframes_present === 0) {
+    // AL-7: the NO_DATA sentinel (and null) render the awaiting copy —
+    // never a fabricated "conflict" verdict from zero data.
+    return 'Awaiting alignment data — this section will synthesize a human-readable interpretation of multi-timeframe consensus once indicators populate.';
+  }
   const pct = alignment.trend_agreement_pct;
   const overall = alignment.mtf_overall_score.toFixed(1);
   const present = alignment.timeframes_present;
   const crossTf = alignment.signal_cross_tf_count;
   const label = mLabel(alignment.mtf_overall_label).toUpperCase();
   if (pct >= 75) {
+    // AL-4: "signal votes" — the cross-TF count is a scaled proxy
+    // (signals × 0.3), not a literal signal count.
     const crossLine = crossTf > 0
-      ? `${crossTf} cross-timeframe signals reinforce the current bias.`
-      : 'No cross-timeframe signals detected.';
+      ? `${crossTf} cross-timeframe signal votes reinforce the current bias.`
+      : 'No cross-timeframe signal votes detected.';
     // Mirrors the screen paragraph verbatim — the label is the REAL
     // mtf_overall_label, never a hardcoded token.
     return `Multi-timeframe alignment shows <strong>strong directional consensus</strong> (${pct.toFixed(0)}% agreement across ${present}/4 timeframes). The composite score of ${overall} is classified as <strong>${label}</strong>. ${crossLine}`;
@@ -303,6 +302,11 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
     isCompleted: args.isCompleted,
   });
   const alignment = args.alignment;
+  // AL-7 (v6.10.10): the backend's warmup sentinel (`AlignmentMatrix::empty` —
+  // 0 TFs, NO_DATA label) must render the awaiting consensus/interpretation,
+  // never a fabricated "Conflict" verdict. The dimension cards keep their
+  // honest NO DATA rows.
+  const hasAlignment = !!alignment && alignment.timeframes_present > 0;
   const empty: AlignmentPayload = {
     source_tab: 'alignment',
     meta,
@@ -316,7 +320,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
       trend_agreement_pct: 0,
     },
     breakdown_meta: buildBreakdownMeta(alignment),
-    dimensions: [],
+    dimensions: alignment ? buildDimensionsBlock(alignment) : [],
     consensus: {
       // Screen renders the "—%" placeholder + em-dash verdict; JSON carries
       // the same null-state instead of fabricating a definitive verdict.
@@ -347,7 +351,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
     interpretation: buildInterpretation(null),
     consensus_conflict_banner: '',
   };
-  if (!alignment) {
+  if (!hasAlignment) {
     return JSON.stringify(empty, null, 2);
   }
   const payload: AlignmentPayload = {

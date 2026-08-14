@@ -279,6 +279,13 @@ impl Default for FeedState {
 pub struct IndicatorLifecycleStatus {
     pub state: IndicatorLifecycleState,
     pub bars_seen: u32,
+    /// PRI-12 (v6.10.7): real completed candles only — `bars_seen` counts
+    /// every bar the pipeline processed, including synthetic doji/idle-
+    /// heartbeat buckets on sub-minute timeframes. Analytics that must not
+    /// count synthetic bars read this field (0 on a cold handover, growing
+    /// per real live close).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bars_seen_real: Option<u32>,
     pub bars_required: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_updated_at: Option<u64>,
@@ -308,6 +315,7 @@ impl IndicatorLifecycleStatus {
         Self {
             state: IndicatorLifecycleState::Loading,
             bars_seen: 0,
+            bars_seen_real: None,
             bars_required,
             last_updated_at: None,
             last_error: None,
@@ -328,6 +336,7 @@ impl IndicatorLifecycleStatus {
         Self {
             state: IndicatorLifecycleState::Live,
             bars_seen,
+            bars_seen_real: None,
             bars_required,
             last_updated_at: Some(last_updated_at),
             last_error: None,
@@ -349,6 +358,7 @@ impl IndicatorLifecycleStatus {
         Self {
             state: IndicatorLifecycleState::Live,
             bars_seen,
+            bars_seen_real: None,
             bars_required,
             last_updated_at: Some(last_updated_at),
             last_error: None,
@@ -363,6 +373,7 @@ impl IndicatorLifecycleStatus {
         Self {
             state: IndicatorLifecycleState::Failed,
             bars_seen,
+            bars_seen_real: None,
             bars_required,
             last_updated_at: None,
             last_error: Some(last_error.into()),

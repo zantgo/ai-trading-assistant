@@ -178,6 +178,30 @@
 .gaugeNetShort   { color: #ef4444; }
 .gaugeNetNeutral { color: #f59e0b; }
 
+/* ── Gauge probability split readout (below the dial) ── */
+.gaugeSplit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 240px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 11px;
+    font-family: var(--mono, monospace);
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.75);
+}
+.gaugeSplitItem {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.gaugeSplitLong  { color: #22c55e; }
+.gaugeSplitHold  { color: #f59e0b; }
+.gaugeSplitShort { color: #ef4444; }
+
 /* ── Why (top-3 rationale list) ───────────────────────────────────────── */
 .why {
     margin: 0;
@@ -251,6 +275,13 @@
     padding: 12px 14px;
     border-radius: 6px;
     border-left: 4px solid #f59e0b;
+}
+.verdictGuidance {
+    margin-top: 6px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.50);
+    line-height: 1.5;
+    font-style: italic;
 }
 
 /* ── Trade Recommendation cards (multi-trade list view) ──────────────── */

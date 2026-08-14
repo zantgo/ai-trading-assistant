@@ -31,6 +31,22 @@ function makeRisk(): RiskMatrix {
   } as unknown as RiskMatrix;
 }
 
+/** The backend's warmup sentinel (`RiskMatrix::empty` signature). */
+function makeSentinelRisk(): RiskMatrix {
+  const sentinel = { score: 50, level: 'Moderate', state: 'Stable', confidence: 50, evidence: [] };
+  return {
+    overall_risk: { ...sentinel },
+    market_risk: { ...sentinel },
+    volatility_risk: { ...sentinel },
+    execution_liquidity_risk: { ...sentinel },
+    structure_risk: { ...sentinel },
+    momentum_risk: { ...sentinel },
+    signal_risk: { ...sentinel },
+    execution_risk: { ...sentinel },
+    cascade_risk: { ...sentinel },
+  } as unknown as RiskMatrix;
+}
+
 describe('buildRiskTabExport', () => {
   it('emits structured headline_parts (counts separate from words)', () => {
     const p = JSON.parse(buildRiskTabExport({
@@ -130,8 +146,48 @@ describe('buildRiskTabExport', () => {
     expect(p.disclosure.weights[0]).toHaveProperty('label');
     expect(p.disclosure.weights[0]).toHaveProperty('pct');
     expect(p.disclosure.note).toContain('weighted sum of the 8 dimension scores');
+    expect(p.disclosure.note).toContain('state chip describes the risk trend');
+    expect(p.disclosure.note).not.toContain('modify each dimension');
     expect(p.hero).toBeDefined();
     expect(p.hero.hint).toContain('Lower is safer');
+    expect(p.hero.hint).not.toContain('State modifiers');
     expect(p.awaiting_dimensions_text).toContain('Awaiting risk assessment');
+  });
+
+  it('RK-C: all-below-moderate headline reads "below moderate", not "calm"', () => {
+    const risk = makeRisk();
+    risk.market_risk = dim(15, 'VeryLow');
+    risk.volatility_risk = dim(20, 'Low');
+    risk.structure_risk = dim(30, 'Low');
+    risk.momentum_risk = dim(10, 'VeryLow');
+    risk.signal_risk = dim(25, 'Low');
+    risk.execution_risk = dim(35, 'Low');
+    risk.execution_liquidity_risk = dim(15, 'VeryLow');
+    risk.cascade_risk = dim(30, 'Low');
+    const p = JSON.parse(buildRiskTabExport({
+      risk,
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.interpretation_headline).toContain('all dimensions below moderate');
+    expect(p.interpretation_headline).not.toContain('all dimensions calm');
+  });
+
+  it('RK-D: the warmup sentinel matrix renders as AWAITING (hero null, awaiting rows, init interpretation)', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeSentinelRisk(),
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.hero).toBeNull();
+    expect(p.dimensions).toHaveLength(8);
+    expect(p.dimensions.every((d: { awaiting: boolean }) => d.awaiting)).toBe(true);
+    expect(p.interpretation_full).toContain('Risk synthesis is initializing');
   });
 });

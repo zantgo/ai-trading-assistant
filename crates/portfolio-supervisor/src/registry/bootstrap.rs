@@ -63,6 +63,7 @@ async fn collect_candles(
     limit: u64,
     now_ms: u64,
     fetch_timeout_ms: u64,
+    sub_minute_skip_historical: bool,
 ) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
     use network_adapters::adapters::bitget_historical_fetch::BitgetHistoricalFetch;
     use network_adapters::adapters::historical_fetch::{
@@ -103,54 +104,72 @@ async fn collect_candles(
     //    we anchor on the full lookback window.
     //
     // ────────────────────────────────────────────────────────────────────
-    // Sub-minute vs ≥60s warmup behaviour (intentional asymmetry)
+    // Sub-minute vs ≥60s warmup behaviour (PRI-03, v6.10.7)
     // ────────────────────────────────────────────────────────────────────
     //
-    // Sub-minute TFs (1s/3s/5s/15s): the REST endpoint is bypassed
-    // (HFP-03) so there's no exchange source. We deliberately skip the
-    // warmup rather than calling `derive_sub_minute_candles`. That helper
-    // synthesised flat `O=H=L=C=minute_close` candles from the next-larger
-    // TF — those synthetic candles then flowed into
-    // `pipeline.snapshot_history` via `populate_buffers`, were served by
-    // `/api/history`, and rendered on the chart as a continuous
-    // horizontal line spanning each minute bucket (the v6.9 "line of
-    // about 1 minute" bug).
-    //
     // ≥60s TFs (60s/180s/300s/900s): the REST fetch runs as normal and
-    // seeds `pipeline.snapshot_history` with real OHLCV from the
-    // exchange, so the chart shows real candles immediately on first
-    // mount.
+    // seeds the full warm state + `pipeline.snapshot_history` with real
+    // OHLCV from the exchange, so the chart shows real candles
+    // immediately on first mount.
+    //
+    // Sub-minute TFs (1s/3s/5s/15s): there is no exchange REST source for
+    // sub-minute bars (HFP-03), so the warmup is a **state replay**
+    // (PRI-03): real closes are fetched at the nearest exchange-standard
+    // interval (60 s) and replayed through the sub-minute pipeline's
+    // indicator state machines + `history` buffer. The replayed bars
+    // never enter `snapshot_history` (PRI-08 — see `populate_single`),
+    // so the chart stays live-only and the v6.9 "line of about 1 minute"
+    // bug (flat derived candles served as sub-minute chart history)
+    // cannot regress. The replay fetch is best-effort: on failure the
+    // slot starts cold and matures progressively.
     //
     // Observable difference at boot:
     //   - ≥60s TFs: chart shows real candles with bodies immediately
     //   - sub-minute TFs: chart paints nothing historical; live WS
-    //     frames fill in within seconds
-    //
-    // After the first ~15 seconds of live trading both behave
-    // identically: real candles with proper bodies, persisted in
-    // `pipeline.snapshot_history` (capped at `HIST_BUFFER_MAX = 1000`
-    // — see `crates/market-analyzer/src/analyzer/warm.rs`), and
-    // preserved across tab switches and timeframe changes.
-    //
-    // The `warn_empty` callback below emits a dedicated
-    // "starting from live data only" log line for sub-minute slots so
-    // the operator can see the new path is active.
+    //     frames fill in within seconds — but every indicator, the
+    //     fib/S-R/pattern inputs, the cluster matrix, and the L2–L6
+    //     matrices are already warmed and Live at the first live close.
     //
     // Cross-references:
     //   - `crates/market-analyzer/tests/hist_buffer_cap_uniformity.rs`
     //     pins the uniform `HIST_BUFFER_MAX = 1000` cap across all TFs.
     //   - `crates/market-analyzer/src/analyzer/warm.rs` — the cap constant
     //     and the matching warmup-side trim.
-    //   - `crates/api-gateway/handlers/history.rs` — the `/api/history`
-    //     endpoint that surfaces `snapshot_history` (with DB fallback
-    //     when in-memory is empty).
-    //
-    // Per user direction: "all these problems are only sub minute
-    // timeframes not a problem from above minute timeframes don't touch
-    // those" — the ≥60s branch is deliberately untouched.
+    //   - `docs/engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md`
+    //     — the AIU parity contract (PRI-01…PRI-12).
     // ────────────────────────────────────────────────────────────────────
     let rest_candles = if secs < 60 {
-        Vec::new()
+        if sub_minute_skip_historical {
+            // PRI-03 opt-out (CB-05 / HFP-03): legacy behavior — sub-minute
+            // slots start at 0 candles and mature progressively.
+            Vec::new()
+        } else {
+            // PRI-03 (v6.10.7): sub-minute state-replay warmup. There is no
+            // exchange REST source for 1s/3s/5s/15s bars, so we fetch the
+            // nearest exchange-standard interval (60 s) and replay those REAL
+            // closes through the sub-minute pipeline's state machines +
+            // `history` buffer. The replayed bars never enter
+            // `snapshot_history` (PRI-08) — the chart stays live-only and no
+            // flat derived candle is ever served as sub-minute history.
+            let mut replay_req = request.clone();
+            replay_req.timeframe_secs = 60;
+            match policy.fetch(replay_req).await {
+                Ok(c) => c,
+                Err(network_adapters::adapters::historical_fetch::HistoricalFetchError::SubMinuteBypassed(_)) => {
+                    Vec::new()
+                }
+                Err(e) => {
+                    // PRI-03 warmup is best-effort: a failed replay fetch
+                    // must NOT block the sub-minute pipeline boot — it
+                    // starts cold and matures progressively instead.
+                    eprintln!(
+                        "⚠️  Sub-minute replay warmup failed for {} ({}s): {} — starting cold.",
+                        internal_symbol, secs, e
+                    );
+                    Vec::new()
+                }
+            }
+        }
     } else {
         match policy.fetch(request).await {
             Ok(c) => c,
@@ -241,6 +260,7 @@ pub async fn fetch_and_warm_bootstrap(
             buffer_size_u64,
             now_ms,
             fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         ),
         collect_candles(
             is_bitget,
@@ -253,6 +273,7 @@ pub async fn fetch_and_warm_bootstrap(
             buffer_size_u64,
             now_ms,
             fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         ),
         collect_candles(
             is_bitget,
@@ -265,6 +286,7 @@ pub async fn fetch_and_warm_bootstrap(
             buffer_size_u64,
             now_ms,
             fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         ),
         collect_candles(
             is_bitget,
@@ -277,6 +299,7 @@ pub async fn fetch_and_warm_bootstrap(
             buffer_size_u64,
             now_ms,
             fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         ),
     );
 
@@ -431,6 +454,10 @@ pub(crate) async fn populate_buffers(
     // AUDIT-AIU-051: timestamped OI history `(timestamp_secs, value)`.
     oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
     funding_history: &Arc<RwLock<VecDeque<f64>>>,
+    // PRI-08: per-slot flag — `true` for ≥60s slots (warm snapshots become
+    // chart history), `false` for sub-minute slots (state-replay warmup
+    // must NOT pollute the chart's `snapshot_history` or `latest_snapshot`).
+    warm_snapshots: [bool; 4],
 ) {
     // All four timeframes share the same per-pair derivatives state
     // (latest_* locks and rolling history), so any warmed TF carries
@@ -450,6 +477,7 @@ pub(crate) async fn populate_buffers(
         micro_history,
         micro_latest,
         micro_snapshot_history,
+        warm_snapshots[0],
     )
     .await;
     populate_single(
@@ -457,6 +485,7 @@ pub(crate) async fn populate_buffers(
         fast_history,
         fast_latest,
         fast_snapshot_history,
+        warm_snapshots[1],
     )
     .await;
     populate_single(
@@ -464,6 +493,7 @@ pub(crate) async fn populate_buffers(
         slow_history,
         slow_latest,
         slow_snapshot_history,
+        warm_snapshots[2],
     )
     .await;
     populate_single(
@@ -471,6 +501,7 @@ pub(crate) async fn populate_buffers(
         macro_history,
         macro_latest,
         macro_snapshot_history,
+        warm_snapshots[3],
     )
     .await;
 }
@@ -526,6 +557,7 @@ pub(crate) async fn populate_single(
     history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest: &Arc<RwLock<Option<MarketSnapshot>>>,
     snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    warm_snapshots: bool,
 ) {
     if let Some(ref w) = warmed {
         {
@@ -533,6 +565,13 @@ pub(crate) async fn populate_single(
             for c in &w.history {
                 hist.push_back(c.clone());
             }
+        }
+        if !warm_snapshots {
+            // PRI-08: sub-minute slots only warm state + `history`; the
+            // chart's `snapshot_history`/`latest_snapshot` stay live-only
+            // (the replayed closes are real but at a coarser scale — never
+            // present them as sub-minute chart history).
+            return;
         }
         if let Some(ref snap) = w.latest_snapshot {
             *latest.write().await = Some(snap.clone());
@@ -578,9 +617,10 @@ mod cold_start_sub_minute_tests {
     }
 
     /// Direct pin: the sub-minute branch of `collect_candles` returns
-    /// zero candles (and zero provenance counts). Before the fix it would
-    /// call `derive_sub_minute_candles` and synthesise flat synthetic
-    /// candles that polluted the chart's historical view.
+    /// zero candles (and zero provenance counts). With `sub_minute_skip_historical`
+    /// the sub-minute branch short-circuits before any REST call; the
+    /// v6.9 flat-synthetic-candle regression (the "line of about 1 minute"
+    /// bug) is impossible by construction.
     #[tokio::test]
     async fn collect_candles_sub_minute_returns_empty_on_empty_db() {
         let pool = empty_pool().await;
@@ -595,6 +635,7 @@ mod cold_start_sub_minute_tests {
             200,
             1_786_329_000_000,
             1_000,
+            false,
         )
         .await
         .expect("collect_candles must succeed for sub-minute");
@@ -641,14 +682,15 @@ mod cold_start_sub_minute_tests {
             200,
             1_786_329_000_000,
             1_000,
+            false,
         )
         .await
         .expect("collect_candles must succeed for sub-minute with seeded DB");
 
-        // Even though the DB has a 60s row, the sub-minute branch must
-        // return zero candles. We don't want flat-close derived candles
-        // in the chart bootstrap path. (The 60s row is also filtered
-        // out because the DB query matches by `timeframe_secs`.)
+        // Even though the DB has a 60s row, the sub-minute query matches
+        // by `timeframe_secs` only — the 60s row is not a 5s row. With the
+        // replay fetch unreachable and the opt-out flag set, the sub-minute
+        // branch returns zero candles (best-effort cold start).
         assert_eq!(
             candles.len(),
             0,
@@ -682,6 +724,7 @@ mod cold_start_sub_minute_tests {
             200,
             1_786_329_000_000,
             1_000,
+            false,
         )
         .await;
 
@@ -748,6 +791,7 @@ mod cold_start_sub_minute_tests {
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         )
         .await
         .expect("1s must return empty");
@@ -762,6 +806,7 @@ mod cold_start_sub_minute_tests {
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         )
         .await
         .expect("3s must return empty");
@@ -776,6 +821,7 @@ mod cold_start_sub_minute_tests {
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         )
         .await
         .expect("5s must return empty");
@@ -790,6 +836,7 @@ mod cold_start_sub_minute_tests {
             500,
             1_786_329_000_000,
             input.fetch_timeout_ms,
+            input.sub_minute_skip_historical,
         )
         .await
         .expect("15s must return empty");
@@ -801,5 +848,34 @@ mod cold_start_sub_minute_tests {
 
         // Suppress the unused input warning.
         let _ = input;
+    }
+
+    /// PRI-03 (v6.10.7): with the sub-minute state-replay warmup enabled
+    /// (default) the replay fetch is BEST-EFFORT — an unreachable REST
+    /// endpoint must NOT block the sub-minute pipeline boot. The slot
+    /// returns Ok(empty) and starts cold, unlike the ≥60s branch which
+    /// surfaces the fetch error loudly.
+    #[tokio::test]
+    async fn collect_candles_sub_minute_replay_fetch_is_best_effort_when_rest_down() {
+        let pool = empty_pool().await;
+        let (candles, db_count, rest_count) = collect_candles(
+            false,
+            "BTC".to_string(),
+            "BTC-USDC".to_string(),
+            String::new(),
+            "ws://unreachable.invalid".to_string(),
+            pool,
+            1, // 1s TF — sub-minute
+            500,
+            1_786_329_000_000,
+            1_000,
+            false, // PRI-03 warmup enabled (default)
+        )
+        .await
+        .expect("sub-minute warmup must not fail the boot when REST is unreachable");
+
+        assert!(candles.is_empty(), "best-effort warmup must degrade to cold start");
+        assert_eq!(db_count, 0, "no DB rows for a 1s TF on an empty pool");
+        assert_eq!(rest_count, 0, "REST unreachable → zero REST candles");
     }
 }

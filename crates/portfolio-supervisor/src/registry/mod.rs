@@ -278,6 +278,14 @@ pub async fn add_instance(
             &artifacts.instance.active_pair.latest_index_px,
             &artifacts.instance.active_pair.oi_history,
             &artifacts.instance.active_pair.funding_history,
+            // PRI-08: only ≥60s slots propagate warmed snapshots to the
+            // chart; sub-minute slots warm state + history only.
+            [
+                micro_secs >= 60,
+                fast_secs >= 60,
+                slow_secs >= 60,
+                macro_secs >= 60,
+            ],
         )
         .await;
     }
@@ -693,6 +701,14 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
             &artifacts.instance.active_pair.latest_index_px,
             &artifacts.instance.active_pair.oi_history,
             &artifacts.instance.active_pair.funding_history,
+            // PRI-08: only ≥60s slots propagate warmed snapshots to the
+            // chart; sub-minute slots warm state + history only.
+            [
+                micro_secs >= 60,
+                fast_secs >= 60,
+                slow_secs >= 60,
+                macro_secs >= 60,
+            ],
         )
         .await;
     }

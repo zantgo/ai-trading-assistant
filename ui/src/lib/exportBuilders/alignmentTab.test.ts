@@ -123,7 +123,7 @@ describe('buildAlignmentTabExport', () => {
     expect(p.breakdown_meta).toContain('M:');
     expect(p.breakdown_meta).toContain('Vt:');
     expect(p.breakdown_meta).toContain('Vm:');
-    expect(p.consensus_conflict_banner).toContain('TIMEFRAME CONFLICT');
+    expect(p.consensus_conflict_banner).toContain('TIMEFRAME MISALIGNMENT');
     expect(p.hero.mtf_overall_label_display).toMatch(/STRONG|WEAK|NEUTRAL/);
   });
 

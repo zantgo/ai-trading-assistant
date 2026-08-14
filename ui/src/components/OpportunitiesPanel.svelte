@@ -7,8 +7,8 @@
     import LayerHeader from './LayerHeader.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary } from '../lib/decisionRank';
-import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunityBars';
+    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile } from '../lib/decisionRank';
+import { computeOpportunityBars, type DirectionalBars, RR_MEANINGFUL_FLOOR } from '../lib/opportunityBars';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -54,16 +54,23 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
         analysis,
     }));
 
-    // Directional conviction bars — normalized from the top-level opportunity
-    // matrix R:R values and capped by opportunity_score so the remaining
-    // uncertainty remains visible as a Hold buffer.
+    // Directional conviction bars — normalized from the ACTIVE side's
+    // R:R (the panel's own effective direction: top qualifying profile
+    // side → macro bias → argmax R:R), capped by opportunity_score so
+    // the remaining uncertainty remains visible as a Hold buffer.
+    //
+    // The previous implementation exp-weighted BOTH sides' raw R:R with
+    // no bias/viability awareness — a countertrend long bracket with a
+    // larger ratio lit the bars BULLISH under a bearish panel, and an
+    // inverted-geometry setup collapsed the bars to 100% HOLD even when
+    // the panel's chip said "Bullish setups dominate".
     //
     // All three bars (BULLISH/BEARISH/HOLD) are ALWAYS rendered, even at
     // 0%. The previous behaviour filtered out zero-value bars which hid
     // the dominant-HOLD case (the chart showed only a single HOLD=100%
     // bar and operators couldn't see that bullish/bearish were genuinely
     // zero). Showing all three explicitly communicates the full split.
-    const directionBars = $derived.by((): DirectionalBars => computeOpportunityBars(opportunity));
+    const directionBars = $derived.by((): DirectionalBars => computeOpportunityBars(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null));
     const sortedBars = $derived.by(() => [
         { id: 'bullish', label: 'BULLISH', value: directionBars.bullish, cls: 'bullish' },
         { id: 'bearish', label: 'BEARISH', value: directionBars.bearish, cls: 'bearish' },
@@ -174,24 +181,34 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
         (opportunity?.profiles ?? []).find((p) => p.opportunity_type === 'NoClearOpportunity') ?? null,
     );
 
-    // Active-side R:R (per-side, gated on macro bias). The legacy
-    // matrix-level `expected_rr_internal` was removed in v6.9; the
-    // canonical R:R is now the per-side field. When the bias is
-    // Neutral (no active side), surface "N/A — no directional bias"
-    // instead of a misleading "0.00" that operators read as "this
-    // trade has 0 R:R".
+    // Active-side R:R (per-side, gated on the panel's own effective
+    // direction — the top qualifying profile's resolved side, falling
+    // back to the macro bias). The legacy matrix-level
+    // `expected_rr_internal` was removed in v6.9; the canonical R:R is
+    // now the per-side field. When the bias is Neutral (no active
+    // side), surface "N/A — no directional bias" instead of a
+    // misleading "0.00" that operators read as "this trade has 0 R:R".
+    // Degenerate near-zero ratios (< RR_MEANINGFUL_FLOOR) also read N/A.
     const rrInternalDisplay = $derived.by((): { value: string; isNA: boolean } => {
-        const bias = analysis?.bias ?? 'Neutral';
+        // R4: the macro bias prefers the DecisionContext mirror (same
+        // candle as the verdict/probabilities) so the R:R display can
+        // never contradict the panels that key off the decision rank.
+        const bias = decisionContext?.bias ?? analysis?.bias ?? 'Neutral';
         const opp = opportunity;
         let v = 0;
         if (opp) {
-            if (bias === 'Bullish' || bias === 'StrongBullish') {
+            const top = topQualifyingProfile(opp);
+            const side = top ? selectProfileSide(top, bias) : 'NEUTRAL';
+            if (side === 'LONG') {
+                v = top?.long_expected_rr_internal ?? opp.long_expected_rr_internal ?? 0;
+            } else if (side === 'SHORT') {
+                v = top?.short_expected_rr_internal ?? opp.short_expected_rr_internal ?? 0;
+            } else if (bias === 'Bullish' || bias === 'StrongBullish') {
                 v = opp.long_expected_rr_internal ?? 0;
             } else if (bias === 'Bearish' || bias === 'StrongBearish') {
                 v = opp.short_expected_rr_internal ?? 0;
-            } else {
-                v = 0;
             }
+            if (v < RR_MEANINGFUL_FLOOR) v = 0;
         }
         if (rank.top === 'HOLD' && v === 0) {
             return { value: 'N/A', isNA: true };
@@ -277,7 +294,7 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     // override the per-side RR direction when both sides are valid
     // (`buildL4OpportunityHeader` handles the disambiguation).
     const headerSpec = $derived<LayerHeaderSpec>(
-        buildL4OpportunityHeader(opportunity, analysis?.bias ?? null)
+        buildL4OpportunityHeader(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null)
     );
 
     // ── Lean (bullish / bearish / neutral) derived from the rank.
@@ -361,8 +378,8 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     <div class={styles.section}>
             <div class={styles.topSetupLabel}>TOP SETUP</div>
             <div class={styles.headerRow}>
-                <span class="{styles.oppBadge} {analysis ? oppClass(analysis.opportunity_analysis) : styles.oppNone}">
-                    {analysis ? oppLabel(analysis.opportunity_analysis) : '—'}
+                <span class="{styles.oppBadge} {opportunity ? oppClass(opportunity.primary_opportunity) : styles.oppNone}">
+                    {opportunity ? oppLabel(opportunity.primary_opportunity) : '—'}
                 </span>
                 <span class="{styles.leanChip} {lean.tone === 'bull' ? styles.leanBull : lean.tone === 'bear' ? styles.leanBear : styles.leanNeutral}">
                     {lean.label}

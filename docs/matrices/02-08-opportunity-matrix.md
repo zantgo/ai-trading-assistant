@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -41,8 +41,8 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `entry_zone` | `PriceRange` | Recommended entry band. *(Added in the institutional redesign — institutional quant field.)* |
 | `target_zone` | `PriceRange` | Expected target band. *(Added in the institutional redesign.)* |
 | `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; the prior L4/Decision and Position Matrix spellings were unified to the canonical `invalidation_level` in v2.1 — retired names recorded in `docs/CHANGELOG.md`.)* |
-| `long_expected_rr_internal` | `f64` | Per-direction R:R for a long setup, derived from `long_target_zone`, `long_entry_zone`, and `long_invalidation_level`. The active side is resolved by `analysis.bias`; the legacy matrix-level `expected_rr_internal` was removed in v6.9. |
-| `short_expected_rr_internal` | `f64` | Per-direction R:R for a short setup, derived from `short_target_zone`, `short_entry_zone`, and `short_invalidation_level`. |
+| `long_expected_rr_internal` | `f64` | Per-direction R:R for a long setup, derived from `long_target_zone`, `long_entry_zone`, and `long_invalidation_level`. The active side is resolved by `analysis.bias`; the legacy matrix-level `expected_rr_internal` was removed in v6.9. Ratios below the 0.1 meaningfulness floor (`RR_MEANINGFUL_FLOOR` in `core-domain::risk_reward`) are rejected as `NoValue(RatioBelowFloor)` — degenerate near-zero values never reach the wire (v6.10.6). |
+| `short_expected_rr_internal` | `f64` | Per-direction R:R for a short setup, derived from `short_target_zone`, `short_entry_zone`, and `short_invalidation_level`. Subject to the same 0.1 floor. |
 | `long_geometry_consistent` | `bool` | Server-side flag for the matrix-level LONG bracket (`true` when the §2.2.2 invariants hold). |
 | `short_geometry_consistent` | `bool` | Server-side flag for the matrix-level SHORT bracket. |
 | `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION`. The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
@@ -93,10 +93,12 @@ The cadence is implemented as a debounced scheduler on the L6 Decision Layer (se
 | Variant | Setup families | Side resolution |
 |---------|----------------|------------------|
 | `TREND_RIDING` | `TrendContinuation`, `Breakout`, `Pullback`, `Scalp`, `LiquiditySqueeze` | Resolves to LONG when `Analysis.bias ∈ {Bullish, StrongBullish}`, SHORT when `Bearish / StrongBearish`, NEUTRAL otherwise. |
-| `COUNTER_TREND` | `MeanReversion`, `Reversal` | Resolves to the OPPOSITE of the macro bias (LONG when bearish, SHORT when bullish, NEUTRAL otherwise). |
+| `COUNTER_TREND` | `MeanReversion`, `Reversal` | **Deviation-driven (v6.10.6).** The side follows the market data, not the bare bias: `MeanReversion` follows the Z-Score sign (price stretched above its rolling mean — `z ≥ +0.5` — → SHORT "sell the rip"; stretched below — `z ≤ −0.5` — → LONG "buy the dip"), `Reversal` follows the confirmed divergence direction (`CONFIRMED_BULLISH_DIVERGENCE` → LONG, `CONFIRMED_BEARISH_DIVERGENCE` → SHORT). When the data is ambiguous or absent, falls back to the OPPOSITE of the macro bias (LONG when bearish, SHORT when bullish, NEUTRAL otherwise). |
 | `NEUTRAL` | `NoClearOpportunity` | Carries no zones (the family is direction-neutral by definition). |
 
-The mapping is total over all eight `OpportunityType` values. The frontend's `selectProfileSide(profile, macroBias)` resolves the family × bias combination to a concrete `LONG / SHORT / NEUTRAL` direction.
+The mapping is total over all eight `OpportunityType` values. The frontend's `selectProfileSide(profile, macroBias)` resolves the profile's side from its **populated zones first** (the L4 producer populates exactly one side per profile, so the populated side *is* the wire-side resolution), falling back to the family × bias combination above when the profile carries no zones (legacy payloads, neutral bias).
+
+> **Single effective direction (v6.10.6).** Every directional surface of the L4 output — the header badge tone + R:R chip, the directional conviction bars, the `R:R (Internal)` block, the invalidation note, the matrix-level confluent display, and the legacy scalar `entry_zone` / `target_zone` / `invalidation_level` — resolves from **one** canonical direction: the top qualifying profile's resolved side (zone-presence aware `selectProfileSide`), falling back to the macro bias side, then to the argmax of the per-side geometric R:R. This closes the historical CounterTrend duality where a profile card could read LONG while the note, confluent levels, and header described the SHORT thesis. The L6 decision context remains macro-bias driven by design (L6 is the market verdict; the L4 card is the setup direction).
 
 #### 2.2.2 Per-profile geometry invariants
 
@@ -132,6 +134,7 @@ Both `OpportunitiesPanel` (Market Monitoring → Opportunities) and `Recommendat
 - The Opportunities panel renders **one actionable card per qualifying profile** (the leaderboard).
 - The Recommendation panel renders **only the highest-scored qualifying profile** as the operator's actionable decision.
 - The Trade Setups cards' entry/target/SL/R:R on the Opportunities panel match the Top Setup card's per-profile zones on the Recommendation panel for the same profile.
+- The directional conviction bars, the L4 header badge tone + R:R chip, and the `R:R (Internal)` block resolve their direction through the same shared helper (`selectProfileSide` + `topQualifyingProfile`) — the bars weight **only the active side's** R:R (`exp(RR·3)` vs a hold floor, capped by `opportunity_score`), so they can never contradict the panel's own lean chip, header, or cards (v6.10.6).
 
 ---
 
@@ -144,7 +147,7 @@ The `OpportunityType` enum is the **canonical home** of the setup selector (in t
 | `TrendContinuation` | Strong/healthy trend (dim ≥ 75) + directional bias + momentum not exhausted. | `SWING` |
 | `Breakout` | Volatility expansion (dim ≥ 70) + healthy structure (dim ≥ 60) + compression release or level breach. | `INTRADAY` |
 | `Pullback` | Established trend (dim ≥ 60) + weakening momentum + price retracing toward a dynamic level. | `SWING` |
-| `MeanReversion` | Volatility compression (dim ≤ 30) + range regime + oscillator extreme. | `INTRADAY` |
+| `MeanReversion` | Volatility compression (dim ≤ 30) + range regime. | `INTRADAY` |
 | `Reversal` | Confirmed divergence + structure break + momentum reversing. | `POSITION` |
 | `LiquiditySqueeze` | Force-liquidation cascade is imminent or in progress. Reads L1.5 `LiquidityFlow.cascade_state ∈ {Detected, Sustained}` AND `LiquidationClusterMatrix.cascade_asymmetry` has `|asymmetry| > 0.3` (cluster forward-pressure present). Regime context must be `EXPANSION` or `TRANSITION` (not a flat range). Maps to a defensive opportunity — the platform tracks the cascade flow and triggers reduce-only / protective-tightening policies. | `INTRADAY` |
 | `Scalp` | High per-candle volatility (BBWP ∈ [70, 95)) + tight structural context (alignment dimension 4 `Structure` ≥ 70) + directional bias (BULLISH / STRONG_BULLISH / BEARISH / STRONG_BEARISH) + regime ∈ {TRENDING_BULL, TRENDING_BEAR} (intraday-trending context, not swing). Designed for sub-minute-to-seconds holding periods, complementary to `Breakout` (which targets multi-bar continuation) and `TrendContinuation` (which targets multi-day). Every `Scalp` setup maps to `time_horizon = SCALP`, making the SCALP variant of `TimeHorizon` reachable from at least one `OpportunityType`. | `SCALP` |
@@ -167,7 +170,7 @@ The Opportunity Layer applies the following decision tree (first match in the li
 2. volatility ≥ 70 AND structure ≥ 60                              → BREAKOUT
 3. confirmed_divergence AND structure_broken AND momentum_exhausted → REVERSAL
 4. trend ≥ 60 AND momentum weakening                              → PULLBACK
-5. volatility ≤ 30                                                → MEAN_REVERSION
+5. volatility ≤ 30 AND regime ∈ {RANGE, CONTRACTION}               → MEAN_REVERSION
 6. tradability_dim < 30                                           → NO_CLEAR_OPPORTUNITY
 7. otherwise (default)                                             → TREND_CONTINUATION
 ```
@@ -175,6 +178,8 @@ The Opportunity Layer applies the following decision tree (first match in the li
 Where `confirmed_divergence` is true when at least one `Divergence` indicator signal has reached `status = CONFIRMED` ([Metrics Matrix §4.2](02-07-metrics-matrix.md)), `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40, `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25, and `structure_align` is the same dimension 4 score interpreted as "tight structural context favorable for a sub-minute scalp". `BBWP` is the `bbwp` indicator's raw percentile output on the local timeframe (L1 Metrics, `[0, 100]`) — **not** `MarketContext.volatility.score` (a signed `[-1, 1]` dimension). All **eight** values of `OpportunityType` (including `LiquiditySqueeze` and `Scalp`) are reachable via the explicit branches; the `ELSE` (priority 7) is a defensive default that may also resolve to `TREND_CONTINUATION`.
 
 > **Direction-neutrality (v2.1).** Rule 1 previously read `trend ≥ 75 AND bias bullish` which violated the direction-neutral contract of the Opportunity Matrix (a strong bearish trend would not match and would fall through to the default). The corrected rule is symmetric: it accepts both `BULLISH`/`STRONG_BULLISH` and `BEARISH`/`STRONG_BEARISH` bias and produces a directional `TREND_CONTINUATION` either way. The Decision Matrix owns the actual long/short decision.
+>
+> **`MEAN_REVERSION` range gate (v6.10.6).** Rule 5 previously read `volatility ≤ 30` alone, which selected `MEAN_REVERSION` as the primary while its own profile preconditions required the range regime (`vol_dim ≤ 30 AND is_range`) — headlining "Mean Reversion" with `0/2` preconditions during expansion collapses. The tree now enforces the same gate its profile preconditions use; a compressed-but-trending market falls through to `NO_CLEAR_OPPORTUNITY`.
 >
 > **`tradability_dim` (v2.1).** Rule 6 was previously `opportunity_dim < 30`. The Alignment Matrix dimension 9 was renamed from `opportunity_dim` to `tradability_dim` in the institutional redesign to disambiguate from the L4 Opportunity Matrix (L4 owns opportunity concepts; dimension 9 measures TFs agreeing on tradability).
 
@@ -267,7 +272,7 @@ Enum values serialize as `SCREAMING_SNAKE_CASE`.
 | **Strategy-agnostic** | No strategy assumptions (scalping, swing, arbitrage) leak into the profiling. |
 | **Explainability** | Every score decomposes into its four weighted factors and precondition fractions. |
 | **Bounded** | `opportunity_score` and all profile scores clamp to `[0, 100]`. |
-| **Canonical OpportunityType** | This matrix is the **only** producer of `OpportunityType`. The Analysis Matrix's former `opportunity_analysis` field has been removed (see [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md)). |
+| **Canonical OpportunityType** | This matrix is the **only** producer of the *primary* `OpportunityType` classification consumed by the dashboards. The Analysis Matrix's `opportunity_analysis` field is retained only for backward compatibility (it mirrors the L4 selection with a coarser derivation); the UI reads `primary_opportunity`, never the L3 label, so the badge can't contradict the L4 verdict (v6.10.6). |
 
 ---
 

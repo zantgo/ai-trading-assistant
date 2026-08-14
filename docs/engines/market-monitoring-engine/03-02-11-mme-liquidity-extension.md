@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)

@@ -24,6 +24,7 @@ import type {
     TradeViability,
 } from '../types';
 import { normalizeViability } from './viability';
+import { selectProfileSide } from './decisionRank';
 
 export type HeroState = 'TRADE' | 'WAIT' | 'STAND_ASIDE';
 
@@ -39,36 +40,19 @@ export interface SetupSummary {
 }
 
 /**
- * Resolve the trade direction for a profile from the L4 producer's
- * `direction_family` x macro `MarketBias` matrix. Mirrors
- * `selectProfileSide` in `decisionRank.ts` but exported as a free
- * helper so dashboard components do not need to import the
- * `decisionRank` module (which is tightly coupled to the Decision
- * Panel's internals).
+ * Resolve the trade direction for a profile. Delegates to the shared
+ * `selectProfileSide` in `decisionRank.ts` (zone-presence aware —
+ * CounterTrend profiles surface the deviation-driven side the L4
+ * producer populated), so the dashboard and the Opportunity /
+ * Recommendation panels can never disagree. Exported as a free helper
+ * so dashboard components do not need to import the `decisionRank`
+ * module (which is tightly coupled to the Decision Panel's internals).
  */
 export function profileDirection(
     profile: OpportunityProfile,
     macroBias: MarketBias | null,
 ): 'LONG' | 'SHORT' | 'NEUTRAL' {
-    const family = profile.direction_family ?? null;
-    const isBullish = macroBias === 'Bullish' || macroBias === 'StrongBullish';
-    const isBearish = macroBias === 'Bearish' || macroBias === 'StrongBearish';
-    switch (family) {
-        case 'TrendRiding':
-            if (isBullish) return 'LONG';
-            if (isBearish) return 'SHORT';
-            return 'NEUTRAL';
-        case 'CounterTrend':
-            if (isBullish) return 'SHORT';
-            if (isBearish) return 'LONG';
-            return 'NEUTRAL';
-        case 'Neutral':
-        case null:
-        case undefined:
-            return 'NEUTRAL';
-        default:
-            return 'NEUTRAL';
-    }
+    return selectProfileSide(profile, macroBias);
 }
 
 /**

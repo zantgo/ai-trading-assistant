@@ -5,7 +5,7 @@
     import { buildAlignmentTabExport } from '../lib/exportBuilders/alignmentTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
-    import { buildL2AlignmentHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { buildL2AlignmentHeader, mLabel, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './AlignmentPanel.module.css';
 
     const app = useAppStore();
@@ -14,15 +14,12 @@
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
-    const opportunity = $derived((microSnap?.opportunity ?? null) as any);
-    const decisionContext = $derived((microSnap?.decision_context ?? null) as Record<string, unknown> | null);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
         microSnap && typeof (microSnap as any).timestamp === 'number'
             ? (microSnap as any).timestamp
             : null
     );
-    const registry = $derived(app.indicatorRegistry ?? []);
 
     function buildExport() {
         return buildAlignmentTabExport({
@@ -41,15 +38,21 @@
         });
     }
 
+    // AL-2 (v6.10.10): the wire's AlignState can be STRONG_BULLISH /
+    // STRONG_BEARISH / MIXED / NO_DATA — the color helpers previously
+    // only matched BULLISH/Bearish, so strongly-aligned dimensions
+    // rendered as neutral gray cards.
     function dimFillClass(score: number, state: string): string {
         if (score >= 100) return styles.dimFillConfluent;
-        if (state === 'BULLISH' || state === 'Bullish') return styles.dimFillBull;
-        if (state === 'BEARISH' || state === 'Bearish') return styles.dimFillBear;
+        const s = String(state || '').toUpperCase().replace(/_/g, '');
+        if (s === 'STRONGBULLISH' || s === 'BULLISH') return styles.dimFillBull;
+        if (s === 'STRONGBEARISH' || s === 'BEARISH') return styles.dimFillBear;
         return styles.dimFillNeutral;
     }
     function stateClass(state: string): string {
-        if (state === 'BULLISH' || state === 'Bullish') return styles.stateBullish;
-        if (state === 'BEARISH' || state === 'Bearish') return styles.stateBearish;
+        const s = String(state || '').toUpperCase().replace(/_/g, '');
+        if (s === 'STRONGBULLISH' || s === 'BULLISH') return styles.stateBullish;
+        if (s === 'STRONGBEARISH' || s === 'BEARISH') return styles.stateBearish;
         return styles.stateNeutral;
     }
     function shortStateLabel(state: string): string {
@@ -63,14 +66,6 @@
         if (s > 5) return styles.bullish;
         if (s < -5) return styles.bearish;
         return styles.neutral;
-    }
-    function mLabel(l: string): string {
-        if (l.startsWith('STRONG_BULL')) return 'STRONG BULL';
-        if (l.startsWith('STRONG_BEAR')) return 'STRONG BEAR';
-        if (l.startsWith('WEAK_BULL')) return 'WEAK BULL';
-        if (l.startsWith('WEAK_BEAR')) return 'WEAK BEAR';
-        if (l === 'NEUTRAL_MTF') return 'NEUTRAL';
-        return l;
     }
     function mLabelClass(l: string): string {
         if (l.includes('BULL')) return styles.mtfLabelBullish;
@@ -102,8 +97,8 @@
     const weights = [
         { label: 'Trend', key: 'T', pct: 50, color: '#22c55e' },
         { label: 'Momentum', key: 'M', pct: 30, color: '#3b82f6' },
-        { label: 'Vol.trend', key: 'Vt', pct: 10, color: '#a78bfa' },
-        { label: 'Vol.market', key: 'Vm', pct: 10, color: '#f59e0b' },
+        { label: 'Volume', key: 'Vt', pct: 10, color: '#a78bfa' },
+        { label: 'Volatility', key: 'Vm', pct: 10, color: '#f59e0b' },
     ];
 
     function getRawValue(key: string): number {
@@ -122,11 +117,22 @@
         const vt = alignment.mtf_volume_alignment;
         const vm = alignment.mtf_volatility_alignment;
         const sum = alignment.mtf_overall_score;
-        return `0.5 * (${t.toFixed(2)}) + 0.3 * (${m.toFixed(2)}) + 0.1 * (${vt.toFixed(2)}) + 0.1 * (${vm.toFixed(2)}) = ${sum.toFixed(1)}`;
+        // AL-1 (v6.10.10): the backend scales the blend by ×100
+        // (`mtf_overall_score = 100·(0.5T + 0.3M + 0.1Vt + 0.1Vm)`, signed
+        // axes [−1, 1]) — the displayed equation must carry the factor or
+        // it never balances (0.5·0.45 + … ≈ 0.4 printed as "= 40.0").
+        return `(0.5 * (${t.toFixed(2)}) + 0.3 * (${m.toFixed(2)}) + 0.1 * (${vt.toFixed(2)}) + 0.1 * (${vm.toFixed(2)})) \u00D7 100 = ${sum.toFixed(1)}`;
     });
 
+    // AL-7 (v6.10.10): the backend's warmup sentinel (`AlignmentMatrix::empty` —
+    // timeframes_present 0, label NO_DATA, agreement 0.0) must NOT drive the
+    // consensus row and interpretation into a fabricated "Conflict" verdict.
+    // The dimension cards keep their honest NO DATA states; only the
+    // consensus/interpretation surfaces treat the sentinel as awaiting.
+    const hasAlignment = $derived(!!alignment && alignment.timeframes_present > 0);
+
     const conflictWarning = $derived(
-        alignment && alignment.timeframes_present > 0 && alignment.trend_agreement_pct < 50
+        hasAlignment && alignment!.trend_agreement_pct < 50
     );
 
     const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment));
@@ -188,17 +194,19 @@
         <div class={styles.sectionTitle}>Timeframe Consensus</div>
         <div class={styles.consensusRow}>
             <div class={styles.consensusMeter}>
-                <span class={styles.consensusVal}>{alignment ? alignment.trend_agreement_pct.toFixed(0) : '\u2014'}%</span>
+                <span class={styles.consensusVal}>{alignment && alignment.timeframes_present > 0 ? alignment.trend_agreement_pct.toFixed(0) : '\u2014'}%</span>
                 <div class={styles.consensusBar}>
-                    <div class="{styles.consensusFill} {alignment ? (alignment.trend_agreement_pct >= 75 ? styles.consensusStrong : alignment.trend_agreement_pct >= 50 ? styles.consensusPartial : styles.consensusConflict) : ''}"
-                         style="width: {alignment ? alignment.trend_agreement_pct.toFixed(1) : '0'}%"></div>
+                    <div class="{styles.consensusFill} {alignment && alignment.timeframes_present > 0 ? (alignment.trend_agreement_pct >= 75 ? styles.consensusStrong : alignment.trend_agreement_pct >= 50 ? styles.consensusPartial : styles.consensusConflict) : ''}"
+                         style="width: {alignment && alignment.timeframes_present > 0 ? alignment.trend_agreement_pct.toFixed(1) : '0'}%"></div>
                 </div>
             </div>
             <span class={styles.consensusText}>
-                {alignment
+                {alignment && alignment.timeframes_present > 0
                     ? (alignment.trend_agreement_pct >= 75 ? 'Strong consensus — timeframes aligned' :
                        alignment.trend_agreement_pct >= 50 ? 'Partial consensus — mixed signals' :
-                       'Conflict — time horizons diverging')
+                       // AL-3: "conflict" overstates when the low agreement
+                       // comes from undecided (neutral) TFs, not opposition.
+                       'Mixed consensus — timeframes not aligned')
                     : '\u2014'}
             </span>
         </div>
@@ -219,7 +227,7 @@
             {/each}
         </div>
         {#if conflictWarning}
-            <div class={styles.conflictBadge}>TIMEFRAME CONFLICT — time horizons are working against each other</div>
+            <div class={styles.conflictBadge}>TIMEFRAME MISALIGNMENT — time horizons are not working together</div>
         {/if}
     </div>
 
@@ -284,11 +292,11 @@
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Interpretation</div>
         <div class={styles.interpretation}>
-            {#if alignment}
+            {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
                     Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
                     The composite score of {alignment.mtf_overall_score.toFixed(1)} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
-                    {alignment.signal_cross_tf_count > 0 ? `${alignment.signal_cross_tf_count} cross-timeframe signals reinforce the current bias.` : 'No cross-timeframe signals detected.'}
+                    {alignment.signal_cross_tf_count > 0 ? `${alignment.signal_cross_tf_count} cross-timeframe signal votes reinforce the current bias.` : 'No cross-timeframe signal votes detected.'}
                 {:else if alignment.trend_agreement_pct >= 50}
                     Alignment shows <strong>partial consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement).
                     The composite score of {alignment.mtf_overall_score.toFixed(1)} reflects <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong> conditions with mixed input from {alignment.timeframes_present} timeframes.

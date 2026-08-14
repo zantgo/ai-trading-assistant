@@ -83,7 +83,7 @@ function makeAnalysis(): AnalysisMatrix {
   } as unknown as AnalysisMatrix;
 }
 
-function makeAdvisory(): AdvisoryMatrix {
+function makeAdvisory(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
   return {
     directional_guidance: 'Neutral',
     market_stance: 'Cautious',
@@ -95,6 +95,7 @@ function makeAdvisory(): AdvisoryMatrix {
     protection_strategy: 'ATRBased',
     target_strategy: 'TrailingMethod',
     final_recommendation: 'Neutral — no directional edge.',
+    ...overrides,
   } as unknown as AdvisoryMatrix;
 }
 
@@ -271,5 +272,57 @@ describe('buildRecommendationTabExport', () => {
     expect(p.strategy.exit).toBe('—');
     expect(p.strategy.protection).toBe('—');
     expect(p.strategy.target).toBe('—');
+  });
+
+  it('R6: final_verdict is verdict-consistent under HOLD (advisory demoted to guidance)', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ final_recommendation: 'Long bias: BULLISH bias with 34% confidence. Entry: immediate.' }),
+      decisionContext: makeDecisionContext(), // hold-dominant (12/2/86) → HOLD
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.verdict.top).toBe('HOLD');
+    // The final verdict is the VERDICT, never the advisory's directional
+    // sentence under a HOLD badge.
+    expect(p.final_verdict).toContain('HOLD — no directional call');
+    expect(p.final_verdict).not.toContain('immediate');
+    // The advisory text survives as environment guidance.
+    expect(p.final_verdict_guidance).toContain('Environment guidance:');
+    expect(p.final_verdict_guidance).toContain('immediate');
+  });
+
+  it('R6: final_verdict carries the advisory sentence under a directional verdict', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ final_recommendation: 'Strong long bias: BULLISH bias with 72% confidence.' }),
+      decisionContext: makeDecisionContext({ long_probability: 60, short_probability: 10, hold_probability: 30, net_bias_pct: 50 }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.verdict.top).toBe('LONG');
+    expect(p.final_verdict).toContain('Strong long bias');
+    expect(p.final_verdict_guidance).toBeNull();
+    expect(p.strategy.hold_caption).toBeNull();
+  });
+
+  it('R5: hold placeholder describes the aggregated bracket (not the close-pinned sentinel)', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(), // HOLD verdict
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.price_levels.side).toBe('hold');
+    expect(p.price_levels.hold_placeholder).toContain('aggregated bracket on the net-bias side');
+    expect(p.price_levels.hold_placeholder).not.toContain('entry = target = invalidation = close');
+    expect(p.strategy.hold_caption).toContain('For reference — no active directional call');
   });
 });

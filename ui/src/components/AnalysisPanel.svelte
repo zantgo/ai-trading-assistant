@@ -16,8 +16,6 @@
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
-    const opportunity = $derived((microSnap?.opportunity ?? null) as any);
-    const decisionContext = $derived((microSnap?.decision_context ?? null) as Record<string, unknown> | null);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
     const timestamp = $derived<number | null>(
         microSnap && typeof (microSnap as any).timestamp === 'number'
@@ -48,36 +46,6 @@
         });
     }
 
-    function biasClass(b: string): string {
-        switch (b) {
-            case 'StrongBullish': return styles.biasStrongBull;
-            case 'Bullish': return styles.biasBull;
-            case 'Neutral': return styles.biasNeutral;
-            case 'Bearish': return styles.biasBear;
-            case 'StrongBearish': return styles.biasStrongBear;
-            default: return styles.biasNeutral;
-        }
-    }
-    function regimeClass(r: string): string {
-        if (r.includes('BULL')) return styles.regimeBull;
-        if (r.includes('BEAR')) return styles.regimeBear;
-        if (r === 'EXPANSION' || r === 'CONTRACTION') return styles.regimeVol;
-        return styles.tfRegimeNeutral;
-    }
-    function confClass(c: number): string {
-        if (c >= 0.6) return styles.confHigh;
-        if (c >= 0.35) return styles.confMid;
-        return styles.confLow;
-    }
-    function qualityClass(q: string): string {
-        switch (q) {
-            case 'Excellent': return styles.qualityExc;
-            case 'Good': return styles.qualityGood;
-            case 'Average': return styles.qualityAvg;
-            case 'Weak': return styles.qualityWeak;
-            default: return styles.qualityPoor;
-        }
-    }
     function phaseClass(p: string): string {
         switch (p) {
             case 'MARKUP': return styles.phaseMarkup;
@@ -87,12 +55,6 @@
             default: return styles.phaseUnknown;
         }
     }
-    function displayBias(b: string): string {
-        return b.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
-    }
-    function displayRegime(r: string): string {
-        return r.replace(/_/g, ' ');
-    }
     function displayPhase(p: string): string {
         // Shared prettifier with the export builder — both surfaces must
         // render the identical string for the same wire token.
@@ -100,15 +62,6 @@
     }
 
     /** Parse signal text for (bullish/bearish/neutral) direction indicator. */
-    function signalDirClass(text: string): string {
-        const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
-        if (dir === 'bullish') return styles.sigBullish;
-        if (dir === 'bearish') return styles.sigBearish;
-        if (/\bBULLISH\b/i.test(text)) return styles.sigBullish;
-        if (/\bBEARISH\b/i.test(text)) return styles.sigBearish;
-        return styles.sigNeutral;
-    }
-
     function signalDirection(text: string): 'bullish' | 'bearish' | 'neutral' {
         const dir = text.match(/\((bullish|bearish|neutral)\)/i)?.[1]?.toLowerCase();
         if (dir === 'bullish') return 'bullish';
@@ -191,6 +144,11 @@
     // ── Signal lean — the operator wants to see at-a-glance whether the
     // signals net bullish or bearish. Direction is parsed from each signal
     // text rather than assumed from the supporting/contradicting bucket.
+    // AN-2: "no data yet" (empty lists) is distinct from "all timeframes
+    // neutral" (signals exist but carry no directional lean) — the hero
+    // must not claim "No signals" while neutral squares render below.
+    // AN-3: a zero-opposing count renders "3:0" (or "0:3"), never a
+    // misleading "3:1" that implies opposing signals exist.
     const signalLean = $derived.by((): {
         label: string;
         bullish: number;
@@ -202,18 +160,23 @@
         const allTexts = [...(analysis?.supporting_signals ?? []), ...(analysis?.contradicting_signals ?? [])];
         const bull = allTexts.filter(t => signalDirection(t) === 'bullish').length;
         const bear = allTexts.filter(t => signalDirection(t) === 'bearish').length;
-        const total = bull + bear;
-        if (total === 0) return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split',
-            callHtml: 'No signals', metaHtml: 'Waiting for cross-TF consensus' };
+        if (allTexts.length === 0) {
+            return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split',
+                callHtml: 'No signals', metaHtml: 'Waiting for cross-TF consensus' };
+        }
+        if (bull === 0 && bear === 0) {
+            return { label: 'Neutral signals · no directional lean', bullish: 0, bearish: 0, tone: 'split',
+                callHtml: 'Neutral signals', metaHtml: 'No directional lean across timeframes' };
+        }
+        const ratioText = (dominant: number, opposing: number) =>
+            opposing === 0 ? `${dominant}:0` : `${(dominant / opposing).toFixed(1)}:1`;
         if (bull > bear * 1.5) {
-            const ratio = bear > 0 ? (bull / bear).toFixed(1) : bull.toFixed(0);
             return { label: `Net bullish \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'bull',
-                callHtml: `Net bullish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratio}:1 signal ratio` };
+                callHtml: `Net bullish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratioText(bull, bear)} signal ratio` };
         }
         if (bear > bull * 1.5) {
-            const ratio = bull > 0 ? (bear / bull).toFixed(1) : bear.toFixed(0);
             return { label: `Net bearish \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'bear',
-                callHtml: `Net bearish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratio}:1 signal ratio` };
+                callHtml: `Net bearish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratioText(bear, bull)} signal ratio` };
         }
         return { label: `Split signals \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'split',
             callHtml: 'Split signals', metaHtml: `${bull}\u2191 vs ${bear}\u2193` };
@@ -286,8 +249,8 @@
             {#if signalLean.bullish + signalLean.bearish > 0}
                 {@const total = signalLean.bullish + signalLean.bearish}
                 <div class={styles.signalLeanBar}>
-                    <div class={styles.signalLeanBarBull} style="width: {(signalLean.bullish / total * 100).toFixed(1)}%"></div>
-                    <div class={styles.signalLeanBarBear} style="width: {(signalLean.bearish / total * 100).toFixed(1)}%"></div>
+                    <div class={styles.signalLeanBarBull} style="width: {Math.round(signalLean.bullish / total * 100)}%"></div>
+                    <div class={styles.signalLeanBarBear} style="width: {Math.round(signalLean.bearish / total * 100)}%"></div>
                 </div>
             {/if}
         </div>
@@ -306,7 +269,10 @@
                 {#each sortedSignals as sig (sig.text)}
                     {@const p = decomposeSignal(sig.text)}
                     {@const dir = sig.type}
-                    <div class="{styles.sigSquare} {dir === 'bullish' ? styles.sigSquareBull : styles.sigSquareBear}" title={p.raw}>
+                    <!-- AN-1: neutral signals render with the neutral (gray)
+                         square + flat icon — they must not inherit the
+                         bearish red styling and down arrow. -->
+                    <div class="{styles.sigSquare} {dir === 'bullish' ? styles.sigSquareBull : dir === 'bearish' ? styles.sigSquareBear : styles.sigSquareNeutral}" title={p.raw}>
                         <span class={styles.sigTf}>{p.timeframe}</span>
                         <div class={styles.sigIconWrap}>
                             {#if dir === 'bullish'}
@@ -314,10 +280,14 @@
                                     <line x1="12" y1="19" x2="12" y2="5"></line>
                                     <polyline points="5 12 12 5 19 12"></polyline>
                                 </svg>
-                            {:else}
+                            {:else if dir === 'bearish'}
                                 <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <line x1="12" y1="5" x2="12" y2="19"></line>
                                     <polyline points="19 12 12 19 5 12"></polyline>
+                                </svg>
+                            {:else}
+                                <svg viewBox="0 0 24 24" class={styles.sigIcon} fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="6" y1="12" x2="18" y2="12"></line>
                                 </svg>
                             {/if}
                         </div>

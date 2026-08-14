@@ -105,6 +105,12 @@ pub struct NormalizationContext {
     pub ema_stack_state: Option<String>,
     /// Medium EMA value for dynamic support/resistance retest detection.
     pub ema_medium: Option<f64>,
+    /// Fast EMA value (PRI-10, v6.10.7): the `ema_stack` entry's `raw_value`
+    /// must match the registry `value_source: "sub:fast"`. The previous
+    /// price-anchored raw made the Metrics Raw cell show the close and
+    /// poisoned any consumer that fell back to raw (the price-following
+    /// lines bug). Falls back to `price` when unavailable (cold edge).
+    pub ema_fast: Option<f64>,
     /// Sorted support price levels.
     pub support_levels: Vec<f64>,
     /// Sorted resistance price levels.

@@ -6,6 +6,142 @@
 
 
 
+## v6.10.10 (2026-08-14) — Alignment panel internal consistency
+
+The L2 Alignment tab's arithmetic and verdict surfaces are now honest: the Score Calculation formula balances (×100 factor), strongly-aligned dimensions are colored, the NO_DATA warmup sentinel renders as awaiting instead of a fabricated "Conflict" verdict, and the label/consensus wording is unified across the header, panel, and export.
+
+**ALGN-001 — balancing score formula (`ui`):**
+* `mtf_overall_score = 100·(0.5·T + 0.3·M + 0.1·Vt + 0.1·Vm)` on signed axes [−1, 1] — the panel and export previously rendered `0.5 * (0.45) + … = 40.0` with the left side evaluating to ≈ 0.4. The displayed formula now carries the `× 100` factor so the equation balances.
+
+**ALGN-002 — strong/mixed dimension colors (`ui`):**
+* `AlignState` emits `STRONG_BULLISH` / `STRONG_BEARISH` / `MIXED`, but the panel's fill/state color helpers only matched `BULLISH`/`Bearish` — strongly-aligned dimensions rendered as neutral gray cards. The helpers now map the full state set.
+
+**ALGN-003 — NO_DATA sentinel gate (`ui`):**
+* `AlignmentMatrix::empty` (0 TFs, `NO_DATA`, agreement 0) drove the consensus row to "0% / Conflict — time horizons diverging" and the interpretation to "Timeframes are in conflict … Exercise caution" — fabricated verdicts from zero data, contradicting the L2 header's honest "No Data". The sentinel now renders the awaiting consensus (`—%`, em-dash verdict) and the awaiting interpretation; the 10 `NO_DATA` dimension rows are kept.
+
+**ALGN-004 — shared label mapping (`ui`):**
+* `WEAK_BULL_MTF` rendered "WEAK BULL MTF" in the L2 header badge while the body said "WEAK BULL". `mLabel` is now exported from `layerHeader.ts` and used by the header badge, the panel, and the export — one mapping for every surface.
+
+**ALGN-005 — wording (`ui`):**
+* The sub-50 consensus label reads "Mixed consensus — timeframes not aligned" and the banner "TIMEFRAME MISALIGNMENT — time horizons are not working together" ("conflict" overstated the case where low agreement comes from undecided neutral TFs). The interpretation's cross-TF line reads "cross-timeframe signal votes" — the count is a 0.3-scaled proxy, not a literal signal count. The score-calc axis labels are unified as "Volume"/"Volatility".
+
+**ALGN-006 — hygiene (`ui`):** removed the unused `opportunity` / `decisionContext` / `registry` derived reads from `AlignmentPanel.svelte`.
+
+**Doc corrections:** `07-05-export-data-payload-schema.md` §3.3 — the example was rewritten coherently on the ×100 scale (its previous formula summed to 0.305 while claiming 0.4, and the label token predated `STRONG_BULL_MTF`); notes for the formula, low-agreement wording, and the sentinel gate.
+
+## v6.10.9 (2026-08-14) — Risk panel internal consistency + functional risk states
+
+The L5 Risk tab now speaks with one voice: the score chip, badge, and ring share the canonical level bands, the risk `state` is actually derived (no longer hardcoded STABLE), the false "state modifiers" copy is gone, and the warmup sentinel matrix renders as AWAITING instead of fabricated "Moderate" data.
+
+**RISK-001 — functional `RiskState` (`core-domain`):**
+* `RiskState` was dead code — `from_score_with_confidence` hardcoded `Stable`, so every dimension and the overall permanently read "→ STABLE" while the panel's arrows and the L5 header sublabel implied a trend. `derive_risk_state` now derives the state: level escalation (`score ≥ 80 → CRITICAL`, `score ≥ 60 → ELEVATED`), otherwise the previous-synthesis delta (`> +10 → INCREASING`, `< −10 → IMPROVING`, else `STABLE`). `compute_risk` plumbs the pipeline's previous L2 mtf overall score (normalized to the 0-100 risk scale) and applies states to the overall and all 8 dimensions via a new `RiskDimension::with_state` builder. The state is descriptive only — it never feeds back into the weighted sum.
+
+**RISK-002 — canonical severity colors (`ui`):**
+* `riskDangerColor` bands (30/50/70) and the L5 badge threshold (50) disagreed with the canonical RiskLevel bands (20/40/60/80) — a 45-score Moderate rendered a GREEN chip + BLUE badge + AMBER ring. `riskDangerColor` now uses the canonical bands with the ring strokes (`<40` green, `40–59` amber, `60–79` red, `≥80` deep red); the L5 badge turns amber at the Moderate boundary (40). L7 Sys Risk chip and the dashboard RiskDistributionCard inherit the aligned banding.
+
+**RISK-003 — honest copy (`ui`):**
+* The hero hint and the disclosure claimed "State and confidence modify each dimension's contribution" — a mechanism that neither the code nor the 02-11 spec implements. Both now read: the state chip describes the risk trend; it does not change the score. `headline_parts`/`interpretation_headline` read "all dimensions below moderate" when no dimension reaches Moderate (was the overstating "all dimensions calm").
+
+**RISK-004 — warmup sentinel gate (`ui`):**
+* The backend's empty matrix (`RiskMatrix::empty` — all dims + overall at exactly 50/Moderate, no evidence) rendered as real "Moderate risk" data during the pre-data window. `isAwaitingRiskMatrix` (exported from `exportBuilders/riskTab.ts`) treats that signature as awaiting: the panel and the export render the AWAITING cards + null hero + initializing copy. No wire/schema change.
+
+**Doc corrections:** `02-11-risk-matrix.md` §2.2 (functional state derivation), `07-05-export-data-payload-schema.md` §3.5 (state, sentinel gate, disclosure/hint copy, "below moderate").
+
+## v6.10.8 (2026-08-14) — Analysis panel internal consistency
+
+The L3 Analysis tab can no longer contradict itself or the L4 verdict: neutral signal squares render neutral (not bearish), the lean hero distinguishes "no data" from "all-neutral", the zero-opposing ratio is honest, and the deprecated L3 opportunity chain is synced with the fixed L4 tree so the Interpretation prose can never claim "Favors trend continuation" under an L4 NO CLEAR SETUP.
+
+**ANAL-001 — neutral signal rendering (`ui`):**
+* A `(neutral)` timeframe signal (overall_score 0) previously inherited the bearish square styling and red down-arrow (`dir === 'bullish' ? bull : bear`). Neutral signals now render with the neutral gray square (the dormant `sigSquareNeutral` class) and a flat gray dash icon. The lean counts were already neutral-exclusive — only the squares mislabelled.
+
+**ANAL-002 — honest "no signals" hero (`ui`):**
+* The lean hero collapsed to "No signals / Waiting for cross-TF consensus" whenever bull+bear counts were zero — including the all-neutral case, contradicting the neutral squares rendered below it. Empty signal lists (pre-warmup) keep the placeholder; non-empty all-neutral lists now render `Neutral signals` / `No directional lean across timeframes`. Mirrored in the export (`signal_lean_hero` + `signals.lean`).
+
+**ANAL-003 — zero-opposing ratio (`ui`):**
+* `bull=3, bear=0` rendered "3:1 signal ratio" — implying opposing signals that don't exist. The ratio now renders `"3:0"` (or `"0:3"`); the `2.0:1` format is unchanged when both sides have counts.
+
+**ANAL-004 — L3 opportunity chain synced with the fixed L4 tree (`core-domain`):**
+* `derive_analysis`'s deprecated `opportunity_analysis` chain still used the OLD rules: `MeanReversion` without the `is_range` gate (B2 parity), an `opp_dim`-based `LiquiditySqueeze` heuristic (L4 requires L1.5 cascade data), and a DEFAULT `TrendContinuation` that classified every collapsed/neutral market as "Favors trend continuation" while the fixed L4 matrix said NO CLEAR SETUP. The chain now mirrors the L4 §4 tree L3 can evaluate (directional-bias + non-reversing momentum for TrendContinuation, `is_range` for MeanReversion, NoClearOpportunity default; the cascade-only LiquiditySqueeze branch is dropped). Fixes the Interpretation prose and the Metrics export label.
+
+**ANAL-005 — comment/format hygiene (`core-domain`):**
+* The `market_quality` Bug-fix #12 comment block ("include all 5 dimensions") contradicted the F3 block directly below it ("4 dims, NOT 5"); a SUPERSEDED note now points at F3. The rationale's bias token prints PascalCase via Debug (`StrongBearish`) instead of the SCREAMING_SNAKE Display form that contradicted the prettified badge.
+
+**ANAL-006 — hygiene (`ui`):** removed 7 dead helpers (`biasClass`, `regimeClass`, `confClass`, `qualityClass`, `displayBias`, `displayRegime`, `signalDirClass`), removed the unused snapshot-path `opportunity`/`decision_context` reads, and unified the lean-bar percentage on `Math.round` (panel ↔ export parity).
+
+**Doc corrections:** `07-05-export-data-payload-schema.md` §3.6 (neutral-signal hero, zero-opposing ratio, L3/L4 chain sync note).
+
+## v6.10.7 (2026-08-14) — Sub-minute vs above-minute analytical parity contract
+
+Adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe (AIU) parity contract. Defines the target behavior for all 51 indicators, the liquidity payloads (LiquidityFlow, LiquidationClusterMatrix, VolumeProfileSnapshot, 11 liquidity signals), and the L1.5–L6 layers (market context, SIL, Alignment/Analysis/Risk/Advisory/Opportunity/DecisionContext matrices) across sub-minute and above-minute timeframes.
+
+**Frozen decisions (PRI-01…PRI-12):**
+* PRI-01: post-warmup parity — sub-minute and ≥1m slots behave identically for the whole AIU; the cold edge (no history) is identical on both regimes.
+* PRI-02/PRI-03: above-minute REST bootstrap and **sub-minute state-replay warmup** (replay real 60s REST closes through the sub-minute state machines; no synthetic candles, no chart-history pollution).
+* PRI-05: uniform `pipeline_is_live` floor (`bar_count >= max(buffer_size/2, 50)`) replaces the 50-vs-500 split.
+* PRI-06: real completed candles (trade-triggered AND clock-driven force-close) feed the `history` buffer; synthetic dojis never do — keeping fib/pivots/S-R/pattern inputs and the liquidation cluster matrix current on sub-minute markets.
+* PRI-07: per-TF cadence adaptation (shadow throttle, D4 freshness budget, SIL Monte Carlo cadence, cluster refresh) derives from the slot's configured duration — nothing hardcoded.
+* PRI-09: per-slot matrix guard replaces the single cross-slot timestamp.
+* PRI-10: `raw_value` matches `value_source` (ema_stack raw = fast EMA); the history layer never falls back from a missing sub-series to the raw series.
+* PRI-11: per-TF shadow throttle + frontend `values` sub-map deep-merge.
+* PRI-12: `bars_seen_real` alongside `bars_seen` in the indicator lifecycle.
+
+## v6.10.7 (2026-08-14) — Recommendation panel internal consistency
+
+The L6 Recommendation tab can no longer speak with multiple contradictory voices: the gauge needle is verdict-consistent, the R:R "N/A" rule is unified across the header chip and the Safety-Flags KPI, the Top Setup card direction prefers the same-candle DecisionContext bias, and the "Final Verdict" / Strategy sections are gated so the advisory's directional text can never contradict a HOLD badge.
+
+**REC-001 — verdict-consistent gauge needle (`ui`):**
+* The needle previously rendered the raw net bias (long − short) — a green "+44%" needle under an amber HOLD badge when the hold probability dominated. The needle now neutralizes (amber, 0%, no arc) whenever the verdict is HOLD; the long/hold/short probability split is rendered under the dial so no information is lost. The export `gauge.net_bias_pct` / `bias_direction` stay raw math (documented in 07-05 §3.7).
+
+**REC-002 — unified R:R "N/A" rule (`ui`):**
+* The L6 header chip hardcoded `N/A` for any HOLD verdict while the Safety-Flags Risk-Adj R:R KPI showed the value when non-zero — same panel, two answers. Both now follow the documented rule: `N/A` only when the verdict is HOLD AND the risk-adjusted R:R is 0.
+
+**REC-003 — same-candle bias for card direction (`ui`):**
+* `topSetupSummary` / `profileSummary` resolve the macro bias from `DecisionContext.bias` (the same-candle mirror the verdict/probabilities come from) before falling back to `AnalysisMatrix.bias` — a stale analysis frame could otherwise render a NEUTRAL card under a +44% LONG gauge. The Opportunity panel's bars/header/R:R displays and the exports pass the same unified bias.
+
+**REC-004 — verdict-gated Final Verdict + Environment Playbook (`ui`):**
+* `final_recommendation` ("Long bias … Entry: immediate") is environment guidance, not a verdict — under a HOLD verdict the panel renders `HOLD — no directional call (readiness: …)` and demotes the advisory text to muted `Environment guidance:`. The Strategy section is retitled "Environment Playbook" with a "for reference — no active directional call" caption under HOLD. Exports: `final_verdict` / `final_verdict_guidance` / `strategy.hold_caption`.
+
+**REC-005 — HOLD placeholder copy corrected (`ui`):**
+* `price_levels.hold_placeholder` claimed the Top Setup card carries the close-pinned Neutral sentinel ("entry = target = invalidation = close; R:R = 0.00") — the card actually carries the aggregated bracket on the net-bias side with R:R N/A when geometry is inverted. The copy now describes the real card.
+
+**REC-006 — stop-loss label disambiguation (`ui`):**
+* The Safety-Flags "Stop-Loss" KPI (advisory ATR-derived stop-distance guidance) is relabelled "ATR Stop Guide" so it can't be confused with the Top Setup card's geometric SL.
+
+**REC-007 — why-bullet R:R wording (`ui`):**
+* The rationale bullets no longer quote "risk-discounted R:R 0.00" while both chips render N/A — under a HOLD verdict with zero risk-adjusted R:R the bullets read `N/A`.
+
+**REC-008 — tie-breaking for the top qualifying profile (`ui`):**
+* The scoring blend emits identical scores for every candidate, so "top qualifying" resolved to array order and could pick a different opportunity type than the L4 primary the environment classification reads. `topQualifyingProfile` now breaks ties by precondition ratio (02-08 §6), then by primary-opportunity priority.
+
+**REC-009 — hygiene (`ui`):** removed the unused `verdictClass()` helper and the dead `|| topAction === 'HOLD' as unknown as 'HOLD'` tautology in `buildPriceLevelsBlock`.
+
+**Doc corrections:** `07-05-export-data-payload-schema.md` §3.7 (gauge needle rule, unified R:R N/A rule, verdict-gated final verdict, corrected hold placeholder).
+
+## v6.10.6 (2026-08-14) — L4 Opportunity consistency: direction-aware bars, primary-selection gate, R:R floor, CounterTrend deviation-driven sides
+
+Fixes the L4 Opportunity family of inconsistencies where the bull/bear/hold conviction bars, the R:R displays, the header tone, the invalidation note, and the profile cards could contradict each other and the panel's own bias.
+
+**AUDIT-L4-001 — direction-aware conviction bars (`ui`):**
+* `computeOpportunityBars` exp-weighted BOTH matrix-level per-side R:R values with no bias/viability awareness: a countertrend long bracket with a larger ratio lit the bars BULLISH under a bearish panel (real BTC-USDC 60s sample: 58/1/41 bullish beside a Bearish lean chip), and an inverted-geometry setup collapsed the bars to 100% HOLD beside a "Bullish setups dominate" chip.
+* The bars now resolve a single effective direction (top qualifying profile side via zone-aware `selectProfileSide` → macro bias → argmax R:R), weight only the ACTIVE side's R:R (`exp(RR·3)` vs `exp(0.25)` hold floor, capped by `opportunity_score`), and emit a modest directional lean (`min(30, score·0.5)`) when geometry is inverted but a directional bias + qualifying setup exist. `resolveEffectiveDirection` in `ui/src/lib/opportunityBars.ts` is the shared resolution.
+
+**AUDIT-L4-002 — primary selection meets its own preconditions (`market-analyzer`):**
+* The §4 tree selected `MEAN_REVERSION` on `vol_dim ≤ 30` alone while its profile preconditions require `vol_dim ≤ 30 AND is_range` — headlining "Mean Reversion" with 0/2 preconditions during expansion collapses. The tree now gates on `is_range`; compressed-but-trending markets fall through to `NO_CLEAR_OPPORTUNITY`.
+
+**AUDIT-L4-003 — R:R meaningfulness floor (`core-domain`):**
+* `compute_side_rr_v2` returned `Value(0.0117)` for any positive reward/risk — a bracket whose reward is ~1% of its risk. New `NoValueReason::RatioBelowFloor` rejects ratios below `RR_MEANINGFUL_FLOOR = 0.1`, so degenerate near-zero R:R never reaches the wire and every exact-zero display check flips to `N/A` (panel R:R Internal, export `rr_internal`, header chip, decision context). Frontend displays add the same floor as a second layer of defence for stale snapshots.
+
+**AUDIT-L4-004 — CounterTrend deviation-driven side (`market-analyzer` + `ui`):**
+* MeanReversion/Reversal previously resolved their side purely from family × bias (buy-the-dip under bearish, sell-the-rip under bullish) regardless of where price actually sat. `MeanReversion` now follows the Z-Score sign (`z ≥ +0.5` → SHORT, `z ≤ −0.5` → LONG), `Reversal` follows the confirmed divergence direction, with family × bias as the fallback. `selectProfileSide` resolves from the profile's populated zones first (the producer populates exactly one side), keeping frontend and wire in lockstep.
+
+**AUDIT-L4-005 — single effective direction for all L4 surfaces (`market-analyzer` + `ui`):**
+* The invalidation note, the matrix-level confluent display, the legacy scalar `entry_zone`/`target_zone`/`invalidation_level`, the L4 header badge tone + R:R chip, and the R:R (Internal) block all resolve from the same actionable side (top qualifying profile side → bias). This closes the CounterTrend duality where a profile card could read LONG while the note ("Close above …"), confluent levels, and header described the SHORT thesis. The L6 decision context stays macro-bias driven by design.
+
+**AUDIT-L4-006 — L3/L4 label mismatch (`ui`):**
+* The Opportunities panel Top Setup badge and the export `header_block.opportunity_class` read the L4 `primary_opportunity` instead of the legacy `analysis.opportunity_analysis` — a "Trend Continuation" label can no longer appear under a NO CLEAR SETUP badge.
+
+**Doc corrections:** `02-08-opportunity-matrix.md` §2.2.1 (deviation-driven COUNTER_TREND), §3 (MeanReversion precondition — dropped the never-evaluated "oscillator extreme"), §4 rule 5 (range gate), §8 (the `opportunity_analysis` "removed" claim — retained for backward compat only), §2.3 (bars contract); `07-05-export-data-payload-schema.md` §3.4 (directional_bars + expected_rr floor notes); `core-domain/src/risk_reward.rs` module doc.
+
 ## v6.10.5 (2026-08-13) — Sub-minute EMA ribbon fix + idle-bucket heartbeat + stale-mid guard
 
 Fixes the sub-minute EMA rendering anomalies (lines all starting at the same right-edge bar, flat plateaus, straight diagonal bridges, phantom U-dives, and lines vanishing after tab switches) and the "1s candle sometimes stays open for 2-3 s" behavior. All changes are backend-only — the frontend already handled `None` sub-keys and `reconstructed` provenance.

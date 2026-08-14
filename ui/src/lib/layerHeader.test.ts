@@ -455,9 +455,9 @@ describe('buildL5RiskHeader (L5)', () => {
         expect(spec.badge.color).not.toBe('#22d3ee');
     });
 
-    it('risk-score boundary: 49 → BLUE, 50 → AMBER (threshold at 50)', () => {
-        const blue = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 49, level: 'Low' })));
-        const amber = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 50, level: 'Moderate' })));
+    it('risk-score boundary: 39 → BLUE, 40 → AMBER (threshold at the Moderate band, v6.10.9)', () => {
+        const blue = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 39, level: 'Low' })));
+        const amber = buildL5RiskHeader(riskMatrixStub(riskStub({ score: 40, level: 'Moderate' })));
         expect(blue.badge.color).toBe('#22d3ee');
         expect(amber.badge.color).toBe('#f59e0b');
     });
@@ -515,6 +515,18 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         // The string "N/A" is the canonical sentinel — the chip carries
         // explicit text the operator can never misread as a numeric R:R.
         expect(rr.value).toBe('N/A');
+    });
+
+    it('HOLD verdict with a non-zero risk-adjusted R:R surfaces the value (R2 — header cannot contradict the KPI)', () => {
+        // R2 regression: the chip previously hardcoded N/A for ANY HOLD
+        // verdict, while the Safety-Flags Risk-Adj R:R KPI renders the
+        // value when it is non-zero. One panel, one rule.
+        const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 1.2 });
+        const advisory = advisoryStub({ directional_guidance: 'Neutral' });
+        const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
+        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
+        const rr = spec.meta.find((m) => m.label === 'R:R')!;
+        expect(rr.value).toBe('1:1.20');
     });
 });
 

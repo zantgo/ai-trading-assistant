@@ -666,4 +666,189 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
         expect(pickInstanceLivePrice(inst as never, Date.now())).toBe('--');
     });
+
+    it('sub_minute_matrixless_frames_do_not_block_slower_slot_matrix_frames', () => {
+        // v6.12 regression: the sub-minute force-close path emits a completed
+        // frame every second WITHOUT the matrix payload. The old guard bumped
+        // `lastMatrixTimestamp` on every such frame, pinning it at ~wall-clock
+        // so the ≥1m slots' matrix frames (timestamp = closed bucket start,
+        // always ~duration in the past) never passed the monotonicity check —
+        // pair.alignment/analysis/risk/opportunity/advisory/decisionContext
+        // stayed null and every non-chart tab showed no values.
+        const pair = app.instancesMap['BTC-USDT'];
+        const micro = pair.microTerm;
+        const fast = pair.fastTerm;
+
+        // Step 1: sub-minute micro closes at ts=200 and ts=201 — matrix-less
+        // completed frames (chart/indicator continuity only). These must NOT
+        // advance the guard.
+        applySnapshotToTimeframe(app, micro, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 1,
+            timestamp: 200,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: { rsi: { raw_value: 55.0, normalized: 0.1, state_label: 'RSI_NEUTRAL' } },
+        }), 'BTC-USDT');
+        applySnapshotToTimeframe(app, micro, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 1,
+            timestamp: 201,
+            is_completed: true,
+            mid_price: '65001.00',
+            indicators: { rsi: { raw_value: 56.0, normalized: 0.12, state_label: 'RSI_NEUTRAL' } },
+        }), 'BTC-USDT');
+        expect(pair.alignment).toBeNull();
+
+        // Step 2: the fast slot (180s) closes with a matrix payload whose
+        // timestamp (100) is OLDER than the micro frames above. With the old
+        // guard this frame was rejected forever; it must now populate the
+        // pair-level mirrors.
+        const alignment = { mtf_trend_alignment: 0.6, mtf_overall_score: 72.0 } as never;
+        const analysis = { market_regime: 'TRENDING', market_quality_score: 65.0 } as never;
+        const risk = { overall_risk: { score: 30 } } as never;
+        const advisory = { directional_guidance: 'LONG' } as never;
+        const decisionContext = { trade_readiness: 'READY' } as never;
+        const opportunity = { opportunity_score: 61.0 } as never;
+        applySnapshotToTimeframe(app, fast, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'fast',
+            timeframe_secs: 180,
+            timestamp: 100,
+            is_completed: true,
+            mid_price: '64900.00',
+            indicators: { rsi: { raw_value: 45.0, normalized: 0.0, state_label: 'RSI_NEUTRAL' } },
+            alignment,
+            analysis,
+            risk,
+            advisory,
+            decision_context: decisionContext,
+            opportunity,
+        }), 'BTC-USDT');
+        expect(pair.alignment).toEqual(alignment);
+        expect(pair.analysis).toEqual(analysis);
+        expect(pair.risk).toEqual(risk);
+        expect(pair.advisory).toEqual(advisory);
+        expect(pair.decisionContext).toEqual(decisionContext);
+        expect(pair.opportunity).toEqual(opportunity);
+
+        // Step 3: interleaved matrix-less micro completes must NOT wipe the
+        // mirrors (they carry no payload and don't advance the guard).
+        applySnapshotToTimeframe(app, micro, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 1,
+            timestamp: 202,
+            is_completed: true,
+            mid_price: '65002.00',
+            indicators: { rsi: { raw_value: 57.0, normalized: 0.14, state_label: 'RSI_NEUTRAL' } },
+        }), 'BTC-USDT');
+        expect(pair.alignment).toEqual(alignment);
+        expect(pair.analysis).toEqual(analysis);
+
+        // Step 4: monotonicity is preserved among MATRIX frames — an older
+        // matrix frame (ts=90 < guard 100) must still be rejected.
+        applySnapshotToTimeframe(app, fast, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'fast',
+            timeframe_secs: 180,
+            timestamp: 90,
+            is_completed: true,
+            mid_price: '64800.00',
+            indicators: { rsi: { raw_value: 44.0, normalized: 0.0, state_label: 'RSI_NEUTRAL' } },
+            alignment: { mtf_trend_alignment: -0.6, mtf_overall_score: 30.0 } as never,
+            analysis: { market_regime: 'RANGE', market_quality_score: 40.0 } as never,
+        }), 'BTC-USDT');
+        expect(pair.alignment).toEqual(alignment);
+        expect(pair.analysis).toEqual(analysis);
+
+        // Step 5: a NEWER matrix frame (ts=180 > 100) still updates the mirrors.
+        const newerAlignment = { mtf_trend_alignment: 0.8, mtf_overall_score: 84.0 } as never;
+        applySnapshotToTimeframe(app, fast, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'fast',
+            timeframe_secs: 180,
+            timestamp: 180,
+            is_completed: true,
+            mid_price: '64950.00',
+            indicators: { rsi: { raw_value: 46.0, normalized: 0.0, state_label: 'RSI_NEUTRAL' } },
+            alignment: newerAlignment,
+        }), 'BTC-USDT');
+        expect(pair.alignment).toEqual(newerAlignment);
+    });
+
+    it('shadow_frame_deep_merges_indicator_values_submap', () => {
+        // PRI-11 (v6.10.7): a shadow frame may legitimately omit gated
+        // sub-keys (e.g. ema_stack carries only `fast` while medium/slow/
+        // long are still under their `bars_required` gate during the
+        // partial-ribbon window). Replacing the whole entry dropped those
+        // lines from the chart until the next completed frame — a 4 Hz
+        // flicker. The merge must carry forward absent sub-keys from the
+        // previous entry while incoming sub-keys win.
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+
+        // Step 1: a completed frame carries the full ribbon.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 1,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                ema_stack: {
+                    raw_value: 65000.0,
+                    normalized: 0.5,
+                    state_label: 'ESTABLISHED_BULLISH_STACK',
+                    values: { fast: 64980.0, medium: 64950.0, slow: 64900.0, long: 64800.0 },
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['ema_stack']?.values?.medium).toBe(64950.0);
+
+        // Step 2: a shadow frame arrives with only `fast` (gated lines
+        // omitted). medium/slow/long must survive the merge.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 1,
+            is_completed: false,
+            mid_price: '65010.00',
+            indicators: {
+                ema_stack: {
+                    raw_value: 65010.0,
+                    normalized: 0.6,
+                    state_label: 'ESTABLISHED_BULLISH_STACK',
+                    values: { fast: 64985.0 },
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['ema_stack']?.values?.fast).toBe(64985.0);
+        expect(
+            tf.indicators['ema_stack']?.values?.medium,
+            'medium must survive the shadow frame (deep values merge)',
+        ).toBe(64950.0);
+        expect(tf.indicators['ema_stack']?.values?.slow).toBe(64900.0);
+        expect(tf.indicators['ema_stack']?.values?.long).toBe(64800.0);
+
+        // Step 3: a completed frame with the full ribbon overwrites everything.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 1,
+            is_completed: true,
+            mid_price: '65020.00',
+            indicators: {
+                ema_stack: {
+                    raw_value: 65020.0,
+                    normalized: 0.7,
+                    state_label: 'ESTABLISHED_BULLISH_STACK',
+                    values: { fast: 64990.0, medium: 64960.0, slow: 64910.0, long: 64810.0 },
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['ema_stack']?.values?.medium).toBe(64960.0);
+        expect(tf.indicators['ema_stack']?.values?.slow).toBe(64910.0);
+    });
 });

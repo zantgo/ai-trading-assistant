@@ -247,8 +247,10 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         const bearishFill = bearishCell?.querySelector('div');
 
         expect(screen.getByText('HOLD')).toBeTruthy();
+        // v6.10.6: conviction comes from the ACTIVE side only (bullish),
+        // capped by opportunity_score (78) → BULLISH 78% / BEARISH 0%.
         expect(bullishFill?.getAttribute('style')).toMatch(/width: 7[0-9]%/);
-        expect(bearishFill?.getAttribute('style')).toContain('width: 1%');
+        expect(bearishFill?.getAttribute('style')).toContain('width: 0%');
     });
 
     it('renders 100% Hold when no qualifying setups exist', () => {

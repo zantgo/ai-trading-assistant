@@ -78,9 +78,9 @@ describe('export consistency — Alignment tab', () => {
     const c = await renderPanelAndExport(AlignmentPanel, { pairKey: PAIR }, seedRichInstance);
 
     // Hero (LayerHeader): badge label + score + agreement + TF count.
-    expect(c.dom).toContain('STRONG BULL');
-    expect(c.jsonText).toContain('STRONG BULL'); // real label, not hardcoded
-    expectJsonNumberRenderedAsDom(c, '0.4', 0.4);
+    expect(c.dom).toContain('WEAK BULL');
+    expect(c.jsonText).toContain('WEAK BULL'); // real label, not hardcoded
+    expectJsonNumberRenderedAsDom(c, '30.5', 30.5);
     expect(c.dom).toContain('82%');
     expect(c.payload.hero.trend_agreement_pct).toBe(82);
     expect(c.dom).toContain('4/4');
@@ -119,14 +119,14 @@ describe('export consistency — Alignment tab', () => {
     expect(c.dom).toContain('(50%)');
     expect(c.payload.score_calculation.weights[0].contribution_display).toBe('+0.23');
     expect(c.dom).toContain('contrib: +0.23');
-    expectInDomAndJson(c, '0.5 * (0.45) + 0.3 * (0.30) + 0.1 * (0.10) + 0.1 * (-0.20) = 0.4');
+    expectInDomAndJson(c, '(0.5 * (0.45) + 0.3 * (0.30) + 0.1 * (0.10) + 0.1 * (-0.20)) × 100 = 30.5');
 
     // Interpretation — real label (STRONG BULL) and full screen sentence.
     const interpretation = stripTags(c.payload.interpretation);
     expect(interpretation).toContain('strong directional consensus');
     expect(interpretation).toContain('82% agreement across 4/4 timeframes');
-    expect(interpretation).toContain('classified as STRONG BULL');
-    expect(interpretation).toContain('2 cross-timeframe signals reinforce the current bias.');
+    expect(interpretation).toContain('classified as WEAK BULL');
+    expect(interpretation).toContain('2 cross-timeframe signal votes reinforce the current bias.');
     expect(c.dom).toContain(interpretation);
   });
 });
@@ -196,8 +196,8 @@ describe('export consistency — Risks tab', () => {
     expect(p.interpretation_full).toContain('at 74% confidence');
     expect(c.dom).toContain('Overall composite score is');
 
-    // Hero hint — verbatim screen copy.
-    expect(p.hero.hint).toBe('Lower is safer. State modifiers adjust each dimension\'s contribution but not the headline score.');
+    // Hero hint — verbatim screen copy (v6.10.9: state is descriptive).
+    expect(p.hero.hint).toBe('Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.');
     expect(c.dom).toContain('Lower is safer.');
 
     // Disclosure weights + note.
@@ -314,6 +314,13 @@ describe('export consistency — Opportunities tab', () => {
         ...entry.opportunity!,
         long_expected_rr_internal: 0,
         short_expected_rr_internal: 0,
+        // The R:R displays prefer the top profile's per-side values —
+        // zero those too so the screen surfaces N/A.
+        profiles: entry.opportunity!.profiles.map((p) => ({
+          ...p,
+          long_expected_rr_internal: 0,
+          short_expected_rr_internal: 0,
+        })),
       } as any;
     });
     const p = c.payload;
@@ -986,9 +993,9 @@ describe('export consistency — Overview tab', () => {
     expect(row.rr_display).toContain('1 : ');
     expect(row.confidence_display).toMatch(/^\d+%$/);
     expect(row.score_display).toMatch(/^\d+$/);
-    expect(row.mtf_label_display).toBe('STRONG BULLISH');
+    expect(row.mtf_label_display).toBe('WEAK BULL');
     expect(c.dom).toContain('BTC');
-    expect(c.dom).toContain('STRONG BULLISH');
+    expect(c.dom).toContain('WEAK BULL');
 
     // Raw L7 matrix + counts captured for downstream consumers.
     expect(p.overview_matrix).not.toBeNull();

@@ -138,8 +138,13 @@ export interface RecommendationPayload {
     exit: string;
     protection: string;
     target: string;
+    /** Panel caption shown under a HOLD verdict — null otherwise. */
+    hold_caption: string | null;
   };
+  /** Verdict-consistent final verdict (HOLD verdict → verdict sentence). */
   final_verdict: string;
+  /** Advisory environment guidance rendered below the verdict under HOLD. */
+  final_verdict_guidance: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -381,17 +386,15 @@ function buildPriceLevelsBlock(
   opportunity: OpportunityMatrix | null,
   topAction: 'LONG' | 'SHORT' | 'HOLD',
 ): RecommendationPayload['price_levels'] {
-  if (topAction === 'LONG' || topAction === 'HOLD' as unknown as 'HOLD') {
-    if (topAction === 'LONG') {
-      return {
-        side: 'long',
-        entry_zone: opportunity?.long_entry_zone ?? null,
-        target_zone: opportunity?.long_target_zone ?? null,
-        invalidation: opportunity?.long_invalidation_level ?? null,
-        horizon: opportunity?.time_horizon ?? '\u2014',
-        hold_placeholder: null,
-      };
-    }
+  if (topAction === 'LONG') {
+    return {
+      side: 'long',
+      entry_zone: opportunity?.long_entry_zone ?? null,
+      target_zone: opportunity?.long_target_zone ?? null,
+      invalidation: opportunity?.long_invalidation_level ?? null,
+      horizon: opportunity?.time_horizon ?? '\u2014',
+      hold_placeholder: null,
+    };
   }
   if (topAction === 'SHORT') {
     return {
@@ -409,20 +412,32 @@ function buildPriceLevelsBlock(
     target_zone: null,
     invalidation: null,
     horizon: opportunity?.time_horizon ?? '\u2014',
+    // R5: describes the ACTUAL card state — under HOLD the Top Setup
+    // card carries the aggregated bracket on the net-bias side (not the
+    // close-pinned sentinel the legacy copy claimed), with R:R N/A when
+    // geometry is inverted.
     hold_placeholder:
-      'No active setup — verdict is HOLD. Top Setup card above carries the Neutral primary bracket (entry = target = invalidation = close; R:R = 0.00).',
+      'No active setup — verdict is HOLD. The Top Setup card above carries the aggregated bracket on the net-bias side for reference; when geometry is inverted its R:R reads N/A and the bracket is non-actionable.',
   };
 }
 
-function buildStrategyBlock(advisory: AdvisoryMatrix | null): RecommendationPayload['strategy'] {
+function buildStrategyBlock(
+  advisory: AdvisoryMatrix | null,
+  topAction: 'LONG' | 'SHORT' | 'HOLD',
+): RecommendationPayload['strategy'] {
   // Entry/Exit use the sanitizeLabel title-casing the screen renders;
   // Protection/Target use prettifyEnum with the -Based / ATR / S-R /
-  // R:R / SL overrides.
+  // R:R / SL overrides. Under a HOLD verdict the screen renders a muted
+  // caption ("environment playbook, not a trade trigger").
   return {
     entry: sanitizeLabel(advisory?.entry_guidance ?? ''),
     exit: sanitizeLabel(advisory?.exit_guidance ?? ''),
     protection: prettifyEnum(advisory?.protection_strategy ?? ''),
     target: prettifyEnum(advisory?.target_strategy ?? ''),
+    hold_caption:
+      topAction === 'HOLD'
+        ? 'For reference — no active directional call. The guidance below describes the environment, not a trade trigger.'
+        : null,
   };
 }
 
@@ -482,10 +497,18 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     why_note: buildWhyNote(rank, !!noClearCard),
     why: rank.rationale.slice(0, 3),
     price_levels: buildPriceLevelsBlock(args.opportunity, rank.top),
-    strategy: buildStrategyBlock(args.advisory),
-    // Screen renders "—" when the verdict is absent (RecommendationPanel.svelte:
-    // `|| '—'`) — `||` so an empty string also falls back.
-    final_verdict: args.advisory?.final_recommendation || '\u2014',
+    strategy: buildStrategyBlock(args.advisory, rank.top),
+    // R6: the final verdict is the verdict — never the advisory's
+    // directional sentence under a HOLD badge. The advisory text is
+    // carried separately as environment guidance.
+    final_verdict:
+      rank.top === 'HOLD'
+        ? `HOLD — no directional call (readiness: ${rank.headline.state}).`
+        : args.advisory?.final_recommendation || '\u2014',
+    final_verdict_guidance:
+      rank.top === 'HOLD' && args.advisory?.final_recommendation
+        ? `Environment guidance: ${args.advisory.final_recommendation}`
+        : null,
   };
   return JSON.stringify(payload, null, 2);
 }

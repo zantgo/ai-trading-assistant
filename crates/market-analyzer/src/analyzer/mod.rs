@@ -437,6 +437,7 @@ pub fn build_indicator_lifecycle_map(
     prev: &IndicatorLifecycleMap,
     stale_threshold_secs: u32,
     bar_count: u32,
+    real_bar_count: u32,
     is_shadow: bool,
     now_ms: u64,
     pipeline_is_live: bool,
@@ -515,6 +516,8 @@ pub fn build_indicator_lifecycle_map(
             IndicatorLifecycleStatus {
                 state: target_state,
                 bars_seen,
+                // PRI-12 (v6.10.7): real (non-synthetic) completed bars.
+                bars_seen_real: Some(real_bar_count),
                 bars_required,
                 last_updated_at,
                 last_error,
@@ -531,10 +534,14 @@ pub fn build_indicator_lifecycle_map(
 /// the `TimeframePipeline` writer hasn't yet flushed its authoritative state
 /// into the snapshot.
 pub fn derive_pipeline_state(buffer_len: usize, target: usize) -> CandlePipelineState {
-    if buffer_len >= target {
+    // PRI-05 (v6.10.7): uniform live floor for ALL timeframes. The old
+    // ≥1m requirement (`buffer_len >= target`, i.e. 500 bars) left warm
+    // handovers below the venue-capped fetch length stuck `Loading` with
+    // the matrix payload nulled for hours; the sub-minute floor was a
+    // different formula. One formula now governs the pipeline-state
+    // badge, the matrix broadcast gate, and the indicator lifecycle.
+    if buffer_len >= (target / 10).max(50) {
         CandlePipelineState::Live
-    } else if buffer_len == 0 {
-        CandlePipelineState::Loading
     } else {
         CandlePipelineState::Loading
     }
@@ -750,6 +757,9 @@ pub async fn run_single(
     // cold start; inherits count from warmed history for >=1m TFs).  Single
     // source of truth for `bars_seen` across all candle-based indicators.
     let mut bar_count: u32 = 0;
+    // PRI-12 (v6.10.7): real (non-synthetic) completed candles — doji-fill /
+    // idle-heartbeat synthetic buckets increment `bar_count` but not this.
+    let mut real_bar_count: u32 = 0;
 
     // Strict chronological handover boundary: the start time of the newest
     // historical (REST/DB) candle used for pre-warming. Live candles at or
@@ -827,19 +837,28 @@ pub async fn run_single(
                 hist.push_back(c.clone());
             }
         }
-        // Pre-populate latest_snapshot from warmed state
-        if let Some(ref snap) = w.latest_snapshot {
-            *latest_snapshot.write().await = Some(snap.clone());
-        }
-        // Pre-populate snapshot_history from warmed state
-        {
-            let mut snap_hist = snapshot_history.write().await;
-            for snap in &w.snapshot_history {
-                snap_hist.push_back(snap.clone());
+        if timeframe_secs >= 60 {
+            // PRI-08: only ≥60s slots propagate warmed snapshots as chart
+            // history. Sub-minute slots warm state + `history` only (their
+            // warm data is real closes replayed at a coarser scale — never
+            // present it as sub-minute chart history).
+            // Pre-populate latest_snapshot from warmed state
+            if let Some(ref snap) = w.latest_snapshot {
+                *latest_snapshot.write().await = Some(snap.clone());
+            }
+            // Pre-populate snapshot_history from warmed state
+            {
+                let mut snap_hist = snapshot_history.write().await;
+                for snap in &w.snapshot_history {
+                    snap_hist.push_back(snap.clone());
+                }
             }
         }
         // Pre-populate bar_count from warmed history
         bar_count = w.history.len() as u32;
+        // PRI-12: warmed candles are real closes (REST/DB) — they count as
+        // real bars.
+        real_bar_count = w.history.len() as u32;
         // Pre-populate divergence detector state
         {
             let mut det = divergence_detector.lock().await;
@@ -1061,10 +1080,13 @@ pub async fn run_single(
     // emitted on every trade tick and order-book event — at 1-s timeframes
     // that's 50+ Hz per pipeline slot × 4 slots = 200+ broadcasts/sec on the
     // frontend, which saturates the broadcast channel (cap 200) and freezes
-    // the dashboard. Cap the shadow path at 4 Hz; the candle-close path
-    // (one fire per natural candle close) is unaffected and carries the
+    // the dashboard. PRI-11 (v6.10.7): the throttle scales with the chosen
+    // timeframe — at most one shadow per quarter-candle (4 Hz at 1 s, 1.33 Hz
+    // at 3 s, 1 Hz at 5 s+, 15 s at 60 s) instead of the old `clamp(100, 250)`
+    // that pinned every sub-minute TF at 4 Hz. The candle-close path (one
+    // fire per natural candle close) is unaffected and carries the
     // authoritative snapshot for the bar.
-    let shadow_throttle_ms: u64 = ((timeframe_secs * 1000) / 4).clamp(100, 250);
+    let shadow_throttle_ms: u64 = ((timeframe_secs * 1000) / 4).max(100);
     let mut last_shadow_broadcast_ms: u64 = 0;
 
     // Gated on buffer fill: when bar_count reaches buffer_size, completed
@@ -1226,48 +1248,128 @@ pub async fn run_single(
                             &mut vwap_sum_vol,
                         );
 
-                        bar_count = bar_count.saturating_add(1);
-
-                        // ── Broadcast the completed force-close snapshot
-                        // built from the JUST-computed readings. We do NOT
-                        // use `broadcast_live_snapshot` here: that helper
-                        // internally re-runs `indicator.clone().update()`,
-                        // which would double-apply the same candle close to
-                        // every stateful indicator. The readings are the
-                        // post-mutation truth; build the snapshot directly.
-                        let avg_vol = if !volume_history.is_empty() {
-                            let sum: Decimal = volume_history.iter().sum();
-                            Some(sum / Decimal::from(volume_history.len()))
+                        // ── Broadcast the completed force-close snapshot via
+                        // the shared matrix synthesis. The function builds the
+                        // indicators map from the JUST-computed readings (no
+                        // double-application), computes the alignment/analysis/
+                        // risk/advisory/opportunity/decision_context matrices
+                        // (previously only the trade-triggered path did),
+                        // advances the divergence / S/R / SIL / signal-age
+                        // trackers, and broadcasts the completed frame with the
+                        // matrix payload — so sub-minute TFs populate the
+                        // Metrics / Alignment / Risks / Analysis /
+                        // Opportunities / Recommendation tabs, not just the
+                        // chart.
+                        // PRI-03 (v6.10.7): the force-close quality envelope is
+                        // computed from the same inputs as the trade-triggered
+                        // path (median-filter outlier counts, staleness vs
+                        // `last_trade_ts_ms`, reconstruction provenance) — no
+                        // more fabricated `quality_score = 100` on the
+                        // clock-driven completion path.
+                        let rejected_total = median_filter
+                            .as_ref()
+                            .map(|f| f.outliers_rejected())
+                            .unwrap_or(0);
+                        let had_outliers_this_candle = rejected_total > outliers_at_prev_candle;
+                        outliers_at_prev_candle = rejected_total;
+                        let candle_close_ms = forced.start_time_ms + duration_ms;
+                        let candle_stale = last_trade_ts_ms > 0
+                            && candle_close_ms.saturating_sub(last_trade_ts_ms)
+                                > staleness_threshold_ms;
+                        let quality_score = if forced.assert_validity().is_err() {
+                            0.0
                         } else {
-                            None
+                            let mut score = 100.0_f64;
+                            if forced.reconstructed.is_some() {
+                                score -= 20.0;
+                            }
+                            if had_outliers_this_candle {
+                                score -= 10.0;
+                            }
+                            if candle_stale {
+                                score -= 30.0;
+                            }
+                            score.clamp(0.0, 100.0)
                         };
-                        let rvol = match (live.volume, avg_vol) {
-                            (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
-                            _ => None,
+                        let quality_envelope = CandleQualityEnvelope {
+                            quality_score,
+                            is_valid: true,
+                            is_gap_filled: forced.reconstructed.is_some(),
+                            had_outliers_rejected: had_outliers_this_candle,
+                            spike_detected: had_outliers_this_candle,
+                            is_stale: candle_stale,
+                            sequence_integrity: SequenceIntegrity::Valid,
+                            gap_since_last: match last_completed_start_ms {
+                                Some(prev) => forced.start_time_ms.saturating_sub(prev) / 1000,
+                                None => duration_ms / 1000,
+                            },
+                            validated_at: now_ms,
                         };
-                        let completed_snapshot = build_completed_snapshot_from_readings(
-                            &force_close_readings,
-                            &live,
+                        let completed_snapshot = synthesize_completed_candle(
                             &symbol,
-                            &pair_key,
+                            timeframe_label,
                             slot,
                             timeframe_secs,
-                            bar_count,
+                            &live,
+                            candle_close_sec,
+                            force_close_readings,
+                            &mut bar_count,
+                            &mut real_bar_count,
+                            &quality_envelope,
                             shadow_exchange,
                             shadow_bid,
                             shadow_ask,
-                            (
-                                active_indicators.ema_fast,
-                                active_indicators.ema_medium,
-                                active_indicators.ema_slow,
-                                active_indicators.ema_long,
-                            ),
-                            &active_set,
-                            derive_pipeline_state(bar_count as usize, buffer_size),
-                            avg_vol,
-                            rvol,
-                        );
-                        let _ = broadcast_tx.send(completed_snapshot.clone());
+                            shadow_prev_day_px,
+                            &active_indicators,
+                        &active_set,
+                            buffer_size,
+                            &paper_pool,
+                            &fib_config,
+                            &liquidity_config,
+                            spread_wide_threshold_pct,
+                            &history,
+                            &mut volume_history,
+                            &mut adx_slope_history,
+                            &divergence_detector,
+                            &mut sr_tracker,
+                            &mut last_pivot_count,
+                            &mut anchored_vwap_indicator,
+                            &mut stoch_div,
+                            &mut chandemo_div,
+                            &mut mfi_div,
+                            &mut cmf_div,
+                            &mut obv_div,
+                            &mut squeeze_div,
+                            &mut signal_age_tracker,
+                            &mut live_bar,
+                            &mut prev_bar_state,
+                            &mut sil_engine,
+                            &mut prev_sil_close,
+                            &mut mc_counter,
+                            &mut prev_mtf_score,
+                            &mut prev_regime,
+                            &mut prev_volume_dim,
+                            &mut last_cascade_state,
+                            &mut liquidity_acc,
+                        &latest_oi,
+                        &latest_funding,
+                        &latest_mark_px,
+                        &latest_index_px,
+                        &oi_history,
+                        &funding_history,
+                        &order_book_analysis,
+                            &cross_tf_snapshot_a,
+                            &cross_tf_snapshot_b,
+                            &cross_tf_snapshot_c,
+                            &cluster_matrix,
+                            &indicator_lifecycle,
+                            &pipeline_state_handle,
+                            &latest_snapshot,
+                            &advisory,
+                            &broadcast_tx,
+                            &telemetry_tx,
+                            &latency_tracker,
+                            ).await;
                         // AUDIT-V8-004: force-closed candles are real OHLCV —
                         // keep them in the in-memory snapshot history so
                         // `/api/history` serves the sub-minute chart
@@ -1278,6 +1380,24 @@ pub async fn run_single(
                             snap_hist.push_back(completed_snapshot);
                             while snap_hist.len() > HIST_BUFFER_MAX {
                                 snap_hist.pop_front();
+                            }
+                        }
+                        // PRI-06 (v6.10.7): real force-closed candles also
+                        // feed the `history` buffer — the input for
+                        // fib/pivots/S-R/patterns and the liquidation
+                        // cluster matrix (`pipe.history`, 200-candle
+                        // lookback). Previously only trade-triggered
+                        // candles entered `history`, so on force-close-
+                        // dominated sub-minute markets these signals were
+                        // computed from a sparse history (and the cluster
+                        // matrix errored `InsufficientHistory` on quiet
+                        // markets). Synthetic doji/idle buckets never enter
+                        // `history` — only `snapshot_history`.
+                        {
+                            let mut hist = history.write().await;
+                            hist.push_back(forced.clone());
+                            while hist.len() > HIST_BUFFER_MAX {
+                                hist.pop_front();
                             }
                         }
                         last_completed_start_ms = Some(forced.start_time_ms);
@@ -1390,6 +1510,7 @@ pub async fn run_single(
                                 slot,
                                 timeframe_secs,
                                 bar_count,
+                                real_bar_count,
                                 shadow_exchange,
                                 shadow_bid,
                                 shadow_ask,
@@ -1399,7 +1520,7 @@ pub async fn run_single(
                                     active_indicators.ema_slow,
                                     active_indicators.ema_long,
                                 ),
-                                &active_set,
+                        &active_set,
                                 derive_pipeline_state(bar_count as usize, buffer_size),
                                 avg_vol,
                                 rvol,
@@ -1533,6 +1654,7 @@ pub async fn run_single(
                                     slot,
                                     timeframe_secs,
                                     bar_count,
+                                    real_bar_count,
                                     shadow_exchange,
                                     shadow_bid,
                                     shadow_ask,
@@ -1542,7 +1664,7 @@ pub async fn run_single(
                                         active_indicators.ema_slow,
                                         active_indicators.ema_long,
                                     ),
-                                    &active_set,
+                        &active_set,
                                     derive_pipeline_state(bar_count as usize, buffer_size),
                                     avg_vol,
                                     rvol,
@@ -1852,6 +1974,7 @@ pub async fn run_single(
                                     slot,
                                     timeframe_secs,
                                     bar_count,
+                                    real_bar_count,
                                     shadow_exchange,
                                     shadow_bid,
                                     shadow_ask,
@@ -1861,7 +1984,7 @@ pub async fn run_single(
                                         active_indicators.ema_slow,
                                         active_indicators.ema_long,
                                     ),
-                                    &active_set,
+                        &active_set,
                                     derive_pipeline_state(bar_count as usize, buffer_size),
                                     avg_vol,
                                     rvol,
@@ -1972,54 +2095,7 @@ pub async fn run_single(
                     // on every wall-clock second. See
                     // `tests/sub_minute_indicator_cadence.rs` for the bug
                     // pins that motivated this extraction.
-                    let CandleIndicatorReadings {
-                        open_f: _,
-                        high_f: _,
-                        low_f: _,
-                        close_f,
-                        volume_f,
-                        pivot_levels,
-                        candlestick_reading,
-                        ichimoku_reading,
-                        cci_reading,
-                        psar_reading,
-                        wr_reading,
-                        hma_reading,
-                        ao_reading,
-                        fi_reading,
-                        fi_mean_abs,
-                        sdc_reading,
-                        volume_profile_reading,
-                        volume_profile_snapshot,
-                        smc_reading,
-                        final_vwap,
-                        avwap_reading,
-                        final_ema_fast,
-                        final_ema_medium,
-                        final_ema_slow,
-                        final_ema_long,
-                        ema_stack_state,
-                        final_rsi,
-                        final_macd,
-                        final_adx,
-                        final_sqz,
-                        final_bb,
-                        final_atr,
-                        final_bbwp,
-                        final_stoch,
-                        final_cmo,
-                        final_supertrend,
-                        final_keltner,
-                        final_donchian,
-                        final_obv,
-                        final_cmf,
-                        final_mfi,
-                        final_hv,
-                        final_aroon,
-                        final_chop,
-                        final_linreg,
-                        final_zscore,
-                    } = apply_candle_to_indicators(
+                    let readings = apply_candle_to_indicators(
                         &symbol,
                         slot,
                         timeframe_secs,
@@ -2066,912 +2142,71 @@ pub async fn run_single(
                         &mut vwap_sum_vol,
                     );
 
-                    // ── Generalized divergence detection ──
-                    // Each oscillator's SeriesDivergence is updated every bar
-                    // for the RSI/MACD confirmation path below. The 6 extra
-                    // divergence states are resolved inline inside NormalizeParams
-                    // (below) so sr_supports/resistances are in scope for the
-                    // S/R-confirmation gate.
-
-                    // Divergence detection (live — potential status; confirmation
-                    // applied after S/R levels are computed below).
-                    let mut div_result = {
-                        if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
-                            divergence_detector.lock().await.update_full(
-                                close_f,
-                                rsi.to_f64().unwrap_or(0.0),
-                                macd_hist.to_f64().unwrap_or(0.0),
-                            )
-                        } else {
-                            crate::indicators::DivergenceResult::default_div()
-                        }
-                    };
-
-                    let log_line = format!(
-                        "🕯️  [{}] {} Candle Closed | Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
-                        symbol, timeframe_label, completed.start_time_ms, completed.close,
-                        completed.volume, completed.trades_count
-                    );
-                    let _ = telemetry_tx
-                        .send(database_storage::TelemetryMsg::ConsoleLog(log_line))
-                        .await;
-
-                    volume_history.push_back(completed.volume);
-                    // AUDIT-AIU-070: configured `volume_average_period` window.
-                    let vol_window = active_indicators.volume_average_period.max(1);
-                    while volume_history.len() > vol_window {
-                        volume_history.pop_front();
-                    }
-                    let avg_vol = if !volume_history.is_empty() {
-                        let sum: Decimal = volume_history.iter().sum();
-                        Some(sum / Decimal::from(volume_history.len()))
-                    } else {
-                        None
-                    };
-
-                    let rvol = match (completed.volume, avg_vol) {
-                        (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
-                        _ => None,
-                    };
-
-                    // Fibonacci retracement/extension computation
-                    let fib = {
-                        let hist = history.read().await;
-                        let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
-                        let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
-                        FibonacciRange::compute_from_candles(
-                            &candles_high,
-                            &candles_low,
-                            fib_config.swing_lookback,
-                            fib_config.swing_scan_range,
-                            &fib_config.retracement_coefficients,
-                            &fib_config.extension_coefficients,
-                        )
-                    };
-
-                    // Chart pattern detection from pivots (reused for S/R zones)
-                    let pivots = {
-                        let hist = history.read().await;
-                        let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
-                        let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
-                        FibonacciRange::detect_pivots(
-                            &candles_high,
-                            &candles_low,
-                            fib_config.swing_lookback,
-                            fib_config.swing_scan_range,
-                        )
-                    };
-                    if pivots.len() > last_pivot_count {
-                        anchored_vwap_indicator.reset_swing();
-                    }
-                    last_pivot_count = pivots.len();
-                    let pattern_result = detect_pattern(&pivots);
-
-                    // Support/Resistance zones: derive role-adjusted levels from
-                    // the swing pivots and update the flip tracker on this close.
-                    let (sr_supports, sr_resistances) = update_sr_levels(
-                        &mut sr_tracker,
-                        &pivots,
-                        completed.close,
+                    let completed_snapshot = synthesize_completed_candle(
+                        &symbol,
+                        timeframe_label,
+                        slot,
+                        timeframe_secs,
+                        &completed,
                         candle_close_sec,
-                    );
-
-                    // Upgrade RSI/MACD potential divergences to Confirmed when
-                    // the candle close decisively breaks the nearest S/R level.
-                    // check_divergence_confirmation is a &self method on the
-                    // DivergenceDetector — we lock it again briefly.
-                    //
-                    // AUDIT-AIU-002: a bullish confirmation requires
-                    // `close < support` (close breaks BELOW the level), and a
-                    // bearish confirmation requires `close > resistance`.
-                    // The previous selection (`support <= close` / `resistance
-                    // >= close`) made both checks unsatisfiable by
-                    // construction, so RSI/MACD divergences could never reach
-                    // Confirmed in the live path. We now select the nearest
-                    // level on the break side: support ABOVE close, resistance
-                    // BELOW close — mirroring `series_divergence_confirmed`.
-                    {
-                        let near_sup = sr_supports
-                            .iter()
-                            .copied()
-                            .filter(|s| *s > 0.0 && *s > close_f)
-                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                        let near_res = sr_resistances
-                            .iter()
-                            .copied()
-                            .filter(|r| *r > 0.0 && *r < close_f)
-                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                        if near_sup.is_some() || near_res.is_some() {
-                            let det = divergence_detector.lock().await;
-                            div_result = det.check_divergence_confirmation(
-                                &div_result,
-                                close_f,
-                                near_sup,
-                                near_res,
-                            );
-                        }
-                    }
-
-                    // Track ADX slope history for the 2-bar hook-exit rule.
-                    if let Some(a) = final_adx.as_ref() {
-                        adx_slope_history.push_back(a.adx_slope);
-                        while adx_slope_history.len() > 3 {
-                            adx_slope_history.pop_front();
-                        }
-                    }
-                    let adx_consecutive_deceleration = adx_slope_history.len() >= 2
-                        && adx_slope_history
-                            .iter()
-                            .rev()
-                            .take(2)
-                            .all(|s| *s < Decimal::ZERO);
-
-                    // Active position context for direction-aware normalization.
-                    let active_position: Option<i8> = if let Some(ref pool) = paper_pool {
-                        match database_storage::paper::queries::paper_get_active_position(
-                            pool, &symbol,
-                        )
-                        .await
-                        .map(|p| p.direction)
-                        .as_deref()
-                        {
-                            Some("LONG") => Some(1),
-                            Some("SHORT") => Some(-1),
-                            _ => Some(0),
-                        }
-                    } else {
-                        Some(0)
-                    };
-
-                    let ema_stack_str = ema_stack_state.as_deref();
-                    // Increment bar_count BEFORE building the indicator map so
-                    // the gate sees this candle's contribution.  Must precede
-                    // `build_indicator_map` which uses `bar_count` for the
-                    // bars_required gate.
-                    bar_count = bar_count.saturating_add(1);
-                    let indicators = normalize::build_indicator_map(
-                        normalize::NormalizeParams {
-                            close: completed.close,
-                            rsi: final_rsi,
-                            rsi_divergence: normalize::rsi_divergence_state(&div_result),
-                            macd_divergence: normalize::macd_divergence_state(&div_result),
-                            stoch_k: final_stoch.as_ref().map(|s| s.k_value),
-                            stoch_d: final_stoch.as_ref().map(|s| s.d_value),
-                            chandemo: final_cmo,
-                            supertrend_line: final_supertrend.as_ref().map(|s| s.line),
-                            supertrend_dir: final_supertrend.as_ref().map(|s| s.direction),
-                            keltner: final_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
-                            donchian: final_donchian
-                                .as_ref()
-                                .map(|d| (d.upper, d.middle, d.lower)),
-                            obv: final_obv.as_ref().map(|o| o.obv),
-                            obv_sma: final_obv.as_ref().map(|o| o.obv_sma),
-                            cmf: final_cmf,
-                            mfi: final_mfi,
-                            hv: final_hv,
-                            aroon_up: final_aroon.as_ref().map(|a| a.up),
-                            aroon_down: final_aroon.as_ref().map(|a| a.down),
-                            choppiness: final_chop,
-                            linreg_slope: final_linreg,
-                            zscore: final_zscore,
-                            extra_div: normalize::ExtraDivergence {
-                                stochastic: final_stoch
-                                    .as_ref()
-                                    .map(|s| {
-                                        normalize::series_divergence_confirmed(
-                                            &stoch_div
-                                                .update(close_f, s.k_value.to_f64().unwrap_or(0.0)),
-                                            close_f,
-                                            &sr_supports,
-                                            &sr_resistances,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                                chandemo: final_cmo
-                                    .map(|v| {
-                                        normalize::series_divergence_confirmed(
-                                            &chandemo_div
-                                                .update(close_f, v.to_f64().unwrap_or(0.0)),
-                                            close_f,
-                                            &sr_supports,
-                                            &sr_resistances,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                                mfi: final_mfi
-                                    .map(|v| {
-                                        normalize::series_divergence_confirmed(
-                                            &mfi_div.update(close_f, v.to_f64().unwrap_or(0.0)),
-                                            close_f,
-                                            &sr_supports,
-                                            &sr_resistances,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                                cmf: final_cmf
-                                    .map(|v| {
-                                        normalize::series_divergence_confirmed(
-                                            &cmf_div.update(close_f, v.to_f64().unwrap_or(0.0)),
-                                            close_f,
-                                            &sr_supports,
-                                            &sr_resistances,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                                obv: final_obv
-                                    .as_ref()
-                                    .map(|o| {
-                                        normalize::series_divergence_confirmed(
-                                            &obv_div.update(close_f, o.obv.to_f64().unwrap_or(0.0)),
-                                            close_f,
-                                            &sr_supports,
-                                            &sr_resistances,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                                squeeze: final_sqz
-                                    .as_ref()
-                                    .map(|s| {
-                                        normalize::series_divergence_confirmed(
-                                            &squeeze_div.update(
-                                                close_f,
-                                                s.momentum_value.to_f64().unwrap_or(0.0),
-                                            ),
-                                            close_f,
-                                            &sr_supports,
-                                            &sr_resistances,
-                                        )
-                                    })
-                                    .unwrap_or_default(),
-                            },
-                            macd: &final_macd,
-                            sqz: final_sqz.as_ref(),
-                            adx: final_adx.as_ref(),
-                            bb: final_bb,
-                            atr: final_atr.as_ref(),
-                            bbwp: final_bbwp,
-                            vwap: final_vwap,
-                            anchored_vwap: Some(avwap_reading),
-                            ema_stack_state: ema_stack_str,
-                            ema_fast: Some(final_ema_fast),
-                            ema_medium: Some(final_ema_medium),
-                            ema_slow: Some(final_ema_slow),
-                            ema_long: Some(final_ema_long),
-                            // AUDIT-V8-001: configured periods for per-line
-                            // ribbon gating (fast@10, medium@50, slow@100, long@200).
-                            ema_periods: (
-                                active_indicators.ema_fast,
-                                active_indicators.ema_medium,
-                                active_indicators.ema_slow,
-                                active_indicators.ema_long,
-                            ),
-                            rvol,
-                            volume: Some(completed.volume),
-                            average_volume: avg_vol,
-                            fib: Some(&fib),
-                            pattern: Some(&pattern_result),
-                            support_levels: &sr_supports,
-                            resistance_levels: &sr_resistances,
-                            active_position,
-                            adx_consecutive_deceleration,
-                            supertrend_flipped: final_supertrend
-                                .as_ref()
-                                .map(|s| s.flipped)
-                                .unwrap_or(false),
-                            adx_di_crossover: final_adx.as_ref().and_then(|a| {
-                                a.di_crossover.map(|c| match c {
-                                    crate::indicators::DiCrossoverDir::Bullish => 1i8,
-                                    crate::indicators::DiCrossoverDir::Bearish => -1i8,
-                                })
-                            }),
-                            pivot_levels,
-                            pivot_proximity_pct: 0.0015,
-                            candlestick: Some(candlestick_reading),
-                            // AUDIT-AIU-073: configured min-confidence gate.
-                            candlestick_min_confidence: active_indicators
-                                .candlestick_min_confidence,
-                            ichimoku: ichimoku_reading,
-                            cci: cci_reading,
-                            psar: psar_reading,
-                            williams_r: wr_reading,
-                            awesome_oscillator: ao_reading,
-                            force_index: fi_reading,
-                            force_index_mean_abs: fi_mean_abs,
-                            hull_ma: hma_reading,
-                            stddev_channel: sdc_reading,
-                            volume_profile: volume_profile_reading,
-                            smc: smc_reading,
-                            prev: prev_bar_state,
-                            // AUDIT-AIU-071: rvol thresholds from config.
-                            rvol_institutional_threshold: active_indicators
-                                .rvol_threshold_institutional,
-                            rvol_climax_threshold: active_indicators.rvol_threshold_climax,
-                        },
-                        bar_count,
-                        false,
+                        readings,
+                        &mut bar_count,
+                        &mut real_bar_count,
+                        &quality_envelope,
+                        shadow_exchange,
+                        shadow_bid,
+                        shadow_ask,
+                        shadow_prev_day_px,
+                        &active_indicators,
                         &active_set,
-                    );
-
-                    // Read derivative state for prev_bar_state snapshot.
-                    let prev_fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
-
-                    // ── Save current bar's indicator values for next bar's cross-over detection ──
-                    prev_bar_state = PreviousBarState {
-                        rsi: final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
-                        stoch_k: final_stoch
-                            .as_ref()
-                            .map(|s| s.k_value.to_f64().unwrap_or(0.0)),
-                        stoch_d: final_stoch
-                            .as_ref()
-                            .map(|s| s.d_value.to_f64().unwrap_or(0.0)),
-                        cmf: final_cmf.map(|d| d.to_f64().unwrap_or(0.0)),
-                        chandemo: final_cmo.map(|d| d.to_f64().unwrap_or(0.0)),
-                        aroon_up: final_aroon.as_ref().map(|a| a.up.to_f64().unwrap_or(0.0)),
-                        aroon_down: final_aroon.as_ref().map(|a| a.down.to_f64().unwrap_or(0.0)),
-                        macd_line: Some(final_macd.macd_line.to_f64().unwrap_or(0.0)),
-                        macd_histogram: Some(final_macd.histogram.to_f64().unwrap_or(0.0)),
-                        linreg_slope: final_linreg,
-                        zscore: final_zscore,
-                        obv: final_obv.as_ref().map(|o| o.obv.to_f64().unwrap_or(0.0)),
-                        obv_sma: final_obv
-                            .as_ref()
-                            .map(|o| o.obv_sma.to_f64().unwrap_or(0.0)),
-                        mfi: final_mfi.map(|d| d.to_f64().unwrap_or(0.0)),
-                        adx_plus_di: final_adx
-                            .as_ref()
-                            .map(|a| a.plus_di.to_f64().unwrap_or(0.0)),
-                        adx_minus_di: final_adx
-                            .as_ref()
-                            .map(|a| a.minus_di.to_f64().unwrap_or(0.0)),
-                        price: Some(close_f),
-                        ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
-                        ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
-                        // AUDIT-AIU-030: carried for the StackChange detector.
-                        ema_slow: Some(final_ema_slow.to_f64().unwrap_or(0.0)),
-                        ema_long: Some(final_ema_long.to_f64().unwrap_or(0.0)),
-                        supertrend_line: final_supertrend
-                            .as_ref()
-                            .map(|s| s.line.to_f64().unwrap_or(0.0)),
-                        // Populated in later phases (Pivots: P2, Ichimoku: P4).
-                        pivot_active_level: pivot_levels.map(|lv| {
-                            let p = lv.pivot.to_f64().unwrap_or(0.0);
-                            let c = close_f;
-                            if c >= p {
-                                1.0
-                            } else {
-                                -1.0
-                            }
-                        }),
-                        ichimoku_tenkan: ichimoku_reading.map(|r| r.tenkan.to_f64().unwrap_or(0.0)),
-                        ichimoku_kijun: ichimoku_reading.map(|r| r.kijun.to_f64().unwrap_or(0.0)),
-                        price_vs_cloud: ichimoku_reading.map(|r| {
-                            let top = r
-                                .senkou_a_current
-                                .to_f64()
-                                .unwrap_or(0.0)
-                                .max(r.senkou_b_current.to_f64().unwrap_or(0.0));
-                            let bot = r
-                                .senkou_a_current
-                                .to_f64()
-                                .unwrap_or(0.0)
-                                .min(r.senkou_b_current.to_f64().unwrap_or(0.0));
-                            let px = close_f;
-                            if px > top {
-                                1.0
-                            } else if px < bot {
-                                -1.0
-                            } else {
-                                0.0
-                            }
-                        }),
-                        ichimoku_future_bias: ichimoku_reading
-                            .map(|r| (r.senkou_a - r.senkou_b).to_f64().unwrap_or(0.0).signum()),
-                        hull_ma: hma_reading.map(|d| d.to_f64().unwrap_or(0.0)),
-                        awesome_oscillator: ao_reading.map(|d| d.value.to_f64().unwrap_or(0.0)),
-                        force_index: fi_reading.map(|d| d.to_f64().unwrap_or(0.0)),
-                        williams_r: wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
-                        cci: cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
-                        psar_sar: psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
-                        funding_rate: prev_fund_f,
-                        cascade_state: Some(last_cascade_state),
-                    };
-
-                    // Stamp signal freshness (age in completed bars).
-                    let mut indicators = indicators;
-                    live_bar = live_bar.wrapping_add(1);
-                    stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
-
-                    // Inject Derivatives Data indicators (OI & Funding Rate).
-                    // Reads from the per-pair shared `oi_history` and
-                    // `funding_history` Arc locks, which the bootstrap
-                    // path pre-seeds from historical snapshots and live
-                    // WS events keep mutating. `candle_close_sec` is the
-                    // window anchor for the 3600 s OI delta.
-                    let deriv = read_derivative_snapshot_state(
+                        buffer_size,
+                        &paper_pool,
+                        &fib_config,
+                        &liquidity_config,
+                        spread_wide_threshold_pct,
+                        &history,
+                        &mut volume_history,
+                        &mut adx_slope_history,
+                        &divergence_detector,
+                        &mut sr_tracker,
+                        &mut last_pivot_count,
+                        &mut anchored_vwap_indicator,
+                        &mut stoch_div,
+                        &mut chandemo_div,
+                        &mut mfi_div,
+                        &mut cmf_div,
+                        &mut obv_div,
+                        &mut squeeze_div,
+                        &mut signal_age_tracker,
+                        &mut live_bar,
+                        &mut prev_bar_state,
+                        &mut sil_engine,
+                        &mut prev_sil_close,
+                        &mut mc_counter,
+                        &mut prev_mtf_score,
+                        &mut prev_regime,
+                        &mut prev_volume_dim,
+                        &mut last_cascade_state,
+                        &mut liquidity_acc,
                         &latest_oi,
                         &latest_funding,
                         &latest_mark_px,
                         &latest_index_px,
                         &oi_history,
                         &funding_history,
-                        candle_close_sec,
-                    )
-                    .await;
-                    let DerivativeSnapshot {
-                        oi: oi_f,
-                        funding: fund_f,
-                        mark_px: mark_f,
-                        index_px: _idx_f,
-                        spread_pct,
-                        oi_delta: oi_delta_f,
-                        prev_oi_delta: prev_oi_delta_f,
-                    } = deriv;
-                    // AUDIT-AIU-074: unify the funding "extreme" definition
-                    // between the indicator and liquidity layers.
-                    let funding_extreme_pct = liquidity_config
-                        .as_ref()
-                        .map(|c| c.funding_extreme_pct)
-                        .unwrap_or(0.0005);
-                    inject_derivatives_indicators(
-                        &mut indicators,
-                        oi_f,
-                        fund_f,
-                        oi_delta_f,
-                        mark_f,
-                        spread_pct,
-                        prev_oi_delta_f,
-                        funding_extreme_pct,
-                    );
-
-                    // Inject order book depth analysis indicators
-                    inject_orderbook_indicators(
-                        &mut indicators,
                         &order_book_analysis,
-                        spread_wide_threshold_pct,
-                    );
-
-                    // Compute quantitative decision-support context.
-                    let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
-
-                    // Compute Statistical Intelligence Layer enrichment.
-                    let rsi_val = indicators.get("rsi").map(|v| v.raw_value).unwrap_or(50.0);
-                    let bbwp_val = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
-                    let sqz_mom = indicators
-                        .get("squeeze")
-                        .and_then(|v| v.values.as_ref())
-                        .and_then(|vals| vals.get("momentum").copied())
-                        .unwrap_or(0.0);
-                    let sqz_on = indicators
-                        .get("squeeze")
-                        .map(|v| v.state_label.contains("ON"))
-                        .unwrap_or(false);
-                    let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
-                    let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
-
-                    let current_context =
-                        crate::market_context_synth::synthesize_market_context(&indicators);
-
-                    let current_state = derive_pipeline_state(bar_count as usize, buffer_size);
-                    // Sub-minute TFs skip historical bootstrap and start cold (0 bars).
-                    // Requiring the full `buffer_size` (500) makes indicators unavailable
-                    // for ~2 h at 15 s candles. Use a reduced floor so completed snapshots
-                    // with full matrix payload start broadcasting after ~12.5 min (50 bars
-                    // at 15 s, 25 min at 30 s).
-                    let pipeline_is_live = if timeframe_secs < 60 {
-                        bar_count as usize >= (buffer_size / 10).max(50)
-                    } else {
-                        current_state == CandlePipelineState::Live
-                    };
-
-                    let this_snapshot_for_synth = MarketSnapshot {
-                        timeframe_slot: Some(slot),
-                        exchange: shadow_exchange,
-                        timeframe_secs,
-                        timestamp: candle_close_sec,
-                        symbol: symbol.clone(),
-                        is_completed: Some(true),
-                        mid_price: completed.close,
-                        bid_price: shadow_bid,
-                        ask_price: shadow_ask,
-                        bid_size: Some(completed.volume),
-                        ask_size: Some(completed.volume),
-                        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
-                        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
-                        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
-                        mark_price: latest_mark_px.read().await.clone(),
-                        index_price: latest_index_px.read().await.clone(),
-                        mark_index_spread_pct: spread_pct,
-                        prev_day_px: shadow_prev_day_px,
-                        open: Some(completed.open),
-                        high: Some(completed.high),
-                        low: Some(completed.low),
-                        close: Some(completed.close),
-                        volume: Some(completed.volume),
-                        average_volume: avg_vol,
-                        pipeline_state: current_state,
-                        indicator_lifecycle: build_indicator_lifecycle_map(
-                            &indicators.clone(),
-                            &*indicator_lifecycle.read().await,
-                            300,
-                            bar_count,
-                            false,
-                            core_domain::LatencyTracker::now_ms(),
-                            pipeline_is_live,
-                        ),
-                        context: Some(current_context.clone()),
-                        decision_context: None,
-                        statistical_context: None,
-                        indicators: indicators.clone(),
-                        alignment: None,
-                        risk: None,
-                        analysis: None,
-                        advisory: None,
-                        opportunity: None,
-                        liquidity_signals: vec![],
-                        metrics_config: None,
-                        risk_profile: None,
-                        liquidity: None,
-                        cluster: None,
-                        volume_profile: None,
-                        quality_envelope: Some(quality_envelope.clone()),
-                    };
-
-                    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(4);
-                    cross_tf_snaps.push((timeframe_secs, this_snapshot_for_synth));
-                    for arc in [
                         &cross_tf_snapshot_a,
                         &cross_tf_snapshot_b,
                         &cross_tf_snapshot_c,
-                    ] {
-                        if let Some(s) = arc.read().await.clone() {
-                            if !cross_tf_snaps
-                                .iter()
-                                .any(|(_, existing)| existing.timeframe_secs == s.timeframe_secs)
-                            {
-                                cross_tf_snaps.push((s.timeframe_secs, s));
-                            }
-                        }
-                    }
-
-                    // D4 (cross-TF freshness): the other pipelines publish
-                    // their `latest_snapshot` handles at THEIR OWN candle
-                    // closes. When this TF's close lands on a boundary that
-                    // a slower TF shares (e.g. a micro close at 02:48:00
-                    // coincides with the fast 180s close), the slower
-                    // pipeline may not have written its just-closed snapshot
-                    // yet — the cross-TF synthesis then consumes the
-                    // PREVIOUS close, so the alignment/analysis/risk layers
-                    // lag the per-TF context the dashboards show (observed:
-                    // ETH FAST alignment row scored -7 with 21 signals while
-                    // the metrics tab showed +8 / 31 for the same candle).
-                    // Retry with a short bounded wait until every handle that
-                    // was due to close at this boundary has advanced.
-                    {
-                        let mut spins = 0u32;
-                        loop {
-                            let stale_at_boundary = cross_tf_snaps.iter().any(|(secs, snap)| {
-                                *secs != timeframe_secs
-                                    && snap.timeframe_secs > 0
-                                    && candle_close_sec % snap.timeframe_secs == 0
-                                    && snap.timestamp < candle_close_sec
-                            });
-                            if !stale_at_boundary || spins >= 5 {
-                                break;
-                            }
-                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                            spins += 1;
-                            for arc in [
-                                &cross_tf_snapshot_a,
-                                &cross_tf_snapshot_b,
-                                &cross_tf_snapshot_c,
-                            ] {
-                                if let Some(s) = arc.read().await.clone() {
-                                    let idx = cross_tf_snaps.iter().position(|(_, existing)| {
-                                        existing.timeframe_secs == s.timeframe_secs
-                                    });
-                                    match idx {
-                                        Some(i) => cross_tf_snaps[i].1 = s,
-                                        None => cross_tf_snaps.push((s.timeframe_secs, s)),
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    let cross_refs: Vec<(u64, &MarketSnapshot)> =
-                        cross_tf_snaps.iter().map(|(secs, s)| (*secs, s)).collect();
-
-                    let cluster_guard = cluster_matrix.read().await.clone();
-                    // Block B: feed the latest mid into the accumulator
-                    // before flushing so the buckets are anchored to the
-                    // most recent mark. `latest_mark_px` is the upstream
-                    // shared state updated by `MarkPrice` events.
-                    let mid_for_buckets = latest_mark_px.read().await.and_then(|m| m.to_f64());
-                    if let Some(m) = mid_for_buckets {
-                        liquidity_acc.set_mid(m);
-                    }
-                    let flush_now_ms = core_domain::LatencyTracker::now_ms();
-                    let liquidity_flow = liquidity_acc.flush_to_flow(flush_now_ms);
-                    last_cascade_state = liquidity_flow.cascade_state;
-                    // Thread configured signal thresholds from
-                    // `[workspace.liquidity]` instead of using the
-                    // hardcoded defaults inside `SignalInput::default()`.
-                    let funding_extreme_pct = liquidity_config
-                        .as_ref()
-                        .map(|c| c.funding_extreme_pct)
-                        .unwrap_or(0.0005);
-                    let magnet_activation_distance_pct = liquidity_config
-                        .as_ref()
-                        .map(|c| c.magnet_activation_distance_pct)
-                        .unwrap_or(0.5);
-                    let oi_funding_divergence_pct = liquidity_config
-                        .as_ref()
-                        .map(|c| c.oi_funding_divergence_pct)
-                        .unwrap_or(2.0);
-                    // Vacuum depth band: low/high are the configured
-                    // threshold and its reciprocal. Legacy hardcoded
-                    // `0.5 / 2.0` is the `threshold = 0.5` case.
-                    let (vacuum_low, vacuum_high) = liquidity_config
-                        .as_ref()
-                        .map(|c| {
-                            let t = c.liquidity_vacuum_threshold.max(0.01);
-                            (t, 1.0 / t)
-                        })
-                        .unwrap_or((0.5, 2.0));
-                    let liquidity_signals = core_domain::liquidity::derive_liquidity_signals(
-                        &core_domain::liquidity::SignalInput {
-                            flow: Some(&liquidity_flow),
-                            cluster: cluster_guard.as_ref(),
-                            funding_rate: fund_f.unwrap_or(0.0),
-                            oi_delta_1h_pct: oi_delta_f
-                                .map(|d| {
-                                    if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 {
-                                        d / oi_f.unwrap_or(1.0).max(1.0) * 100.0
-                                    } else {
-                                        0.0
-                                    }
-                                })
-                                .unwrap_or(0.0),
-                            price_bias: indicators
-                                .get("ema_stack")
-                                .map(|v| v.normalized)
-                                .unwrap_or(0.0),
-                            prev_funding_rate: prev_bar_state.funding_rate,
-                            prev_cascade_state: prev_bar_state.cascade_state,
-                            funding_extreme_pct,
-                            magnet_activation_distance_pct,
-                            oi_funding_divergence_pct,
-                            liquidity_vacuum_depth_low: vacuum_low,
-                            liquidity_vacuum_depth_high: vacuum_high,
-                            book_depth_ratio: indicators
-                                .get("depth_ratio")
-                                .map(|v| v.raw_value)
-                                .filter(|v| v.is_finite() && *v > 0.0),
-                            // AUDIT-AIU-055/057: thread the configured
-                            // cluster-notional floor and per-signal
-                            // confidences.
-                            min_cluster_notional_usd: liquidity_config
-                                .as_ref()
-                                .map(|c| c.min_cluster_notional_usd)
-                                .unwrap_or(100_000.0),
-                            signal_confidences: liquidity_config
-                                .as_ref()
-                                .map(|c| {
-                                    let sc = &c.signal_confidences;
-                                    core_domain::liquidity::SignalConfidences {
-                                        cascade_detected: sc.cascade_detected,
-                                        cascade_sustained: sc.cascade_sustained,
-                                        cascade_exhausted: sc.cascade_exhausted,
-                                        funding_extreme: sc.funding_extreme,
-                                        oi_funding_divergence: sc.oi_funding_divergence,
-                                        liquidity_vacuum: sc.liquidity_vacuum,
-                                        funding_flip: sc.funding_flip,
-                                        oi_price_divergence: sc.oi_price_divergence,
-                                    }
-                                })
-                                .unwrap_or_default(),
-                        },
-                    );
-
-                    let synthesis = crate::synthesis::synthesize_cross_tf(
-                        &symbol,
-                        &cross_refs,
-                        Some(&liquidity_flow),
-                        cluster_guard.as_ref(),
-                        &liquidity_signals,
-                        prev_mtf_score,
-                        prev_regime,
-                        prev_volume_dim,
-                    );
-
-                    prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
-                    prev_regime = Some(synthesis.analysis.market_regime);
-                    prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
-
-                    let confluence_score = {
-                        // v6.10 (Phase 6 / F1): Unsigned 3-factor quality
-                        // blend in [0, 100]. All three inputs are categorical
-                        // quality scores in [0, 100]. The signed direction
-                        // (`sign × magnitude × 100`) was a v6.9 deviation that
-                        // turned confluence into a signed [-100, +100] range,
-                        // contradicting the spec at
-                        // `02-04-decision-matrix.md §2.3` which mandates
-                        // unsigned [0, 100]. The direction now lives
-                        // separately in `Decision.bias` (Phase 6 / F2 mirrors
-                        // `Analysis.bias` via ±40 thresholds).
-                        let tradability_dim = synthesis
-                            .alignment
-                            .dimensions
-                            .get(9)
-                            .map(|d| d.score)
-                            .unwrap_or(0.0);
-                        let market_quality_score = synthesis.analysis.market_quality_score;
-                        let opp_score = synthesis
-                            .opportunity
-                            .as_ref()
-                            .map(|o| o.opportunity_score)
-                            .unwrap_or(0.0);
-                        (0.50 * tradability_dim
-                            + 0.30 * market_quality_score
-                            + 0.20 * opp_score)
-                            .clamp(0.0, 100.0)
-                    };
-
-                    let l4_opportunity = synthesis.opportunity.clone();
-
-                    let dec_ctx = core_domain::decision_context::DecisionContext::compute(
-                        &indicators,
-                        close_f,
-                        atr_val,
-                        confluence_score,
-                        &synthesis.analysis,
-                        l4_opportunity.as_ref(),
-                        &synthesis.risk,
-                    );
-                    let sil_ctx = sil_engine.advance_ext(
-                        close_f,
-                        atr_val,
-                        rsi_val,
-                        bbwp_val,
-                        sqz_mom,
-                        volume_f,
-                        rvol_f,
-                        adx_val,
-                        prev_sil_close,
-                        sqz_on,
-                        indicators.get("macd").map(|v| v.raw_value).unwrap_or(0.0),
-                        indicators.get("obv").map(|v| v.raw_value).unwrap_or(0.0),
-                        indicators
-                            .get("stochastic")
-                            .and_then(|v| v.values.as_ref())
-                            .and_then(|vals| vals.get("k_line").copied())
-                            .unwrap_or(50.0),
-                        indicators
-                            .get("choppiness")
-                            .map(|v| v.raw_value)
-                            .unwrap_or(50.0),
-                        indicators
-                            .get("ema_stack")
-                            .and_then(|v| v.values.as_ref())
-                            .and_then(|vals| vals.get("medium").copied())
-                            .unwrap_or(close_f),
-                    );
-                    prev_sil_close = close_f;
-
-                    mc_counter += 1;
-                    if mc_counter % 10 == 0 {
-                        sil_engine.run_monte_carlo(close_f, atr_val);
-                    }
-
-                    let completed_snapshot = MarketSnapshot {
-                        timeframe_slot: Some(slot),
-                        exchange: shadow_exchange,
-                        timeframe_secs,
-                        timestamp: candle_close_sec,
-                        symbol: symbol.clone(),
-                        is_completed: Some(true),
-                        mid_price: completed.close,
-                        bid_price: shadow_bid,
-                        ask_price: shadow_ask,
-                        bid_size: Some(completed.volume),
-                        ask_size: Some(completed.volume),
-                        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
-                        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
-                        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
-                        mark_price: latest_mark_px.read().await.clone(),
-                        index_price: latest_index_px.read().await.clone(),
-                        mark_index_spread_pct: spread_pct,
-                        prev_day_px: shadow_prev_day_px,
-                        open: Some(completed.open),
-                        high: Some(completed.high),
-                        low: Some(completed.low),
-                        close: Some(completed.close),
-                        volume: Some(completed.volume),
-                        average_volume: avg_vol,
-                        pipeline_state: current_state,
-                        indicator_lifecycle: build_indicator_lifecycle_map(
-                            &indicators,
-                            &*indicator_lifecycle.read().await,
-                            300,
-                            bar_count,
-                            false,
-                            core_domain::LatencyTracker::now_ms(),
-                            pipeline_is_live,
-                        ),
-                        context: Some(current_context),
-                        decision_context: Some(dec_ctx),
-                        statistical_context: Some(sil_ctx),
-                        indicators,
-                        alignment: Some(synthesis.alignment),
-                        risk: Some(synthesis.risk),
-                        analysis: Some(synthesis.analysis),
-                        advisory: Some(synthesis.advisory.clone()),
-                        opportunity: synthesis.opportunity,
-                        risk_profile: None,
-                        liquidity: Some(liquidity_flow),
-                        cluster: cluster_matrix.read().await.clone(),
-                        volume_profile: volume_profile_snapshot,
-                        liquidity_signals,
-                        metrics_config: active_set.to_metrics_config(),
-                        quality_envelope: Some(quality_envelope),
-                    };
-
-                    let _ = telemetry_tx
-                        .send(database_storage::TelemetryMsg::InsertSnapshot(
-                            completed_snapshot.clone(),
-                        ))
-                        .await;
-
-                    latency_tracker.record_observation_latency(
-                        core_domain::LatencyTracker::now_ms()
-                            .saturating_sub(completed.start_time_ms),
-                    );
-
-                    // Always broadcast completed candle snapshots so the
-                    // chart time-series stays continuous from the first bar.
-                    // The matrix payload (alignment/analysis/risk/advisory/
-                    // opportunity/decision_context) is still gated on
-                    // pipeline_is_live but the OHLCV candle, liquidity,
-                    // cluster, volume_profile, and indicators land on every
-                    // frame so sub-minute TFs (1s/3s/5s/15s) populate the
-                    // chart immediately rather than stalling for 50 bars
-                    // (~50 s at 1 s TF).
-                    let mut broadcast_snapshot = completed_snapshot.clone();
-                    if !pipeline_is_live {
-                        broadcast_snapshot.alignment = None;
-                        broadcast_snapshot.analysis = None;
-                        broadcast_snapshot.risk = None;
-                        broadcast_snapshot.advisory = None;
-                        broadcast_snapshot.opportunity = None;
-                        broadcast_snapshot.decision_context = None;
-                        broadcast_snapshot.statistical_context = None;
-                        broadcast_snapshot.context = None;
-                    }
-                    let _ = broadcast_tx.send(broadcast_snapshot);
-
-                    // Publish the completed snapshot as the latest for this TF.
-                    {
-                        let mut snap = latest_snapshot.write().await;
-                        *snap = Some(completed_snapshot.clone());
-                    }
-
-                    // v6.10 (Phase 2 / B3): write-through the cross-TF
-                    // advisory onto the pipeline struct. Mirrors the
-                    // pipeline_state / indicator_lifecycle write-through
-                    // (those are written via `build_indicator_lifecycle_map`
-                    // above). Consumers reading `pipeline.advisory` directly
-                    // see the most recent cross-TF synthesis result.
-                    *advisory.write().await = Some(synthesis.advisory.clone());
-
-                    // v6.10 (Phase 3 / C3): write-through the per-TF
-                    // pipeline_state and indicator_lifecycle onto the
-                    // pipeline struct so consumers that read those fields
-                    // directly see the authoritative state. Before this,
-                    // both fields were declared on `TimeframePipeline` but
-                    // never written to (so they remained `Initializing`
-                    // and empty respectively).
-                    *pipeline_state_handle.write().await = current_state;
-                    *indicator_lifecycle.write().await = completed_snapshot.indicator_lifecycle.clone();
+                        &cluster_matrix,
+                        &indicator_lifecycle,
+                        &pipeline_state_handle,
+                        &latest_snapshot,
+                        &advisory,
+                        &broadcast_tx,
+                        &telemetry_tx,
+                        &latency_tracker,
+                            ).await;
 
                     // Decisive close invalidation: check at every 1-minute candle close
                     if timeframe_secs == 60 {
@@ -2984,6 +2219,7 @@ pub async fn run_single(
                             {
                                 if let Some(inval_level) = pos.final_invalidation_level {
                                     let tolerance = 0.002;
+                                    let close_f = completed.close.to_f64().unwrap_or(0.0);
                                     let invalidated = match pos.direction.as_str() {
                                         "LONG" => close_f < inval_level * (1.0 - tolerance),
                                         "SHORT" => close_f > inval_level * (1.0 + tolerance),
@@ -3062,8 +2298,9 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
+                            real_bar_count,
                             (
-                                active_indicators.ema_fast,
+                            active_indicators.ema_fast,
                                 active_indicators.ema_medium,
                                 active_indicators.ema_slow,
                                 active_indicators.ema_long,
@@ -3162,8 +2399,9 @@ pub async fn run_single(
                             timeframe_secs,
                             shadow_prev_day_px,
                             bar_count,
+                            real_bar_count,
                             (
-                                active_indicators.ema_fast,
+                            active_indicators.ema_fast,
                                 active_indicators.ema_medium,
                                 active_indicators.ema_slow,
                                 active_indicators.ema_long,
@@ -3237,6 +2475,1057 @@ pub async fn run_single(
             }
         }
     }
+}
+/// Full per-candle matrix synthesis shared by the trade-triggered and
+/// stale-check `force_close` completion paths. Builds the indicator map from
+/// the freshly-applied [`CandleIndicatorReadings`], injects derivatives +
+/// order-book indicators, advances the statistical-intelligence / divergence /
+/// S/R stateful trackers, runs the cross-TF synthesis, and produces + broadcasts
+/// the completed `MarketSnapshot` with the full matrix payload
+/// (alignment/analysis/risk/advisory/opportunity/decision_context).
+///
+/// Every stateful tracker advanced here runs exactly once per closed candle:
+/// the v6.11 dedup gate in `run_single` guarantees a bucket is processed by
+/// either the trade-triggered path or the force-close path, never both.
+#[allow(clippy::too_many_arguments)]
+async fn synthesize_completed_candle(
+    symbol: &str,
+    timeframe_label: &str,
+    slot: TimeframeSlot,
+    timeframe_secs: u64,
+    completed: &NormalizedCandle,
+    candle_close_sec: u64,
+    readings: CandleIndicatorReadings,
+    bar_count: &mut u32,
+    real_bar_count: &mut u32,
+    quality_envelope: &CandleQualityEnvelope,
+    shadow_exchange: Option<Exchange>,
+    shadow_bid: Decimal,
+    shadow_ask: Decimal,
+    shadow_prev_day_px: Option<Decimal>,
+    active_indicators: &config_models::IndicatorsConfig,
+    active_set: &crate::active_set::ActiveSet,
+    buffer_size: usize,
+    paper_pool: &Option<sqlx::SqlitePool>,
+    fib_config: &FibonacciConfig,
+    liquidity_config: &Option<LiquidityConfig>,
+    spread_wide_threshold_pct: f64,
+    history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    volume_history: &mut VecDeque<Decimal>,
+    adx_slope_history: &mut VecDeque<Decimal>,
+    divergence_detector: &Arc<tokio::sync::Mutex<DivergenceDetector>>,
+    sr_tracker: &mut SrRoleTracker,
+    last_pivot_count: &mut usize,
+    anchored_vwap_indicator: &mut AnchoredVwap,
+    stoch_div: &mut SeriesDivergence,
+    chandemo_div: &mut SeriesDivergence,
+    mfi_div: &mut SeriesDivergence,
+    cmf_div: &mut SeriesDivergence,
+    obv_div: &mut SeriesDivergence,
+    squeeze_div: &mut SeriesDivergence,
+    signal_age_tracker: &mut std::collections::HashMap<
+        String,
+        (u32, crate::indicators::SignalDirection),
+    >,
+    live_bar: &mut u32,
+    prev_bar_state: &mut PreviousBarState,
+    sil_engine: &mut StatisticsEngine,
+    prev_sil_close: &mut f64,
+    mc_counter: &mut u64,
+    prev_mtf_score: &mut Option<f64>,
+    prev_regime: &mut Option<core_domain::analysis::MarketRegime>,
+    prev_volume_dim: &mut Option<f64>,
+    last_cascade_state: &mut core_domain::liquidity::CascadeState,
+    liquidity_acc: &mut core_domain::liquidity::LiquidityEventAccumulator,
+    latest_oi: &Arc<RwLock<Option<Decimal>>>,
+    latest_funding: &Arc<RwLock<Option<Decimal>>>,
+    latest_mark_px: &Arc<RwLock<Option<Decimal>>>,
+    latest_index_px: &Arc<RwLock<Option<Decimal>>>,
+    oi_history: &Arc<RwLock<VecDeque<(u64, f64)>>>,
+    funding_history: &Arc<RwLock<VecDeque<f64>>>,
+    order_book_analysis: &OrderBookAnalysis,
+    cross_tf_snapshot_a: &Arc<RwLock<Option<MarketSnapshot>>>,
+    cross_tf_snapshot_b: &Arc<RwLock<Option<MarketSnapshot>>>,
+    cross_tf_snapshot_c: &Arc<RwLock<Option<MarketSnapshot>>>,
+    cluster_matrix: &Arc<RwLock<Option<LiquidationClusterMatrix>>>,
+    indicator_lifecycle: &Arc<RwLock<IndicatorLifecycleMap>>,
+    pipeline_state_handle: &Arc<RwLock<CandlePipelineState>>,
+    latest_snapshot: &Arc<RwLock<Option<MarketSnapshot>>>,
+    advisory: &Arc<RwLock<Option<AdvisoryMatrix>>>,
+    broadcast_tx: &broadcast::Sender<MarketSnapshot>,
+    telemetry_tx: &Sender<database_storage::TelemetryMsg>,
+    latency_tracker: &core_domain::SharedLatencyTracker,
+) -> MarketSnapshot {
+    // Deconstruct the just-computed readings into the named bindings the
+    // synthesis block below was written against (same shape as the original
+    // inline destructure of `apply_candle_to_indicators`' return).
+    let CandleIndicatorReadings {
+        open_f: _,
+        high_f: _,
+        low_f: _,
+        close_f,
+        volume_f,
+        pivot_levels,
+        candlestick_reading,
+        ichimoku_reading,
+        cci_reading,
+        psar_reading,
+        wr_reading,
+        hma_reading,
+        ao_reading,
+        fi_reading,
+        fi_mean_abs,
+        sdc_reading,
+        volume_profile_reading,
+        volume_profile_snapshot,
+        smc_reading,
+        final_vwap,
+        avwap_reading,
+        final_ema_fast,
+        final_ema_medium,
+        final_ema_slow,
+        final_ema_long,
+        ema_stack_state,
+        final_rsi,
+        final_macd,
+        final_adx,
+        final_sqz,
+        final_bb,
+        final_atr,
+        final_bbwp,
+        final_stoch,
+        final_cmo,
+        final_supertrend,
+        final_keltner,
+        final_donchian,
+        final_obv,
+        final_cmf,
+        final_mfi,
+        final_hv,
+        final_aroon,
+        final_chop,
+        final_linreg,
+        final_zscore,
+    } = readings;
+    // ── Generalized divergence detection ──
+    // Each oscillator's SeriesDivergence is updated every bar
+    // for the RSI/MACD confirmation path below. The 6 extra
+    // divergence states are resolved inline inside NormalizeParams
+    // (below) so sr_supports/resistances are in scope for the
+    // S/R-confirmation gate.
+
+    // Divergence detection (live — potential status; confirmation
+    // applied after S/R levels are computed below).
+    let mut div_result = {
+        if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
+            divergence_detector.lock().await.update_full(
+                close_f,
+                rsi.to_f64().unwrap_or(0.0),
+                macd_hist.to_f64().unwrap_or(0.0),
+            )
+        } else {
+            crate::indicators::DivergenceResult::default_div()
+        }
+    };
+
+    let log_line = format!(
+        "🕯️  [{}] {} Candle Closed | Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
+        symbol, timeframe_label, completed.start_time_ms, completed.close,
+        completed.volume, completed.trades_count
+    );
+    let _ = telemetry_tx
+        .send(database_storage::TelemetryMsg::ConsoleLog(log_line))
+        .await;
+
+    volume_history.push_back(completed.volume);
+    // AUDIT-AIU-070: configured `volume_average_period` window.
+    let vol_window = active_indicators.volume_average_period.max(1);
+    while volume_history.len() > vol_window {
+        volume_history.pop_front();
+    }
+    let avg_vol = if !volume_history.is_empty() {
+        let sum: Decimal = volume_history.iter().sum();
+        Some(sum / Decimal::from(volume_history.len()))
+    } else {
+        None
+    };
+
+    let rvol = match (completed.volume, avg_vol) {
+        (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+        _ => None,
+    };
+
+    // Fibonacci retracement/extension computation
+    let fib = {
+        let hist = history.read().await;
+        let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
+        let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
+        FibonacciRange::compute_from_candles(
+            &candles_high,
+            &candles_low,
+            fib_config.swing_lookback,
+            fib_config.swing_scan_range,
+            &fib_config.retracement_coefficients,
+            &fib_config.extension_coefficients,
+        )
+    };
+
+    // Chart pattern detection from pivots (reused for S/R zones)
+    let pivots = {
+        let hist = history.read().await;
+        let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
+        let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
+        FibonacciRange::detect_pivots(
+            &candles_high,
+            &candles_low,
+            fib_config.swing_lookback,
+            fib_config.swing_scan_range,
+        )
+    };
+    if pivots.len() > *last_pivot_count {
+        anchored_vwap_indicator.reset_swing();
+    }
+    *last_pivot_count = pivots.len();
+    let pattern_result = detect_pattern(&pivots);
+
+    // Support/Resistance zones: derive role-adjusted levels from
+    // the swing pivots and update the flip tracker on this close.
+    let (sr_supports, sr_resistances) = update_sr_levels(
+        sr_tracker,
+        &pivots,
+        completed.close,
+        candle_close_sec,
+    );
+
+    // Upgrade RSI/MACD potential divergences to Confirmed when
+    // the candle close decisively breaks the nearest S/R level.
+    // check_divergence_confirmation is a &self method on the
+    // DivergenceDetector — we lock it again briefly.
+    //
+    // AUDIT-AIU-002: a bullish confirmation requires
+    // `close < support` (close breaks BELOW the level), and a
+    // bearish confirmation requires `close > resistance`.
+    // The previous selection (`support <= close` / `resistance
+    // >= close`) made both checks unsatisfiable by
+    // construction, so RSI/MACD divergences could never reach
+    // Confirmed in the live path. We now select the nearest
+    // level on the break side: support ABOVE close, resistance
+    // BELOW close — mirroring `series_divergence_confirmed`.
+    {
+        let near_sup = sr_supports
+            .iter()
+            .copied()
+            .filter(|s| *s > 0.0 && *s > close_f)
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let near_res = sr_resistances
+            .iter()
+            .copied()
+            .filter(|r| *r > 0.0 && *r < close_f)
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        if near_sup.is_some() || near_res.is_some() {
+            let det = divergence_detector.lock().await;
+            div_result = det.check_divergence_confirmation(
+                &div_result,
+                close_f,
+                near_sup,
+                near_res,
+            );
+        }
+    }
+
+    // Track ADX slope history for the 2-bar hook-exit rule.
+    if let Some(a) = final_adx.as_ref() {
+        adx_slope_history.push_back(a.adx_slope);
+        while adx_slope_history.len() > 3 {
+            adx_slope_history.pop_front();
+        }
+    }
+    let adx_consecutive_deceleration = adx_slope_history.len() >= 2
+        && adx_slope_history
+            .iter()
+            .rev()
+            .take(2)
+            .all(|s| *s < Decimal::ZERO);
+
+    // Active position context for direction-aware normalization.
+    let active_position: Option<i8> = if let Some(ref pool) = paper_pool {
+        match database_storage::paper::queries::paper_get_active_position(
+            pool, &symbol,
+        )
+        .await
+        .map(|p| p.direction)
+        .as_deref()
+        {
+            Some("LONG") => Some(1),
+            Some("SHORT") => Some(-1),
+            _ => Some(0),
+        }
+    } else {
+        Some(0)
+    };
+
+    let ema_stack_str = ema_stack_state.as_deref();
+    // Increment bar_count BEFORE building the indicator map so
+    // the gate sees this candle's contribution.  Must precede
+    // `build_indicator_map` which uses `bar_count` for the
+    // bars_required gate.
+    *bar_count = bar_count.saturating_add(1);
+    // PRI-12: every candle processed by the synthesis is a REAL completion
+    // (trade-triggered or clock-driven force-close) — synthetic dojis never
+    // reach this function.
+    *real_bar_count = real_bar_count.saturating_add(1);
+    let indicators = normalize::build_indicator_map(
+        normalize::NormalizeParams {
+            close: completed.close,
+            rsi: final_rsi,
+            rsi_divergence: normalize::rsi_divergence_state(&div_result),
+            macd_divergence: normalize::macd_divergence_state(&div_result),
+            stoch_k: final_stoch.as_ref().map(|s| s.k_value),
+            stoch_d: final_stoch.as_ref().map(|s| s.d_value),
+            chandemo: final_cmo,
+            supertrend_line: final_supertrend.as_ref().map(|s| s.line),
+            supertrend_dir: final_supertrend.as_ref().map(|s| s.direction),
+            keltner: final_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
+            donchian: final_donchian
+                .as_ref()
+                .map(|d| (d.upper, d.middle, d.lower)),
+            obv: final_obv.as_ref().map(|o| o.obv),
+            obv_sma: final_obv.as_ref().map(|o| o.obv_sma),
+            cmf: final_cmf,
+            mfi: final_mfi,
+            hv: final_hv,
+            aroon_up: final_aroon.as_ref().map(|a| a.up),
+            aroon_down: final_aroon.as_ref().map(|a| a.down),
+            choppiness: final_chop,
+            linreg_slope: final_linreg,
+            zscore: final_zscore,
+            extra_div: normalize::ExtraDivergence {
+                stochastic: final_stoch
+                    .as_ref()
+                    .map(|s| {
+                        normalize::series_divergence_confirmed(
+                            &stoch_div
+                                .update(close_f, s.k_value.to_f64().unwrap_or(0.0)),
+                            close_f,
+                            &sr_supports,
+                            &sr_resistances,
+                        )
+                    })
+                    .unwrap_or_default(),
+                chandemo: final_cmo
+                    .map(|v| {
+                        normalize::series_divergence_confirmed(
+                            &chandemo_div
+                                .update(close_f, v.to_f64().unwrap_or(0.0)),
+                            close_f,
+                            &sr_supports,
+                            &sr_resistances,
+                        )
+                    })
+                    .unwrap_or_default(),
+                mfi: final_mfi
+                    .map(|v| {
+                        normalize::series_divergence_confirmed(
+                            &mfi_div.update(close_f, v.to_f64().unwrap_or(0.0)),
+                            close_f,
+                            &sr_supports,
+                            &sr_resistances,
+                        )
+                    })
+                    .unwrap_or_default(),
+                cmf: final_cmf
+                    .map(|v| {
+                        normalize::series_divergence_confirmed(
+                            &cmf_div.update(close_f, v.to_f64().unwrap_or(0.0)),
+                            close_f,
+                            &sr_supports,
+                            &sr_resistances,
+                        )
+                    })
+                    .unwrap_or_default(),
+                obv: final_obv
+                    .as_ref()
+                    .map(|o| {
+                        normalize::series_divergence_confirmed(
+                            &obv_div.update(close_f, o.obv.to_f64().unwrap_or(0.0)),
+                            close_f,
+                            &sr_supports,
+                            &sr_resistances,
+                        )
+                    })
+                    .unwrap_or_default(),
+                squeeze: final_sqz
+                    .as_ref()
+                    .map(|s| {
+                        normalize::series_divergence_confirmed(
+                            &squeeze_div.update(
+                                close_f,
+                                s.momentum_value.to_f64().unwrap_or(0.0),
+                            ),
+                            close_f,
+                            &sr_supports,
+                            &sr_resistances,
+                        )
+                    })
+                    .unwrap_or_default(),
+            },
+            macd: &final_macd,
+            sqz: final_sqz.as_ref(),
+            adx: final_adx.as_ref(),
+            bb: final_bb,
+            atr: final_atr.as_ref(),
+            bbwp: final_bbwp,
+            vwap: final_vwap,
+            anchored_vwap: Some(avwap_reading),
+            ema_stack_state: ema_stack_str,
+            ema_fast: Some(final_ema_fast),
+            ema_medium: Some(final_ema_medium),
+            ema_slow: Some(final_ema_slow),
+            ema_long: Some(final_ema_long),
+            // AUDIT-V8-001: configured periods for per-line
+            // ribbon gating (fast@10, medium@50, slow@100, long@200).
+            ema_periods: (
+                active_indicators.ema_fast,
+                active_indicators.ema_medium,
+                active_indicators.ema_slow,
+                active_indicators.ema_long,
+            ),
+            rvol,
+            volume: Some(completed.volume),
+            average_volume: avg_vol,
+            fib: Some(&fib),
+            pattern: Some(&pattern_result),
+            support_levels: &sr_supports,
+            resistance_levels: &sr_resistances,
+            active_position,
+            adx_consecutive_deceleration,
+            supertrend_flipped: final_supertrend
+                .as_ref()
+                .map(|s| s.flipped)
+                .unwrap_or(false),
+            adx_di_crossover: final_adx.as_ref().and_then(|a| {
+                a.di_crossover.map(|c| match c {
+                    crate::indicators::DiCrossoverDir::Bullish => 1i8,
+                    crate::indicators::DiCrossoverDir::Bearish => -1i8,
+                })
+            }),
+            pivot_levels,
+            pivot_proximity_pct: 0.0015,
+            candlestick: Some(candlestick_reading),
+            // AUDIT-AIU-073: configured min-confidence gate.
+            candlestick_min_confidence: active_indicators
+                .candlestick_min_confidence,
+            ichimoku: ichimoku_reading,
+            cci: cci_reading,
+            psar: psar_reading,
+            williams_r: wr_reading,
+            awesome_oscillator: ao_reading,
+            force_index: fi_reading,
+            force_index_mean_abs: fi_mean_abs,
+            hull_ma: hma_reading,
+            stddev_channel: sdc_reading,
+            volume_profile: volume_profile_reading,
+            smc: smc_reading,
+            prev: prev_bar_state.clone(),
+            // AUDIT-AIU-071: rvol thresholds from config.
+            rvol_institutional_threshold: active_indicators
+                .rvol_threshold_institutional,
+            rvol_climax_threshold: active_indicators.rvol_threshold_climax,
+        },
+        *bar_count,
+        false,
+        active_set,
+    );
+
+    // Read derivative state for prev_bar_state snapshot.
+    let prev_fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
+
+    // ── Save current bar's indicator values for next bar's cross-over detection ──
+    *prev_bar_state = PreviousBarState {
+        rsi: final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
+        stoch_k: final_stoch
+            .as_ref()
+            .map(|s| s.k_value.to_f64().unwrap_or(0.0)),
+        stoch_d: final_stoch
+            .as_ref()
+            .map(|s| s.d_value.to_f64().unwrap_or(0.0)),
+        cmf: final_cmf.map(|d| d.to_f64().unwrap_or(0.0)),
+        chandemo: final_cmo.map(|d| d.to_f64().unwrap_or(0.0)),
+        aroon_up: final_aroon.as_ref().map(|a| a.up.to_f64().unwrap_or(0.0)),
+        aroon_down: final_aroon.as_ref().map(|a| a.down.to_f64().unwrap_or(0.0)),
+        macd_line: Some(final_macd.macd_line.to_f64().unwrap_or(0.0)),
+        macd_histogram: Some(final_macd.histogram.to_f64().unwrap_or(0.0)),
+        linreg_slope: final_linreg,
+        zscore: final_zscore,
+        obv: final_obv.as_ref().map(|o| o.obv.to_f64().unwrap_or(0.0)),
+        obv_sma: final_obv
+            .as_ref()
+            .map(|o| o.obv_sma.to_f64().unwrap_or(0.0)),
+        mfi: final_mfi.map(|d| d.to_f64().unwrap_or(0.0)),
+        adx_plus_di: final_adx
+            .as_ref()
+            .map(|a| a.plus_di.to_f64().unwrap_or(0.0)),
+        adx_minus_di: final_adx
+            .as_ref()
+            .map(|a| a.minus_di.to_f64().unwrap_or(0.0)),
+        price: Some(close_f),
+        ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
+        ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
+        // AUDIT-AIU-030: carried for the StackChange detector.
+        ema_slow: Some(final_ema_slow.to_f64().unwrap_or(0.0)),
+        ema_long: Some(final_ema_long.to_f64().unwrap_or(0.0)),
+        supertrend_line: final_supertrend
+            .as_ref()
+            .map(|s| s.line.to_f64().unwrap_or(0.0)),
+        // Populated in later phases (Pivots: P2, Ichimoku: P4).
+        pivot_active_level: pivot_levels.map(|lv| {
+            let p = lv.pivot.to_f64().unwrap_or(0.0);
+            let c = close_f;
+            if c >= p {
+                1.0
+            } else {
+                -1.0
+            }
+        }),
+        ichimoku_tenkan: ichimoku_reading.map(|r| r.tenkan.to_f64().unwrap_or(0.0)),
+        ichimoku_kijun: ichimoku_reading.map(|r| r.kijun.to_f64().unwrap_or(0.0)),
+        price_vs_cloud: ichimoku_reading.map(|r| {
+            let top = r
+                .senkou_a_current
+                .to_f64()
+                .unwrap_or(0.0)
+                .max(r.senkou_b_current.to_f64().unwrap_or(0.0));
+            let bot = r
+                .senkou_a_current
+                .to_f64()
+                .unwrap_or(0.0)
+                .min(r.senkou_b_current.to_f64().unwrap_or(0.0));
+            let px = close_f;
+            if px > top {
+                1.0
+            } else if px < bot {
+                -1.0
+            } else {
+                0.0
+            }
+        }),
+        ichimoku_future_bias: ichimoku_reading
+            .map(|r| (r.senkou_a - r.senkou_b).to_f64().unwrap_or(0.0).signum()),
+        hull_ma: hma_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        awesome_oscillator: ao_reading.map(|d| d.value.to_f64().unwrap_or(0.0)),
+        force_index: fi_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        williams_r: wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        cci: cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+        psar_sar: psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
+        funding_rate: prev_fund_f,
+        cascade_state: Some(*last_cascade_state),
+    };
+
+    // Stamp signal freshness (age in completed bars).
+    let mut indicators = indicators;
+    *live_bar = live_bar.wrapping_add(1);
+    stamp_signal_ages(&mut indicators, &mut *signal_age_tracker, *live_bar);
+
+    // Inject Derivatives Data indicators (OI & Funding Rate).
+    // Reads from the per-pair shared `oi_history` and
+    // `funding_history` Arc locks, which the bootstrap
+    // path pre-seeds from historical snapshots and live
+    // WS events keep mutating. `candle_close_sec` is the
+    // window anchor for the 3600 s OI delta.
+    let deriv = read_derivative_snapshot_state(
+        latest_oi,
+        latest_funding,
+        latest_mark_px,
+        latest_index_px,
+        oi_history,
+        funding_history,
+        candle_close_sec,
+    )
+    .await;
+    let DerivativeSnapshot {
+        oi: oi_f,
+        funding: fund_f,
+        mark_px: mark_f,
+        index_px: _idx_f,
+        spread_pct,
+        oi_delta: oi_delta_f,
+        prev_oi_delta: prev_oi_delta_f,
+    } = deriv;
+    // AUDIT-AIU-074: unify the funding "extreme" definition
+    // between the indicator and liquidity layers.
+    let funding_extreme_pct = liquidity_config
+        .as_ref()
+        .map(|c| c.funding_extreme_pct)
+        .unwrap_or(0.0005);
+    inject_derivatives_indicators(
+        &mut indicators,
+        oi_f,
+        fund_f,
+        oi_delta_f,
+        mark_f,
+        spread_pct,
+        prev_oi_delta_f,
+        funding_extreme_pct,
+    );
+
+    // Inject order book depth analysis indicators
+    inject_orderbook_indicators(
+        &mut indicators,
+        order_book_analysis,
+        spread_wide_threshold_pct,
+    );
+
+    // Compute quantitative decision-support context.
+    let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+
+    // Compute Statistical Intelligence Layer enrichment.
+    let rsi_val = indicators.get("rsi").map(|v| v.raw_value).unwrap_or(50.0);
+    let bbwp_val = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+    let sqz_mom = indicators
+        .get("squeeze")
+        .and_then(|v| v.values.as_ref())
+        .and_then(|vals| vals.get("momentum").copied())
+        .unwrap_or(0.0);
+    let sqz_on = indicators
+        .get("squeeze")
+        .map(|v| v.state_label.contains("ON"))
+        .unwrap_or(false);
+    let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
+    let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
+
+    let current_context =
+        crate::market_context_synth::synthesize_market_context(&indicators);
+
+    let current_state = derive_pipeline_state((*bar_count) as usize, buffer_size);
+    // PRI-05 (v6.10.7): the uniform live floor lives in
+    // `derive_pipeline_state` (max(buffer_size/10, 50) bars) — the same
+    // gate now applies to every timeframe, so the pipeline-state badge,
+    // the matrix payload gate, and the indicator lifecycle always agree.
+    let pipeline_is_live = current_state == CandlePipelineState::Live;
+
+    let this_snapshot_for_synth = MarketSnapshot {
+        timeframe_slot: Some(slot),
+        exchange: shadow_exchange,
+        timeframe_secs,
+        timestamp: candle_close_sec,
+        symbol: symbol.to_string(),
+        is_completed: Some(true),
+        mid_price: completed.close,
+        bid_price: shadow_bid,
+        ask_price: shadow_ask,
+        bid_size: Some(completed.volume),
+        ask_size: Some(completed.volume),
+        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
+        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
+        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
+        mark_price: latest_mark_px.read().await.clone(),
+        index_price: latest_index_px.read().await.clone(),
+        mark_index_spread_pct: spread_pct,
+        prev_day_px: shadow_prev_day_px,
+        open: Some(completed.open),
+        high: Some(completed.high),
+        low: Some(completed.low),
+        close: Some(completed.close),
+        volume: Some(completed.volume),
+        average_volume: avg_vol,
+        pipeline_state: current_state,
+        indicator_lifecycle: build_indicator_lifecycle_map(
+            &indicators.clone(),
+            &*indicator_lifecycle.read().await,
+            300,
+            *bar_count,
+            *real_bar_count,
+            false,
+            core_domain::LatencyTracker::now_ms(),
+            pipeline_is_live,
+        ),
+        context: Some(current_context.clone()),
+        decision_context: None,
+        statistical_context: None,
+        indicators: indicators.clone(),
+        alignment: None,
+        risk: None,
+        analysis: None,
+        advisory: None,
+        opportunity: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
+        risk_profile: None,
+        liquidity: None,
+        cluster: None,
+        volume_profile: None,
+        quality_envelope: Some(quality_envelope.clone()),
+    };
+
+    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(4);
+    cross_tf_snaps.push((timeframe_secs, this_snapshot_for_synth));
+    for arc in [
+        &cross_tf_snapshot_a,
+        &cross_tf_snapshot_b,
+        &cross_tf_snapshot_c,
+    ] {
+        if let Some(s) = arc.read().await.clone() {
+            if !cross_tf_snaps
+                .iter()
+                .any(|(_, existing)| existing.timeframe_secs == s.timeframe_secs)
+            {
+                cross_tf_snaps.push((s.timeframe_secs, s));
+            }
+        }
+    }
+
+    // D4 (cross-TF freshness): the other pipelines publish
+    // their `latest_snapshot` handles at THEIR OWN candle
+    // closes. When this TF's close lands on a boundary that
+    // a slower TF shares (e.g. a micro close at 02:48:00
+    // coincides with the fast 180s close), the slower
+    // pipeline may not have written its just-closed snapshot
+    // yet — the cross-TF synthesis then consumes the
+    // PREVIOUS close, so the alignment/analysis/risk layers
+    // lag the per-TF context the dashboards show (observed:
+    // ETH FAST alignment row scored -7 with 21 signals while
+    // the metrics tab showed +8 / 31 for the same candle).
+    // Retry with a short bounded wait until every handle that
+    // was due to close at this boundary has advanced.
+    // PRI-07 (v6.10.7): the spin budget adapts to the chosen timeframe —
+    // `min(duration / 4, 1000 ms)` in 50 ms steps. The old hardcoded
+    // 5×50 ms could consume a quarter of a 1 s candle at shared
+    // boundaries (e.g. every 3rd second on a 1 s/3 s/5 s/15 s ladder).
+    {
+        let d4_budget_ms: u64 = ((timeframe_secs * 1000) / 4).min(1000);
+        let mut spins = 0u32;
+        loop {
+            let stale_at_boundary = cross_tf_snaps.iter().any(|(secs, snap)| {
+                *secs != timeframe_secs
+                    && snap.timeframe_secs > 0
+                    && candle_close_sec % snap.timeframe_secs == 0
+                    && snap.timestamp < candle_close_sec
+            });
+            if !stale_at_boundary || spins * 50 >= d4_budget_ms as u32 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            spins += 1;
+            for arc in [
+                &cross_tf_snapshot_a,
+                &cross_tf_snapshot_b,
+                &cross_tf_snapshot_c,
+            ] {
+                if let Some(s) = arc.read().await.clone() {
+                    let idx = cross_tf_snaps.iter().position(|(_, existing)| {
+                        existing.timeframe_secs == s.timeframe_secs
+                    });
+                    match idx {
+                        Some(i) => cross_tf_snaps[i].1 = s,
+                        None => cross_tf_snaps.push((s.timeframe_secs, s)),
+                    }
+                }
+            }
+        }
+    }
+
+    let cross_refs: Vec<(u64, &MarketSnapshot)> =
+        cross_tf_snaps.iter().map(|(secs, s)| (*secs, s)).collect();
+
+    let cluster_guard = cluster_matrix.read().await.clone();
+    // Block B: feed the latest mid into the accumulator
+    // before flushing so the buckets are anchored to the
+    // most recent mark. `latest_mark_px` is the upstream
+    // shared state updated by `MarkPrice` events.
+    let mid_for_buckets = latest_mark_px.read().await.and_then(|m| m.to_f64());
+    if let Some(m) = mid_for_buckets {
+        liquidity_acc.set_mid(m);
+    }
+    let flush_now_ms = core_domain::LatencyTracker::now_ms();
+    let liquidity_flow = liquidity_acc.flush_to_flow(flush_now_ms);
+    *last_cascade_state = liquidity_flow.cascade_state;
+    // Thread configured signal thresholds from
+    // `[workspace.liquidity]` instead of using the
+    // hardcoded defaults inside `SignalInput::default()`.
+    let funding_extreme_pct = liquidity_config
+        .as_ref()
+        .map(|c| c.funding_extreme_pct)
+        .unwrap_or(0.0005);
+    let magnet_activation_distance_pct = liquidity_config
+        .as_ref()
+        .map(|c| c.magnet_activation_distance_pct)
+        .unwrap_or(0.5);
+    let oi_funding_divergence_pct = liquidity_config
+        .as_ref()
+        .map(|c| c.oi_funding_divergence_pct)
+        .unwrap_or(2.0);
+    // Vacuum depth band: low/high are the configured
+    // threshold and its reciprocal. Legacy hardcoded
+    // `0.5 / 2.0` is the `threshold = 0.5` case.
+    let (vacuum_low, vacuum_high) = liquidity_config
+        .as_ref()
+        .map(|c| {
+            let t = c.liquidity_vacuum_threshold.max(0.01);
+            (t, 1.0 / t)
+        })
+        .unwrap_or((0.5, 2.0));
+    let liquidity_signals = core_domain::liquidity::derive_liquidity_signals(
+        &core_domain::liquidity::SignalInput {
+            flow: Some(&liquidity_flow),
+            cluster: cluster_guard.as_ref(),
+            funding_rate: fund_f.unwrap_or(0.0),
+            oi_delta_1h_pct: oi_delta_f
+                .map(|d| {
+                    if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 {
+                        d / oi_f.unwrap_or(1.0).max(1.0) * 100.0
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0),
+            price_bias: indicators
+                .get("ema_stack")
+                .map(|v| v.normalized)
+                .unwrap_or(0.0),
+            prev_funding_rate: prev_bar_state.funding_rate,
+            prev_cascade_state: prev_bar_state.cascade_state,
+            funding_extreme_pct,
+            magnet_activation_distance_pct,
+            oi_funding_divergence_pct,
+            liquidity_vacuum_depth_low: vacuum_low,
+            liquidity_vacuum_depth_high: vacuum_high,
+            book_depth_ratio: indicators
+                .get("depth_ratio")
+                .map(|v| v.raw_value)
+                .filter(|v| v.is_finite() && *v > 0.0),
+            // AUDIT-AIU-055/057: thread the configured
+            // cluster-notional floor and per-signal
+            // confidences.
+            min_cluster_notional_usd: liquidity_config
+                .as_ref()
+                .map(|c| c.min_cluster_notional_usd)
+                .unwrap_or(100_000.0),
+            signal_confidences: liquidity_config
+                .as_ref()
+                .map(|c| {
+                    let sc = &c.signal_confidences;
+                    core_domain::liquidity::SignalConfidences {
+                        cascade_detected: sc.cascade_detected,
+                        cascade_sustained: sc.cascade_sustained,
+                        cascade_exhausted: sc.cascade_exhausted,
+                        funding_extreme: sc.funding_extreme,
+                        oi_funding_divergence: sc.oi_funding_divergence,
+                        liquidity_vacuum: sc.liquidity_vacuum,
+                        funding_flip: sc.funding_flip,
+                        oi_price_divergence: sc.oi_price_divergence,
+                    }
+                })
+                .unwrap_or_default(),
+        },
+    );
+
+    let synthesis = crate::synthesis::synthesize_cross_tf(
+        &symbol,
+        &cross_refs,
+        Some(&liquidity_flow),
+        cluster_guard.as_ref(),
+        &liquidity_signals,
+        *prev_mtf_score,
+        *prev_regime,
+        *prev_volume_dim,
+    );
+
+    *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
+    *prev_regime = Some(synthesis.analysis.market_regime);
+    *prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
+
+    let confluence_score = {
+        // v6.10 (Phase 6 / F1): Unsigned 3-factor quality
+        // blend in [0, 100]. All three inputs are categorical
+        // quality scores in [0, 100]. The signed direction
+        // (`sign × magnitude × 100`) was a v6.9 deviation that
+        // turned confluence into a signed [-100, +100] range,
+        // contradicting the spec at
+        // `02-04-decision-matrix.md §2.3` which mandates
+        // unsigned [0, 100]. The direction now lives
+        // separately in `Decision.bias` (Phase 6 / F2 mirrors
+        // `Analysis.bias` via ±40 thresholds).
+        let tradability_dim = synthesis
+            .alignment
+            .dimensions
+            .get(9)
+            .map(|d| d.score)
+            .unwrap_or(0.0);
+        let market_quality_score = synthesis.analysis.market_quality_score;
+        let opp_score = synthesis
+            .opportunity
+            .as_ref()
+            .map(|o| o.opportunity_score)
+            .unwrap_or(0.0);
+        (0.50 * tradability_dim
+            + 0.30 * market_quality_score
+            + 0.20 * opp_score)
+            .clamp(0.0, 100.0)
+    };
+
+    let l4_opportunity = synthesis.opportunity.clone();
+
+    let dec_ctx = core_domain::decision_context::DecisionContext::compute(
+        &indicators,
+        close_f,
+        atr_val,
+        confluence_score,
+        &synthesis.analysis,
+        l4_opportunity.as_ref(),
+        &synthesis.risk,
+    );
+    let sil_ctx = sil_engine.advance_ext(
+        close_f,
+        atr_val,
+        rsi_val,
+        bbwp_val,
+        sqz_mom,
+        volume_f,
+        rvol_f,
+        adx_val,
+        *prev_sil_close,
+        sqz_on,
+        indicators.get("macd").map(|v| v.raw_value).unwrap_or(0.0),
+        indicators.get("obv").map(|v| v.raw_value).unwrap_or(0.0),
+        indicators
+            .get("stochastic")
+            .and_then(|v| v.values.as_ref())
+            .and_then(|vals| vals.get("k_line").copied())
+            .unwrap_or(50.0),
+        indicators
+            .get("choppiness")
+            .map(|v| v.raw_value)
+            .unwrap_or(50.0),
+        indicators
+            .get("ema_stack")
+            .and_then(|v| v.values.as_ref())
+            .and_then(|vals| vals.get("medium").copied())
+            .unwrap_or(close_f),
+    );
+    *prev_sil_close = close_f;
+
+    // PRI-07 (v6.10.7): SIL Monte Carlo cadence is wall-time consistent —
+    // roughly every 10 minutes of candle time on every timeframe (10 candles
+    // at 60 s, 600 at 1 s, 1 at 900 s). The old hardcoded `% 10` ran it
+    // every 10 s on a 1 s TF but only every 2.5 h on a 900 s TF.
+    *mc_counter += 1;
+    let mc_interval_candles: u64 = (600 / timeframe_secs.max(1)).max(1);
+    if *mc_counter % mc_interval_candles == 0 {
+        sil_engine.run_monte_carlo(close_f, atr_val);
+    }
+
+    let completed_snapshot = MarketSnapshot {
+        timeframe_slot: Some(slot),
+        exchange: shadow_exchange,
+        timeframe_secs,
+        timestamp: candle_close_sec,
+        symbol: symbol.to_string(),
+        is_completed: Some(true),
+        mid_price: completed.close,
+        bid_price: shadow_bid,
+        ask_price: shadow_ask,
+        bid_size: Some(completed.volume),
+        ask_size: Some(completed.volume),
+        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
+        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
+        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
+        mark_price: latest_mark_px.read().await.clone(),
+        index_price: latest_index_px.read().await.clone(),
+        mark_index_spread_pct: spread_pct,
+        prev_day_px: shadow_prev_day_px,
+        open: Some(completed.open),
+        high: Some(completed.high),
+        low: Some(completed.low),
+        close: Some(completed.close),
+        volume: Some(completed.volume),
+        average_volume: avg_vol,
+        pipeline_state: current_state,
+        indicator_lifecycle: build_indicator_lifecycle_map(
+            &indicators,
+            &*indicator_lifecycle.read().await,
+            300,
+            *bar_count,
+            *real_bar_count,
+            false,
+            core_domain::LatencyTracker::now_ms(),
+            pipeline_is_live,
+        ),
+        context: Some(current_context),
+        decision_context: Some(dec_ctx),
+        statistical_context: Some(sil_ctx),
+        indicators,
+        alignment: Some(synthesis.alignment),
+        risk: Some(synthesis.risk),
+        analysis: Some(synthesis.analysis),
+        advisory: Some(synthesis.advisory.clone()),
+        opportunity: synthesis.opportunity,
+        risk_profile: None,
+        liquidity: Some(liquidity_flow),
+        cluster: cluster_matrix.read().await.clone(),
+        volume_profile: volume_profile_snapshot,
+        liquidity_signals,
+        metrics_config: active_set.to_metrics_config(),
+        quality_envelope: Some(quality_envelope.clone()),
+    };
+
+    let _ = telemetry_tx
+        .send(database_storage::TelemetryMsg::InsertSnapshot(
+            completed_snapshot.clone(),
+        ))
+        .await;
+
+    latency_tracker.record_observation_latency(
+        core_domain::LatencyTracker::now_ms()
+            .saturating_sub(completed.start_time_ms),
+    );
+
+    // Always broadcast completed candle snapshots so the
+    // chart time-series stays continuous from the first bar.
+    // The matrix payload (alignment/analysis/risk/advisory/
+    // opportunity/decision_context) is still gated on
+    // pipeline_is_live but the OHLCV candle, liquidity,
+    // cluster, volume_profile, and indicators land on every
+    // frame so sub-minute TFs (1s/3s/5s/15s) populate the
+    // chart immediately rather than stalling for 50 bars
+    // (~50 s at 1 s TF).
+    let mut broadcast_snapshot = completed_snapshot.clone();
+    if !pipeline_is_live {
+        broadcast_snapshot.alignment = None;
+        broadcast_snapshot.analysis = None;
+        broadcast_snapshot.risk = None;
+        broadcast_snapshot.advisory = None;
+        broadcast_snapshot.opportunity = None;
+        broadcast_snapshot.decision_context = None;
+        broadcast_snapshot.statistical_context = None;
+        broadcast_snapshot.context = None;
+    }
+    let _ = broadcast_tx.send(broadcast_snapshot);
+
+    // Publish the completed snapshot as the latest for this TF.
+    {
+        let mut snap = latest_snapshot.write().await;
+        *snap = Some(completed_snapshot.clone());
+    }
+
+    // v6.10 (Phase 2 / B3): write-through the cross-TF
+    // advisory onto the pipeline struct. Mirrors the
+    // pipeline_state / indicator_lifecycle write-through
+    // (those are written via `build_indicator_lifecycle_map`
+    // above). Consumers reading `pipeline.advisory` directly
+    // see the most recent cross-TF synthesis result.
+    *advisory.write().await = Some(synthesis.advisory.clone());
+
+    // v6.10 (Phase 3 / C3): write-through the per-TF
+    // pipeline_state and indicator_lifecycle onto the
+    // pipeline struct so consumers that read those fields
+    // directly see the authoritative state. Before this,
+    // both fields were declared on `TimeframePipeline` but
+    // never written to (so they remained `Initializing`
+    // and empty respectively).
+    *pipeline_state_handle.write().await = current_state;
+    *indicator_lifecycle.write().await = completed_snapshot.indicator_lifecycle.clone();
+
+    completed_snapshot
 }
 
 /// Snapshot of the latest WS / poller state for derivatives + order book
@@ -3976,6 +4265,7 @@ pub(super) fn build_completed_snapshot_from_readings(
     slot: TimeframeSlot,
     timeframe_secs: u64,
     bar_count: u32,
+    real_bar_count: u32,
     shadow_exchange: Option<Exchange>,
     shadow_bid: Decimal,
     shadow_ask: Decimal,
@@ -4179,6 +4469,7 @@ pub(super) fn build_completed_snapshot_from_readings(
         &IndicatorLifecycleMap::new(),
         300,
         bar_count,
+        real_bar_count,
         false,
         core_domain::LatencyTracker::now_ms(),
         bar_count > 0,
@@ -4281,6 +4572,8 @@ fn broadcast_live_snapshot(
     // Number of completed candles for this TF.  Passed through to
     // `build_indicator_map` so the shadow path uses the real count.
     bar_count: u32,
+    // PRI-12: real (non-synthetic) completed candles.
+    real_bar_count: u32,
     // Configured EMA periods `(fast, medium, slow, long)` — per-line
     // ribbon availability gate (AUDIT-V8-001).
     ema_periods: (usize, usize, usize, usize),
@@ -4441,7 +4734,7 @@ fn broadcast_live_snapshot(
         },
         bar_count as u32,
         true,
-        &active_set,
+        active_set,
     );
 
     let snapshot = MarketSnapshot {
@@ -4475,6 +4768,7 @@ fn broadcast_live_snapshot(
             &IndicatorLifecycleMap::new(),
             300,
             bar_count,
+            real_bar_count,
             true,
             core_domain::LatencyTracker::now_ms(),
             // AUDIT-AIU-013: the previous hardcoded `false` made every
@@ -4592,7 +4886,7 @@ mod lifecycle_tests {
     fn lifecycle_is_loading_when_bar_count_below_bars_required() {
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), real_reading());
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 5, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 5, 5, false, 1000, true);
         let rsi = map.get("rsi").expect("rsi present");
         assert_eq!(rsi.state, IndicatorLifecycleState::Loading);
         assert_eq!(rsi.bars_seen, 5);
@@ -4606,7 +4900,7 @@ mod lifecycle_tests {
         // the frontend renders `Live` + `UNKNOWN` in the indicators table.
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), warming_placeholder());
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, 300, false, 1000, true);
         let rsi = map.get("rsi").expect("rsi present");
         assert_eq!(
             rsi.state,
@@ -4620,12 +4914,12 @@ mod lifecycle_tests {
         // First the warm-up phase: bars_seen=300, only the WARMING placeholder.
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), warming_placeholder());
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, 300, false, 1000, true);
         assert_eq!(map["rsi"].state, IndicatorLifecycleState::Loading);
 
         // Then a real reading arrives: lifecycle flips to Live.
         m.insert("rsi".to_string(), real_reading());
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, 300, false, 1000, true);
         assert_eq!(map["rsi"].state, IndicatorLifecycleState::Live);
     }
 
@@ -4639,7 +4933,7 @@ mod lifecycle_tests {
         let mut m = HashMap::new();
         m.insert("volume_profile".to_string(), warming_placeholder());
         for bar_count in [50u32, 75, 100, 150, 200, 249] {
-            let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, bar_count, false, 1000, true);
+            let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, bar_count, bar_count, false, 1000, true);
             let vp = map.get("volume_profile").expect("volume_profile present");
             assert_eq!(
                 vp.state,
@@ -4663,7 +4957,7 @@ mod lifecycle_tests {
             NormalizedIndicatorValue::scalar(0.0, 0.0, "RSI_NEUTRAL").with_confidence(0.0);
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), m_entry);
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, 300, false, 1000, true);
         assert_eq!(
             map["rsi"].state,
             IndicatorLifecycleState::Live,
@@ -4682,7 +4976,7 @@ mod lifecycle_tests {
             .with_confidence(0.50);
         let mut m = HashMap::new();
         m.insert("bbwp".to_string(), bbwp);
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, 300, false, 1000, true);
         assert_eq!(
             map["bbwp"].state,
             IndicatorLifecycleState::Live,
@@ -4710,7 +5004,7 @@ mod lifecycle_tests {
             NormalizedIndicatorValue::with_values(0.0, 0.0, "FIBONACCI_NEUTRAL", levels);
         let mut m = HashMap::new();
         m.insert("fibonacci".to_string(), fib_entry);
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 100, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 100, 100, false, 1000, true);
         let fib = map.get("fibonacci").expect("fibonacci present");
         assert_eq!(
             fib.state,
@@ -4733,7 +5027,7 @@ mod lifecycle_tests {
         // event, the entry must remain absent from the indicator map and
         // the lifecycle must stay `Loading`.
         let mut m = HashMap::new();
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, 50, false, 1000, true);
         for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
             let lc = map
                 .get(key)
@@ -4753,7 +5047,7 @@ mod lifecycle_tests {
             "smc_structure".to_string(),
             NormalizedIndicatorValue::scalar(0.7, 0.7, "BOS_BULLISH"),
         );
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, false, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, 50, false, 1000, true);
         let smc = map.get("smc_structure").expect("smc_structure present");
         assert_eq!(
             smc.state,
@@ -4785,7 +5079,7 @@ mod lifecycle_tests {
         // No entry in the shadow-tick indicators map; bar_count=50 (well
         // above 14). Lifecycle must be Live.
         let m = HashMap::new();
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, true, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, 50, true, 1000, true);
         for key in ["hull_ma", "ichimoku", "anchored_vwap", "psar"] {
             let lc = map
                 .get(key)
@@ -4803,7 +5097,7 @@ mod lifecycle_tests {
         // not flip to Live. This is the regression guard: a careless
         // implementation could "always mark absent entries Live" and
         // break the WARMING contract on the completed path.
-        let map_completed = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, false, 1000, true);
+        let map_completed = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 50, 50, false, 1000, true);
         for key in ["hull_ma", "ichimoku", "anchored_vwap", "psar"] {
             let lc = map_completed
                 .get(key)
@@ -4826,7 +5120,7 @@ mod lifecycle_tests {
         // entry is absent and updates_on_shadow=false, the gate has not
         // fired yet — lifecycle stays Loading.
         let m = HashMap::new();
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 5, true, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 5, 5, true, 1000, true);
         let hma = map.get("hull_ma").expect("hull_ma present");
         assert_eq!(
             hma.state,
@@ -4854,7 +5148,7 @@ mod lifecycle_tests {
     fn lifecycle_for_shadow_enabled_indicator_unaffected_by_close_only_branch() {
         let mut m = HashMap::new();
         m.insert("rsi".to_string(), real_reading());
-        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, true, 1000, true);
+        let map = build_indicator_lifecycle_map(&m, &IndicatorLifecycleMap::new(), 300, 300, 300, true, 1000, true);
         let rsi = map.get("rsi").expect("rsi present");
         assert_eq!(
             rsi.state,

@@ -453,7 +453,9 @@
                                     <span class={styles.colRaw}>
                                         {#if m.key === 'ema_stack'}
                                             <span class={styles.emaRibbon}
-                                                  title="EMA Ribbon: 4-line overlay (F=fast, M=medium, S=slow, L=long). Values mirror the chart overlay and the export body's body.ema block.">
+                                                  title={emaRibbonCell.ready
+                                                      ? 'EMA Ribbon: 4-line overlay (F=fast, M=medium, S=slow, L=long). Values mirror the chart overlay and the export body\'s body.ema block.'
+                                                      : 'EMA Ribbon: warming up — lines render only once their closed-candle gate is reached (F@10, M@50, S@100, L@200). No line is drawn on the chart until then.'}>
                                                 {#each emaRibbonCell.rows as row (row.role)}
                                                     <span class={styles.emaRibbonRow}>
                                                         <span class={styles.emaRibbonLabel}>{row.label}</span>
@@ -461,6 +463,9 @@
                                                         <span class={styles.emaRibbonDist}>{row.distanceText}</span>
                                                     </span>
                                                 {/each}
+                                                {#if !emaRibbonCell.ready}
+                                                    <span class={styles.emaRibbonWarming}>warming</span>
+                                                {/if}
                                                 <span class={styles.emaRibbonSpread}>
                                                     spread ↔ {emaRibbonCell.spreadText}
                                                 </span>

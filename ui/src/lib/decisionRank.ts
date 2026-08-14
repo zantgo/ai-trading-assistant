@@ -501,20 +501,65 @@ export function entryDangerLevel(d: number): 'EXTREME' | 'HIGH' | 'MODERATE' | '
 }
 
 /**
+ * The top qualifying profile (preconditions_met > 0, not the
+ * NoClearOpportunity fallback), ordered by score descending. This is the
+ * canonical "top setup" used by the panel cards, the directional bars,
+ * the L4 header, and the R:R displays — one shared definition so every
+ * surface resolves the same profile.
+ *
+ * Ties (the scoring blend currently emits identical scores for every
+ * profile) are broken by precondition ratio (02-08 §6: "in a tie, the
+ * profile with the higher preconditions_met / preconditions_total ratio
+ * wins"), then by primary-opportunity priority so the top card can
+ * never contradict the environment's opportunity classification.
+ */
+export function topQualifyingProfile(
+    opportunity: OpportunityMatrix | null | undefined,
+): OpportunityProfile | null {
+    if (!opportunity) return null;
+    const profiles = opportunity.profiles ?? [];
+    const qualifying = profiles
+        .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
+        .slice();
+    if (qualifying.length === 0) return null;
+    const primary = opportunity.primary_opportunity;
+    qualifying.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        const ar = a.preconditions_total > 0 ? a.preconditions_met / a.preconditions_total : 0;
+        const br = b.preconditions_total > 0 ? b.preconditions_met / b.preconditions_total : 0;
+        if (br !== ar) return br - ar;
+        if (a.opportunity_type === primary && b.opportunity_type !== primary) return -1;
+        if (b.opportunity_type === primary && a.opportunity_type !== primary) return 1;
+        return 0;
+    });
+    return qualifying[0];
+}
+
+/**
  * Resolve a profile's actual trade direction from `DirectionFamily` ×
  * `Analysis.bias`. Returns `'NEUTRAL'` for Neutral families or when
  * the macro bias is itself Neutral.
  *
  * `TrendRiding` profiles follow the macro bias; `CounterTrend` profiles
- * reverse it. This is the wire-side source of truth — the heuristic
- * substring match that previously lived in the RecommendationPanel is
- * removed in favour of this helper.
+ * reverse it. **Zone-presence wins first (4b):** the backend populates
+ * exactly one side's zones per profile, so the populated side IS the
+ * wire-side resolution (deviation-driven for CounterTrend — Z-Score for
+ * MeanReversion, divergence direction for Reversal). The family × bias
+ * table below is the fallback for profiles that carry no zones (legacy
+ * payloads, neutral bias).
+ *
+ * This is the wire-side source of truth — the heuristic substring match
+ * that previously lived in the RecommendationPanel is removed in favour
+ * of this helper.
  */
 export function selectProfileSide(
     profile: OpportunityProfile | null | undefined,
     macroBias: MarketBias | null | undefined,
 ): 'LONG' | 'SHORT' | 'NEUTRAL' {
     if (!profile || !macroBias) return 'NEUTRAL';
+    const longZones = profile.long_entry_zone != null && profile.long_entry_zone.low > 0;
+    const shortZones = profile.short_entry_zone != null && profile.short_entry_zone.low > 0;
+    if (longZones !== shortZones) return longZones ? 'LONG' : 'SHORT';
     const family = profile.direction_family ?? null;
     const isBullish = macroBias === 'Bullish' || macroBias === 'StrongBullish';
     const isBearish = macroBias === 'Bearish' || macroBias === 'StrongBearish';
@@ -670,16 +715,17 @@ export function topSetupSummary(
     decisionContext?: DecisionContext | null,
 ): TopSetupSummary | null {
     if (!opportunity) return null;
-    const profiles = opportunity.profiles ?? [];
-    const qualifying = profiles
-        .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
-        .slice()
-        .sort((a, b) => b.score - a.score);
-    const top = qualifying[0];
+    const top = topQualifyingProfile(opportunity);
     if (!top) {
         return null;
     }
-    const macroBias = analysis?.bias ?? null;
+    // R4: the macro bias prefers the DecisionContext mirror (the
+    // same-candle field the verdict/probabilities come from). The
+    // analysis matrix and the decision context are written atomically
+    // per frame, but partial frames / warmup can leave `analysis.bias`
+    // one candle behind — which made the card direction contradict the
+    // gauge (observed: NEUTRAL card under a +44% LONG gauge).
+    const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
     const side = selectProfileSide(top, macroBias);
     // Try per-profile zones first; fall back to aggregated.
     let zones = side === 'NEUTRAL' ? null : profileZones(top, side);
@@ -751,7 +797,9 @@ export function profileSummary(
     if (!profile) {
         return { side: 'NEUTRAL', zones: null, rr: null, viability: 'NoClear' };
     }
-    const macroBias = analysis?.bias ?? null;
+    // R4: the macro bias prefers the DecisionContext mirror — see
+    // `topSetupSummary` for the rationale.
+    const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
     const side = selectProfileSide(profile, macroBias);
     let zones = side === 'NEUTRAL' ? null : profileZones(profile, side);
     if (!zones) {
@@ -818,8 +866,13 @@ function buildRationale(r: RationaleInputs): string[] {
             );
         }
     } else if (r.readiness === 'FORMING' && r.expectedRr < 1.0) {
+        // R3: when the verdict is HOLD and the risk-discounted R:R is 0,
+        // the chips render N/A — the bullet must not quote a "0.00"
+        // that contradicts them.
         out.push(
-            `Trade readiness = FORMING — risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) capped the directional score`,
+            r.top === 'HOLD' && r.expectedRr === 0
+                ? 'Trade readiness = FORMING — risk-discounted R:R N/A; the directional score was capped by the missing R:R'
+                : `Trade readiness = FORMING — risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) capped the directional score`,
         );
     } else if (r.readiness === 'FORMING') {
         out.push(
@@ -835,7 +888,11 @@ function buildRationale(r: RationaleInputs): string[] {
 
     // 4. R:R
     if (r.expectedRr < 1.0) {
-        out.push(`Risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) — ${r.top} score capped at 60% of pre-normalized total`);
+        out.push(
+            r.top === 'HOLD' && r.expectedRr === 0
+                ? 'Risk-discounted R:R N/A — no actionable directional R:R'
+                : `Risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) — ${r.top} score capped at 60% of pre-normalized total`,
+        );
     } else {
         out.push(`Risk-discounted R:R ${r.expectedRr.toFixed(2)}`);
     }

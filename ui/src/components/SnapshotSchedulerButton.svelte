@@ -77,7 +77,6 @@
     aria-label="Configure snapshot export schedule"
     type="button"
 >
-    <span class={styles.icon} aria-hidden="true">📸</span>
     <span class={styles.body}>
         <span class={styles.title}>SCHEDULE SNAPSHOTS</span>
         <span class={styles.pill}>
@@ -90,7 +89,7 @@
 {#if modalOpen}
     <div class={brutalistStyles.confirmOverlay} role="presentation" onclick={closeModal}>
         <div
-            class={brutalistStyles.confirmDialog}
+            class="{brutalistStyles.confirmDialog} {styles.dialogShell}"
             role="dialog"
             aria-modal="true"
             tabindex="-1"

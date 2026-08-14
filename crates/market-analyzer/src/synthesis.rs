@@ -813,6 +813,66 @@ fn derive_side_zones(
     )
 }
 
+/// Z-Score magnitude at which a MeanReversion opportunity is considered
+/// "extended" enough to resolve its trade side from the deviation
+/// (`|z| ≥ threshold`). Below that, the data is ambiguous and the
+/// caller falls back to the family × bias mapping.
+const ZSCORE_MEAN_REVERSION_SIDE_THRESHOLD: f64 = 0.5;
+
+/// Resolve the directional side of a CounterTrend opportunity
+/// (MeanReversion / Reversal) from market data instead of the bare
+/// family × bias mapping (4b):
+///
+/// - **MeanReversion** follows the Z-Score sign — price stretched ABOVE
+///   its rolling mean (`z ≥ +threshold`) → `Some(false)` (SHORT,
+///   "sell the rip"); stretched BELOW (`z ≤ −threshold`) → `Some(true)`
+///   (LONG, "buy the dip").
+/// - **Reversal** follows the confirmed divergence direction —
+///   `CONFIRMED_BULLISH_DIVERGENCE` → `Some(true)` (LONG),
+///   `CONFIRMED_BEARISH_DIVERGENCE` → `Some(false)` (SHORT).
+///
+/// Returns `None` when the data is ambiguous or absent; the caller
+/// falls back to the family × bias mapping (LONG under bearish bias,
+/// SHORT under bullish bias).
+fn resolve_countertrend_side(
+    primary: core_domain::analysis::OpportunityType,
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+) -> Option<bool> {
+    match primary {
+        core_domain::analysis::OpportunityType::MeanReversion => {
+            let z = indicators
+                .get("zscore")
+                .map(|v| v.raw_value)
+                .unwrap_or(0.0);
+            if z >= ZSCORE_MEAN_REVERSION_SIDE_THRESHOLD {
+                Some(false)
+            } else if z <= -ZSCORE_MEAN_REVERSION_SIDE_THRESHOLD {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        core_domain::analysis::OpportunityType::Reversal => {
+            let bullish_div = indicators.values().any(|v| {
+                v.signals
+                    .iter()
+                    .any(|s| s.label.contains("BULLISH_DIVERGENCE"))
+            });
+            let bearish_div = indicators.values().any(|v| {
+                v.signals
+                    .iter()
+                    .any(|s| s.label.contains("BEARISH_DIVERGENCE"))
+            });
+            match (bullish_div, bearish_div) {
+                (true, false) => Some(true),
+                (false, true) => Some(false),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn compute_opportunity(
     analysis: &AnalysisMatrix,
     alignment: &AlignmentMatrix,
@@ -930,11 +990,24 @@ fn compute_opportunity(
         OpportunityType::Reversal
     } else if trend_dim >= 60.0 && momentum_weakening {
         OpportunityType::Pullback
-    } else if vol_dim <= 30.0 {
+    } else if vol_dim <= 30.0 && is_range {
+        // B2: the primary must meet its own profile preconditions. The
+        // legacy chain selected MeanReversion on `vol_dim <= 30` alone,
+        // headlining "Mean Reversion" with 0/2 preconditions whenever the
+        // regime was NOT range (e.g. an expansion collapse). The profile
+        // precondition count (below) has always required `is_range`; the
+        // tree now enforces the same gate.
         OpportunityType::MeanReversion
     } else {
         OpportunityType::NoClearOpportunity
     };
+
+    // 4b: CounterTrend direction — deviation-driven side resolution.
+    // `Some(true)` → the profile populates LONG zones, `Some(false)` →
+    // SHORT zones, `None` → fall back to family × bias. See
+    // `resolve_countertrend_side`.
+    let countertrend_resolved_long: Option<bool> =
+        resolve_countertrend_side(primary_opportunity, indicators);
 
     let candidates: [OpportunityType; 8] = [
         OpportunityType::LiquiditySqueeze,
@@ -1105,37 +1178,6 @@ fn compute_opportunity(
     let long_geometry_consistent = rr_is_ok(&long_rr_status);
     let short_geometry_consistent = rr_is_ok(&short_rr_status);
 
-    // Legacy scalar fields mirror the active side so PME/TAE consumers that
-    // read `entry_zone` / `target_zone` / `invalidation_level` see unchanged
-    // numbers. The Opportunities tab reads the per-direction siblings
-    // (`long_*_zone` / `short_*_zone`) instead.
-    let (
-        entry_zone,
-        target_zone,
-        invalidation_level,
-        confluent_entry,
-        confluent_target,
-        confluent_inval,
-    ) = if bias_bullish {
-        (
-            long_entry_zone.clone(),
-            long_target_zone.clone(),
-            long_invalidation_level,
-            long_conf_entry,
-            long_conf_target,
-            long_conf_inval,
-        )
-    } else {
-        (
-            short_entry_zone.clone(),
-            short_target_zone.clone(),
-            short_invalidation_level,
-            short_conf_entry,
-            short_conf_target,
-            short_conf_inval,
-        )
-    };
-
     // `direction_family`: maps the active bias to a structured tag so
     // the frontend `selectProfileSide` can produce directional
     // arrows on profile cards. The per-profile `direction_family`
@@ -1160,8 +1202,10 @@ fn compute_opportunity(
     // profile populates:
     //   - TrendRiding  + bullish bias → LONG zones
     //   - TrendRiding  + bearish bias → SHORT zones
-    //   - CounterTrend + bullish bias → SHORT zones (counter to bias)
-    //   - CounterTrend + bearish bias → LONG zones
+    //   - CounterTrend               → deviation-driven side (4b):
+    //     MeanReversion follows the Z-Score sign, Reversal follows the
+    //     divergence direction; falls back to family × bias
+    //     (CounterTrend + bullish → SHORT, + bearish → LONG).
     //   - Neutral      + any bias     → no zones (DirectionalNeutral)
     //   - any family   + neutral bias → no zones (DirectionalNeutral)
     // The audit's bug-fix #1 was: the per-profile
@@ -1198,26 +1242,37 @@ fn compute_opportunity(
                     Some(short_invalidation_level),
                     short_expected_rr_internal.unwrap_or(0.0),
                 ),
-                (analysis::DirectionFamily::CounterTrend, true, _) => (
-                    None,
-                    None,
-                    None,
-                    0.0,
-                    Some(short_entry_zone.clone()),
-                    Some(short_target_zone.clone()),
-                    Some(short_invalidation_level),
-                    short_expected_rr_internal.unwrap_or(0.0),
-                ),
-                (analysis::DirectionFamily::CounterTrend, false, true) => (
-                    Some(long_entry_zone.clone()),
-                    Some(long_target_zone.clone()),
-                    Some(long_invalidation_level),
-                    long_expected_rr_internal.unwrap_or(0.0),
-                    None,
-                    None,
-                    None,
-                    0.0,
-                ),
+                (analysis::DirectionFamily::CounterTrend, true, _)
+                | (analysis::DirectionFamily::CounterTrend, false, true) => {
+                    // 4b: CounterTrend profiles surface the side the
+                    // market data supports (z-score for MeanReversion,
+                    // divergence direction for Reversal); family × bias
+                    // is the fallback when the data is ambiguous.
+                    let ct_long = countertrend_resolved_long.unwrap_or(!bias_bullish);
+                    if ct_long {
+                        (
+                            Some(long_entry_zone.clone()),
+                            Some(long_target_zone.clone()),
+                            Some(long_invalidation_level),
+                            long_expected_rr_internal.unwrap_or(0.0),
+                            None,
+                            None,
+                            None,
+                            0.0,
+                        )
+                    } else {
+                        (
+                            None,
+                            None,
+                            None,
+                            0.0,
+                            Some(short_entry_zone.clone()),
+                            Some(short_target_zone.clone()),
+                            Some(short_invalidation_level),
+                            short_expected_rr_internal.unwrap_or(0.0),
+                        )
+                    }
+                }
                 (analysis::DirectionFamily::Neutral, _, _)
                 | (analysis::DirectionFamily::TrendRiding, _, _)
                 | (analysis::DirectionFamily::CounterTrend, _, _) => (
@@ -1233,17 +1288,32 @@ fn compute_opportunity(
                 (analysis::DirectionFamily::Neutral, _, _) => {
                     Some(core_domain::opportunity::TradeViability::DirectionalNeutral)
                 }
-                (analysis::DirectionFamily::TrendRiding, true, _)
-                | (analysis::DirectionFamily::CounterTrend, false, true) => {
+                (analysis::DirectionFamily::TrendRiding, true, _) => {
                     if rr_is_ok(&long_rr_status) {
                         Some(core_domain::opportunity::TradeViability::Actionable)
                     } else {
                         Some(core_domain::opportunity::TradeViability::GeometryInverted)
                     }
                 }
-                (analysis::DirectionFamily::TrendRiding, false, true)
-                | (analysis::DirectionFamily::CounterTrend, true, _) => {
+                (analysis::DirectionFamily::TrendRiding, false, true) => {
                     if rr_is_ok(&short_rr_status) {
+                        Some(core_domain::opportunity::TradeViability::Actionable)
+                    } else {
+                        Some(core_domain::opportunity::TradeViability::GeometryInverted)
+                    }
+                }
+                (analysis::DirectionFamily::CounterTrend, true, _)
+                | (analysis::DirectionFamily::CounterTrend, false, true) => {
+                    // 4b: viability checks the SAME side the profile
+                    // populated (deviation-driven, family × bias fallback).
+                    let ct_long = countertrend_resolved_long.unwrap_or(!bias_bullish);
+                    if ct_long {
+                        if rr_is_ok(&long_rr_status) {
+                            Some(core_domain::opportunity::TradeViability::Actionable)
+                        } else {
+                            Some(core_domain::opportunity::TradeViability::GeometryInverted)
+                        }
+                    } else if rr_is_ok(&short_rr_status) {
                         Some(core_domain::opportunity::TradeViability::Actionable)
                     } else {
                         Some(core_domain::opportunity::TradeViability::GeometryInverted)
@@ -1280,6 +1350,78 @@ fn compute_opportunity(
         });
     }
 
+    // ── 4a: actionable side (single effective direction) ────────────────
+    // The top qualifying profile's resolved side (zone-presence on the
+    // wire — the same rule `selectProfileSide` implements in the
+    // frontend) is the canonical direction for the matrix-level
+    // surfaces: the legacy scalar zones, the confluent-level display,
+    // and the invalidation note. The macro bias side is the fallback
+    // when no profile qualifies or no zones resolve. This closes the
+    // CounterTrend duality where a profile card could say LONG while
+    // the note/confluent/legacy surfaces described the SHORT thesis.
+    let top_side_long: Option<bool> = profiles
+        .iter()
+        .filter(|p| {
+            p.preconditions_met > 0
+                && p.opportunity_type
+                    != core_domain::analysis::OpportunityType::NoClearOpportunity
+        })
+        .max_by(|a, b| {
+            a.score
+                .partial_cmp(&b.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .and_then(|p| {
+            let has_long = p
+                .long_entry_zone
+                .as_ref()
+                .map(|z| z.low > 0.0)
+                .unwrap_or(false);
+            let has_short = p
+                .short_entry_zone
+                .as_ref()
+                .map(|z| z.low > 0.0)
+                .unwrap_or(false);
+            match (has_long, has_short) {
+                (true, false) => Some(true),
+                (false, true) => Some(false),
+                _ => None,
+            }
+        });
+
+    let actionable_side_long = top_side_long.unwrap_or(bias_bullish);
+
+    // Legacy scalar fields + matrix-level confluent display key off the
+    // actionable side so PME/TAE consumers and the Opportunities tab
+    // speak with one voice. The per-direction siblings
+    // (`long_*_zone` / `short_*_zone`) are always published untouched.
+    let (
+        entry_zone,
+        target_zone,
+        invalidation_level,
+        confluent_entry,
+        confluent_target,
+        confluent_inval,
+    ) = if actionable_side_long {
+        (
+            long_entry_zone.clone(),
+            long_target_zone.clone(),
+            long_invalidation_level,
+            long_conf_entry,
+            long_conf_target,
+            long_conf_inval,
+        )
+    } else {
+        (
+            short_entry_zone.clone(),
+            short_target_zone.clone(),
+            short_invalidation_level,
+            short_conf_entry,
+            short_conf_target,
+            short_conf_inval,
+        )
+    };
+
     let contributing_signals: Vec<String> = indicators
         .values()
         .flat_map(|v| v.signals.iter())
@@ -1289,8 +1431,9 @@ fn compute_opportunity(
 
     // Invalidation note — side-aware, and must reference the SAME level
     // the actionable bracket surfaces:
-    //   - directional bias → the active side's invalidation
+    //   - actionable side (4a) → that side's invalidation
     //     (long: "Close below", short: "Close above").
+    //   - no qualifying profile → the macro bias side's invalidation.
     //   - neutral bias → prefer the side whose geometry is consistent
     //     (long first, then short); fall back to the legacy scalar.
     // The legacy implementation always formatted the note from the
@@ -1298,7 +1441,13 @@ fn compute_opportunity(
     // resolves to the SHORT side (a level ABOVE price) — producing
     // "Close below 1907.6" notes that contradicted the frontend bracket
     // (bug D3).
-    let (note_level, note_side) = if bias_bullish {
+    let (note_level, note_side) = if let Some(long) = top_side_long {
+        if long {
+            (long_invalidation_level, "below")
+        } else {
+            (short_invalidation_level, "above")
+        }
+    } else if bias_bullish {
         (long_invalidation_level, "below")
     } else if bias_bearish {
         (short_invalidation_level, "above")
@@ -1431,6 +1580,9 @@ pub fn synthesize_cross_tf(
         cluster,
         close,
         liquidity_signals,
+        // v6.10.9: the previous L2 mtf overall score feeds the derived
+        // RiskState trend arm (Increasing/Improving/Stable).
+        previous_score,
     );
 
     let opportunity = compute_opportunity(
@@ -1552,6 +1704,16 @@ mod tests {
                 "NEUTRAL".into()
             },
         }
+    }
+
+    fn find_profile<'a>(
+        opp: &'a OpportunityMatrix,
+        ot: core_domain::analysis::OpportunityType,
+    ) -> &'a core_domain::analysis::OpportunityProfile {
+        opp.profiles
+            .iter()
+            .find(|p| p.opportunity_type == ot)
+            .expect("profile must exist")
     }
 
     fn make_snapshot(secs: u64, price: f64, ctx: MarketContext) -> MarketSnapshot {
@@ -2505,5 +2667,293 @@ mod tests {
             ctx_slow.trend.score
         );
         assert_eq!(slow.overall_score, ctx_slow.overall_score);
+    }
+
+    // ── B2: primary selection must meet its own preconditions ───────────
+
+    #[test]
+    fn mean_reversion_primary_requires_range_regime() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use std::collections::HashMap;
+
+        let indicators: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        // vol_dim = 25 (≤ 30) — the only MeanReversion precondition input.
+        alignment.mtf_volatility_alignment = -0.5;
+
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Neutral;
+
+        // Range regime → MeanReversion qualifies (2/2 preconditions).
+        analysis.market_regime = MarketRegime::Range;
+        let opp_range = compute_opportunity(&analysis, &alignment, &indicators, None, None, 100.0)
+            .expect("range opportunity");
+        assert_eq!(opp_range.primary_opportunity, OpportunityType::MeanReversion);
+        let p = opp_range
+            .profiles
+            .iter()
+            .find(|p| p.opportunity_type == OpportunityType::MeanReversion)
+            .expect("MeanReversion profile");
+        assert_eq!((p.preconditions_met, p.preconditions_total), (2, 2));
+
+        // Expansion regime → the same vol reads must NOT headline
+        // MeanReversion with 0/2 preconditions (B2). Falls through to
+        // NoClearOpportunity.
+        analysis.market_regime = MarketRegime::Expansion;
+        let opp_expansion =
+            compute_opportunity(&analysis, &alignment, &indicators, None, None, 100.0)
+                .expect("expansion opportunity");
+        assert_ne!(
+            opp_expansion.primary_opportunity,
+            OpportunityType::MeanReversion,
+            "MeanReversion must not be primary outside a range regime"
+        );
+        assert_eq!(
+            opp_expansion.primary_opportunity,
+            OpportunityType::NoClearOpportunity
+        );
+    }
+
+    // ── 4b: CounterTrend deviation-driven side resolution ────────────────
+
+    #[test]
+    fn resolve_countertrend_side_mean_reversion_follows_zscore_sign() {
+        use std::collections::HashMap;
+
+        let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        ind.insert(
+            "zscore".into(),
+            NormalizedIndicatorValue::scalar(1.2, 0.6, "EXTENDED"),
+        );
+        assert_eq!(
+            resolve_countertrend_side(analysis::OpportunityType::MeanReversion, &ind),
+            Some(false),
+            "z ≥ +threshold → SHORT (sell the rip)"
+        );
+
+        ind.insert(
+            "zscore".into(),
+            NormalizedIndicatorValue::scalar(-1.4, 0.6, "EXTENDED"),
+        );
+        assert_eq!(
+            resolve_countertrend_side(analysis::OpportunityType::MeanReversion, &ind),
+            Some(true),
+            "z ≤ −threshold → LONG (buy the dip)"
+        );
+
+        ind.insert(
+            "zscore".into(),
+            NormalizedIndicatorValue::scalar(0.1, 0.6, "NEUTRAL"),
+        );
+        assert_eq!(
+            resolve_countertrend_side(analysis::OpportunityType::MeanReversion, &ind),
+            None,
+            "|z| < threshold → ambiguous, caller falls back to family × bias"
+        );
+    }
+
+    #[test]
+    fn resolve_countertrend_side_reversal_follows_divergence_direction() {
+        use core_domain::indicator_dtos::{
+            IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
+        };
+        use std::collections::HashMap;
+
+        let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        let insert_divergence = |ind: &mut HashMap<String, NormalizedIndicatorValue>, label: &str| {
+            ind.insert(
+                "rsi".into(),
+                NormalizedIndicatorValue {
+                    raw_value: 50.0,
+                    normalized: 0.0,
+                    state_label: "NEUTRAL".into(),
+                    values: None,
+                    signals: vec![IndicatorSignal::new(
+                        SignalKind::Divergence,
+                        SignalDirection::Bullish,
+                        SignalStatus::Confirmed,
+                        label,
+                    )
+                    .with_strength(0.8)],
+                    confidence: 0.8,
+                },
+            );
+        };
+
+        insert_divergence(&mut ind, "CONFIRMED_BULLISH_DIVERGENCE");
+        assert_eq!(
+            resolve_countertrend_side(analysis::OpportunityType::Reversal, &ind),
+            Some(true)
+        );
+
+        insert_divergence(&mut ind, "CONFIRMED_BEARISH_DIVERGENCE");
+        assert_eq!(
+            resolve_countertrend_side(analysis::OpportunityType::Reversal, &ind),
+            Some(false)
+        );
+
+        insert_divergence(&mut ind, "CONFIRMED_DIVERGENCE");
+        assert_eq!(
+            resolve_countertrend_side(analysis::OpportunityType::Reversal, &ind),
+            None
+        );
+    }
+
+    #[test]
+    fn countertrend_mean_reversion_surfaces_deviation_side() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use std::collections::HashMap;
+
+        // Bearish bias + Range regime + compressed volatility → the
+        // primary is MeanReversion (CounterTrend family).
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Bearish;
+        analysis.market_regime = MarketRegime::Range;
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        alignment.mtf_volatility_alignment = -0.5;
+
+
+
+        // z ≥ +threshold → SHORT (sell the rip): the profile surfaces
+        // SHORT zones, and the 4a matrix-level surfaces follow it.
+        let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        ind.insert(
+            "zscore".into(),
+            NormalizedIndicatorValue::scalar(1.2, 0.6, "EXTENDED"),
+        );
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::MeanReversion);
+        let p = find_profile(&opp, OpportunityType::MeanReversion);
+        assert!(p.long_entry_zone.is_none(), "z>0 must not surface LONG zones");
+        assert!(
+            p.short_entry_zone.is_some(),
+            "z>0 must surface SHORT zones (sell the rip)"
+        );
+        assert!(
+            opp.invalidation_note.starts_with("Close above "),
+            "note must reference the SHORT thesis, was: {}",
+            opp.invalidation_note
+        );
+        assert_eq!(
+            opp.entry_zone, opp.short_entry_zone,
+            "legacy scalars must follow the actionable SHORT side"
+        );
+
+        // z ≤ −threshold → LONG (buy the dip).
+        ind.insert(
+            "zscore".into(),
+            NormalizedIndicatorValue::scalar(-1.4, 0.6, "EXTENDED"),
+        );
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        let p = find_profile(&opp, OpportunityType::MeanReversion);
+        assert!(p.short_entry_zone.is_none(), "z<0 must not surface SHORT zones");
+        assert!(
+            p.long_entry_zone.is_some(),
+            "z<0 must surface LONG zones (buy the dip)"
+        );
+        assert!(
+            opp.invalidation_note.starts_with("Close below "),
+            "note must reference the LONG thesis, was: {}",
+            opp.invalidation_note
+        );
+        assert_eq!(
+            opp.entry_zone, opp.long_entry_zone,
+            "legacy scalars must follow the actionable LONG side"
+        );
+
+        // Ambiguous z (≈ 0) → family × bias fallback: bearish bias →
+        // LONG (counter-trend buy-the-dip).
+        ind.insert(
+            "zscore".into(),
+            NormalizedIndicatorValue::scalar(0.0, 0.6, "NEUTRAL"),
+        );
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        let p = find_profile(&opp, OpportunityType::MeanReversion);
+        assert!(
+            p.long_entry_zone.is_some(),
+            "ambiguous z must fall back to family × bias (bearish → LONG)"
+        );
+        assert!(p.short_entry_zone.is_none());
+    }
+
+    #[test]
+    fn countertrend_reversal_follows_divergence_direction() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use core_domain::indicator_dtos::{
+            IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
+        };
+        use std::collections::HashMap;
+
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Bullish;
+        analysis.market_regime = MarketRegime::Expansion;
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        // structure_broken (< 40) + momentum_exhausted (< 25) so the
+        // divergence triggers the Reversal branch.
+        if let Some(d) = alignment.dimensions.get_mut(4) {
+            d.score = 30.0;
+        }
+        alignment.mtf_momentum_alignment = -0.8; // momentum_dim = 10
+
+
+
+        let divergence_label = |label: &str| {
+            let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+            ind.insert(
+                "rsi".into(),
+                NormalizedIndicatorValue {
+                    raw_value: 50.0,
+                    normalized: 0.0,
+                    state_label: "NEUTRAL".into(),
+                    values: None,
+                    signals: vec![IndicatorSignal::new(
+                        SignalKind::Divergence,
+                        SignalDirection::Bullish,
+                        SignalStatus::Confirmed,
+                        label,
+                    )
+                    .with_strength(0.8)],
+                    confidence: 0.8,
+                },
+            );
+            ind
+        };
+
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &divergence_label("CONFIRMED_BULLISH_DIVERGENCE"),
+            None,
+            None,
+            100.0,
+        )
+        .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::Reversal);
+        assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_some());
+        assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_none());
+        assert!(opp.invalidation_note.starts_with("Close below "));
+
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &divergence_label("CONFIRMED_BEARISH_DIVERGENCE"),
+            None,
+            None,
+            100.0,
+        )
+        .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::Reversal);
+        assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_some());
+        assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_none());
+        assert!(opp.invalidation_note.starts_with("Close above "));
     }
 }

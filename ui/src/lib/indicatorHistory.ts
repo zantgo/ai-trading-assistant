@@ -301,6 +301,15 @@ export function historyValue(
     if (subKey) {
         const v = hist.values[`${key}.${subKey}`];
         if (v && v.length) return v;
+        // PRI-10 (v6.10.7): never fall back to the raw series for a
+        // sub-keyed lookup. On cold sub-minute histories the per-line
+        // sub-series (e.g. `ema_stack.medium/slow/long`) is absent until
+        // its `bars_required` gate passes; the raw series for a
+        // price-overlay entry is the close (or the `value_source` line),
+        // so the old fallback drew the ema50/100/200 lines exactly on the
+        // price line "from the beginning". Missing sub-series render
+        // absent — the intended partial-ribbon behavior.
+        return undefined;
     }
     const v = hist.values[key];
     if (v && v.length) return v;

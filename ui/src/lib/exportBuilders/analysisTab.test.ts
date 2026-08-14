@@ -13,7 +13,7 @@ const headerSpec: LayerHeaderSpec = {
   status: 'live',
 };
 
-function makeAnalysis(): AnalysisMatrix {
+function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
   return {
     bias: 'StrongBullish',
     confidence: 0.78,
@@ -36,6 +36,7 @@ function makeAnalysis(): AnalysisMatrix {
     volume_assessment: 'Increasing',
     market_interpretation: 'Market is in a strong bullish phase.',
     rationale: 'Composite confluence score 78.',
+    ...overrides,
   } as unknown as AnalysisMatrix;
 }
 
@@ -198,5 +199,59 @@ describe('buildAnalysisTabExport', () => {
     expect(row.score_display).toBe('—');
     expect(row.signals_count).toBeNull();
     expect(row.signals_count_display).toBe('—');
+  });
+
+  it('AN-2: all-neutral signals emit the honest neutral hero (not "No signals")', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: {
+        ...makeAnalysis(),
+        supporting_signals: ['MICRO (neutral): score +0, RANGE regime, 0 signals'],
+        contradicting_signals: ['FAST (neutral): score +0, RANGING regime, 0 signals'],
+      } as unknown as AnalysisMatrix,
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.signal_lean_hero.label_html).toBe('Neutral signals');
+    expect(p.signal_lean_hero.meta_html).toBe('No directional lean across timeframes');
+    expect(p.signal_lean_hero.tone).toBe('split');
+    expect(p.signals.lean.label).toBe('Neutral signals · no directional lean');
+  });
+
+  it('AN-2: empty signal lists keep the pre-warmup placeholder', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: {
+        ...makeAnalysis(),
+        supporting_signals: [],
+        contradicting_signals: [],
+      } as unknown as AnalysisMatrix,
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.signal_lean_hero.label_html).toBe('No signals');
+    expect(p.signal_lean_hero.meta_html).toBe('Waiting for cross-TF consensus');
+  });
+
+  it('AN-3: zero opposing signals render "3:0", never "3:1"', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: {
+        ...makeAnalysis(),
+        supporting_signals: [
+          'MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals',
+          'FAST (bullish): score +2, TRENDING_BULL regime, 2 signals',
+          'SLOW (bullish): score +1, TRENDING_BULL regime, 1 signal',
+        ],
+        contradicting_signals: [],
+      } as unknown as AnalysisMatrix,
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.signal_lean_hero.meta_html).toBe('3:0 signal ratio');
+    expect(p.signal_lean_hero.tone).toBe('bull');
   });
 });

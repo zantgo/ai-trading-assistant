@@ -62,12 +62,27 @@ fn label_for(tf_secs: u64) -> &'static str {
     }
 }
 
+/// Spawn a cold (un-warmed) analyzer.
 async fn spawn_analyzer_for(
     duration_seconds: u64,
     _exchange: Exchange,
     event_rx: mpsc::Receiver<NormalizedEvent>,
     broadcast_tx: tokio::sync::broadcast::Sender<MarketSnapshot>,
     cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    spawn_analyzer_with_warm(duration_seconds, _exchange, event_rx, broadcast_tx, cancel, None)
+}
+
+/// PRI-03 (v6.10.7): spawn with an optional pre-warmed state (the
+/// sub-minute state-replay warmup handover). `warmed: None` = cold start.
+#[allow(clippy::too_many_arguments)]
+fn spawn_analyzer_with_warm(
+    duration_seconds: u64,
+    _exchange: Exchange,
+    event_rx: mpsc::Receiver<NormalizedEvent>,
+    broadcast_tx: tokio::sync::broadcast::Sender<MarketSnapshot>,
+    cancel: CancellationToken,
+    warmed: Option<market_analyzer::analyzer::warm::WarmedPipelineState>,
 ) -> tokio::task::JoinHandle<()> {
     let _ = _exchange; // reserved for future per-exchange pipeline assertions
     let (telemetry_tx, mut telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(500);
@@ -101,7 +116,8 @@ async fn spawn_analyzer_for(
             slot,
             cancel,
             None,
-            None,
+            // PRI-03: warmed state handover (None = cold start).
+            warmed,
             None,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -812,4 +828,329 @@ async fn stale_mid_guard_falls_back_to_last_trade_close() {
             s.timestamp
         );
     }
+}
+
+/// The matrix-payload regression: sub-minute force-closed candles must
+/// broadcast completed frames with the full matrix payload
+/// (alignment/analysis/risk/advisory/opportunity/decision_context), not just
+/// OHLCV + indicators.
+///
+/// Before the fix, the clock-driven force-close path built its snapshot via
+/// `build_completed_snapshot_from_readings`, which hard-coded every matrix
+/// field to `None`, and the v6.11 dedup gate then discarded the trade-triggered
+/// completion for the same bucket — so on sparse-flow sub-minute TFs the
+/// pair-level matrix mirrors in the frontend (`pair.alignment` etc.) never
+/// populated and every non-chart tab stayed empty while the chart worked.
+///
+/// Strategy: anchor the seed trades in a PAST bucket (like the other
+/// sub-minute tests) so `is_past_interval` closes every bucket on the
+/// stale-check cadence — i.e. every real candle is force-closed, never
+/// trade-triggered. A background order-book pump keeps the 110 mid fresh so a
+/// real force-close closes at 110 (distinguishable from the doji-fill
+/// snapshots, which are marked `is_gap_filled`). The 60 dojis filled per
+/// stale-check tick push `bar_count` past the 50-bar sub-minute live floor
+/// within ~1 s, so the second force-close onward must carry the matrices.
+#[tokio::test]
+async fn force_closed_sub_minute_frames_carry_matrix_payload() {
+    use core_domain::LatencyTracker;
+    let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
+    let (broadcast_tx, mut broadcast_rx) =
+        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let cancel = CancellationToken::new();
+    let _h = spawn_analyzer_for(
+        1,
+        Exchange::Hyperliquid,
+        event_rx,
+        broadcast_tx.clone(),
+        cancel.clone(),
+    )
+    .await;
+
+    // Anchor all seed trades in a past 1s bucket: every stale-check
+    // tick (500 ms) force-closes the current candle (is_past_interval is
+    // true for past buckets), so every REAL completed candle here is a
+    // force-close — exactly the path that previously dropped the matrices.
+    // The bucket sits ~70 s in the past so the doji-fill after the FIRST
+    // force-close already floods up to MAX_GAP_FILL_BARS (60) synthetic
+    // bars — bar_count crosses the 50-bar sub-minute live floor within the
+    // first second, and the second force-close onward must carry matrices.
+    let base = LatencyTracker::now_ms();
+    let past_bucket = ((base / 1000) - 70) * 1000 + 500;
+
+    // Background OB pump keeps the 110 mid fresh (≤ 1s grace period) at
+    // every force-close instant, so real force-closes close at 110.
+    let ob_pump = tokio::spawn({
+        let event_tx = event_tx.clone();
+        async move {
+            for _ in 0..40 {
+                if event_tx
+                    .send(order_book_mid_110(Exchange::Hyperliquid))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+        }
+    });
+
+    // Re-seed a trade every ~150 ms: each trade re-opens the candle after a
+    // force-close (the bucket stays anchored in the past), so every stale
+    // tick closes a real force-closed candle. 16 trades ≈ 2.4 s ≈ 5 ticks.
+    for i in 0..16u64 {
+        event_tx
+            .send(NormalizedEvent::Trade(trade(
+                past_bucket + i,
+                dec!(100),
+                Exchange::Hyperliquid,
+            )))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    ob_pump.abort();
+
+    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    cancel.cancel();
+
+    // Sanity: the doji-fill (60 bars per tick) pushed bar_count far past the
+    // 50-bar sub-minute live floor, so real force-closes after ~1 s must be
+    // synthesized with the full matrix payload.
+    assert!(
+        snaps.len() >= 60,
+        "expected ≥60 completed 1s snapshots (force-closes + doji fills), got {}",
+        snaps.len()
+    );
+
+    let has_all_matrices = |s: &MarketSnapshot| {
+        s.alignment.is_some()
+            && s.analysis.is_some()
+            && s.risk.is_some()
+            && s.advisory.is_some()
+            && s.opportunity.is_some()
+            && s.decision_context.is_some()
+    };
+
+    assert!(
+        snaps.iter().any(&has_all_matrices),
+        "no completed snapshot carries the full matrix payload (alignment/analysis/risk/\
+         advisory/opportunity/decision_context) — the sub-minute force-close path is not \
+         running the matrix synthesis"
+    );
+
+    // The decisive pin: a REAL (non-gap-filled) force-closed candle closing at
+    // the fresh 110 mid must carry the matrices. Doji-fill snapshots also
+    // close at 110 but are marked gap-filled, so `close == 110 &&
+    // is_gap_filled == false` identifies the force-close path uniquely.
+    let force_matrix = snaps.iter().find(|s| {
+        has_all_matrices(s)
+            && s.close == Some(dec!(110))
+            && s.quality_envelope
+                .as_ref()
+                .map(|q| q.is_gap_filled)
+                .unwrap_or(true)
+                == false
+    });
+    assert!(
+        force_matrix.is_some(),
+        "no real (non-gap-filled) force-closed candle at the fresh mid 110 carries the \
+         matrix payload — the sub-minute force-close broadcast still drops the matrices"
+    );
+}
+
+/// PRI-03/PRI-05 (v6.10.7) — sub-minute state-replay warmup parity. A 1s
+/// slot warmed from 300 real 60s closes must behave like an above-minute
+/// slot after warmup: `pipeline_is_live` from the FIRST live close, the
+/// full ema ribbon present, the indicator lifecycle `Live`, and the full
+/// matrix payload (alignment/analysis/risk/advisory/opportunity/
+/// decision_context) on the wire — no progressive maturity window.
+#[tokio::test]
+async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
+    use core_domain::LatencyTracker;
+    use market_analyzer::analyzer::warm::warm_indicators_for_timeframe;
+
+    // Build 300 real 60s candles with a gentle price ramp (the warmup
+    // replay source — the same closes a ≥60s slot would warm from).
+    let base = LatencyTracker::now_ms();
+    let anchor = ((base / 60_000) - 6) * 60_000; // 300 × 60s = 5 min lookback
+    let mut candles: Vec<core_domain::normalized::NormalizedCandle> = Vec::with_capacity(300);
+    for i in 0..300u64 {
+        let px = rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap();
+        candles.push(core_domain::normalized::NormalizedCandle {
+            exchange: Exchange::Hyperliquid,
+            symbol: "BTC-USDT".to_string(),
+            start_time_ms: anchor + i * 60_000,
+            duration_ms: 60_000,
+            open: px,
+            high: px + dec!(0.5),
+            low: px - dec!(0.5),
+            close: px,
+            volume: dec!(1),
+            trades_count: 1,
+            reconstructed: None,
+        });
+    }
+
+    let warmed = warm_indicators_for_timeframe(
+        candles,
+        &make_test_config(1),
+        &FibonacciConfig::default(),
+        "BTC-USDT",
+        1,
+        core_domain::models::TimeframeSlot::Micro,
+        500,
+        &market_analyzer::active_set::ActiveSet::all_enabled(),
+    );
+
+    let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
+    let (broadcast_tx, mut broadcast_rx) =
+        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let cancel = CancellationToken::new();
+    // NOTE: `spawn_analyzer_with_warm` is sync — do NOT `.await` the
+    // JoinHandle or the test blocks until the analyzer task ends.
+    let _h = spawn_analyzer_with_warm(
+        1,
+        Exchange::Hyperliquid,
+        event_rx,
+        broadcast_tx.clone(),
+        cancel.clone(),
+        Some(warmed),
+    );
+
+    // One trade in the current bucket → the clock-driven force-close at
+    // the next boundary emits the first LIVE completed frame.
+    let seed_bucket = (LatencyTracker::now_ms() / 1000) * 1000;
+    event_tx
+        .send(NormalizedEvent::Trade(trade(seed_bucket + 500, dec!(100.5), Exchange::Hyperliquid)))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(2200)).await;
+    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    cancel.cancel();
+
+    // The drain window may end on a doji-fill frame (gap-filled,
+    // matrix-less) — the assertions must run on the last REAL
+    // (non-gap-filled) completed snapshot, i.e. the actual force-close.
+    let live = snaps
+        .iter()
+        .rev()
+        .find(|s| !s.quality_envelope.as_ref().map(|q| q.is_gap_filled).unwrap_or(false))
+        .expect("at least one real (non-gap-filled) completed snapshot");
+    assert_eq!(
+        live.pipeline_state,
+        core_domain::models::CandlePipelineState::Live,
+        "warmed sub-minute pipeline must be Live from the first live close (PRI-05)"
+    );
+    let vals = live
+        .indicators
+        .get("ema_stack")
+        .and_then(|v| v.values.as_ref())
+        .expect("ema_stack entry present");
+    for role in ["fast", "medium", "slow", "long"] {
+        assert!(
+            vals.contains_key(role),
+            "warmed sub-minute ribbon must carry ema_stack.values.{role} at the first live close"
+        );
+    }
+    let lc = live
+        .indicator_lifecycle
+        .get("ema_stack")
+        .map(|l| l.state)
+        .unwrap_or(core_domain::indicator_dtos::IndicatorLifecycleState::Loading);
+    assert_eq!(
+        lc,
+        core_domain::indicator_dtos::IndicatorLifecycleState::Live,
+        "warmed sub-minute indicator lifecycle must be Live at the first live close"
+    );
+    assert!(
+        live.alignment.is_some()
+            && live.analysis.is_some()
+            && live.risk.is_some()
+            && live.advisory.is_some()
+            && live.opportunity.is_some()
+            && live.decision_context.is_some(),
+        "warmed sub-minute first close must carry the full matrix payload"
+    );
+    // PRI-12: bars_seen_real counts the warmed real closes.
+    let real = live
+        .indicator_lifecycle
+        .get("ema_stack")
+        .and_then(|l| l.bars_seen_real)
+        .unwrap_or(0);
+    assert!(
+        real >= 200,
+        "bars_seen_real must reflect the warmed real closes (got {real})"
+    );
+}
+
+/// PRI-06 (v6.10.7): real force-closed candles feed the `history` buffer
+/// (the fib/pivots/S-R/pattern and cluster-matrix input), while synthetic
+/// doji-fill buckets never do. Without this the cluster matrix errored
+/// `InsufficientHistory` on quiet sub-minute markets and S-R/fib/pattern
+/// signals were computed from a sparse history.
+#[tokio::test]
+async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
+    use core_domain::LatencyTracker;
+    let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
+    let (broadcast_tx, mut broadcast_rx) =
+        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let cancel = CancellationToken::new();
+    let _h = spawn_analyzer_for(
+        1,
+        Exchange::Hyperliquid,
+        event_rx,
+        broadcast_tx.clone(),
+        cancel.clone(),
+    )
+    .await;
+
+    // Past-anchored seed: every stale-check tick force-closes the current
+    // candle (real) and the doji-fill floods synthetic buckets (gap-filled).
+    let base = LatencyTracker::now_ms();
+    let past_bucket = ((base / 1000) - 70) * 1000 + 500;
+    for i in 0..8u64 {
+        // Slight price ramp keeps the synthesis entry/invalidation zones
+        // non-degenerate (flat closes trip a debug_assert in
+        // `derive_side_zones`).
+        let px = rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap();
+        event_tx
+            .send(NormalizedEvent::Trade(trade(past_bucket + i, px, Exchange::Hyperliquid)))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let snaps = drain_completed(&mut broadcast_rx, 500).await;
+    cancel.cancel();
+
+    assert!(
+        snaps.len() >= 4,
+        "expected real force-closes + doji fills, got {}",
+        snaps.len()
+    );
+    let synthetic = snaps
+        .iter()
+        .filter(|s| s.quality_envelope.as_ref().map(|q| q.is_gap_filled).unwrap_or(false))
+        .count();
+    let real = snaps.len() - synthetic;
+    assert!(real >= 2, "expected ≥2 real force-closes, got {real}");
+
+    // The pipeline's `history` handle is inside the spawned task; we cannot
+    // reach it directly. Instead we assert the wire contract: every REAL
+    // completed frame carries the synthesis output (matrices + indicators),
+    // which is computed from `history` — and the doji frames are marked
+    // gap-filled (they never enter `history`). The `history` feed itself is
+    // exercised end-to-end by the force-close path pushing the forced
+    // candle (PRI-06); its observable effect is that fib/S-R/cluster inputs
+    // stay current, covered by the matrix payload on real frames.
+    let real_matrix = snaps.iter().find(|s| {
+        !s.quality_envelope.as_ref().map(|q| q.is_gap_filled).unwrap_or(false)
+            && s.alignment.is_some()
+    });
+    assert!(
+        real_matrix.is_some(),
+        "real force-closed candles must carry the synthesis output (history-fed matrices)"
+    );
 }

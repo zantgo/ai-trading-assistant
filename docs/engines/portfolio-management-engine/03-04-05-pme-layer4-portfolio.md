@@ -1,6 +1,6 @@
 # PME Layer 4 — Portfolio Layer
 
-**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/safety.rs`, `portfolio_risk.rs`, `veto_loop.rs`) is implemented; dashboard wiring and configurable activation land in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A + C (AUDIT-V6-208 … V6-214).
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4

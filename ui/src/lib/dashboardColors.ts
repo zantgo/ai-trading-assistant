@@ -51,12 +51,18 @@ export function biasColor(bias: string | null | undefined): string {
 
 /**
  * Colour for a Risk-as-danger score (0..100). High score = dangerous.
+ *
+ * v6.10.9: bands aligned with the canonical RiskLevel thresholds
+ * (20/40/60/80, `core-domain::risk::RiskDimension::from_score_with_confidence`)
+ * and the L5 ring strokes — a score and its level can no longer render
+ * different severity colors (score 45 previously read GREEN on the chip
+ * while the ring showed the amber Moderate band).
  */
 export function riskDangerColor(score: number | null | undefined): string {
     if (score == null || !isFinite(score)) return DASHBOARD_COLORS.inactive;
-    if (score >= 70) return DASHBOARD_COLORS.bearish;
-    if (score >= 50) return DASHBOARD_COLORS.neutral;
-    if (score >= 30) return DASHBOARD_COLORS.bullish;
+    if (score >= 80) return '#ef4444';
+    if (score >= 60) return '#f87171';
+    if (score >= 40) return '#f59e0b';
     return '#22c55e';
 }
 

@@ -825,7 +825,15 @@ export interface InstanceState {
     /// can't race-write the shared `alignment` / `analysis` / `risk` /
     /// `advisory` / `decisionContext` / `opportunity` fields with stale
     /// or out-of-order payloads. `-Infinity` means "no frame accepted yet".
-    lastMatrixTimestamp: number;
+    /// Per-slot monotonicity guard (PRI-09, v6.10.7): one timestamp per
+    /// slot (`micro|fast|slow|macro`), advanced only by completed frames
+    /// that carry a matrix payload. The previous single cross-slot
+    /// timestamp let a fast slot's matrix-less completed frames (e.g.
+    /// sub-minute force-closes every second) pin the guard at wall-clock,
+    /// starving every slower slot's matrix frames forever — the sub-minute
+    /// matrix deadlock. `-Infinity` = "no matrix frame accepted for this
+    /// slot yet".
+    lastMatrixTimestampBySlot: Partial<Record<TimeframeSlotKind, number>>;
     /// Last closed-candle close price across any slot that produced a
     /// completed frame. Powers geometry consumers (OpportunitiesPanel,
     /// RecommendationPanel) that need a stable mark price which doesn't

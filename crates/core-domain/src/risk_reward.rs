@@ -18,6 +18,10 @@
 //!    valid R:R exists for this side. The reason is an enum tag so the
 //!    dashboard can surface a precise message ("SL inside entry zone",
 //!    "no confluent levels", etc.) instead of a generic "0.00".
+//!    Degenerate ratios below [`RR_MEANINGFUL_FLOOR`] (entry and target
+//!    at effectively the same price) are rejected as
+//!    `NoValueReason::RatioBelowFloor` — the geometry is "valid" but the
+//!    ratio is economically noise.
 //! 3. **`Error(String)`** — the computation itself failed (NaN, division
 //!    by zero, malformed input type). Reserved for unexpected bugs; a
 //!    non-empty `Error` should page someone.
@@ -65,6 +69,11 @@ pub enum NoValueReason {
     /// Target is on the wrong side of `close` for the active side
     /// (LONG → target ≤ close, or SHORT → target ≥ close).
     TargetOnWrongSide,
+    /// The geometric ratio is positive but below the meaningfulness floor
+    /// (`RR_MEANINGFUL_FLOOR`). Entry and target sit effectively at the
+    /// same price (e.g. reward ≈ 1% of risk), so the bracket is
+    /// economically noise even though its geometry is "valid".
+    RatioBelowFloor,
     /// No confluent levels and no synthetic ATR fallback was produced.
     NoValidBracket,
     /// Profile belongs to the inactive side for the macro bias
@@ -78,6 +87,16 @@ pub enum Side {
     Long,
     Short,
 }
+
+/// Minimum economically meaningful reward/risk ratio.
+///
+/// Ratios below this floor (e.g. `0.0117` — a bracket whose reward is
+/// ~1% of its risk) are geometrically "valid" but economically noise:
+/// the entry and target sit effectively at the same price. They are
+/// rejected as `NoValue(RatioBelowFloor)` so degenerate near-zero R:R
+/// values never reach the wire (the frontend flips every exact-zero
+/// check to `N/A` as a result).
+pub const RR_MEANINGFUL_FLOOR: f64 = 0.1;
 
 /// Compute the per-side R:R for a price bracket.
 ///
@@ -174,6 +193,13 @@ pub fn compute_side_rr_v2(
     let ratio = reward / risk;
     if !ratio.is_finite() {
         return SideRrStatus::Error("non-finite R:R (division by zero or overflow)".to_string());
+    }
+    // Meaningfulness floor (B3): a positive-but-degenerate ratio
+    // (reward ≈ 0.01 × risk) is noise, not conviction. Reject it so
+    // every consumer (bars, header chip, R:R blocks, decision context)
+    // sees a clean 0 instead of a misleading "0.01".
+    if ratio < RR_MEANINGFUL_FLOOR {
+        return SideRrStatus::NoValue(NoValueReason::RatioBelowFloor);
     }
     SideRrStatus::Value(ratio)
 }
@@ -279,6 +305,23 @@ mod tests {
         // (negative risk_dir). reward > 0 but risk < 0 → geometry inverted.
         let r = compute_side_rr_v2(100.0, 105.0, 107.0, 112.0, 110.0, 100.0, LONG);
         assert_eq!(r, SideRrStatus::NoValue(NoValueReason::GeometryInverted));
+    }
+
+    #[test]
+    fn no_value_when_ratio_below_meaningfulness_floor() {
+        // LONG: entry 100 (mid 100), target 100.25 (mid 100.25),
+        // invalidation 95 → reward = 0.25, risk = 5 → ratio = 0.05 (< 0.1).
+        let r = compute_side_rr_v2(100.0, 100.0, 100.25, 100.25, 95.0, 100.1, LONG);
+        assert_eq!(r, SideRrStatus::NoValue(NoValueReason::RatioBelowFloor));
+    }
+
+    #[test]
+    fn value_at_exact_floor_boundary() {
+        // LONG: entry 100 (mid 100), target 100.5 (mid 100.5),
+        // invalidation 95 → reward = 0.5, risk = 5 → ratio = 0.1.
+        // The floor is a strict lower bound: exactly 0.1 stays a Value.
+        let r = compute_side_rr_v2(100.0, 100.0, 100.5, 100.5, 95.0, 100.2, LONG);
+        assert!(matches!(r, SideRrStatus::Value(v) if (v - 0.1).abs() < 1e-9));
     }
 
     #[test]

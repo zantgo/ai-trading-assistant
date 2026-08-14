@@ -13,6 +13,7 @@
 
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor, rrColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
+import { resolveEffectiveDirection, RR_MEANINGFUL_FLOOR } from './opportunityBars';
 import type {
     AdvisoryMatrix,
     AlignmentMatrix,
@@ -160,6 +161,22 @@ export function prettifyEnum(value: string | null | undefined): string {
     return String(value).replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
 }
 
+/**
+ * Map an `mtf_overall_label` token to its operator-facing form (shared by
+ * the L2 header badge, the Alignment panel, and the alignment export so
+ * every surface renders the identical string for the same token).
+ * AL-9 (v6.10.10): `WEAK_BULL_MTF` previously rendered "WEAK BULL MTF" in
+ * the header badge while the panel body said "WEAK BULL".
+ */
+export function mLabel(label: string): string {
+    if (label.startsWith('STRONG_BULL')) return 'STRONG BULL';
+    if (label.startsWith('STRONG_BEAR')) return 'STRONG BEAR';
+    if (label.startsWith('WEAK_BULL')) return 'WEAK BULL';
+    if (label.startsWith('WEAK_BEAR')) return 'WEAK BEAR';
+    if (label === 'NEUTRAL_MTF') return 'NEUTRAL';
+    return label;
+}
+
 export function signalCount(tf: TimeframeTelemetry | null | undefined): number {
     if (!tf) return 0;
     let n = 0;
@@ -274,7 +291,9 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
     };
 }
 
-// L2 — Alignment (cross-TF)
+// L2 — Alignment (cross-TF). The badge label uses the shared `mLabel`
+// mapping so the header can never disagree with the panel body's label
+// ("WEAK BULL", not "WEAK BULL MTF").
 export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): LayerHeaderSpec {
     const label = a?.mtf_overall_label ?? null;
     const score = a?.mtf_overall_score ?? null;
@@ -288,7 +307,7 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
         layerNumber: 2,
         layerName: 'Alignment',
         badge: {
-            label: prettifyEnum(label),
+            label: mLabel(label),
             color: biasColor(label),
             background: hexToRgba(biasColor(label), 0.08),
             state: 'valid',
@@ -373,15 +392,20 @@ export function buildL4OpportunityHeader(
 
     const longRr = o?.long_expected_rr_internal ?? 0;
     const shortRr = o?.short_expected_rr_internal ?? 0;
-    const dir: 'LONG' | 'SHORT' = longRr >= shortRr ? 'LONG' : 'SHORT';
-    // Bias overrides RR-based direction when both LONG and SHORT are
-    // available — the macro L3 bias is the operator's authoritative
-    // directional call, not the per-side geometric computation.
+    // Single effective direction (4a/4b): the top qualifying profile's
+    // resolved side (zone-presence aware — deviation-driven for
+    // CounterTrend setups), else the macro bias, else the argmax of the
+    // per-side R:R. The previous bias-only override contradicted the
+    // documented CounterTrend resolution: a MeanReversion under bearish
+    // bias rendered a red SHORT badge while its profile card resolved
+    // LONG. `resolveEffectiveDirection` is shared with the bars and the
+    // R:R displays so the header can never disagree with the panel.
+    const resolved = resolveEffectiveDirection(o, bias ?? null);
     const effectiveDir: 'LONG' | 'SHORT' =
-        bias === 'Bearish' || bias === 'StrongBearish' ? 'SHORT'
-        : bias === 'Bullish' || bias === 'StrongBullish' ? 'LONG'
-        : dir;
-    const activeRr = effectiveDir === 'LONG' ? longRr : shortRr;
+        resolved === 'NEUTRAL' ? (longRr >= shortRr ? 'LONG' : 'SHORT') : resolved;
+    const rawActiveRr = effectiveDir === 'LONG' ? longRr : shortRr;
+    // B3 defensive floor: degenerate near-zero ratios read as no R:R.
+    const activeRr = rawActiveRr < RR_MEANINGFUL_FLOOR ? 0 : rawActiveRr;
 
     return {
         layerNumber: 4,
@@ -404,8 +428,14 @@ export function buildL4OpportunityHeader(
 
 // L5 — Risk. Three-colour badge palette (v7.0-prod):
 //   gray   — no risk matrix loaded (emptyBadge)
-//   blue   — medium-to-low risk  (score < 50)
-//   amber  — medium-to-high risk (score >= 50)
+//   blue   — risk below the Moderate band (score < 40)
+//   amber  — Moderate and above (score >= 40)
+//
+// v6.10.9: the blue/amber split moved from 50 to 40 — the canonical
+// RiskLevel boundary (VeryLow <20, Low <40, Moderate <60, High <80,
+// Extreme >=80). The previous <50 split rendered a MODERATE 45-score
+// as a blue "low risk" badge while the panel's ring showed the amber
+// Moderate band.
 //
 // Risk has no intrinsic trade direction (it is a magnitude measure,
 // not a verdict), so green is reserved exclusively for bullish setups
@@ -422,7 +452,7 @@ export function buildL5RiskHeader(r: RiskMatrix | null | undefined): LayerHeader
     if (!overall) {
         return { layerNumber: 5, layerName: 'Risk', badge: emptyBadge(), meta: [], status: 'loading' };
     }
-    const color = score != null && score < 50 ? '#22d3ee' : '#f59e0b';
+    const color = score != null && score < 40 ? '#22d3ee' : '#f59e0b';
     const background = hexToRgba(color, 0.08);
     return {
         layerNumber: 5,
@@ -458,9 +488,11 @@ export function countActiveRiskDimensions(r: RiskMatrix | null | undefined): num
 }
 
 // L6 — Recommendation (never reads L3 bias). The badge is the operator's
-// authoritative verdict; L3 is only an input. When `rank.top === HOLD`
-// the chip rail reports N/A rather than 0.00 (mirrors the existing
-// Recommendation panel rule).
+// authoritative verdict; L3 is only an input. The R:R chip follows the
+// SAME rule as the panel's Safety-Flags Risk-Adj R:R KPI: N/A only when
+// the verdict is HOLD AND the risk-adjusted R:R is 0 (a HOLD verdict
+// with a non-zero R:R still surfaces the value — the header must not
+// contradict the KPI beneath it).
 export function buildL6DecisionHeader(input: {
     rank: { top: 'LONG' | 'SHORT' | 'HOLD'; headline: { state: string } };
     decisionContext: DecisionContext | null | undefined;
@@ -482,7 +514,6 @@ export function buildL6DecisionHeader(input: {
         label === 'LONG' ? DASHBOARD_COLORS.bullish
         : label === 'SHORT' ? DASHBOARD_COLORS.bearish
         : COLORS.neutral;
-    const isHypothesis = label === 'HOLD' || label === 'STAND ASIDE';
 
     if (!rank || (!advisory && !decisionContext)) {
         return { layerNumber: 6, layerName: 'Recommendation', badge: emptyBadge(), meta: [], status: 'loading' };
@@ -490,7 +521,7 @@ export function buildL6DecisionHeader(input: {
 
     const meta: MetaChipSpec[] = [
         chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
-        isHypothesis
+        rank.top === 'HOLD' && rr === 0
             ? chip('R:R', 'N/A', null, null)
             : chip('R:R', rr > 0 ? `1:${rr.toFixed(2)}` : null, rr, rrColor),
     ];

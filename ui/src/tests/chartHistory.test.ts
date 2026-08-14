@@ -9,6 +9,8 @@ import {
     getCachedCandles,
     buildPaintCandles,
     dedupSortByTime,
+    historyValue,
+    pairsFromHistory,
     type CandleOHLCV,
 } from '../lib/indicatorHistory';
 
@@ -166,5 +168,40 @@ describe('indicatorHistory (unified)', () => {
         } finally {
             clearCandleCache();
         }
+    });
+
+    it('ema_lines_do_not_render_from_raw_fallback_when_closed_candles_are_insufficient', () => {
+        // PRI-10 (v6.10.7): toggling the EMA overlays on a chart whose
+        // closed-candle count is below the per-line gate must NOT draw the
+        // lines. The `ema_stack` raw series (fast EMA) may exist while the
+        // `medium/slow/long` sub-series are absent (partial ribbon); the
+        // history layer must return `undefined` for the missing sub-series
+        // (no fallback to the raw series), so `pairsFromHistory` yields an
+        // empty series and PriceChart's `setData` guard skips it — the same
+        // "no data → nothing renders" contract every other overlay follows.
+        const hist = {
+            times: [100, 101, 102, 103],
+            values: {
+                'ema_stack': [64980.0, 64985.0, 64990.0, 64995.0],
+                'ema_stack.fast': [64980.0, 64985.0, 64990.0, 64995.0],
+            },
+            candleTimes: [],
+            candles: { open: [], high: [], low: [], close: [], volume: [] },
+            prices: [],
+            fetchedAtMs: Date.now(),
+        } as never;
+
+        // The fast line has real sub-series data → renders.
+        expect(historyValue(hist, 'ema_stack', 'fast')).toHaveLength(4);
+        // medium/slow/long are absent → undefined (NOT the raw close/fast
+        // series — that was the price-following-lines bug).
+        expect(historyValue(hist, 'ema_stack', 'medium')).toBeUndefined();
+        expect(historyValue(hist, 'ema_stack', 'slow')).toBeUndefined();
+        expect(historyValue(hist, 'ema_stack', 'long')).toBeUndefined();
+        // pairsFromHistory must produce NO seed points for the gated lines.
+        expect(pairsFromHistory(hist, 'ema_stack', 'medium')).toEqual([]);
+        expect(pairsFromHistory(hist, 'ema_stack', 'long')).toEqual([]);
+        // The no-subKey lookup still reads the raw series (Metrics table).
+        expect(historyValue(hist, 'ema_stack')).toHaveLength(4);
     });
 });

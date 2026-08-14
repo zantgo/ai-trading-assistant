@@ -2,7 +2,7 @@
     import type { RiskMatrix, RiskDimension, RiskLevel, RiskState, LiquidationClusterMatrix, LiquidityFlow, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
-    import { buildRiskTabExport } from '../lib/exportBuilders/riskTab';
+    import { buildRiskTabExport, isAwaitingRiskMatrix } from '../lib/exportBuilders/riskTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL5RiskHeader, type LayerHeaderSpec } from '../lib/layerHeader';
@@ -12,7 +12,13 @@
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
 
     const instance = $derived(app.instancesMap[pairKey]);
-    const risk = $derived<RiskMatrix | null>(instance?.risk ?? null);
+    // RK-D (v6.10.9): the backend's warmup sentinel (RiskMatrix::empty —
+    // every dimension and the overall at exactly 50/Moderate with no
+    // evidence) must NOT render as real "Moderate risk" data. The sentinel
+    // signature is treated as "awaiting", so the panel shows the AWAITING
+    // cards until the first real synthesis arrives.
+    const rawRisk = $derived<RiskMatrix | null>(instance?.risk ?? null);
+    const risk = $derived<RiskMatrix | null>(isAwaitingRiskMatrix(rawRisk) ? null : rawRisk);
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const opportunity = $derived((microSnap?.opportunity ?? null) as any);
@@ -174,7 +180,9 @@
         if (bits.length > 0) {
             return `${bits.join(' \u00B7 ')} \u00B7 overall ${risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}`;
         }
-        return `all dimensions calm \u00B7 overall ${risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}`;
+        // RK-C: Low/VeryLow dims exist — "calm" overstates; the honest
+        // wording is "below moderate".
+        return `all dimensions below moderate \u00B7 overall ${risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}`;
     });
 
     const topSeverity = $derived.by((): RiskLevel | null => {
@@ -264,7 +272,7 @@
                 <span class={styles.confVal}>{risk ? risk.overall_risk.confidence.toFixed(0) : '\u2014'}%</span>
             </div>
             <p class={styles.heroHint}>
-                Lower is safer. State modifiers adjust each dimension's contribution but not the headline score.
+                Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.
             </p>
         </div>
     </section>
@@ -444,8 +452,7 @@
                 {/each}
             </div>
             <p class={styles.disclosureNote}>
-                Overall risk is a weighted sum of the 8 dimension scores. State and confidence modify each
-                dimension's contribution, but do not alter the headline score directly.
+                Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.
             </p>
         </div>
     </details>

@@ -577,9 +577,23 @@ pub fn derive_analysis(
         MarketPhase::Unknown
     };
 
-    // Opportunity from alignment dimensions (deprecated — L4 owns the canonical tree).
-    // Kept for backward compat on `analysis.opportunity_analysis` field.
-    let opp_dim = alignment.dimensions.get(9).map(|d| d.score).unwrap_or(50.0);
+    // Opportunity (deprecated — L4 owns the canonical tree; kept for
+    // backward compat on `analysis.opportunity_analysis`). v6.10.8: the
+    // chain is synced with the L4 §4 tree (02-08-opportunity-matrix.md)
+    // so the Analysis interpretation prose and the Metrics export label
+    // can never contradict the L4 verdict:
+    //   - TrendContinuation requires a directional bias AND non-reversing
+    //     momentum (the legacy default fell through to TrendContinuation
+    //     for EVERY market, including collapsed/neutral ones).
+    //   - MeanReversion requires the range regime (`is_range`) — the same
+    //     B2 gate the L4 tree enforces.
+    //   - LiquiditySqueeze is NOT derivable here (it needs L1.5 cascade
+    //     data); the legacy `opp_dim` heuristic is dropped.
+    //   - The default is NoClearOpportunity.
+    // Reversal (confirmed divergence) is likewise not derivable here —
+    // it needs the indicator signal map.
+    let momentum_not_exhausted = !matches!(momentum_assessment, MomentumAssessment::Reversing);
+    let is_range = matches!(regime, MarketRegime::Range | MarketRegime::Contraction);
     let opportunity = if trend_dim >= 75.0
         && (matches!(
             bias,
@@ -587,20 +601,18 @@ pub fn derive_analysis(
                 | MarketBias::StrongBullish
                 | MarketBias::Bearish
                 | MarketBias::StrongBearish
-        )) {
+        ))
+        && momentum_not_exhausted
+    {
         OpportunityType::TrendContinuation
     } else if vol_dim >= 70.0 && struct_dim >= 60.0 {
         OpportunityType::Breakout
     } else if trend_dim >= 60.0 && momentum_assessment == MomentumAssessment::Weakening {
         OpportunityType::Pullback
-    } else if vol_dim <= 30.0 {
+    } else if vol_dim <= 30.0 && is_range {
         OpportunityType::MeanReversion
-    } else if opp_dim < 30.0 {
-        OpportunityType::NoClearOpportunity
-    } else if opp_dim >= 90.0 && vol_dim >= 60.0 {
-        OpportunityType::LiquiditySqueeze
     } else {
-        OpportunityType::TrendContinuation
+        OpportunityType::NoClearOpportunity
     };
 
     // Market quality aggregate. Bug-fix #12: the legacy aggregate
@@ -609,9 +621,9 @@ pub fn derive_analysis(
     // strong trend + momentum + structure + volume but compressed
     // volatility (the typical "quiet before expansion" pattern), the
     // quality score was inflated to 75+ (Good) even though the
-    // volatility dimension was clearly 25-35. We now include all 5
-    // alignment dimensions so `market_quality` reflects the full
-    // picture.
+    // volatility dimension was clearly 25-35. (SUPERSEDED by the F3
+    // decision below — the current implementation again excludes
+    // volatility per the canonical spec.)
 // v6.10 (Phase 6 / F3): `market_quality` is the mean of the trend,
 // momentum, structure, and volume dimension scores (4 dims, NOT 5 —
 // volatility is excluded per the canonical spec at
@@ -635,7 +647,10 @@ let market_quality = if quality_score >= 85.0 {
 
     let mut rationale_parts: Vec<String> = Vec::new();
     rationale_parts.push(format!(
-        "MTF overall score {:.0}/100 → {}. {} of {} timeframes agree ({:.0}%). BBWP={:.0} ADX={:.0}.",
+        // `{:?}` (PascalCase) — the `Display` impl prints SCREAMING_SNAKE
+        // ("BEARISH"), which contradicted the prettified badge the panel
+        // renders ("Bearish").
+        "MTF overall score {:.0}/100 → {:?}. {} of {} timeframes agree ({:.0}%). BBWP={:.0} ADX={:.0}.",
         score,
         bias,
         if alignment.trend_agreement_pct >= 50.0 {
@@ -928,5 +943,78 @@ mod tests {
         assert_eq!(json, "\"COUNTER_TREND\"");
         let json = serde_json::to_string(&DirectionFamily::Neutral).unwrap();
         assert_eq!(json, "\"NEUTRAL\"");
+    }
+
+    // ── AN-4: the deprecated L3 opportunity chain mirrors the fixed L4 tree ──
+
+    fn custom_alignment(
+        trend_signed: f64,
+        mom_dim: f64,
+        vol_dim: f64,
+        struct_dim: f64,
+        score: f64,
+    ) -> AlignmentMatrix {
+        let mut a = AlignmentMatrix::empty("BTC-USD");
+        a.timeframes_present = 4;
+        a.mtf_trend_alignment = trend_signed;
+        a.mtf_overall_score = score;
+        if let Some(d) = a.dimensions.get_mut(1) {
+            d.score = mom_dim;
+        }
+        if let Some(d) = a.dimensions.get_mut(2) {
+            d.score = 50.0; // volume — neutral in these tests
+        }
+        if let Some(d) = a.dimensions.get_mut(3) {
+            d.score = vol_dim;
+        }
+        if let Some(d) = a.dimensions.get_mut(4) {
+            d.score = struct_dim;
+        }
+        a
+    }
+
+    #[test]
+    fn opportunity_chain_defaults_to_no_clear() {
+        // AN-4: a compressed market in an EXPANSION regime (vol ≤ 30 but
+        // NOT range) must NOT classify as MeanReversion, and the legacy
+        // default-TrendContinuation fallthrough is gone — the verdict
+        // mirrors the fixed L4 tree (B2 parity).
+        let a = custom_alignment(0.0, 50.0, 25.0, 50.0, 10.0);
+        // bbwp ≥ 85 → Expansion regime.
+        let d = derive_analysis(&a, Some(90.0), Some(20.0), None, None, None);
+        assert_eq!(d.market_regime, MarketRegime::Expansion);
+        assert_eq!(d.opportunity_analysis, OpportunityType::NoClearOpportunity);
+    }
+
+    #[test]
+    fn opportunity_mean_reversion_requires_range_regime() {
+        // The same compressed-vol profile in a RANGE regime classifies as
+        // MeanReversion (is_range satisfied).
+        let a = custom_alignment(0.0, 50.0, 25.0, 50.0, 10.0);
+        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None);
+        assert_eq!(d.market_regime, MarketRegime::Range);
+        assert_eq!(d.opportunity_analysis, OpportunityType::MeanReversion);
+    }
+
+    #[test]
+    fn opportunity_trend_continuation_requires_bias_and_momentum() {
+        // trend ≥ 75 + directional bias + stable momentum → TrendContinuation.
+        let a = custom_alignment(0.75, 70.0, 45.0, 60.0, 30.0);
+        let d = derive_analysis(&a, Some(50.0), Some(28.0), None, None, None);
+        assert_eq!(d.opportunity_analysis, OpportunityType::TrendContinuation);
+
+        // Reversing momentum must NOT classify as TrendContinuation.
+        let a2 = custom_alignment(0.75, 25.0, 45.0, 60.0, 30.0);
+        let d2 = derive_analysis(&a2, Some(50.0), Some(28.0), None, None, None);
+        assert_ne!(d2.opportunity_analysis, OpportunityType::TrendContinuation);
+    }
+
+    #[test]
+    fn opportunity_pullback_requires_weakening_momentum() {
+        // trend 65 (≥ 60) + Weakening momentum + vol above the 30 gate
+        // → Pullback, not MeanReversion.
+        let a = custom_alignment(0.3, 45.0, 45.0, 50.0, 10.0);
+        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None);
+        assert_eq!(d.opportunity_analysis, OpportunityType::Pullback);
     }
 }

@@ -1,6 +1,6 @@
 # PME Layer 2 — Exposure Layer
 
-**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/exposure_layer.rs`) is implemented; dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 2 of 4

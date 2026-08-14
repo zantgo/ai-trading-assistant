@@ -906,13 +906,17 @@ describe('topSetupSummary', () => {
         expect(t!.rr).toBeCloseTo(4.14, 1);
     });
 
-    it('returns geometric R:R for Neutral-family top profile when zones are present', () => {
+    it('resolves side from populated zones even for a Neutral-family profile (zone-presence is the wire truth)', () => {
         // Mirrors the SOL MeanReversion / BTC Breakout scenario: the
         // top profile has direction_family 'Neutral' so neither
         // long_expected_rr_internal nor short_expected_rr_internal is
-        // active. The aggregate fallback resolves to LONG (per
-        // net_bias_pct > 0) and produces a real R:R — the operator
-        // must see the actual ratio, not "N/A".
+        // active. The profile carries populated LONG zones, and under
+        // the 4b zone-presence rule the populated side IS the wire-side
+        // resolution → direction LONG. Viability still comes from the
+        // wire `trade_viability` (DirectionalNeutral); the R:R comes
+        // from the profile's own LONG bracket. (In production the L4
+        // producer never populates zones on a Neutral-family profile,
+        // so this fixture is a defensive edge case.)
         const opp = makeOpportunity({
             direction_family: 'Neutral',
             long_expected_rr_internal: 0,
@@ -922,10 +926,10 @@ describe('topSetupSummary', () => {
         opp.profiles[0].opportunity_type = 'MeanReversion';
         const t = topSetupSummary(opp, makeAnalysis('Neutral'), { net_bias_pct: 10 } as any);
         expect(t).not.toBeNull();
-        expect(t!.direction).toBe('NEUTRAL');
+        expect(t!.direction).toBe('LONG');
         expect(t!.viability).toBe('DirectionalNeutral');
-        // LONG aggregate fallback: entry mid 63100, target.low 66000,
-        // invalid 62400 → R:R ≈ 4.14
+        // LONG bracket: entry mid 63100, target.low 66000, invalid 62400
+        // → R:R ≈ 4.14
         expect(t!.rr).toBeCloseTo(4.14, 1);
     });
 
@@ -974,6 +978,88 @@ describe('topSetupSummary', () => {
         expect(t!.rationale).not.toContain('raw=');
         expect(t!.rationale).not.toContain('ratio=');
         expect(t!.rationale).toContain('preconditions');
+    });
+
+    it('R4: prefers decisionContext.bias over analysis.bias for direction resolution', () => {
+        // TrendRiding profile WITHOUT zones (family × bias fallback):
+        // decisionContext says Neutral, analysis says Bullish. The card
+        // must resolve NEUTRAL — the decision context is the same-candle
+        // mirror the verdict/probabilities come from, so the card can
+        // never contradict the gauge.
+        const opp = makeOpportunity({
+            long_entry_zone: null,
+            long_target_zone: null,
+            long_invalidation_level: null,
+            long_expected_rr_internal: null,
+            short_entry_zone: null,
+            short_target_zone: null,
+            short_invalidation_level: null,
+            short_expected_rr_internal: null,
+            trade_viability: null,
+        });
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'), { bias: 'Neutral' } as any);
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('NEUTRAL');
+        // And when the decision context agrees with the analysis, the
+        // family × bias resolution applies as before.
+        const t2 = topSetupSummary(opp, makeAnalysis('Bullish'), { bias: 'Bullish' } as any);
+        expect(t2!.direction).toBe('LONG');
+    });
+
+    it('R9: equal score + equal precondition ratio resolves to the primary opportunity', () => {
+        const profileFor = (opportunity_type: string): any => ({
+            opportunity_type,
+            score: 60,
+            preconditions_met: 2,
+            preconditions_total: 3,
+            notes: '',
+            direction_family: 'TrendRiding',
+            long_entry_zone: { low: 63900, high: 64100 },
+            long_target_zone: { low: 64800, high: 65000 },
+            long_invalidation_level: 63500,
+            long_expected_rr_internal: 2.0,
+            short_entry_zone: null,
+            short_target_zone: null,
+            short_invalidation_level: null,
+            short_expected_rr_internal: null,
+            trade_viability: null,
+        });
+        const opp = makeOpportunity({}, {
+            primary_opportunity: 'Breakout',
+            opportunity_score: 60,
+            profiles: [profileFor('TrendContinuation'), profileFor('Breakout')],
+        });
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.opportunity_type).toBe('Breakout');
+    });
+
+    it('R9: a higher precondition ratio beats primary priority', () => {
+        const profileFor = (opportunity_type: string, met: number, total: number): any => ({
+            opportunity_type,
+            score: 60,
+            preconditions_met: met,
+            preconditions_total: total,
+            notes: '',
+            direction_family: 'TrendRiding',
+            long_entry_zone: { low: 63900, high: 64100 },
+            long_target_zone: { low: 64800, high: 65000 },
+            long_invalidation_level: 63500,
+            long_expected_rr_internal: 2.0,
+            short_entry_zone: null,
+            short_target_zone: null,
+            short_invalidation_level: null,
+            short_expected_rr_internal: null,
+            trade_viability: null,
+        });
+        const opp = makeOpportunity({}, {
+            primary_opportunity: 'Breakout',
+            opportunity_score: 60,
+            profiles: [profileFor('TrendContinuation', 3, 3), profileFor('Breakout', 1, 3)],
+        });
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.opportunity_type).toBe('TrendContinuation');
     });
 });
 

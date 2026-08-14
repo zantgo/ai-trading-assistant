@@ -82,7 +82,7 @@ function makeInstance(overrides: Partial<InstanceState> = {}): InstanceState {
         advisory: null,
         decisionContext: null,
         opportunity: null,
-        lastMatrixTimestamp: -Infinity,
+        lastMatrixTimestampBySlot: {},
         lastCompletedClose: null,
         automationEnabled: false,
         automationIntervalMode: 'interval',

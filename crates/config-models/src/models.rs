@@ -89,7 +89,7 @@ fn default_candle_duration() -> u64 {
 /// size = 500                                # CB-01
 /// stale_threshold_secs = 300                # CB-04 / DCP-05 / ILS-07
 /// fetch_timeout_ms = 30000                  # HFP-10
-/// sub_minute_skip_historical = true         # CB-05 / HFP-03
+/// sub_minute_skip_historical = false        # PRI-03 (v6.10.7): sub-minute state-replay warmup
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandleBufferConfig {
@@ -114,9 +114,14 @@ pub struct CandleBufferConfig {
     #[serde(default = "default_fetch_timeout_ms")]
     pub fetch_timeout_ms: u64,
 
-    /// When `true` (default), sub-minute timeframes (`timeframe_secs < 60`)
-    /// short-circuit historical fetch and start at 0 candles (CB-05 / HFP-03).
-    /// Set to `false` only for legacy compatibility with v6.4 behavior.
+    /// When `true`, sub-minute timeframes (`timeframe_secs < 60`) skip the
+    /// historical state-replay warmup (PRI-03) and start at 0 candles
+    /// (CB-05 / HFP-03). When `false` (default since v6.10.7), sub-minute
+    /// slots warm their indicator state machines / `history` buffer by
+    /// replaying real closes: local DB rows for the sub-minute TF first,
+    /// topped up with REST candles at the nearest exchange-standard interval
+    /// (60 s). The replayed bars never enter `snapshot_history` (PRI-08) —
+    /// the chart stays live-only.
     #[serde(default = "default_sub_minute_skip_historical")]
     pub sub_minute_skip_historical: bool,
 }
@@ -145,7 +150,10 @@ fn default_fetch_timeout_ms() -> u64 {
 }
 
 fn default_sub_minute_skip_historical() -> bool {
-    true
+    // PRI-03 (v6.10.7): sub-minute state-replay warmup is ON by default so
+    // sub-minute slots reach the same post-warmup analytical state as
+    // above-minute slots. Set `true` to opt out.
+    false
 }
 
 /// Migration helper: legacy `analysis_limit` keys (the previous per-instance

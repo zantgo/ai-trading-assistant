@@ -189,6 +189,7 @@ pub fn run_pipeline_snapshot(
         &core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
         300,
         bar_count,
+        bar_count,
         is_shadow,
         1000,
         true,

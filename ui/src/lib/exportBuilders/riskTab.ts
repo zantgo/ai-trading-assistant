@@ -137,6 +137,34 @@ const LEVEL_LABELS: Record<RiskLevel, string> = {
   Extreme: 'Extreme',
 };
 
+/**
+ * RK-D (v6.10.9): detect the backend's warmup sentinel — `RiskMatrix::empty`
+ * fills every dimension AND the overall at exactly 50/Moderate with no
+ * evidence. The panel treats that signature as "awaiting" (AWAITING cards +
+ * null hero) instead of rendering fabricated "Moderate risk" data.
+ */
+export function isAwaitingRiskMatrix(risk: RiskMatrix | null | undefined): boolean {
+  if (!risk) return true;
+  const dims = [
+    risk.market_risk,
+    risk.volatility_risk,
+    risk.execution_liquidity_risk,
+    risk.structure_risk,
+    risk.momentum_risk,
+    risk.signal_risk,
+    risk.execution_risk,
+    risk.cascade_risk,
+    risk.overall_risk,
+  ];
+  return dims.every(
+    (d) =>
+      !!d &&
+      d.score === 50 &&
+      d.level === 'Moderate' &&
+      (d.evidence ?? []).length === 0,
+  );
+}
+
 function levelRank(l: RiskLevel): number {
   return LEVELS.indexOf(l);
 }
@@ -350,7 +378,7 @@ function buildInterpretationHeadline(headline: RiskHeadlineParts | null): string
   if (headline.extreme_count > 0) parts.push(`${headline.extreme_count} extreme`);
   if (headline.high_count > 0) parts.push(`${headline.high_count} high`);
   if (headline.moderate_count > 0) parts.push(`${headline.moderate_count} moderate`);
-  if (parts.length === 0) return `all dimensions calm · overall ${headline.overall_level.toLowerCase()}`;
+  if (parts.length === 0) return `all dimensions below moderate · overall ${headline.overall_level.toLowerCase()}`;
   return `${parts.join(' · ')} · overall ${headline.overall_level.toLowerCase()}`;
 }
 
@@ -413,7 +441,11 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
     timestamp: args.timestamp,
     isCompleted: args.isCompleted,
   });
-  const headline = buildHeadlineParts(args.risk);
+  // RK-D (v6.10.9): the warmup sentinel matrix renders as AWAITING —
+  // mirror the panel's gate so the export can never claim real
+  // "Moderate" data from the backend's empty matrix.
+  const risk = isAwaitingRiskMatrix(args.risk) ? null : args.risk;
+  const headline = buildHeadlineParts(risk);
   const disclosure: RiskDisclosureBlock = {
     weights: [
       { label: 'Market', pct: 14 },
@@ -425,23 +457,23 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
       { label: 'Execution', pct: 10 },
       { label: 'Cascade', pct: 14 },
     ],
-    note: 'Overall risk is a weighted sum of the 8 dimension scores. State and confidence modify each dimension\'s contribution, but do not alter the headline score directly.',
+    note: 'Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.',
   };
-  const baseHero = args.risk ? buildHeroBlock(args.risk) : null;
+  const baseHero = risk ? buildHeroBlock(risk) : null;
   const hero = baseHero
     // Verbatim screen copy (RiskPanel.svelte hero hint).
-    ? { ...baseHero, hint: 'Lower is safer. State modifiers adjust each dimension\'s contribution but not the headline score.' }
+    ? { ...baseHero, hint: 'Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.' }
     : null;
   const payload: RiskPayload = {
     source_tab: 'risk',
     meta,
     header: buildHeaderBlock(args.headerSpec),
     hero,
-    summary_counts: buildSummaryCounts(args.risk),
-    dimensions: buildDimensionsBlock(args.risk, args.flow, args.cluster),
+    summary_counts: buildSummaryCounts(risk),
+    dimensions: buildDimensionsBlock(risk, args.flow, args.cluster),
     headline_parts: headline,
     interpretation_headline: buildInterpretationHeadline(headline),
-    interpretation_full: buildInterpretationFull(args.risk),
+    interpretation_full: buildInterpretationFull(risk),
     disclosure,
     awaiting_dimensions_text: 'Awaiting risk assessment — this dimension will populate once market data stabilizes.',
   };

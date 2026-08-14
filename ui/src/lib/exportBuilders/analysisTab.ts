@@ -214,10 +214,22 @@ function buildSignalLeanHero(
   const allTexts = [...supporting, ...contradicting];
   const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
   const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
-  if (bull === 0 && bear === 0) {
+  // AN-2: empty lists → pre-warmup placeholder; non-empty but all-neutral
+  // → an honest "Neutral signals" hero (never "No signals" beside rendered
+  // neutral squares).
+  if (allTexts.length === 0) {
     return {
       label_html: 'No signals',
       meta_html: 'Waiting for cross-TF consensus',
+      bullish_pct: 0,
+      bearish_pct: 0,
+      tone: 'split',
+    };
+  }
+  if (bull === 0 && bear === 0) {
+    return {
+      label_html: 'Neutral signals',
+      meta_html: 'No directional lean across timeframes',
       bullish_pct: 0,
       bearish_pct: 0,
       tone: 'split',
@@ -229,22 +241,15 @@ function buildSignalLeanHero(
   const tone: 'bull' | 'bear' | 'split' =
     bull > bear * 1.5 ? 'bull' : bear > bull * 1.5 ? 'bear' : 'split';
   const direction = tone === 'bull' ? 'bullish' : tone === 'bear' ? 'bearish' : 'Split signals';
-  // Screen ratio: `bear > 0 ? (bull/bear).toFixed(1) : bull.toFixed(0)` for
-  // the bull-dominant arm, mirrored for the bear arm. Never "∞".
-  const ratio =
-    tone === 'bull'
-      ? bear > 0 ? (bull / bear).toFixed(1) : bull.toFixed(0)
-      : tone === 'bear'
-        ? bull > 0 ? (bear / bull).toFixed(1) : bear.toFixed(0)
-        : null;
-  // Screen renders the split tone WITHOUT the parenthetical — the bull/bear
-  // counts live in `meta_html` (and the lean label chip).
+  // AN-3: a zero-opposing count renders "3:0" (never "3:1").
+  const ratioText = (dominant: number, opposing: number) =>
+    opposing === 0 ? `${dominant}:0` : `${(dominant / opposing).toFixed(1)}:1`;
   const hero = tone === 'split'
     ? 'Split signals'
     : `Net ${direction} (${bull}↑ vs ${bear}↓)`;
   return {
     label_html: hero,
-    meta_html: tone === 'split' ? `${bull}↑ vs ${bear}↓` : `${ratio}:1 signal ratio`,
+    meta_html: tone === 'split' ? `${bull}↑ vs ${bear}↓` : `${tone === 'bull' ? ratioText(bull, bear) : ratioText(bear, bull)} signal ratio`,
     bullish_pct: bullishPct,
     bearish_pct: bearishPct,
     tone,
@@ -258,8 +263,12 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
   const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
   const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
   let lean: AnalysisSignalsBlock['lean'];
-  if (bull === 0 && bear === 0) {
+  // AN-2: mirrors the panel — empty lists are the pre-warmup placeholder;
+  // all-neutral signals surface the honest neutral lean.
+  if (allTexts.length === 0) {
     lean = { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split' };
+  } else if (bull === 0 && bear === 0) {
+    lean = { label: 'Neutral signals · no directional lean', bullish: 0, bearish: 0, tone: 'split' };
   } else if (bull > bear * 1.5) {
     lean = { label: `Net bullish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bull' };
   } else if (bear > bull * 1.5) {

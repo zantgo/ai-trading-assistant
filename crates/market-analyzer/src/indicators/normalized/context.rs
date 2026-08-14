@@ -184,7 +184,13 @@ impl NormalizationEngine {
             }
             _ => (0.0, "CONSOLIDATED_TANGLED_STACK"),
         };
-        NormalizedIndicatorValue::scalar(ctx.price, norm, label)
+        // PRI-10 (v6.10.7): raw_value = fast EMA (registry `value_source:
+        // "sub:fast"`). The previous price-anchored raw (close) made the
+        // Metrics Raw cell show the close and fed the raw-fallback bug in
+        // the chart history layer. Fall back to price only when the fast
+        // EMA is not yet available (cold edge).
+        let raw = ctx.ema_fast.unwrap_or(ctx.price);
+        NormalizedIndicatorValue::scalar(raw, norm, label)
     }
 
     /// VWAP fair-value baseline (premium/discount reversion zones).

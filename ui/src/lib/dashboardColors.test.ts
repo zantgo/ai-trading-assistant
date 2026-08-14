@@ -45,17 +45,22 @@ describe('biasColor', () => {
 });
 
 describe('riskDangerColor', () => {
-    it('80+ -> extreme red', () => {
-        expect(riskDangerColor(85)).toBe('#f87171');
+    it('80+ -> extreme red (canonical level band)', () => {
+        expect(riskDangerColor(85)).toBe('#ef4444');
+        expect(riskDangerColor(80)).toBe('#ef4444');
     });
-    it('50-69 -> amber', () => {
-        expect(riskDangerColor(60)).toBe('#f59e0b');
+    it('60-79 -> high red (canonical level band)', () => {
+        expect(riskDangerColor(60)).toBe('#f87171');
+        expect(riskDangerColor(75)).toBe('#f87171');
     });
-    it('30-49 -> bull green', () => {
-        expect(riskDangerColor(40)).toBe('#4ade80');
+    it('40-59 -> moderate amber (canonical level band)', () => {
+        expect(riskDangerColor(40)).toBe('#f59e0b');
+        expect(riskDangerColor(45)).toBe('#f59e0b');
+        expect(riskDangerColor(59)).toBe('#f59e0b');
     });
-    it('<30 -> solid green', () => {
+    it('<40 -> low green (canonical level band)', () => {
         expect(riskDangerColor(20)).toBe('#22c55e');
+        expect(riskDangerColor(39)).toBe('#22c55e');
     });
     it('null -> inactive', () => {
         expect(riskDangerColor(null)).toBe('rgba(255,255,255,0.25)');

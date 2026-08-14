@@ -7,7 +7,7 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -377,11 +377,11 @@ Notes:
   "meta": { },
   "header": { },
   "hero": {
-    "mtf_overall_score": 0.4, "mtf_overall_label": "STRONG_BULLISH",
+    "mtf_overall_score": 62.0, "mtf_overall_label": "STRONG_BULL_MTF",
     "mtf_overall_label_display": "STRONG BULL",
     "timeframes_present": 4, "signal_cross_tf_count": 2, "trend_agreement_pct": 82
   },
-  "breakdown_meta": "T:0.45 M:0.30 Vt:0.10 Vm:-0.20",
+  "breakdown_meta": "T:0.70 M:0.60 Vt:0.50 Vm:0.40",
   "dimensions": [
     { "name": "Trend", "score": 75, "state": "STRONG", "confidence": 78 }
   ],
@@ -390,26 +390,26 @@ Notes:
     "label": "strong_consensus",
     "label_display": "Strong consensus — timeframes aligned",
     "polarization": [
-      { "key": "T",  "label": "Trend",      "value": 0.45, "value_display": "+0.45" },
-      { "key": "M",  "label": "Momentum",   "value": 0.30, "value_display": "+0.30" },
-      { "key": "Vt", "label": "Volume",     "value": 0.10, "value_display": "+0.10" },
-      { "key": "Vm", "label": "Volatility", "value": -0.20, "value_display": "-0.20" }
+      { "key": "T",  "label": "Trend",      "value": 0.70, "value_display": "+0.70" },
+      { "key": "M",  "label": "Momentum",   "value": 0.60, "value_display": "+0.60" },
+      { "key": "Vt", "label": "Volume",     "value": 0.50, "value_display": "+0.50" },
+      { "key": "Vm", "label": "Volatility", "value": 0.40, "value_display": "+0.40" }
     ]
   },
   "per_timeframe": [
-    { "timeframe": "MICRO", "trend_score": 0.45, "trend_score_display": "0.45",
-      "momentum_score": 0.30, "momentum_score_display": "0.30",
+    { "timeframe": "MICRO", "trend_score": 0.70, "trend_score_display": "0.70",
+      "momentum_score": 0.60, "momentum_score_display": "0.60",
       "overall_score": 1.0, "overall_score_display": "1.0",
       "regime": "TRENDING_BULL", "active_signals": 5 }
   ],
   "score_calculation": {
     "weights": [
       { "key": "T", "label": "Trend", "pct": 50, "color": "#22c55e",
-        "value": 0.45, "value_display": "+0.45", "contribution": 0.225, "contribution_display": "+0.23" }
+        "value": 0.70, "value_display": "+0.70", "contribution": 0.35, "contribution_display": "+0.35" }
     ],
-    "formula": "0.5 * (0.45) + 0.3 * (0.30) + 0.1 * (0.10) + 0.1 * (-0.20) = 0.4"
+    "formula": "(0.5 * (0.70) + 0.3 * (0.60) + 0.1 * (0.50) + 0.1 * (0.40)) × 100 = 62.0"
   },
-  "interpretation": "Multi-timeframe alignment shows <strong>strong directional consensus</strong> (82% agreement across 4/4 timeframes). The composite score of 0.4 is classified as <strong>STRONG BULL</strong>. 2 cross-timeframe signals reinforce the current bias.",
+  "interpretation": "Multi-timeframe alignment shows <strong>strong directional consensus</strong> (82% agreement across 4/4 timeframes). The composite score of 62.0 is classified as <strong>STRONG BULL</strong>. 2 cross-timeframe signal votes reinforce the current bias.",
   "consensus_conflict_banner": ""
 }
 ```
@@ -419,6 +419,9 @@ Notes:
 - `interpretation` carries the real `mtf_overall_label` (never a hardcoded token) and matches the panel sentence verbatim (HTML `<strong>` markers included).
 - `consensus.trend_agreement_pct` keeps the raw float (screen text `toFixed(0)`, bar width `toFixed(1)`).
 - The `NO_DATA` dimension state renders `"NO DATA"` on both surfaces (panel and export).
+- **Score formula (v6.10.10).** `score_calculation.formula` carries the `× 100` factor: the backend computes `mtf_overall_score = 100·(0.5·T + 0.3·M + 0.1·Vt + 0.1·Vm)` on signed axes `[−1, 1]`, so the displayed equation balances (the legacy formula omitted the factor and printed `≈ 0.4 = 40.0`).
+- **Low-agreement wording (v6.10.10).** The sub-50 consensus label reads `"Mixed consensus — timeframes not aligned"` and the banner `"TIMEFRAME MISALIGNMENT — …"` — "conflict" overstated the case where low agreement comes from undecided (neutral) TFs.
+- **Sentinel gate (v6.10.10).** The backend's warmup sentinel (`timeframes_present: 0`, label `NO_DATA`, agreement 0) renders the awaiting consensus (`trend_agreement_pct: null`, `label: null`, `label_display: "—"`) and the awaiting interpretation — never a fabricated "Conflict" verdict. The 10 `NO_DATA` dimension rows are kept.
 - **Null state (`alignment: null`).** The consensus block mirrors the screen placeholders exactly: `trend_agreement_pct: null`, `label: null`, `label_display: "—"`, polarization `value_display: "+0.00"`, and score-calculation `value_display` / `contribution_display` / `formula` all `"—"` — never fabricated zeros or a fabricated "Conflict" verdict.
 
 ### 3.4 Opportunity Tab — `source_tab: "opportunity"`
@@ -482,8 +485,8 @@ Notes:
 - `hold_scenario_note` (badge `HOLD / NO CLEAR` + body) appears only when the decision rank is HOLD.
 - Confluent levels are capped at the screen's first 4 per group; sources are the on-screen abbreviations (FIB/VP/PP/SR/LIQ, with the screen's `ATR` fallback for unknown tokens).
 - The evaluated list excludes the NoClearOpportunity profile (it has its own strip).
-- `directional_bars` is **always** emitted — when the matrix is absent it mirrors the screen's always-rendered bars as `{0, 0, 100}`.
-- `expected_rr` mirrors the screen cell exactly: `N/A` only when the verdict is HOLD **and** the active-side R:R is 0; any other state emits `available: true` with the raw value (including `0` → screen `"0.00"`).
+- `directional_bars` is **always** emitted — when the matrix is absent it mirrors the screen's always-rendered bars as `{0, 0, 100}`. The split is direction-aware (v6.10.6): the effective direction is the top qualifying profile's resolved side (`selectProfileSide`), else the macro bias, else the argmax per-side R:R; conviction weights **only the active side's** R:R (`exp(RR·3)` vs a hold floor, capped by `opportunity_score`), so a bearish panel can never emit bullish-dominant bars from a countertrend long bracket, and a `NO CLEAR SETUP` (score 0) matrix emits `{0, 0, 100}`.
+- `expected_rr` mirrors the screen cell exactly: `N/A` only when the verdict is HOLD **and** the active-side R:R is 0 (degenerate ratios below the 0.1 meaningfulness floor read as 0); any other state emits `available: true` with the raw value (including `0` → screen `"0.00"`).
 - `evaluated_setups[].notes` / `trade_setups[].notes` are the **raw wire strings** the panel renders verbatim (never prettified).
 - Empty states render the screen's `"—"` placeholder in `header_block.opportunity_class`, `rr_internal.time_horizon` and all four `market_position` fields.
 
@@ -497,7 +500,7 @@ Notes:
   "hero": {
     "overall_score": 48, "overall_level": "Moderate", "overall_state": "Elevated",
     "overall_confidence": 74, "top_severity": "High",
-    "hint": "Lower is safer. State modifiers adjust each dimension's contribution but not the headline score."
+    "hint": "Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score."
   },
   "summary_counts": {
     "very_low": { "label": "Very Low", "count": 0 },
@@ -538,7 +541,7 @@ Notes:
       { "label": "Momentum", "pct": 14 }, { "label": "Signal", "pct": 10 },
       { "label": "Execution", "pct": 10 }, { "label": "Cascade", "pct": 14 }
     ],
-    "note": "Overall risk is a weighted sum of the 8 dimension scores. State and confidence modify each dimension's contribution, but do not alter the headline score directly."
+    "note": "Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend (elevating / improving / stable); it does not change the score."
   },
   "awaiting_dimensions_text": "Awaiting risk assessment — this dimension will populate once market data stabilizes."
 }
@@ -549,6 +552,10 @@ Notes:
 - `asymmetry_magnitude_pct` is the screen's percentage (`|asym| × 100`); `asymmetry_display` is the exact badge sentence.
 - Zero-count sentences are omitted from `interpretation_full` exactly like the screen paragraph.
 - Dimension names are **byte-identical to the screen cards** — including the abbreviated `"Exec Liquidity Risk"` (not `"Execution Liquidity Risk"`).
+- **Risk state (v6.10.9).** `state` is functional — the backend derives `CRITICAL` (score ≥ 80) / `ELEVATED` (score ≥ 60) / `INCREASING` / `IMPROVING` / `STABLE` (previous-synthesis delta ±10). The state pill/arrows and the L5 header sublabel vary accordingly; `state_display` carries the arrow + uppercase state.
+- **Warmup sentinel gate (v6.10.9).** The backend's empty matrix (`RiskMatrix::empty` — every dimension AND the overall at exactly `50`/`Moderate` with no evidence) is treated as awaiting: `hero: null`, all 8 `awaiting` rows, and the initializing `interpretation_full` — never fabricated "Moderate risk" data. Consumers can reuse `isAwaitingRiskMatrix` (exported from `exportBuilders/riskTab.ts`).
+- **Disclosure/hint copy (v6.10.9).** The state chip is descriptive — it does not modify the weighted sum. The old "State and confidence modify each dimension's contribution" claim was never implemented and has been removed.
+- `interpretation_headline` reads `all dimensions below moderate · overall …` when no dimension reaches Moderate (was "calm").
 - **Null state (`risk: null`).** `dimensions` carries the 8 placeholder rows the screen's "AWAITING" cards render (name + `weight_pct`, `awaiting: true`, `awaiting_badge: "AWAITING"`), and `interpretation_full` carries the "Risk synthesis is initializing — …" paragraph verbatim.
 
 ### 3.6 Analysis Tab — `source_tab: "analysis"`
@@ -604,11 +611,14 @@ Notes:
 Notes:
 - `signals.list` is the exact merged, timeframe-sorted list the screen grid squares render (bucket-annotated).
 - With zero directional signals the hero still carries the screen sentences (`label_html: "No signals"`, `meta_html: "Waiting for cross-TF consensus"`) — including when `analysis` is null; the hero block is never absent.
+- **Neutral signals (v6.10.8).** The hero distinguishes *no data yet* (empty `supporting_signals`/`contradicting_signals` → `"No signals"` / `"Waiting for cross-TF consensus"`) from *all timeframes neutral* (non-empty lists but zero bullish/bearish → `label_html: "Neutral signals"`, `meta_html: "No directional lean across timeframes"`, tone `split`). The screen renders neutral signals with a gray square + flat dash icon (never the bearish red styling).
+- **Zero-opposing ratio (v6.10.8).** `meta_html` renders `"3:0 signal ratio"` (or `"0:3"`) when the opposing count is zero — never a misleading `"3:1"` that implies opposing signals exist. The `2.0:1` format is unchanged when both sides have counts.
 - The split-tone hero label is exactly the screen's `"Split signals"` (the bull/bear counts live in `meta_html` — no parenthetical in `label_html`).
 - Each signal row carries `signals_count_display` (`"—"` when the count is absent) alongside the raw `signals_count`.
 - Empty states render the screen's `"—"` placeholder in the five qualitative cards, `cycle_phase`, the inactive per-TF score displays and `rationale`.
 - `interpretation` is the raw text; `interpretation_display` carries the keyword-`<strong>` markup the screen renders (shared `highlightKeywords` helper).
 - `cycle_phase` uses the shared `prettifyPhase` helper — identical string on screen and in the JSON.
+- The Interpretation's opportunity sentence follows the L3 `opportunity_analysis` chain, which is synced with the L4 §4 tree (v6.10.8) — the prose can no longer claim "Favors trend continuation" under an L4 NO CLEAR SETUP verdict.
 
 ### 3.7 Recommendation Tab — `source_tab: "recommendation"`
 
@@ -664,9 +674,10 @@ Notes:
   },
   "strategy": {
     "entry": "Pullback", "exit": "Trend Weakening",
-    "protection": "ATR-Based", "target": "Resistance-Based"
+    "protection": "ATR-Based", "target": "Resistance-Based", "hold_caption": null
   },
-  "final_verdict": "Long on pullback toward the 63200-63400 entry zone with invalidation below 62800."
+  "final_verdict": "Long on pullback toward the 63200-63400 entry zone with invalidation below 62800.",
+  "final_verdict_guidance": null
 }
 ```
 
@@ -681,6 +692,10 @@ Notes:
 - Missing `entry_danger` reads 50 (MODERATE) exactly like the panel.
 - `top_setup_empty_text` carries the section-meta caption the panel renders when no qualifying setup exists (`"no qualifying setup yet"`); it is `null` whenever a setup renders.
 - The four `strategy` fields render the screen's `"—"` placeholder when the advisory guidance is absent.
+- **Gauge needle (v6.10.7 / R1).** `gauge.net_bias_pct` / `bias_direction` are the raw long−short math, but the panel's needle renders **neutral** (amber, `0%`, no arc) whenever `verdict.top === "HOLD"` — a green "+44%" needle under an amber HOLD badge contradicted the verdict. Consumers derive the drawn needle from `verdict.top`. The probability split is rendered under the dial (`long_pct` / `hold_pct` / `short_pct`).
+- **Header R:R chip rule (v6.10.7 / R2).** The header chip mirrors the Safety-Flags KPI exactly: `N/A` only when `verdict.top === "HOLD"` AND the risk-adjusted R:R is `0`; a HOLD verdict with a non-zero R:R still surfaces `1:X.Y`.
+- **Final verdict (v6.10.7 / R6).** `final_verdict` is verdict-consistent: under `verdict.top === "HOLD"` it carries the verdict sentence (`HOLD — no directional call (readiness: …)`), never the advisory's directional "Entry: immediate" text; the advisory `final_recommendation` is carried separately as `final_verdict_guidance` (`Environment guidance: …`, `null` otherwise). `strategy.hold_caption` mirrors the panel's muted "environment playbook" caption under HOLD (`null` otherwise).
+- `price_levels.hold_placeholder` (v6.10.7 / R5) describes the ACTUAL card state: the Top Setup card carries the aggregated bracket on the net-bias side (R:R `N/A` when geometry is inverted) — not the close-pinned sentinel the legacy copy claimed.
 - The `no_clear_card` renders only when the top setup is absent AND the primary opportunity is NoClearOpportunity. When present it carries the `title` / `body` strings:
 
 ```json

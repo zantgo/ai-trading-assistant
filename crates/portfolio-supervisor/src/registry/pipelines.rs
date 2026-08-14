@@ -1098,7 +1098,7 @@ async fn spawn_tasks(
     // operators can see at a glance whether the cluster refresh is alive.
     if liquidity_config.enabled {
         let pair_str = pair_key.to_string();
-        let per_tf_handles: Vec<(
+        let mut per_tf_handles: Vec<(
             TimeframeSlot,
             &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
             &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
@@ -1109,6 +1109,19 @@ async fn spawn_tasks(
             (TimeframeSlot::Slow, slow_cluster_matrix, slow_cluster_status, slow_cfg.candles.duration_seconds),
             (TimeframeSlot::Macro, macro_cluster_matrix, macro_cluster_status, macro_cfg.candles.duration_seconds),
         ];
+        // PRI-07 (v6.10.7): custom slots also get a cluster refresh task
+        // (previously only the four default slots did, so custom-slot charts
+        // had no LIQ HEATMAP data). Each custom pipeline is a full
+        // `TimeframePipeline` with its own cluster_matrix / cluster_status /
+        // timeframe_secs.
+        for (id, pipe) in &active_pair.custom_pipelines {
+            per_tf_handles.push((
+                TimeframeSlot::Custom { id: *id },
+                &pipe.cluster_matrix,
+                &pipe.cluster_status,
+                pipe.timeframe_secs,
+            ));
+        }
 
         for (slot, handle, status_handle, tf_secs) in per_tf_handles {
             // v6.10 (Phase 2 / B5): per-TF kill switch. Read
@@ -1135,10 +1148,11 @@ async fn spawn_tasks(
             }
             // Cadence resolution:
             //   - `cluster_refresh_secs == 0` → synchronize with TF candle cadence
-            //   - any value > 0                  → clamp(min, 60); operator override
+            //   - any value > 0                → operator override (≥ 1 s)
             // The default is 0 (== TF cadence) since v6.5; the legacy 300 s default
             // was too long for an opt-in chart overlay that users expect to react to
-            // observed price action.
+            // observed price action. PRI-07: the cadence adapts to the slot's
+            // CONFIGURED duration — nothing is hardcoded to 60/180/300/900.
             let configured = liquidity_config.cluster_refresh_secs;
             let cadence_secs = if configured == 0 {
                 tf_secs.max(1)
@@ -1208,9 +1222,20 @@ async fn spawn_tasks(
                     }
                 }
 
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-                    cadence_secs,
-                ));
+                // PRI-07 (v6.10.7): candle-aligned refresh. The interval is
+                // phase-locked to the TF's epoch boundaries (interval_at)
+                // instead of a free-running timer, so the cluster matrix is
+                // recomputed at candle-close instants — the same cadence the
+                // chart's completed candles use. The first tick lands on the
+                // next boundary; the immediate first-fire above still gives
+                // the overlay data at startup.
+                let start = core_domain::LatencyTracker::now_ms();
+                let next_boundary = (start / (cadence_secs * 1000) + 1) * cadence_secs * 1000;
+                let first_delay = next_boundary.saturating_sub(start);
+                let mut interval = tokio::time::interval_at(
+                    tokio::time::Instant::now() + std::time::Duration::from_millis(first_delay),
+                    std::time::Duration::from_secs(cadence_secs),
+                );
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     tokio::select! {

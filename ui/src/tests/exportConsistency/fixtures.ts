@@ -321,8 +321,8 @@ export function makeAlignment(): AlignmentMatrix {
     mtf_momentum_alignment: 0.3,
     mtf_volume_alignment: 0.1,
     mtf_volatility_alignment: -0.2,
-    mtf_overall_score: 0.4,
-    mtf_overall_label: 'STRONG_BULLISH',
+    mtf_overall_score: 30.5,
+    mtf_overall_label: 'WEAK_BULL_MTF',
     timeframe_alignments: [
       { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.45, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING_BULL', active_signals: 5, price: MARK_PRICE },
       { timeframe: 'FAST', timeframe_secs: 180, trend_score: 0.32, momentum_score: 0.25, overall_score: 0.6, regime: 'TRENDING_BULL', active_signals: 3, price: MARK_PRICE },

@@ -258,6 +258,25 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             } else {
                 merged[key] = val;
             }
+            // PRI-11 (v6.10.7): deep-merge the `values` sub-map. A shadow
+            // frame's entry may legitimately omit gated sub-keys (e.g.
+            // ema_stack carries only `fast` between bars 10–50 while
+            // medium/slow/long are still under their `bars_required`
+            // gate). Replacing the whole entry dropped those lines from
+            // the chart until the next completed frame — a 4 Hz flicker
+            // during the partial-ribbon window. Incoming sub-keys win;
+            // absent ones are carried forward from the previous entry.
+            const prevValues = (prev as unknown as Record<string, unknown> | undefined)?.values;
+            const nextValues = (val as unknown as Record<string, unknown> | undefined)?.values;
+            if (
+                prevValues && nextValues &&
+                typeof prevValues === 'object' && typeof nextValues === 'object'
+            ) {
+                merged[key] = {
+                    ...merged[key],
+                    values: { ...(prevValues as Record<string, number>), ...(nextValues as Record<string, number>) },
+                } as never;
+            }
         }
         tf.indicators = merged;
     }
@@ -355,22 +374,47 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         // The guard accepts a frame only when:
         //   (a) it is a completed-candle frame, AND
         //   (b) its `timestamp` is strictly newer than the last accepted
-        //       frame's timestamp.
+        //       MATRIX frame's timestamp.
         //
         // The monotonicity check naturally enforces "one update per
         // completed-candle close" across all slots — whichever slot
         // closes first wins, and slower-slot frames with newer
         // timestamps overwrite. Shadow frames are silently rejected
         // because `is_completed !== true`.
+        //
+        // v6.12 (sub-minute matrix deadlock): the timestamp is bumped ONLY
+        // when the frame actually carries a matrix payload. The sub-minute
+        // force-close path emits a completed frame every second WITHOUT the
+        // matrix payload (chart/indicator continuity only). Bumping the
+        // guard on those frames pinned `lastMatrixTimestamp` at ~wall-clock,
+        // so the ≥1m slots' matrix frames (whose `timestamp` is the closed
+        // bucket's START, always ~duration in the past) could never pass
+        // `frameTs > lastMatrixTimestamp` — the pair-level mirrors stayed
+        // empty forever and every non-chart tab showed no values.
+        //
+        // PRI-09 (v6.10.7): the guard is PER-SLOT — each slot's frames are
+        // compared only against that slot's last accepted matrix frame, so
+        // no slot can starve the mirrors (structurally immune to the
+        // cross-slot race the single-timestamp guard could not express).
         const frameTs = num((snapshot as Record<string, unknown>).timestamp);
         const isCompleted = (snapshot as Record<string, unknown>).is_completed === true;
+        const hasMatrixPayload = !!(snapshot.alignment || snapshot.analysis ||
+            snapshot.risk || snapshot.advisory || snapshot.decision_context ||
+            snapshot.opportunity);
+        const lastSlotTs = pair.lastMatrixTimestampBySlot[tf.slot] ?? -Infinity;
         const acceptMatrixFrame =
             isCompleted &&
             frameTs != null &&
-            frameTs > pair.lastMatrixTimestamp;
+            frameTs > lastSlotTs;
 
         if (acceptMatrixFrame) {
-            pair.lastMatrixTimestamp = frameTs;
+            // Monotonicity is enforced among MATRIX frames only; matrix-less
+            // completed frames (sub-minute force-closes / doji fills) neither
+            // advance the guard nor overwrite the mirrors, so they cannot
+            // starve the slower slots' matrix frames.
+            if (hasMatrixPayload) {
+                pair.lastMatrixTimestampBySlot[tf.slot] = frameTs;
+            }
             if (snapshot.alignment && typeof snapshot.alignment === 'object') {
                 pair.alignment = snapshot.alignment;
             }

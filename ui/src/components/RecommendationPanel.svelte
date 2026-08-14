@@ -57,18 +57,26 @@
     // ── Unified net bias (single gauge replacing the two runner bars) ────
     const longPct = $derived(rank.long.probability);
     const shortPct = $derived(rank.short.probability);
-    const netBias = $derived(longPct - shortPct);
-    const netAbs = $derived(Math.abs(netBias));
+    const holdPct = $derived(rank.hold.probability);
+    // R1: the needle is the VERDICT-consistent directional indicator.
+    // When the verdict is HOLD (hold probability dominates), the needle
+    // renders neutral — a green "+44%" needle under an amber HOLD badge
+    // contradicted the verdict. The raw net bias (long − short) remains
+    // in the export (`gauge.net_bias_pct`); the percentage split is
+    // rendered below the dial so no information is lost.
+    const gaugeNeutral = $derived(rank.top === 'HOLD');
+    const displayNet = $derived(gaugeNeutral ? 0 : longPct - shortPct);
+    const netAbs = $derived(Math.abs(displayNet));
     const biasDirection = $derived<'LONG' | 'SHORT' | 'NEUTRAL'>(
-        netBias > 0 ? 'LONG' : netBias < 0 ? 'SHORT' : 'NEUTRAL',
+        displayNet > 0 ? 'LONG' : displayNet < 0 ? 'SHORT' : 'NEUTRAL',
     );
 
-    // SVG gauge: map netBias [-100, +100] to angle [π (left), 0 (right)]
+    // SVG gauge: map displayNet [-100, +100] to angle [π (left), 0 (right)]
     // with π/2 (top center) = neutral.  SVG y is downward, so:
     //   needleX = cx + r * cos(angle)
     //   needleY = cy - r * sin(angle)
     const cx = 100; const cy = 105; const r = 70;
-    const gaugeAngle = $derived(Math.PI - ((netBias + 100) / 200) * Math.PI);
+    const gaugeAngle = $derived(Math.PI - ((displayNet + 100) / 200) * Math.PI);
     const needleX = $derived(cx + r * Math.cos(gaugeAngle));
     const needleY = $derived(cy - r * Math.sin(gaugeAngle));
     const activeArcD = $derived(() => {
@@ -92,9 +100,9 @@
         const ey = cy - r * Math.sin(gaugeAngle);
         return `M ${cx + r * Math.cos(midAngle)} ${cy - r * Math.sin(midAngle)} A ${r} ${r} 0 ${large} ${sweepFlag} ${ex} ${ey}`;
     });
-    const arcColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : 'rgba(255,255,255,0.30)');
-    const netLabel = $derived(netBias === 0 ? '0%' : `${netBias > 0 ? '+' : ''}${netBias}%`);
-    const netColor = $derived(netBias > 0 ? '#22c55e' : netBias < 0 ? '#ef4444' : '#f59e0b');
+    const arcColor = $derived(displayNet > 0 ? '#22c55e' : displayNet < 0 ? '#ef4444' : 'rgba(255,255,255,0.30)');
+    const netLabel = $derived(displayNet === 0 ? '0%' : `${displayNet > 0 ? '+' : ''}${displayNet}%`);
+    const netColor = $derived(displayNet > 0 ? '#22c55e' : displayNet < 0 ? '#ef4444' : '#f59e0b');
 
     // ── L6 LayerHeader — single authoritative verdict ────────────────────
     const headerSpec = $derived<LayerHeaderSpec>(buildL6DecisionHeader({
@@ -211,11 +219,6 @@
     });
 
     // ── Hero direction-class mapping ──────────────────────────────────────
-    function verdictClass(action: 'LONG' | 'SHORT' | 'HOLD'): string {
-        if (action === 'LONG') return styles.verdictLong ?? '';
-        if (action === 'SHORT') return styles.verdictShort ?? '';
-        return styles.verdictHold ?? '';
-    }
     function rrColorCls(rr: number): string {
         if (rr >= 2.0) return styles.rrGood ?? '';
         if (rr >= 1.0) return styles.rrFair ?? '';
@@ -269,6 +272,15 @@
                 <span class="{styles.gaugeShort} {biasDirection !== 'SHORT' ? styles.dim : ''}">SHORT</span>
                 <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
                 <span class="{styles.gaugeLong} {biasDirection !== 'LONG' ? styles.dim : ''}">LONG</span>
+            </div>
+            <!-- R1: the probability split under the dial — the needle
+                 neutralizes under a HOLD verdict, so the raw long/hold/
+                 short split stays visible and the operator never loses
+                 the underlying probabilities. -->
+            <div class={styles.gaugeSplit}>
+                <span class={styles.gaugeSplitItem}><span class={styles.gaugeSplitLong}>LONG</span> {longPct}%</span>
+                <span class={styles.gaugeSplitItem}><span class={styles.gaugeSplitHold}>HOLD</span> {holdPct}%</span>
+                <span class={styles.gaugeSplitItem}><span class={styles.gaugeSplitShort}>SHORT</span> {shortPct}%</span>
             </div>
         </div>
     </div>
@@ -386,7 +398,7 @@
                 </span>
             </div>
             <div class={styles.kpi}>
-                <span class={styles.kpiLabel}>Stop-Loss</span>
+                <span class={styles.kpiLabel}>ATR Stop Guide</span>
                 <span class={styles.kpiVal}>
                     {stopLossPct > 0 ? `${stopLossPct.toFixed(2)}%` : '—'}
                 </span>
@@ -425,9 +437,9 @@
          LONG/SHORT verdict: show the active side's per-side zones (the
          primary actionable bracket).
          HOLD verdict: collapse the two-card hypothetical grid into a
-         single muted line. The Top Setup card above already shows the
-         Neutral sentinel (entry = target = invalidation = close; R:R =
-         0.00) so the operator still has the actionable numbers. -->
+         single muted line. The Top Setup card above carries the
+         aggregated bracket on the net-bias side — R:R reads N/A when
+         geometry is inverted and the bracket is non-actionable. -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Price Levels</div>
         {#if rank.top === 'LONG' || rank.top === 'SHORT'}
@@ -462,15 +474,18 @@
             <div class={styles.holdPriceLevels}>
                 <span class={styles.holdPriceLevelsLabel}>No active setup — verdict is HOLD.</span>
                 <span class={styles.holdPriceLevelsSub}>
-                    Top Setup card above carries the Neutral primary bracket (entry = target = invalidation = close; R:R = 0.00).
+                    The Top Setup card above carries the aggregated bracket on the net-bias side for reference; when geometry is inverted its R:R reads N/A and the bracket is non-actionable.
                 </span>
             </div>
         {/if}
     </div>
 
-    <!-- ── Strategy -->
+    <!-- ── Strategy (environment playbook — never a trade call) ── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Strategy</div>
+        <div class={styles.sectionTitle}>Environment Playbook</div>
+        {#if rank.top === 'HOLD'}
+            <div class={styles.whyNote}>For reference — no active directional call. The guidance below describes the environment, not a trade trigger.</div>
+        {/if}
         <div class={styles.grid2}>
             <div class={styles.card}>
                 <span class={styles.cardLabel}>Entry</span>
@@ -491,9 +506,23 @@
         </div>
     </div>
 
-    <!-- ── Final Verdict (final_recommendation) -->
+    <!-- ── Final Verdict ──
+         R6: the verdict hero is the authoritative call. The advisory's
+         `final_recommendation` describes the environment guidance and
+         is NOT the verdict — under a HOLD verdict it must not contradict
+         the HOLD badge ("Entry: immediate" under a HOLD verdict was a
+         contradiction), so it renders as muted environment guidance. -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Final Verdict</div>
-        <blockquote class={styles.verdictQuote}>{advisory?.final_recommendation || '—'}</blockquote>
+        {#if rank.top === 'HOLD'}
+            <blockquote class={styles.verdictQuote}>
+                HOLD — no directional call (readiness: {rank.headline.state}).
+            </blockquote>
+            {#if advisory?.final_recommendation}
+                <div class={styles.verdictGuidance}>Environment guidance: {advisory.final_recommendation}</div>
+            {/if}
+        {:else}
+            <blockquote class={styles.verdictQuote}>{advisory?.final_recommendation || '—'}</blockquote>
+        {/if}
     </div>
 </div>

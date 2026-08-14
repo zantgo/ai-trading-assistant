@@ -121,6 +121,45 @@ impl RiskDimension {
         self.evidence = evidence;
         self
     }
+
+    /// Override the risk state (trend descriptor). `from_score_with_confidence`
+    /// defaults to `Stable`; `compute_risk` applies the derived state via this
+    /// builder (v6.10.9 — the state is now functional).
+    pub fn with_state(mut self, state: RiskState) -> Self {
+        self.state = state;
+        self
+    }
+}
+
+/// Derive the risk state (trend descriptor) from the current score and the
+/// previous synthesis reference (v6.10.9).
+///
+/// `RiskState` was previously dead code — `from_score_with_confidence`
+/// hardcoded `Stable` and no producer ever emitted another variant, so the
+/// panel's state pills and the L5 header sublabel permanently read "STABLE".
+/// The state is now functional:
+///
+///   1. **Level escalation** — a score already in the danger zone is its own
+///      state: `≥ 80` → `Critical`, `≥ 60` → `Elevated`.
+///   2. **Trend from the previous synthesis** — otherwise the delta against
+///      `previous_overall` (the pipeline's previous L2 mtf overall score,
+///      normalized to the 0-100 risk scale): `> +10` → `Increasing`,
+///      `< −10` → `Improving`, else `Stable`.
+///
+/// The state is **descriptive only** — it never feeds back into the weighted
+/// sum (`overall_risk` remains a plain weighted aggregate per 02-11 §3).
+pub fn derive_risk_state(score: f64, previous_overall: Option<f64>) -> RiskState {
+    if score >= 80.0 {
+        RiskState::Critical
+    } else if score >= 60.0 {
+        RiskState::Elevated
+    } else {
+        match previous_overall {
+            Some(prev) if score > prev + 10.0 => RiskState::Increasing,
+            Some(prev) if score < prev - 10.0 => RiskState::Improving,
+            _ => RiskState::Stable,
+        }
+    }
 }
 
 /// Market risk assessment for a single symbol — 9 dimensions.
@@ -479,6 +518,12 @@ fn assess_cascade_risk(
 }
 
 /// Compute the Risk Matrix from the Analysis Matrix and per-timeframe indicators.
+///
+/// `previous_overall` is the pipeline's previous L2 mtf overall score
+/// (signed −100..+100), used as the risk-trend reference for the derived
+/// `RiskState` (v6.10.9). It is normalized to the 0-100 unipolar risk
+/// scale before the delta comparison; `None` (first synthesis) yields
+/// `Stable` for the trend arm.
 pub fn compute_risk(
     symbol: &str,
     analysis: &AnalysisMatrix,
@@ -488,6 +533,7 @@ pub fn compute_risk(
     close: f64,
     // AUDIT-AIU-062: discrete liquidity signals feed the cascade dimension.
     liquidity_signals: &[crate::liquidity::LiquiditySignal],
+    previous_overall: Option<f64>,
 ) -> RiskMatrix {
     if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
@@ -527,8 +573,39 @@ pub fn compute_risk(
         + cascade.score * 0.14)
         .max(0.0)
         .min(100.0);
-    let overall =
-        RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence);
+    // v6.10.9: functional risk state. The overall state derives from the
+    // level + the previous-synthesis delta; each dimension escalates by its
+    // own level (≥60 Elevated, ≥80 Critical) and otherwise inherits the
+    // market risk trend (the overall state).
+    let previous_risk_ref = previous_overall.map(|p| ((p + 100.0) / 2.0).clamp(0.0, 100.0));
+    let overall_state = derive_risk_state(overall_score, previous_risk_ref);
+    let dim_state = |score: f64| {
+        if score >= 80.0 {
+            RiskState::Critical
+        } else if score >= 60.0 {
+            RiskState::Elevated
+        } else {
+            overall_state
+        }
+    };
+    let market_score = market.score;
+    let volatility_score = volatility.score;
+    let liquidity_score = liquidity.score;
+    let structure_score = structure.score;
+    let momentum_score = momentum.score;
+    let signal_score = signal.score;
+    let execution_score = execution.score;
+    let cascade_score = cascade.score;
+    let overall = RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence)
+        .with_state(overall_state);
+    let market = market.with_state(dim_state(market_score));
+    let volatility = volatility.with_state(dim_state(volatility_score));
+    let liquidity = liquidity.with_state(dim_state(liquidity_score));
+    let structure = structure.with_state(dim_state(structure_score));
+    let momentum = momentum.with_state(dim_state(momentum_score));
+    let signal = signal.with_state(dim_state(signal_score));
+    let execution = execution.with_state(dim_state(execution_score));
+    let cascade = cascade.with_state(dim_state(cascade_score));
 
     RiskMatrix {
         symbol: symbol.to_string(),
@@ -592,7 +669,7 @@ mod tests {
     fn compute_with_analysis_produces_valid_dimensions() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[]);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
         assert!(
@@ -605,7 +682,7 @@ mod tests {
     fn cascade_risk_does_not_crash_with_zero_inputs() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[]);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
         // Baseline (no flow, no cluster) → score = 30.0
         assert!(
             (r.cascade_risk.score - 30.0).abs() < 1e-9,
@@ -624,7 +701,7 @@ mod tests {
         };
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0, &[]);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0, &[], None);
         // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
         assert!(
             r.cascade_risk.score >= 90.0,
@@ -657,7 +734,7 @@ mod tests {
         );
         let analysis = make_analysis_with_timeframes();
         // close = $60_000 → atr_pct = 2.5% → score_mag(2.5, 5.0) = 50
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0, &[]);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0, &[], None);
         assert!(
             r.volatility_risk.score < 100.0,
             "volatility_risk should not saturate; got {}",
@@ -673,7 +750,7 @@ mod tests {
         // dimension scores is ≈ 1.0 (within ±5%) rather than ≈ 0.90.
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[]);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
         let dims = [
             r.market_risk.score,
             r.volatility_risk.score,
@@ -691,6 +768,63 @@ mod tests {
             "overall_risk/unweighted_avg = {}, expected ~1.0 (weights sum to 1.0)",
             ratio
         );
+    }
+
+    // ── v6.10.9: functional RiskState ─────────────────────────────────
+
+    #[test]
+    fn derive_risk_state_level_escalation() {
+        // Scores already in the danger zone are their own state.
+        assert_eq!(derive_risk_state(80.0, None), RiskState::Critical);
+        assert_eq!(derive_risk_state(95.0, Some(30.0)), RiskState::Critical);
+        assert_eq!(derive_risk_state(60.0, None), RiskState::Elevated);
+        assert_eq!(derive_risk_state(75.0, Some(90.0)), RiskState::Elevated);
+    }
+
+    #[test]
+    fn derive_risk_state_trend_from_previous_reference() {
+        // Sub-60 scores follow the previous-synthesis delta.
+        assert_eq!(derive_risk_state(45.0, Some(30.0)), RiskState::Increasing);
+        assert_eq!(derive_risk_state(45.0, Some(60.0)), RiskState::Improving);
+        assert_eq!(derive_risk_state(45.0, Some(40.0)), RiskState::Stable);
+        assert_eq!(derive_risk_state(30.0, None), RiskState::Stable);
+        // Delta exactly at the +10 band edge is Stable (strict >).
+        assert_eq!(derive_risk_state(50.0, Some(40.0)), RiskState::Stable);
+        assert_eq!(derive_risk_state(50.5, Some(40.01)), RiskState::Increasing);
+    }
+
+    #[test]
+    fn compute_risk_applies_functional_states() {
+        let analysis = make_analysis_with_timeframes();
+        let indicators = HashMap::new();
+        // First synthesis (no previous reference) → trend arm is Stable;
+        // every sub-60 dimension inherits the overall state.
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
+        for dim in [
+            &r.market_risk,
+            &r.volatility_risk,
+            &r.execution_liquidity_risk,
+            &r.structure_risk,
+            &r.momentum_risk,
+            &r.signal_risk,
+            &r.execution_risk,
+            &r.cascade_risk,
+        ] {
+            if dim.score < 60.0 {
+                assert_eq!(dim.state, r.overall_risk.state, "dim state must inherit the overall trend");
+            } else if dim.score >= 80.0 {
+                assert_eq!(dim.state, RiskState::Critical);
+            } else {
+                assert_eq!(dim.state, RiskState::Elevated);
+            }
+        }
+        // A strongly bearish previous synthesis (normalized reference far
+        // above the current overall) → Improving trend.
+        let r2 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(90.0));
+        assert_eq!(r2.overall_risk.state, RiskState::Improving);
+        // A strongly negative previous synthesis (reference ≈ 5) → Increasing.
+        let r3 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(-90.0));
+        assert_eq!(r3.overall_risk.state, RiskState::Increasing);
     }
 }
 

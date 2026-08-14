@@ -11,10 +11,13 @@ import type {
   AnalysisMatrix,
   AdvisoryMatrix,
   DecisionContext,
+  MarketBias,
 } from '../../types';
 import {
   computeDecisionRank,
   profileSummary,
+  selectProfileSide,
+  topQualifyingProfile,
 } from '../../lib/decisionRank';
 import {
   buildPriceBlock,
@@ -25,7 +28,7 @@ import {
   type InstanceTermsLike,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
-import { computeOpportunityBars } from '../../lib/opportunityBars';
+import { computeOpportunityBars, RR_MEANINGFUL_FLOOR } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 
 // ── Payload types ────────────────────────────────────────────────────────
@@ -154,14 +157,16 @@ function deriveLean(topAction: 'LONG' | 'SHORT' | 'HOLD'): string {
 
 function buildOpportunityHeaderBlock(
   opportunity: OpportunityMatrix | null,
-  analysis: AnalysisMatrix | null,
   lean: string,
 ): OpportunityHeaderBlock {
   return {
-    // Screen badge renders the prettified opportunity class
-    // ("Trend Continuation"), "—" when absent.
-    opportunity_class: analysis?.opportunity_analysis
-      ? prettifyOpportunityType(analysis.opportunity_analysis)
+    // Screen badge renders the L4 primary opportunity class
+    // ("Trend Continuation"); "—" when absent. The L3 legacy
+    // `analysis.opportunity_analysis` label is intentionally NOT used —
+    // it could contradict the L4 verdict (e.g. "Trend Continuation"
+    // under a NO CLEAR SETUP badge).
+    opportunity_class: opportunity?.primary_opportunity
+      ? prettifyOpportunityType(opportunity.primary_opportunity)
       : '\u2014',
     lean,
     setup_score: opportunity?.opportunity_score ?? 0,
@@ -318,10 +323,16 @@ function buildEnvironment(analysis: AnalysisMatrix | null): EnvironmentBlock {
   };
 }
 
-function buildDirectionalBars(opportunity: OpportunityMatrix | null): DirectionalBarsBlock {
+function buildDirectionalBars(
+  opportunity: OpportunityMatrix | null,
+  bias: MarketBias | null,
+): DirectionalBarsBlock {
   // The panel ALWAYS renders all three bars — even when the matrix is
-  // absent `computeOpportunityBars` yields the 0/0/100 HOLD-dominant split.
-  const bars = computeOpportunityBars(opportunity);
+  // absent `computeOpportunityBars` yields the 0/0/100 HOLD-dominant
+  // split. Direction resolution (top profile side → bias → argmax R:R)
+  // mirrors the panel exactly so the export can never disagree with
+  // the screen.
+  const bars = computeOpportunityBars(opportunity, bias);
   return {
     bullish_pct: bars.bullish,
     bearish_pct: bars.bearish,
@@ -373,14 +384,28 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
   const opp = args.opportunity;
   const activeSideRr = (() => {
     if (!opp) return null;
-    const bias = args.analysis?.bias ?? 'Neutral';
-    if (bias === 'Bullish' || bias === 'StrongBullish') {
-      return opp.long_expected_rr_internal ?? 0;
+    // R4: the macro bias prefers the DecisionContext mirror (same candle
+    // as the verdict/probabilities) so the export can never contradict
+    // the panels that key off the decision rank.
+    const bias = args.decisionContext?.bias ?? args.analysis?.bias ?? 'Neutral';
+    // Mirror the panel's R:R (Internal) block: the top qualifying
+    // profile's resolved side first, then the macro bias side.
+    const top = topQualifyingProfile(opp);
+    const side = top ? selectProfileSide(top, bias) : 'NEUTRAL';
+    let v: number;
+    if (side === 'LONG') {
+      v = top?.long_expected_rr_internal ?? opp.long_expected_rr_internal ?? 0;
+    } else if (side === 'SHORT') {
+      v = top?.short_expected_rr_internal ?? opp.short_expected_rr_internal ?? 0;
+    } else if (bias === 'Bullish' || bias === 'StrongBullish') {
+      v = opp.long_expected_rr_internal ?? 0;
+    } else if (bias === 'Bearish' || bias === 'StrongBearish') {
+      v = opp.short_expected_rr_internal ?? 0;
+    } else {
+      v = 0;
     }
-    if (bias === 'Bearish' || bias === 'StrongBearish') {
-      return opp.short_expected_rr_internal ?? 0;
-    }
-    return 0;
+    // B3 defensive floor: degenerate near-zero ratios read as no R:R.
+    return v < RR_MEANINGFUL_FLOOR ? 0 : v;
   })();
   const expectedRrBlock =
     rank.top === 'HOLD' && (activeSideRr === null || activeSideRr === 0)
@@ -390,8 +415,8 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     source_tab: 'opportunity',
     meta,
     header: buildHeaderBlock(args.headerSpec),
-    directional_bars: buildDirectionalBars(opp),
-    header_block: buildOpportunityHeaderBlock(opp, args.analysis, lean),
+    directional_bars: buildDirectionalBars(opp, (args.decisionContext?.bias ?? args.analysis?.bias) ?? null),
+    header_block: buildOpportunityHeaderBlock(opp, lean),
     trade_setups: buildTradeSetups(opp, args.analysis, args.decisionContext, rank.top),
     no_clear_strip: buildNoClearStrip(opp),
     hold_scenario_note: buildHoldScenarioNote(rank.top),

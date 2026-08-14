@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 6.10 (2026-08-13) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -49,7 +49,7 @@ Implemented as `RiskMatrix` (`crates/core-domain/src/risk.rs`), produced by `com
 |-------|------|-------|-------------|
 | `score` | `f64` | `[0, 100]` | **Unipolar** risk score — higher is riskier. |
 | `level` | `RiskLevel` | — | `VERY_LOW` / `LOW` / `MODERATE` / `HIGH` / `EXTREME`. |
-| `state` | `RiskState` | — | `STABLE` / `INCREASING` / `ELEVATED` / `CRITICAL` / `IMPROVING`. |
+| `state` | `RiskState` | — | `STABLE` / `INCREASING` / `ELEVATED` / `CRITICAL` / `IMPROVING`. **Functional since v6.10.9** — derived by `derive_risk_state` (level escalation `≥ 80 → CRITICAL`, `≥ 60 → ELEVATED`, else the previous-synthesis delta `> +10 → INCREASING`, `< −10 → IMPROVING`, else `STABLE`). Descriptive only — it never feeds back into the weighted sum. |
 | `confidence` | `f64` | `[0, 100]` | Confidence in the measurement. |
 | `evidence` | `string[]` | — | Human-readable contributing factors. |
 

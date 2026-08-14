@@ -30,7 +30,7 @@ disconnect_grace_ms = 5000
 size = 500
 stale_threshold_secs = 300
 fetch_timeout_ms = 30000
-sub_minute_skip_historical = true
+sub_minute_skip_historical = false
 
 [workspace]
 id = "main"
@@ -228,7 +228,7 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18cb8728d3ac3b7e"
+id = "inst_18cbbca64b64571f"
 symbol = "BTC-USDC"
 quote = "USDC"
 initial_capital_usd = 1000.0

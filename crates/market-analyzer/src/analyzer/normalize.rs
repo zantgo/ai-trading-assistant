@@ -442,6 +442,7 @@ pub fn build_indicator_map(
         active_position: p.active_position,
         ema_stack_state: p.ema_stack_state.map(|s| s.to_string()),
         ema_medium: od2f(p.ema_medium),
+        ema_fast: od2f(p.ema_fast),
         support_levels: p.support_levels.to_vec(),
         resistance_levels: p.resistance_levels.to_vec(),
         rvol: od2f(p.rvol),
@@ -688,6 +689,7 @@ pub fn build_indicator_map_from_scalars(
         vwap: s.vwap,
         ema_stack_state,
         ema_medium: s.ema_medium,
+        ema_fast: s.ema_fast,
         rvol: s.rvol,
         ..Default::default()
     };

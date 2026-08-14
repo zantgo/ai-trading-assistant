@@ -250,7 +250,9 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         // Risk-Adj R:R. We assert that the legacy label is gone.
         expect(screen.queryByText(/Internal R:R/i)).toBeNull();
         expect(screen.getByText(/Risk-Adj R:R/i)).toBeTruthy();
-        expect(screen.getByText('Stop-Loss')).toBeTruthy();
+        // R7: the KPI is the advisory's ATR-derived stop-distance guide —
+        // relabelled to not collide with the Top Setup card's geometric SL.
+        expect(screen.getByText('ATR Stop Guide')).toBeTruthy();
         expect(screen.getAllByText(/Confidence/i).length).toBeGreaterThanOrEqual(2);
         // v7.0-prod: Entry Danger moves into the safety-flags row so
         // the mirror bind contract is observable from the panel chrome.
@@ -603,5 +605,94 @@ describe('gauge geometry — active arc is a Dome segment', () => {
         // Tip lands at the top center (gaugeAngle = π/2).
         expect(Number(needle!.getAttribute('x2'))).toBeCloseTo(100, 1);
         expect(Number(needle!.getAttribute('y2'))).toBeCloseTo(35, 1);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R1: the needle is verdict-consistent — a HOLD verdict (hold probability
+// dominant) neutralizes the needle even when the raw net bias (long −
+// short) is non-zero. The probability split stays visible under the dial.
+// ─────────────────────────────────────────────────────────────────────────
+describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
+    function mountHoldVerdictWithNetBias() {
+        // The user's real 1s sample: long 46 / hold 52 / short 2
+        // (net bias +44%) with the hold probability dominant → HOLD
+        // verdict. The raw net bias is +44 but the needle must sit
+        // neutral.
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 46,
+            short_probability: 2,
+            hold_probability: 52,
+            net_bias_pct: 44,
+        });
+        return render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+    }
+
+    it('needle sits at neutral (top center, amber, 0%) under a HOLD verdict with a +44 net bias', () => {
+        mountHoldVerdictWithNetBias();
+        const gaugeSvg = document.querySelector('svg.gauge, [class*="gauge"] svg');
+        const lines = gaugeSvg ? gaugeSvg.querySelectorAll('line') : [];
+        const needle = Array.from(lines).find((l) =>
+            l.getAttribute('x1') === '100' && l.getAttribute('y1') === '109'
+        );
+        expect(needle).toBeTruthy();
+        // Neutralized: tip at top center, amber — NOT green at +44%.
+        expect(Number(needle!.getAttribute('x2'))).toBeCloseTo(100, 1);
+        expect(Number(needle!.getAttribute('y2'))).toBeCloseTo(35, 1);
+        expect(needle!.getAttribute('stroke')).toBe('#f59e0b');
+        // The active arc stays hidden.
+        const paths = gaugeSvg ? gaugeSvg.querySelectorAll('path') : [];
+        const activeArc = Array.from(paths).find((p) => (p.getAttribute('d') ?? '').startsWith('M 100 35'));
+        expect(activeArc?.getAttribute('opacity')).toBe('0');
+        // The net label reads 0%, not +44%.
+        expect(screen.getByText('0%')).toBeTruthy();
+    });
+
+    it('renders the long/hold/short probability split under the dial', () => {
+        mountHoldVerdictWithNetBias();
+        // The dial labels LONG/HOLD/SHORT also render above the needle,
+        // so the split readout is asserted via the percentages.
+        expect(screen.getAllByText(/LONG/).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText(/HOLD/).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText(/SHORT/).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('46%')).toBeTruthy();
+        expect(screen.getByText('52%')).toBeTruthy();
+        expect(screen.getByText('2%')).toBeTruthy();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// R6: the Final Verdict block is verdict-consistent — under HOLD it shows
+// the verdict sentence (not the advisory's directional "Entry: immediate"),
+// with the advisory text demoted to muted environment guidance.
+// ─────────────────────────────────────────────────────────────────────────
+describe('RecommendationPanel — Final Verdict + Environment Playbook (R6)', () => {
+    it('renders the verdict sentence + guidance under a HOLD verdict', () => {
+        seedPair('BTC-USDT');
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        // Default fixture resolves to HOLD → verdict sentence.
+        expect(screen.getByText(/HOLD — no directional call/)).toBeTruthy();
+        expect(screen.getByText(/Environment guidance:/)).toBeTruthy();
+    });
+
+    it('renders the advisory sentence under a directional verdict', () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        // LONG verdict → advisory final_recommendation verbatim.
+        expect(screen.getByText(/Neutral — no directional edge:/)).toBeTruthy();
+    });
+
+    it('renders the playbook reference caption under HOLD', () => {
+        seedPair('BTC-USDT');
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        expect(screen.getByText('Environment Playbook')).toBeTruthy();
+        expect(screen.getByText(/For reference — no active directional call/)).toBeTruthy();
     });
 });
