@@ -43,6 +43,7 @@ import {
 import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
 import { fmtPrice, isSqueezeOn } from '../telemetry';
+import type { FilterState } from '../filtering';
 import { classifyLevelKey, parseLevelLabel, resolveLevelPriceText } from '../levelKind';
 import { lifecycleDisplay } from '../lifecycleDisplay';
 import { classifyDivergence, divergenceLabel } from '../divergence';
@@ -226,10 +227,25 @@ export interface LevelRow {
   age_bars: number | undefined;
 }
 
+/** Filter pill state at export time — same shape as the MTF export's
+ *  `filter_state` (v7.0-verify). The payload rows are the unfiltered
+ *  superset; this block lets consumers reconstruct the on-screen row set. */
+export interface MetricsFilterStateBlock {
+  active_only: boolean;
+  confirmed_plus_only: boolean;
+  hide_gates: boolean;
+  hide_overlays: boolean;
+  query: string;
+}
+
 export interface MetricsPayload {
   source_tab: 'metrics';
   meta: MetaEnvelope;
   header: HeaderBlock;
+  /** Filter state at export time — mirrors the pill row above the facet
+   *  tabs on the single-TF Metrics view. Always present (defaults when no
+   *  filters were passed) so the block shape is stable. */
+  filter_state: MetricsFilterStateBlock;
   market_context: MetricsMarketContextBlock | null;
   group_confluence: GroupConfluenceRow[];
   structural_anchors: StructuralAnchorsBlock;
@@ -974,6 +990,9 @@ export interface MetricsTabInputs {
   isCompleted?: boolean;
   terms?: InstanceTermsLike;
   headerSpec: LayerHeaderSpec;
+  /** Filter pill state at export time (mirrors `TerminalMonitor.svelte`'s
+   *  `filters`). Optional — defaults to all-off when omitted. */
+  filters?: FilterState;
   /** Configured EMA periods (fast/medium/slow/long). Single source of
    *  truth with the dashboard settings UI (state.svelte.ts:419-422).
    *  Optional — defaults to {10, 50, 100, 200} when omitted. */
@@ -982,6 +1001,20 @@ export interface MetricsTabInputs {
     ema_medium: number;
     ema_slow: number;
     ema_long: number;
+  };
+}
+
+/**
+ * Filter pill state at export time — same shape/defaults as the MTF
+ * export (`mtfTab.ts` v7.0-verify block).
+ */
+function buildFilterState(filters: FilterState | undefined): MetricsFilterStateBlock {
+  return {
+    active_only: filters?.activeOnly ?? false,
+    confirmed_plus_only: filters?.confirmedPlusOnly ?? false,
+    hide_gates: filters?.hideGates ?? false,
+    hide_overlays: filters?.hideOverlays ?? false,
+    query: filters?.query ?? '',
   };
 }
 
@@ -1022,6 +1055,7 @@ export function buildMetricsTabExport(args: MetricsTabInputs): string {
     source_tab: 'metrics',
     meta,
     header: buildHeaderBlock(args.headerSpec),
+    filter_state: buildFilterState(args.filters),
     market_context: tf ? buildMarketContext(tf, signalCount, refPrice) : null,
     group_confluence: buildGroupConfluence(args.registry, indicators),
     structural_anchors: {

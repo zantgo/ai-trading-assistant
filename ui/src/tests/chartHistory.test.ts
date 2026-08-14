@@ -7,6 +7,7 @@ import {
     clearCandleCache,
     setCachedCandles,
     getCachedCandles,
+    buildPaintCandles,
     dedupSortByTime,
     type CandleOHLCV,
 } from '../lib/indicatorHistory';
@@ -129,6 +130,39 @@ describe('indicatorHistory (unified)', () => {
             setCachedCandles(pairKey, timeframe, candles);
             const cached = getCachedCandles(pairKey, timeframe);
             expect(cached).toEqual(candles);
+        } finally {
+            clearCandleCache();
+        }
+    });
+
+    it('buildPaintCandles_preserves_synthetic_doji_candles_for_painting', () => {
+        // Regression (F5 history wipe): the PriceChart paint path used to
+        // filter out every candle the backend marked `reconstructed`.
+        // On sparse sub-minute markets those SYNTHETIC doji-fill candles
+        // are the majority of the in-memory history buffer, so after a
+        // full page reload (empty candle cache → history comes only from
+        // `/api/history`) the price chart lost ~90% of its history and
+        // rendered long flat bridges instead of the continuous series the
+        // live WebSocket coalescer draws. The paint helper must hand the
+        // full gap-filled series to the chart; only the persistent cache
+        // (`setCachedCandles`) may drop synthetic candles.
+        const candles: CandleOHLCV[] = [
+            { time: 100 as Time, open: 100, high: 101, low: 99, close: 100.5 },
+            { time: 103 as Time, open: 100.5, high: 102, low: 100, close: 101.5, reconstructed: 'SYNTHETIC' },
+        ];
+        try {
+            const painted = buildPaintCandles(candles, 1);
+            // The backend-marked doji survives the paint path (and the
+            // helper's own gap-fill bridges the 101/102 buckets).
+            expect(painted.some((c) => c.reconstructed === 'SYNTHETIC')).toBe(true);
+            expect(painted.length).toBe(4);
+            // The cache path still filters the synthetic candles out.
+            setCachedCandles('TEST-PAINT', 1, painted);
+            const cached = getCachedCandles('TEST-PAINT', 1);
+            expect(cached).not.toBeNull();
+            for (const c of cached!) {
+                expect(c.reconstructed).toBeUndefined();
+            }
         } finally {
             clearCandleCache();
         }

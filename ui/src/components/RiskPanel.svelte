@@ -28,8 +28,11 @@
     function buildExport() {
         return buildRiskTabExport({
             risk,
-            flow: (microTerm as any)?.liquidity ?? null,
-            cluster: (microTerm as any)?.cluster ?? null,
+            // Same cascade source the panel renders (RiskPanel.svelte:188-189):
+            // the latest snapshot — NOT `tf.liquidity`, which retains the last
+            // non-null value across shadow ticks.
+            flow: (microSnap?.liquidity as LiquidityFlow | undefined) ?? null,
+            cluster: (microSnap?.cluster as LiquidationClusterMatrix | undefined) ?? null,
             symbol: pairKey,
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,

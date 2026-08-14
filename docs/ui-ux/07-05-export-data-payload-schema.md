@@ -75,7 +75,7 @@ Rules:
 - Numbers are raw (no `%`, `$`, `1 :` diminutives).
 - Strings mixed with numbers are split into structured fields plus `*_display` verbatim copies of the screen sentence where the screen renders one (e.g. `rr_display`, `entry_danger_display`, `current_position_label`, `badge_text`).
 - `header` mirrors the LayerHeader chrome (badge label/sublabel + meta chips + status). Chip values that are numeric strings are parsed to numbers.
-- **No `filter_state` in `meta`.** Only the MTF tab carries a top-level `filter_state` block (see §3.2).
+- **No `filter_state` in `meta`.** The MTF and single-TF Metrics tabs carry a top-level `filter_state` block (see §3.2; metrics: §3.1) — never inside `meta`.
 
 ### 2.2 Canonical value sources (cross-tab consistency)
 
@@ -107,6 +107,13 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
   "source_tab": "metrics",
   "meta": { },
   "header": { },
+  "filter_state": {
+    "active_only": false,
+    "confirmed_plus_only": false,
+    "hide_gates": false,
+    "hide_overlays": false,
+    "query": ""
+  },
   "market_context": {
     "regime": "TRENDING_BULL",
     "overall_score": 0.62,
@@ -703,7 +710,7 @@ Notes (v7.0-verify):
 The legacy `buildMetricsExportJson` / `buildPanelExportJson` functions in `lib/metricsExport.ts` continue to produce the "kitchen-sink" payload (every matrix in one JSON). External consumers depending on that shape can keep using those functions. The new panels route to the per-tab builders via `buildXxxTabExport(args)` directly.
 
 The v7.0 payload shapes are **not** backwards compatible with the legacy kitchen-sink:
-- `filter_state` was removed from the single-TF Metrics export (filters are UI-only there); the **MTF** export added a top-level `filter_state` block + per-row `visible` flags (v7.0-verify) so its on-screen row set is reconstructible.
+- The **MTF** export added a top-level `filter_state` block + per-row `visible` flags (v7.0-verify); the single-TF **Metrics** export later gained the same top-level `filter_state` block (payload rows stay the unfiltered superset) so each tab's on-screen row set is reconstructible.
 - A single `meta.current_price` replaced the multiple price mirrors.
 - Screen sentences are exposed as `*_display` fields alongside raw numerics.
 - Ladder clusters are canonicalized to top-4 by magnet strength everywhere (strip, Levels facet, export).

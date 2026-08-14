@@ -208,9 +208,18 @@ pub async fn serve_history(
                 price_list = filled_prices;
             }
 
-            // Rebuild the indicator arrays aligned to the (now possibly
-            // gap-filled) snap_hist. Only real snapshots contribute
-            // indicator values; gap-fill entries have no indicator data.
+            // AUDIT-V8-006 (axis alignment): rebuild the indicator arrays
+            // against the (now possibly gap-filled) `times` axis so
+            // `times[i]` always pairs with `values[*][i]`. Previously the
+            // arrays were built by iterating the ORIGINAL snapshots while
+            // `times` had gap-fill Dojis inserted — after any gap every
+            // indicator point was plotted at the wrong timestamp (shifted
+            // right by the number of inserted bars), which made EMA lines
+            // look disconnected from the candles.
+            let mut time_to_snap_idx: HashMap<u64, usize> = HashMap::new();
+            for (i, snap) in snap_hist.iter().enumerate() {
+                time_to_snap_idx.insert(snap.timestamp, i);
+            }
             let mut indicators: HashMap<String, HistoricalIndicatorArrays> = keys
                 .iter()
                 .map(|k| {
@@ -218,12 +227,24 @@ pub async fn serve_history(
                     (k.clone(), HistoricalIndicatorArrays::with_value_keys(vk))
                 })
                 .collect();
-            for snap in snap_hist.iter() {
-                for key in keys.iter() {
-                    let arrays = indicators.get_mut(key).expect("key initialized");
-                    match snap.indicators.get(key) {
-                        Some(v) => arrays.push_value(v),
-                        None => arrays.push_none(),
+            for t in &times {
+                match time_to_snap_idx.get(t).copied() {
+                    Some(i) => {
+                        let snap = &snap_hist[i];
+                        for key in keys.iter() {
+                            let arrays = indicators.get_mut(key).expect("key initialized");
+                            match snap.indicators.get(key) {
+                                Some(v) => arrays.push_value(v),
+                                None => arrays.push_none(),
+                            }
+                        }
+                    }
+                    // Gap-fill Doji: no indicator data — push None for
+                    // every series so the axis length stays aligned.
+                    None => {
+                        for arrays in indicators.values_mut() {
+                            arrays.push_none();
+                        }
                     }
                 }
             }

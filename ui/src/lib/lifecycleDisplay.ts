@@ -37,6 +37,22 @@ function formatStateLabel(raw: string): string {
   return raw.replace(/_/g, ' ');
 }
 
+/**
+ * Effective lifecycle state, mirroring the screen-side defensive patch in
+ * `IndicatorsView.svelte::lifecycleStatus`: when the backend reports a
+ * sticky `Loading` state but `bars_seen >= bars_required` (and
+ * `bars_required > 0`), the indicator is functionally `Live`.
+ */
+export function effectiveLifecycleState(
+  lc: IndicatorLifecycleStatus,
+): 'Live' | 'Loading' {
+  if (lc.state === 'Live') return 'Live';
+  if (lc.state === 'Loading' && lc.bars_seen >= lc.bars_required && lc.bars_required > 0) {
+    return 'Live';
+  }
+  return 'Loading';
+}
+
 function capabilityFor(key: string): string {
   return SIGNAL_CAPABILITY[key] ?? '';
 }
@@ -61,7 +77,7 @@ export function lifecycleDisplay(
     const feedState: FeedState | string | null =
       (lc as { feed_state?: string }).feed_state ??
       (lc as { feedState?: string }).feedState ?? null;
-    if (lc.state === 'Live') {
+    if (effectiveLifecycleState(lc) === 'Live') {
       const sl = dto?.state_label;
       if (sl && sl !== 'WARMING') {
         return {

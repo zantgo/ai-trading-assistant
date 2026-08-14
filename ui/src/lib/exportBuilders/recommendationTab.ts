@@ -371,8 +371,8 @@ function buildNoClearCard(
       && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity';
   if (!hasNoClear) return null;
   const body =
-    advisory?.final_recommendation ??
-    opportunity?.invalidation_note ??
+    advisory?.final_recommendation ||
+    opportunity?.invalidation_note ||
     'No qualifying setup; market conditions do not currently favor a directional trade.';
   return { title: 'No Clear Setup', body };
 }
@@ -483,7 +483,9 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     why: rank.rationale.slice(0, 3),
     price_levels: buildPriceLevelsBlock(args.opportunity, rank.top),
     strategy: buildStrategyBlock(args.advisory),
-    final_verdict: args.advisory?.final_recommendation ?? '\u2014',
+    // Screen renders "—" when the verdict is absent (RecommendationPanel.svelte:
+    // `|| '—'`) — `||` so an empty string also falls back.
+    final_verdict: args.advisory?.final_recommendation || '\u2014',
   };
   return JSON.stringify(payload, null, 2);
 }

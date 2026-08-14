@@ -41,7 +41,9 @@ export interface RiskSummaryCountsBlock {
 
 export interface RiskCascadeExtras {
   state_label: string;
-  intensity_display: string;
+  /** Null when no flow telemetry is present — mirrors the panel hiding the
+   *  Intensity field (RiskPanel.svelte) instead of rendering `0.0`. */
+  intensity_display: string | null;
   asymmetry_sign: string;
   asymmetry_magnitude_pct: number | null;
   asymmetry_description: string | null;
@@ -172,7 +174,7 @@ function buildHeroBlock(risk: RiskMatrix): RiskHeroBlock {
   else if (dimCounts.high > 0) topSeverity = 'High';
   else if (dimCounts.moderate > 0) topSeverity = 'Moderate';
   else if (dimCounts.low > 0) topSeverity = 'Low';
-  else if (dimCounts.verylow > 0) topSeverity = 'VeryLow';
+  else topSeverity = 'VeryLow'; // mirrors RiskPanel.svelte (unconditional fallback)
   // The screen hides the "peak" chip when the top severity equals the
   // overall level — mirror that so the JSON says what the screen shows.
   if (topSeverity === overall.level) topSeverity = null;
@@ -212,6 +214,9 @@ function buildCascadeExtras(
   flow: LiquidityFlow | null,
   cluster: LiquidationClusterMatrix | null,
 ): RiskCascadeExtras | null {
+  // The panel renders the cascade section only when flow or cluster exists
+  // (RiskPanel.svelte) — emit null instead of placeholder values.
+  if (!flow && !cluster) return null;
   const asym = cluster?.cascade_asymmetry;
   const sign = asym != null && asym > 0 ? '+' : asym != null && asym < 0 ? '-' : '';
   // The screen renders the magnitude as a percentage: `(asym * 100).toFixed(1)`.
@@ -237,7 +242,8 @@ function buildCascadeExtras(
       !flow?.cascade_state || String(flow.cascade_state).toUpperCase() === 'NONE'
         ? '—'
         : flow.cascade_state,
-    intensity_display: (flow?.cascade_intensity ?? 0).toFixed(1),
+    intensity_display:
+      flow?.cascade_intensity != null ? flow.cascade_intensity.toFixed(1) : null,
     asymmetry_sign: sign,
     asymmetry_magnitude_pct: magnitude,
     asymmetry_description: description,

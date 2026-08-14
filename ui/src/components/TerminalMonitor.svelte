@@ -178,6 +178,7 @@
             timestamp: snapshotTs,
             markPrice,
             headerSpec,
+            filters,
             // EMA ribbon periods — single source of truth with the dashboard
             // settings UI (state.svelte.ts:419-422). Drives the `period` field
             // on each line of the `body.ema` block in the export JSON.

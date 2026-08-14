@@ -27,11 +27,24 @@ Fixes the sub-minute EMA rendering anomalies (lines all starting at the same rig
 * Force-close and heartbeat snapshots are now pushed into the in-memory `snapshot_history` (never the DB), so `/api/history` serves continuous candles + indicator series (no straight-line EMA bridges after a tab switch).
 * `crates/api-gateway/src/handlers/history.rs` now sets `HistoryCandle.reconstructed` from `quality_envelope.is_gap_filled` (was hardcoded `None`), so the frontend's `candleReconstructed` filter keeps synthetic dojis out of its persistent candle cache — no "ghost flat-line" regression.
 
-**Tests (9 → 12 in `sub_minute_indicator_cadence.rs`, +1 in `sub_minute_history.rs`):**
+**AUDIT-V8-005 — reconnect-gap indicator continuity (`market-analyzer`):**
+* The trade-triggered missing-bar recovery previously broadcast each reconstructed gap candle via `build_gapfill_snapshot` — a snapshot with an **empty `indicators` map** — so the chart's EMA/RSI lines bridged reconnect gaps with straight diagonals. Reconstructed gap candles are now fed through `apply_candle_to_indicators` and broadcast as fully-populated snapshots (still never persisted to the DB). `build_gapfill_snapshot` is now test-only.
+
+**AUDIT-V8-006 — `/api/history` indicator-axis alignment (`api-gateway`):**
+* The gap-fill block inserted Doji timestamps into `times` but the `indicator_history` arrays were built by iterating the *original* snapshots — after any hole in the snapshot history, every indicator point was paired with the wrong timestamp (shifted right by the number of inserted bars). The arrays are now built against the gap-filled `times` axis, pushing `null` for inserted Doji indices, so `times[i]` ↔ `values[*][i]` always align. This was the "EMA lines don't correspond with the price" symptom on cold-start/DB-fallback history.
+
+**AUDIT-V8-007 — paint-path continuity (`ui`):**
+* The PriceChart history bootstrap now gap-fills after filtering (and `buildPaintCandles` keeps backend SYNTHETIC candles in the paint array), so the painted candle axis always matches the indicator `times` axis — heartbeat Dojis and EMA points land on the same timestamps, and the persistent candle cache still excludes synthetic candles (no flat-line ghosts on navigation).
+
+**AUDIT-V8-008 — sub-minute chart viewport (`ui`):**
+* The visible window for ≤5 s TFs was a fixed 180 s — on a 1 s chart every point of the EMA-200 (first point at bar 200) was outside the window, so the LONG line looked broken/missing. The window now spans the full seeded history (`seedCountFor × timeframe`), making all four ribbon lines reachable by scroll.
+
+**Tests (9 → 12 in `sub_minute_indicator_cadence.rs`, +2 in `sub_minute_history.rs`):**
 * `ema_lines_appear_at_their_own_periods_on_sub_minute_tf` — fast@12 bars only, fast+medium@60, +slow@120, all four@210.
 * `idle_bucket_heartbeat_fills_quiet_seconds_on_sub_minute_tf` — 5.5 s of silence after one seed → consecutive 1 s buckets, all marked gap-filled.
 * `stale_mid_guard_falls_back_to_last_trade_close` — a mid received ≥1 s before the close must be discarded.
 * `history_endpoint_marks_heartbeat_dojis_as_reconstructed` — `quality_envelope.is_gap_filled` maps to `reconstructed: "SYNTHETIC"` on the wire.
+* `history_aligns_indicator_arrays_to_gap_filled_axis` — a snapshot hole produces a 3-entry axis with a `null` indicator row at the scaffold Doji index.
 * BUG-FIX-01 updated: the 110 mid is re-pumped continuously (an OB heartbeat) so the stale-mid guard deterministically honours a fresh book.
 
 **Spec updates:** `04-02-01-ema-stack.md` §Sub-minute warm-up; `08-08-candle-buffer-spec.md` CB-05a (idle heartbeat) + CB-06 note.
@@ -1087,6 +1100,10 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V8-002` | `market-analyzer`: stale-mid guard — force-close/doji-fill only uses the order-book mid while the book is fresh (≤ grace period), else falls back to the last trade close; tracked via `last_ob_ms` | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
 | `AUDIT-V8-003` | `market-analyzer`: idle-bucket heartbeat — sub-minute stale check synthesizes one doji per elapsed empty bucket (last known close, `reconstructed: SYNTHETIC`), advances all indicators, broadcasts, pushes to in-memory `snapshot_history` | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
 | `AUDIT-V8-004` | `api-gateway`: `/api/history` marks heartbeat/gap-filled candles `reconstructed: SYNTHETIC` from `quality_envelope.is_gap_filled`; force-close + doji snapshots pushed into in-memory `snapshot_history` for continuous sub-minute history | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-005` | `market-analyzer`: reconnect-gap recovery feeds reconstructed candles through `apply_candle_to_indicators` and broadcasts fully-populated snapshots (was empty-indicators `build_gapfill_snapshot`); `build_gapfill_snapshot` now test-only | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-006` | `api-gateway`: `/api/history` indicator arrays built against the gap-filled `times` axis (null rows for scaffold Doji indices) so `times[i]` ↔ `values[*][i]` always align | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-007` | `ui`: PriceChart history bootstrap gap-fills after filtering + `buildPaintCandles` keeps backend SYNTHETIC candles in the paint array — painted candle axis always matches the indicator `times` axis | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
+| `AUDIT-V8-008` | `ui`: sub-minute chart viewport widened to the full seeded history window (`seedCountFor × timeframe`) so the EMA-200 line is reachable on ≤5 s charts | **Shipped in v6.10.5** (see v6.10.5 entry) | v6.10 |
 | `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09) | Open (specified in `03-01-06` §7) | v6.10 |
 | `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11 | Open (specified in `03-01-06` §7) | v6.10 |
 | `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle` | Open (specified in `03-01-06` §7) | v6.10 |

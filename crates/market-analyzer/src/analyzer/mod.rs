@@ -544,6 +544,12 @@ pub fn derive_pipeline_state(buffer_len: usize, target: usize) -> CandlePipeline
 /// gap-filled candle (08-04 §Forwarding). Reconstructed candles carry no
 /// indicator payload — they exist so charts, persistence, and rollups see a
 /// continuous candle series; indicator state resumes on the next live candle.
+///
+/// AUDIT-V8-005: production usage removed — reconnect gap-fill candles are
+/// now fed through the full indicator pipeline (EMA/RSI/etc. advance across
+/// the gap instead of the chart bridging it with a straight line). Kept for
+/// the pin tests below.
+#[cfg(test)]
 fn build_gapfill_snapshot(
     candle: &NormalizedCandle,
     symbol: &str,
@@ -1759,45 +1765,118 @@ pub async fn run_single(
                                 if let Some(ref fwd) = candle_forward {
                                     let _ = fwd.send(gap_candle.clone()).await;
                                 }
-                                let gap_snapshot = build_gapfill_snapshot(
+                                // AUDIT-V8-005 (reconnect-gap indicator continuity):
+                                // feed the reconstructed candle through EVERY
+                                // stateful indicator and broadcast a fully-
+                                // populated snapshot. The old
+                                // `build_gapfill_snapshot` emitted an EMPTY
+                                // indicators map, so the chart's EMA/RSI lines
+                                // bridged reconnect gaps with straight lines.
+                                // These snapshots are still never persisted to
+                                // the DB (the `reconstructed` flag + the
+                                // `quality_envelope.is_gap_filled` marker keep
+                                // them out of the historical store — see the
+                                // rationale in the prior comment block).
+                                let gap_close_sec = gap_candle.start_time_ms / 1000;
+                                let day_index = gap_close_sec / 86400;
+                                if let Some(prev_day) = last_day_index {
+                                    if day_index > prev_day {
+                                        vwap_sum_tp_vol = Decimal::ZERO;
+                                        vwap_sum_vol = Decimal::ZERO;
+                                    }
+                                }
+                                last_day_index = Some(day_index);
+                                let gap_readings = apply_candle_to_indicators(
+                                    &symbol,
+                                    slot,
+                                    timeframe_secs,
+                                    &gap_candle,
+                                    day_index,
+                                    &mut pivot_points_indicator,
+                                    &mut candlestick_indicator,
+                                    &mut ichimoku_indicator,
+                                    &mut cci_indicator,
+                                    &mut psar_indicator,
+                                    &mut wr_indicator,
+                                    &mut hma_indicator,
+                                    &mut ao_indicator,
+                                    &mut fi_indicator,
+                                    &mut sdc_indicator,
+                                    &mut volume_profile_indicator,
+                                    &mut smc_indicator,
+                                    &mut anchored_vwap_indicator,
+                                    &mut ema_fast,
+                                    &mut ema_medium,
+                                    &mut ema_slow,
+                                    &mut ema_long,
+                                    &mut rsi_14,
+                                    &mut macd,
+                                    &mut adx_14,
+                                    &mut sqz_mom,
+                                    &mut bollinger,
+                                    &mut atr_standalone,
+                                    &mut bbwp_indicator,
+                                    &mut stochastic_indicator,
+                                    &mut chandemo_indicator,
+                                    &mut supertrend_indicator,
+                                    &mut keltner_indicator,
+                                    &mut donchian_indicator,
+                                    &mut obv_indicator,
+                                    &mut cmf_indicator,
+                                    &mut mfi_indicator,
+                                    &mut hv_indicator,
+                                    &mut aroon_indicator,
+                                    &mut choppiness_indicator,
+                                    &mut linreg_indicator,
+                                    &mut zscore_indicator,
+                                    &mut vwap_sum_tp_vol,
+                                    &mut vwap_sum_vol,
+                                );
+                                bar_count = bar_count.saturating_add(1);
+                                last_close = gap_candle.close;
+                                let avg_vol = if !volume_history.is_empty() {
+                                    let sum: Decimal = volume_history.iter().sum();
+                                    Some(sum / Decimal::from(volume_history.len()))
+                                } else {
+                                    None
+                                };
+                                let rvol = match (gap_candle.volume, avg_vol) {
+                                    (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+                                    _ => None,
+                                };
+                                let gap_snap = build_completed_snapshot_from_readings(
+                                    &gap_readings,
                                     &gap_candle,
                                     &symbol,
-                                    timeframe_secs,
+                                    &pair_key,
                                     slot,
+                                    timeframe_secs,
+                                    bar_count,
+                                    shadow_exchange,
+                                    shadow_bid,
+                                    shadow_ask,
+                                    (
+                                        active_indicators.ema_fast,
+                                        active_indicators.ema_medium,
+                                        active_indicators.ema_slow,
+                                        active_indicators.ema_long,
+                                    ),
+                                    &active_set,
+                                    derive_pipeline_state(bar_count as usize, buffer_size),
+                                    avg_vol,
+                                    rvol,
                                 );
-                                // Gap-fills are transient WS scaffolding, not real
-                                // OHLCV data: the reconstructor emits flat
-                                // `O=H=L=C=close` candles (see
-                                // `network_adapters::adapters::reconstruction::CandleReconstructor::reconstruct_ema`
-                                // / `reconstruct_interpolation`). Persisting them
-                                // to `market_snapshots` causes two downstream
-                                // problems:
-                                //
-                                // 1. The DB schema doesn't carry a
-                                //    `reconstructed` column, so
-                                //    `query_recent_candles` returns gap-fills
-                                //    with `reconstructed = None` and the API
-                                //    serves them to the chart as if they were
-                                //    real candles. On the next daemon restart the
-                                //    chart paints these flat Dojis as the entire
-                                //    historical view — the "no bodies after tab
-                                //    switch" regression.
-                                //
-                                // 2. Any downstream consumer that queries the DB
-                                //    for historical analysis (backtests, PnL
-                                //    attribution, etc.) sees EMA-projected
-                                //    synthetic candles mixed with real trade
-                                //    data, polluting the dataset.
-                                //
-                                // The chart still receives these candles live
-                                // via `broadcast_tx.send` below — the WS stream
-                                // remains continuous. They just don't pollute
-                                // the historical store. The next daemon restart
-                                // fetches only real candles from the DB, so the
-                                // chart paints real OHLCV (with bodies when
-                                // trades occurred in the interval) and the live
-                                // WS fills in within seconds of restart.
-                                let _ = broadcast_tx.send(gap_snapshot);
+                                let _ = broadcast_tx.send(gap_snap.clone());
+                                // AUDIT-V8-004: keep the in-memory snapshot
+                                // history continuous across reconnect gaps
+                                // (never persisted to the DB).
+                                {
+                                    let mut snap_hist = snapshot_history.write().await;
+                                    snap_hist.push_back(gap_snap);
+                                    while snap_hist.len() > HIST_BUFFER_MAX {
+                                        snap_hist.pop_front();
+                                    }
+                                }
                             }
                         }
                     }

@@ -14,6 +14,7 @@
     import type { IndicatorDto, IndicatorMeta, IndicatorNormalizationMode, IndicatorSignal, TimeframeTelemetry } from '../../types';
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { filterRegistry, filterSignals, type FilterState } from '../../lib/filtering';
+    import { effectiveLifecycleState } from '../../lib/lifecycleDisplay';
     import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn, buildEmaRibbonCellView } from '../../lib/telemetry';
     import { confPct, normColor, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
     import IndicatorStatusBadge from './IndicatorStatusBadge.svelte';
@@ -204,10 +205,8 @@
             // Determine the active state. If bars_seen >= bars_required and bars_required > 0,
             // the indicator is functionally 'Live'. This defensively bypasses
             // any backend-side lifecycle state sticky 'Loading' bugs.
-            const effectiveState =
-                lc.state === 'Loading' && lc.bars_seen >= lc.bars_required && lc.bars_required > 0
-                    ? 'Live'
-                    : lc.state;
+            // Shared with the export builders via `lifecycleDisplay.ts`.
+            const effectiveState = effectiveLifecycleState(lc);
 
             return {
                 label: effectiveState === 'Live' ? 'Live' : `Loading (${lc.bars_seen}/${lc.bars_required})`,

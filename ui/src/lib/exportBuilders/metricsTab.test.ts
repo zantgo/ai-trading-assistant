@@ -76,7 +76,7 @@ function makeTf(): TimeframeTelemetry {
 }
 
 describe('buildMetricsTabExport', () => {
-  it('meta identity present; no filter_state', () => {
+  it('meta identity present; filter_state is top-level (not in meta)', () => {
     const p = JSON.parse(buildMetricsTabExport({
       tf: makeTf(),
       registry,
@@ -97,7 +97,42 @@ describe('buildMetricsTabExport', () => {
     expect(p.meta.current_price).toBeCloseTo(63390, 0);
     expect(p.meta.price_change_direction).toBe('down');
     expect('filter_state' in p.meta).toBe(false);
+    expect(p.filter_state).toEqual({
+      active_only: false,
+      confirmed_plus_only: false,
+      hide_gates: false,
+      hide_overlays: false,
+      query: '',
+    });
     expect(p.header.layer_name).toBe('Metrics');
+  });
+
+  it('filter_state mirrors the pill state when filters are passed', () => {
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: makeTf(),
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+      filters: {
+        activeOnly: true,
+        confirmedPlusOnly: true,
+        hideGates: false,
+        hideOverlays: true,
+        query: 'rsi',
+        kinds: [],
+      },
+    }));
+    expect(p.filter_state).toEqual({
+      active_only: true,
+      confirmed_plus_only: true,
+      hide_gates: false,
+      hide_overlays: true,
+      query: 'rsi',
+    });
   });
 
   it('group labels map raw keys to display labels (SMC, Derivatives)', () => {
@@ -214,6 +249,37 @@ describe('buildMetricsTabExport', () => {
     expect(rsi.indicator_lifecycle.state).toMatch(/Live|Loading|Stale|Failed/);
     expect(typeof rsi.indicator_lifecycle.state_display).toBe('string');
     expect(typeof rsi.indicator_lifecycle.not_active).toBe('boolean');
+  });
+
+  it('sticky Loading lifecycle past bars_required exports as Live (screen parity)', () => {
+    const tf = {
+      ...makeTf(),
+      indicatorLifecycle: {
+        rsi_14: {
+          state: 'Loading',
+          bars_seen: 271,
+          bars_required: 50,
+          stale_threshold_secs: 60,
+        },
+      },
+    };
+    const p = JSON.parse(buildMetricsTabExport({
+      tf: tf as never,
+      registry,
+      volumeProfile: null,
+      liquidity: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
+    expect(rsi).toBeDefined();
+    // `effectiveLifecycleState` upgrades the sticky Loading → Live exactly
+    // like the screen's IndicatorsView patch.
+    expect(rsi.indicator_lifecycle.state).toBe('Live');
+    expect(rsi.indicator_lifecycle.state_display).not.toContain('Warming');
+    expect(rsi.state_display).toBe('BULLISH');
   });
 
   it('fibonacci block carries price_vs_gp_pct computed from mark price', () => {

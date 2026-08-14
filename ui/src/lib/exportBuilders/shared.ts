@@ -93,7 +93,11 @@ function classifyTone(hex: string): HeaderTone {
   const c = (hex ?? '').toLowerCase();
   if (!c || c === 'rgba(255,255,255,1)' || c === 'transparent') return 'neutral';
   if (c === '#22c55e' || c === '#4ade80' || c.includes('bullish') || c.includes('22, 197, 94') || c.includes('74, 222, 128')) return 'bull';
-  if (c === '#ef4444' || c.includes('bearish') || c.includes('239, 68, 68')) return 'bear';
+  if (
+    c === '#ef4444' || c === '#f87171' || c === '#dc2626' ||
+    c.includes('bearish') ||
+    c.includes('239, 68, 68') || c.includes('248, 113, 113') || c.includes('220, 38, 38')
+  ) return 'bear';
   if (c === '#f59e0b' || c === '#fbbf24' || c.includes('245, 158, 11') || c.includes('251, 191, 36')) return 'warn';
   if (c === '#22d3ee' || c.includes('34, 211, 238')) return 'accent';
   return 'neutral';

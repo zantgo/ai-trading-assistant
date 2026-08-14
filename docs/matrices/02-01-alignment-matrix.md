@@ -41,7 +41,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 | `mtf_overall_score` | `f64` | Blended MTF score in `[-100, 100]`. |
 | `mtf_overall_label` | `string` | `STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`. |
 | `timeframe_alignments` | `TfAlignmentInfo[]` | Per-timeframe breakdown (see §4). |
-| `signal_cross_tf_count` | `u32` | Number of distinct signal keys (indicator × SignalKind) with an active signal on ≥2 timeframes in the current snapshot. |
+| `signal_cross_tf_count` | `u32` | **Heuristic** (see §4.4): `round(30% × total active signals summed across all contributing timeframes)`. **Not** a distinct-key count — reflects overall signal breadth. |
 | `trend_agreement_pct` | `f64` | Percentage of timeframes agreeing on direction `[0, 100]`. |
 
 ### 2.2 AlignmentDimension
@@ -137,7 +137,18 @@ $$\text{trend\_agreement\_pct} = \frac{\max(\text{positive\_tf\_count}, \text{ne
 
 When ≥2 timeframes are present:
 
-`signal_cross_tf_count` = number of distinct signal keys (indicator × SignalKind) with an active signal on ≥2 timeframes in the current snapshot.
+```
+signal_cross_tf_count = round(0.30 × Σ over all timeframes of per-indicator signal counts)
+```
+
+Implemented in `crates/core-domain/src/alignment.rs` (`cross_tf_count`). The value is a
+**breadth heuristic** — 30% of the raw signal total — **not** the number of distinct
+signal keys active on ≥2 timeframes. It tracks signal volume across the matrix: on a
+typical 4-TF snapshot with 20–35 signals per TF it lands in the mid-20s–low-30s.
+Consumers should treat it as an activity indicator, not an exact cross-TF agreement
+count. Note: this threshold-free heuristic makes any downstream rule like
+`signal_cross_tf_count ≥ 3` (`02-02-analysis-matrix.md`) trivially true whenever at
+least two timeframes contribute signals.
 
 ### 4.5 Overall Label
 
@@ -194,6 +205,11 @@ otherwise   → NEUTRAL_MTF
   "trend_agreement_pct": 75.0
 }
 ```
+
+> The example above is a 4-TF snapshot (`timeframes_present: 4`). Per the
+> §4.4 heuristic, `signal_cross_tf_count = round(0.3 × total signals)`;
+> the seed `3` corresponds to ~10 active signals summed across the four
+> timeframes. It is a breadth indicator — not a distinct-key count.
 
 ### 6.1 Worked per-TF decomposition (Volume & Volatility)
 

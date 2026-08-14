@@ -366,8 +366,9 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
     // Screen renders the interpretation with keyword bolding; mirror
     // the marked-up HTML in `interpretation_display` for export parity.
     interpretation_display: highlightKeywords(analysis?.market_interpretation ?? ''),
-    // Screen renders "—" when the rationale is absent.
-    rationale: analysis?.rationale ?? '\u2014',
+    // Screen renders "—" when the rationale is absent (AnalysisPanel.svelte:
+    // `analysis?.rationale || '—'`) — `||` so an empty string also falls back.
+    rationale: analysis?.rationale || '\u2014',
   };
   return JSON.stringify(payload, null, 2);
 }

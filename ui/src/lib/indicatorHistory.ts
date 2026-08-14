@@ -123,6 +123,25 @@ export function setCachedCandles(pairKey: string, timeframe: number, candles: Ca
     if (real.length > 0) candleCache.set(`${pairKey}@${timeframe}`, real);
 }
 
+/// Build the final candle array handed to lightweight-charts.
+///
+/// Deliberately does NOT drop candles the backend marked `reconstructed`
+/// (SYNTHETIC doji-fill / heartbeat candles). On sparse sub-minute markets
+/// those dojis are the majority of the in-memory history buffer, so a
+/// fresh mount (F5 reload, cold start) whose only source is `/api/history`
+/// would render ~90% less history than the live WebSocket coalescer paints
+/// (which has no such filter). Synthetic candles are instead excluded at
+/// the persistent-cache boundary (`setCachedCandles`) so navigation can
+/// never replay flat-line "ghost" Dojis — see AUDIT-V8-004 in
+/// `crates/market-analyzer` and `crates/api-gateway/src/handlers/history.rs`.
+export function buildPaintCandles(
+    historicalCandles: CandleOHLCV[],
+    stepSec: number,
+    maxFill: number = 300,
+): CandleOHLCV[] {
+    return fillTimeGaps(historicalCandles, stepSec, maxFill);
+}
+
 export function clearCandleCache(): void {
     candleCache.clear();
 }

@@ -149,6 +149,12 @@ IF timeframes_present ≤ 1    → state_confidence  = min(state_confidence, 0.5
 state_confidence = clamp(state_confidence, 0, 1)
 ```
 
+> ⚠️ `signal_cross_tf_count` is a breadth heuristic (`round(0.3 × total
+> signals)`, see `02-01-alignment-matrix.md` §4.4) — not a distinct-key
+> count. In practice it exceeds 3 whenever ≥2 timeframes contribute any
+> signals, so this `+0.10` branch fires almost always; treat it as
+> documentation of the current engine behavior, not a discriminative rule.
+
 ### 4.2 Assessment Thresholds
 
 | Assessment | Source dim | Bands |

@@ -104,6 +104,8 @@ describe('buildHeaderBlock', () => {
         status: 'live',
       } as never).badge.tone;
     expect(make('#ef4444')).toBe('bear');
+    expect(make('#f87171')).toBe('bear');
+    expect(make('#dc2626')).toBe('bear');
     expect(make('#f59e0b')).toBe('warn');
     expect(make('#22d3ee')).toBe('accent');
   });

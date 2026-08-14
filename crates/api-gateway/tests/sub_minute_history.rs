@@ -605,3 +605,92 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
     .await
     .expect("history provenance test timed out");
 }
+
+/// AUDIT-V8-006 (axis alignment): the `indicator_history` arrays must be
+/// aligned to the (possibly gap-filled) `times` axis. When the snapshot
+/// history has a hole, the API inserts a scaffold Doji into `times` and
+/// must push `null` into every indicator series at that index — otherwise
+/// `times[i]` pairs with the wrong `values[i]` and every EMA point after
+/// the gap is plotted at a shifted timestamp (the "lines don't correspond
+/// with the price" symptom).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_aligns_indicator_arrays_to_gap_filled_axis() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        use core_domain::indicator_dtos::NormalizedIndicatorValue;
+
+        let mk = |ts: u64, ema: f64| {
+            let mut s = make_snapshot(1, ts, ema);
+            let mut vals = std::collections::HashMap::new();
+            vals.insert("fast".to_string(), ema);
+            let mut entry = NormalizedIndicatorValue::scalar(
+                ema,
+                0.0,
+                "CONSOLIDATED_TANGLED_STACK",
+            );
+            entry.values = Some(vals);
+            let mut indicators = std::collections::HashMap::new();
+            indicators.insert("ema_stack".to_string(), entry);
+            s.indicators = indicators;
+            s
+        };
+
+        // Snapshot history with a HOLE at ts=1_718_000_002.
+        let (_router, state) = build_router_with_snapshots(
+            1,
+            vec![mk(1_718_000_001, 65000.0), mk(1_718_000_003, 65002.0)],
+        )
+        .await;
+        let addr = serve_for(state.clone()).await;
+        let client = reqwest::Client::new();
+
+        let res = client
+            .get(format!(
+                "http://{addr}/api/history?symbol=BTC-USDT&timeframe_secs=1&limit=100"
+            ))
+            .send()
+            .await
+            .expect("history request");
+        assert!(res.status().is_success());
+
+        let body: serde_json::Value = res.json().await.expect("json");
+        let times = body
+            .get("indicator_history")
+            .and_then(|v| v.get("times"))
+            .and_then(|v| v.as_array())
+            .expect("indicator_history.times");
+        let fast = body
+            .get("indicator_history")
+            .and_then(|v| v.get("indicators"))
+            .and_then(|v| v.get("ema_stack"))
+            .and_then(|v| v.get("values"))
+            .and_then(|v| v.get("fast"))
+            .and_then(|v| v.as_array())
+            .expect("ema_stack.values.fast");
+
+        assert_eq!(
+            times.len(),
+            3,
+            "gap-filled axis must include the scaffold Doji: {times:?}"
+        );
+        assert_eq!(
+            fast.len(),
+            times.len(),
+            "indicator arrays must be aligned to the gap-filled axis (got {fast:?} for {times:?})"
+        );
+        assert!(
+            fast[0].is_number(),
+            "first real snapshot value present at index 0: {fast:?}"
+        );
+        assert!(
+            fast[1].is_null(),
+            "scaffold Doji must carry null indicators at index 1: {fast:?}"
+        );
+        assert_eq!(
+            fast[2].as_f64(),
+            Some(65002.0),
+            "second real snapshot value at index 2: {fast:?}"
+        );
+    })
+    .await
+    .expect("history axis alignment test timed out");
+}

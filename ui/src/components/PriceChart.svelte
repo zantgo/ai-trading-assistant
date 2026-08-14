@@ -13,6 +13,7 @@
         getCachedCandles,
         setCachedCandles,
         fillTimeGaps,
+        buildPaintCandles,
         purgeCacheForKey,
         type CandleOHLCV,
     } from '../lib/indicatorHistory';
@@ -290,18 +291,18 @@
             }
 
             historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
-            // Gap-fill: insert flat Doji candles for any missing intervals
-            // so the continuous-time chart axis never shows empty gaps.
-            // The Dojis added here carry no `reconstructed` flag, so the
-            // final filter below treats them as real chart scaffolding.
-            const gapFilled = fillTimeGaps(historicalCandles, step);
-            // Final synthetic filter — drop any candle the backend marked
-            // as reconstructed (SYNTHETIC gap-fill Dojis, future
-            // reconstruction paths). `fillTimeGaps` Dojis above have no
-            // flag and survive the filter, which is correct: they
-            // represent *real* time gaps in the live data, not
-            // interpolation artifacts.
-            const paintCandles = gapFilled.filter((c) => !c.reconstructed);
+            // Build the final paint array. `buildPaintCandles` gap-fills
+            // missing intervals but deliberately does NOT drop candles the
+            // backend marked `reconstructed`: on a sparse sub-minute market
+            // those SYNTHETIC doji-fill candles are the majority of
+            // `/api/history`, and filtering them here wiped ~90% of the
+            // chart's history after an F5 reload (fresh JS context → empty
+            // candle cache → history comes only from the fetch), while the
+            // live WS coalescer paints them unfiltered. Synthetic candles
+            // are excluded at the persistent-cache boundary only
+            // (`setCachedCandles` below), so navigation can't replay
+            // flat-line ghosts — see AUDIT-V8-004.
+            const paintCandles = buildPaintCandles(historicalCandles, step);
             // Persist the processed candle array so the next component mount
             // (timeframe switch / back-forward nav) paints instantly. The
             // `setCachedCandles` helper also runs a defence-in-depth filter,
@@ -416,7 +417,17 @@
             // collapsed sub-minute candle bodies into a pinned band.
             if (recentCandles.length > 0) {
                 const lastTimeSec = Number(recentCandles[recentCandles.length - 1].time);
-                const visibleSecs = timeframe <= 5 ? 180 : timeframe <= 30 ? 600 : 3600;
+                // AUDIT-V8-008 (D3): widen the sub-minute window to the full
+                // seeded history so the slower ribbon lines are reachable —
+                // a fixed 180 s window hid every point of the EMA-200 on a
+                // 1 s chart (its first point is at bar 200 = 200 s back),
+                // making the LONG line look broken/missing. The seeded
+                // candle count (`seedCountFor`) bounds the data anyway, so
+                // the range is simply the seed window; the viewport still
+                // shows the most recent candles at the configured barSpacing
+                // and the user scrolls left for the older bars.
+                const seedWindowCandles = timeframe <= 5 ? 300 : 600;
+                const visibleSecs = timeframe <= 30 ? seedWindowCandles * timeframe : 3600;
                 chart.timeScale().setVisibleRange({
                     from: (lastTimeSec - visibleSecs) as Time,
                     to: (lastTimeSec + Math.floor(visibleSecs * 0.1)) as Time,
