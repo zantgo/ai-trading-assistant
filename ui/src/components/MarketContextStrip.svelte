@@ -8,10 +8,14 @@
     // regime + overall score/label).
     //
     // Collapsed by default to a one-line summary (regime + overall);
-    // expanded reveals the 5 dimension chips. Only renders when the
-    // context block is present in the snapshot — no fabricated state.
+    // clicking the header (or the caret) reveals the 5 dimension chips
+    // (trend / momentum / volatility / volume / liquidity). The same five
+    // dimensions are carried verbatim in the single-TF export
+    // (`market_context`), so the screen and the JSON always mirror.
+    // Only renders when the context block is present — no fabricated state.
 
     import type { MarketContext } from '../types';
+    import { regimeTone } from '../lib/dashboardColors';
     import styles from './MarketContextStrip.module.css';
 
     interface Props {
@@ -26,10 +30,37 @@
 
     let { context, timestamp = null, barDurationSec = 60, signalCount }: Props = $props();
 
+    // M-1 (v6.10.11): the five L1 LOCAL synthesis dimensions live in the
+    // snapshot context and in the export; the strip now surfaces them
+    // (the template had lost the body the CSS still styled).
+    let expanded = $state(false);
+
+    const DIMS = [
+        { key: 'trend', label: 'Trend' },
+        { key: 'momentum', label: 'Momentum' },
+        { key: 'volatility', label: 'Volatility' },
+        { key: 'volume', label: 'Volume' },
+        { key: 'liquidity', label: 'Liquidity' },
+    ] as const;
+
     function fmtScore(n: number | undefined | null): string {
         if (n == null || isNaN(n)) return '--';
         const sign = n > 0 ? '+' : '';
         return `${sign}${n.toFixed(2)}`;
+    }
+
+    function dimConfidence(pct: number | undefined | null): string {
+        // The wire carries confidence as 0..1; the export renders
+        // `Math.round(confidence * 100)%` — mirror it exactly.
+        if (pct == null || isNaN(pct)) return '--%';
+        return `${Math.round(pct * 100)}%`;
+    }
+
+    function dimClass(n: number | undefined | null): string {
+        if (n == null || isNaN(n)) return styles.dimNeutral ?? '';
+        if (n > 0) return styles.dimBull ?? '';
+        if (n < 0) return styles.dimBear ?? '';
+        return styles.dimNeutral ?? '';
     }
 
     function ageBars(): number | null {
@@ -43,11 +74,18 @@
     }
 
     function regimeClass(regime: string | undefined): string {
+        // M-6 (v6.10.11): tone classification via the shared `regimeTone`;
+        // this panel colors the regime FAMILY (trending / compressed /
+        // expanding / range) while the alignment panel colors direction.
         const r = (regime ?? '').toUpperCase();
-        if (r.includes('TRENDING')) return styles.regimeTrending ?? '';
-        if (r.includes('COMPRESS') || r.includes('CONTRACT')) return styles.regimeCompress ?? '';
-        if (r.includes('EXPAND')) return styles.regimeExpand ?? '';
-        if (r.includes('RANGE')) return styles.regimeRange ?? '';
+        const tone = regimeTone(r);
+        if (tone === 'bull' || tone === 'bear') return styles.regimeTrending ?? '';
+        if (tone === 'vol') {
+            return r.includes('COMPRESS') || r.includes('CONTRACT')
+                ? styles.regimeCompress ?? ''
+                : styles.regimeExpand ?? '';
+        }
+        if (tone === 'range') return styles.regimeRange ?? '';
         return styles.regimeNeutral ?? '';
     }
 
@@ -68,7 +106,12 @@
             <span class={styles.placeholderText}>Awaiting completed snapshot…</span>
         </div>
     {:else}
-        <div class={styles.header}>
+        <div class={styles.header} role="button" tabindex="0"
+             onclick={() => expanded = !expanded}
+             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); expanded = !expanded; } }}
+             aria-expanded={expanded}
+             title={expanded ? 'Collapse dimensions' : 'Expand 5-dimension synthesis'}>
+            <span class={styles.caret}>{expanded ? '▾' : '▸'}</span>
             <span class={styles.title}>MARKET CONTEXT</span>
             <span class="{styles.regimeBadge} {regimeClass(context.regime)}">
                 {context.regime}
@@ -90,5 +133,21 @@
                 <span class={styles.signalCount}>{signalCount} signals</span>
             {/if}
         </div>
+        <!-- M-1 (v6.10.11): the five L1 LOCAL synthesis dimensions —
+             trend / momentum / volatility / volume / liquidity — rendered
+             from the same `MarketContext` the export carries. -->
+        {#if expanded}
+            <div class={styles.body}>
+                {#each DIMS as d (d.key)}
+                    {@const dim = context[d.key]}
+                    <div class="{styles.dim} {dimClass(dim?.score)}">
+                        <span class={styles.dimLabel}>{d.label}</span>
+                        <span class={styles.dimScore}>{fmtScore(dim?.score)}</span>
+                        <span class={styles.dimSubLabel}>{dimConfidence(dim?.confidence)}</span>
+                        <span class={styles.dimSubLabel}>{dim?.label}</span>
+                    </div>
+                {/each}
+            </div>
+        {/if}
     {/if}
 </div>

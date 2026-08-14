@@ -20,7 +20,7 @@ The following indicators are drawn directly on the main price chart (OHLCV + ove
 
 | Registry Key | Display Name | Overlay Form | Toggleable via `ChartToggles`? |
 |---|---|---|---|
-| `ema_stack` | EMA Ribbon | 4 line series (fast / medium / slow / long) | Yes — 4 separate pill buttons (`EMA FAST` / `MED` / `SLOW` / `LONG`). |
+| `ema_stack` | EMA Ribbon | 4 line series (fast / medium / slow / long) | Yes — 4 separate pill buttons (`INSTANT` / `FAST` / `MEDIUM` / `SLOW`). |
 | `donchian` | Donchian | Upper & lower bands as line series | Yes — single `DONCHIAN` pill. |
 | `keltner` | Keltner | Upper, middle, lower channels as line series | Yes — single `KELTNER` pill. |
 | `vwap` | VWAP | Single line series | Yes — single `VWAP` pill. |

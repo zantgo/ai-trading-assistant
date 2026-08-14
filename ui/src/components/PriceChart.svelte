@@ -599,21 +599,6 @@
     const fibVals = $derived(tf?.indicators?.['fibonacci']?.values ?? null);
     const fibShow = $derived(tf?.showFib ?? false);
 
-    // [fib-debug] one-shot diagnostic — remove once the chart-overlay data
-    // path is confirmed healthy (PR: fibonacci regression).
-    $effect(() => {
-        const _vals = fibVals;
-        const _show = fibShow;
-        // eslint-disable-next-line no-console
-        console.log('[fib-debug]', {
-            showFib: _show,
-            keys: _vals ? Object.keys(_vals) : null,
-            sample: _vals,
-            stateLabel: tf?.indicators?.['fibonacci']?.state_label,
-            normalized: tf?.indicators?.['fibonacci']?.normalized,
-        });
-    });
-
     $effect(() => {
         for (const line of fibLines) {
             try { candleSeries?.removePriceLine(line); } catch (_) {}

@@ -281,7 +281,7 @@ export function fmtPctSigned(v: number | null | undefined, digits = 2): string {
  *  all four lines inline instead of just the fast. */
 export interface EmaRibbonCellRow {
     role: EmaRole;
-    label: string;            // 'F' | 'M' | 'S' | 'L'
+    label: string;            // 'I' | 'F' | 'M' | 'S'
     valueText: string;        // formatted price (e.g. '64018.20') or '--'
     distanceText: string;     // formatted signed % (e.g. '+0.09%') or '--'
 }
@@ -305,10 +305,10 @@ export function buildEmaRibbonCellView(
     const view = buildEmaRibbonView(tf, close);
     const valueText = (v: number | null) => v == null ? '--' : fmtPrice(v, refPrice);
     const lines: { role: EmaRole; label: string }[] = [
-        { role: 'fast',   label: 'F' },
-        { role: 'medium', label: 'M' },
-        { role: 'slow',   label: 'S' },
-        { role: 'long',   label: 'L' },
+        { role: 'fast',   label: 'I' },
+        { role: 'medium', label: 'F' },
+        { role: 'slow',   label: 'M' },
+        { role: 'long',   label: 'S' },
     ];
     const rows: EmaRibbonCellRow[] = lines.map(({ role, label }) => ({
         role,

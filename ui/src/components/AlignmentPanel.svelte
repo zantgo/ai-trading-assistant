@@ -6,6 +6,7 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL2AlignmentHeader, mLabel, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { regimeTone } from '../lib/dashboardColors';
     import styles from './AlignmentPanel.module.css';
 
     const app = useAppStore();
@@ -78,10 +79,12 @@
         return '';
     }
     function tfRegimeCls(r: string): string {
-        const u = r.toUpperCase();
-        if (u.includes('BULL')) return styles.tfRegimeBull;
-        if (u.includes('BEAR')) return styles.tfRegimeBear;
-        if (u === 'TRANSITION' || u === 'CONTRACTION' || u === 'EXPANSION') return styles.tfRegimeVol;
+        // M-6 (v6.10.11): tone classification via the shared `regimeTone`
+        // — this panel colors direction (bull/bear) and volatile regimes.
+        const tone = regimeTone(r);
+        if (tone === 'bull') return styles.tfRegimeBull;
+        if (tone === 'bear') return styles.tfRegimeBear;
+        if (tone === 'vol') return styles.tfRegimeVol;
         return styles.tfRegimeNeutral;
     }
 

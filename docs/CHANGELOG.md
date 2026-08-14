@@ -6,6 +6,27 @@
 
 
 
+## v6.10.11 (2026-08-14) — Metrics panel internal consistency
+
+The L1 Metrics view (micro/fast/slow/macro + MTF) now surfaces its own LOCAL synthesis on screen, reads the canonical (non-stale) liquidity source, and shares the regime-tone vocabulary with the Alignment panel.
+
+**MET-001 — L1 five-dimension synthesis on screen (`ui`):**
+* `MarketContextStrip`'s comment promised an expandable 5-dimension body, but the template had lost it (the CSS survived). The strip now expands to reveal the five L1 LOCAL synthesis dimensions (trend / momentum / volatility / volume / liquidity) with sign-prefixed scores, `confidence%`, and labels — the same values the single-TF export's `market_context` block carries.
+
+**MET-002 — cascade banner source + precision (`ui`):**
+* The Tier-1 cascade alert read `pair.microTerm.liquidity` — the tf-level field that retains the last non-null value across shadow ticks (the RiskPanel documents the same staleness and reads the snapshot). The banner now reads the snapshot path, formats `cascade_intensity` at 1 decimal (matching the RiskPanel), and its "click for Liquidity facet" action is gone — it pointed at a facet removed in the metrics redesign; the label now references the Structural Anchors Liquidity tile. The export's `micro_cascade_alert` mirrors the same snapshot source.
+
+**MET-003 — canonical L1 header status (`ui`):**
+* `buildL1MetricsHeader` now takes the WS state and flows status through the canonical `tfStatusFrom` (ws open/closed → error/loading, pipeline STALE/FAILED) instead of the raw `tf.isCompleted` flip; `TerminalMonitor`'s previously-dead `wssState` prop is the input.
+
+**MET-004 — filter-aware signal badges (`ui`):**
+* The Signals facet tab badge and the strip's "N signals" badge count the FILTERED signals (same `filterSignals` the facet lists apply), so the badge always matches the rows the operator sees under the active filter pills.
+
+**MET-005 — shared regime-tone vocabulary (`ui`):**
+* New `regimeTone` in `dashboardColors.ts` is the single classification (bull / bear / vol / range / neutral); `MarketContextStrip.regimeClass` and `AlignmentPanel.tfRegimeCls` both consume it (each mapping the tone to its own CSS classes) — the same regime can no longer be classified differently across panels.
+
+**Doc corrections:** `07-05-export-data-payload-schema.md` §3.1 (L1 five-dimension screen parity, cascade-banner snapshot source).
+
 ## v6.10.10 (2026-08-14) — Alignment panel internal consistency
 
 The L2 Alignment tab's arithmetic and verdict surfaces are now honest: the Score Calculation formula balances (×100 factor), strongly-aligned dimensions are colored, the NO_DATA warmup sentinel renders as awaiting instead of a fabricated "Conflict" verdict, and the label/consensus wording is unified across the header, panel, and export.

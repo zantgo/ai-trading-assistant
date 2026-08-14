@@ -94,11 +94,14 @@
     function clearFilters() { filters = defaultFilters(); }
 
     // ── Per-facet counts ──────────────────────────────────────────────
+    // M-2 (v6.10.11): the badges count the FILTERED result (same
+    // `filterSignals` the facet lists apply) so the tab badge and the
+    // strip's "N signals" badge always match the rows the operator sees.
     function countActiveSignals(): number {
         if (!activeTfObj) return 0;
         let n = 0;
         for (const k in activeTfObj.indicators ?? {}) {
-            n += (activeTfObj.indicators[k]?.signals ?? []).length;
+            n += filterSignals(activeTfObj.indicators[k]?.signals ?? [], filters).length;
         }
         return n;
     }
@@ -167,7 +170,11 @@
             volumeProfile: (activeTfObj as any)?.volumeProfile ?? null,
             microVolumeProfile: (pair as any)?.microTerm?.volumeProfile ?? null,
             liquidity: (activeTfObj as any)?.liquidity ?? null,
-            microLiquidity: (pair as any)?.microTerm?.liquidity ?? null,
+            // M-3 (v6.10.11): the export's `micro_cascade_alert` mirrors
+            // the Tier-1 cascade banner — both must read the SNAPSHOT-path
+            // liquidity (the tf-level field retains stale values across
+            // shadow ticks; the RiskPanel documents the same source rule).
+            microLiquidity: (pair as any)?.microTerm?.latestSnapshot?.liquidity ?? null,
             cluster: (activeTfObj as any)?.cluster ?? null,
             liquiditySignals: (activeTfObj as any)?.liquiditySignals ?? [],
             // `pairKey` is the FULL exchange-symbol (e.g. BTC-USDC) — never
@@ -233,11 +240,14 @@
     }
 
     // LayerHeader spec — single-TF reads the per-timeframe `tf.context`,
-    // MTF switches to the synthetic cross-TF header.
+    // MTF switches to the synthetic cross-TF header. M-4/M-5 (v6.10.11):
+    // the single-TF status flows through the canonical `tfStatusFrom`
+    // helper (ws open/closed + pipeline states) — the previously-dead
+    // `wssState` prop is the input.
     const headerSpec = $derived<LayerHeaderSpec>(
         activeTf === 'Mtf'
             ? buildL1MtfHeader(pair?.alignment ?? null, pair?.analysis?.market_regime ?? null)
-            : buildL1MetricsHeader(activeTfObj ?? null)
+            : buildL1MetricsHeader(activeTfObj ?? null, wssState)
     );
 </script>
 
@@ -347,18 +357,24 @@
                 />
 
                 <!-- ROW 2.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
-                {@const microFlow = (pair as any)?.microTerm?.liquidity ?? null}
+                <!-- M-3 (v6.10.11): read the SNAPSHOT-path liquidity (the
+                     tf-level `liquidity` retains the last non-null value
+                     across shadow ticks — the RiskPanel documents the same
+                     staleness), match the RiskPanel's 1-decimal intensity
+                     format, and reference the Structural Anchors Liquidity
+                     tile — the old "click for Liquidity facet" navigated to
+                     a facet that no longer exists. -->
+                {@const microFlow = (pair as any)?.microTerm?.latestSnapshot?.liquidity ?? null}
                 {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
-                    <button
+                    <div
                         class="{styles.cascadeAlert} {microFlow.cascade_state === 'SUSTAINED' ? styles.cascadeAlertSustained : styles.cascadeAlertDetected}"
-                        onclick={() => activeFacet = 'liquidity'}
-                        title="Click to inspect the Liquidity facet"
+                        role="status"
                     >
                         <span class={styles.cascadeAlertIcon}>⚠</span>
                         <span class={styles.cascadeAlertLabel}>
-                            CASCADE {microFlow.cascade_state} · intensity {microFlow.cascade_intensity.toFixed(0)}/100 · click for Liquidity facet
+                            CASCADE {microFlow.cascade_state} · intensity {microFlow.cascade_intensity.toFixed(1)}/100 · see the Liquidity tile in the Structural Anchors strip
                         </span>
-                    </button>
+                    </div>
                 {/if}
 
                 <!-- ROW 3 — Structural Anchors Strip -->

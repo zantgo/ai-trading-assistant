@@ -350,11 +350,11 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
         const ribbon = container.querySelector('[class*="emaRibbon"]');
         expect(ribbon).not.toBeNull();
         const text = (ribbon?.textContent ?? '').replace(/\s+/g, ' ').trim();
-        // All four labels must be present (F/M/S/L).
+        // All four labels must be present (I/F/M/S).
+        expect(text).toContain('I');
         expect(text).toContain('F');
         expect(text).toContain('M');
         expect(text).toContain('S');
-        expect(text).toContain('L');
         // All four formatted prices render (formatted by fmtPrice against
         // the refPrice 64000, which is 1-decimal scale for >=$10k prices).
         expect(text).toContain('64018.2');

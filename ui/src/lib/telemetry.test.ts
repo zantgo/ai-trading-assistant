@@ -171,10 +171,10 @@ describe('buildEmaRibbonCellView (on-screen micro-grid)', () => {
             64000,
         );
         expect(cell.rows.map(r => r.role)).toEqual([...EMA_ROLES]);
-        expect(cell.rows.find(r => r.role === 'fast')!.label).toBe('F');
-        expect(cell.rows.find(r => r.role === 'medium')!.label).toBe('M');
-        expect(cell.rows.find(r => r.role === 'slow')!.label).toBe('S');
-        expect(cell.rows.find(r => r.role === 'long')!.label).toBe('L');
+        expect(cell.rows.find(r => r.role === 'fast')!.label).toBe('I');
+        expect(cell.rows.find(r => r.role === 'medium')!.label).toBe('F');
+        expect(cell.rows.find(r => r.role === 'slow')!.label).toBe('M');
+        expect(cell.rows.find(r => r.role === 'long')!.label).toBe('S');
         // 5-digit prices render 1 decimal; sub-$ assets render 8 decimals;
         // the existing fmtPrice scale (per ui/src/lib/telemetry.ts:32-40).
         expect(cell.rows.find(r => r.role === 'fast')!.valueText).toBe('64018.2');

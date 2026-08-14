@@ -158,13 +158,13 @@
     <div class={styles.togglesGroup}>
         <span class={styles.togglesLabel}>EMA</span>
         <button class="{styles.togglePill} {styles.emaFast} {pair.showEmaFast ? styles.active : ''}"
-            onclick={() => toggleEma('Fast')}>FAST</button>
+            onclick={() => toggleEma('Fast')}>INSTANT</button>
         <button class="{styles.togglePill} {styles.emaMedium} {pair.showEmaMedium ? styles.active : ''}"
-            onclick={() => toggleEma('Medium')}>MED</button>
+            onclick={() => toggleEma('Medium')}>FAST</button>
         <button class="{styles.togglePill} {styles.emaSlow} {pair.showEmaSlow ? styles.active : ''}"
-            onclick={() => toggleEma('Slow')}>SLOW</button>
+            onclick={() => toggleEma('Slow')}>MEDIUM</button>
         <button class="{styles.togglePill} {styles.emaLong} {pair.showEmaLong ? styles.active : ''}"
-            onclick={() => toggleEma('Long')}>LONG</button>
+            onclick={() => toggleEma('Long')}>SLOW</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>

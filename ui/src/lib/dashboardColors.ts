@@ -67,6 +67,30 @@ export function riskDangerColor(score: number | null | undefined): string {
 }
 
 /**
+ * Canonical regime-tone classification (v6.10.11) — the single source of
+ * truth for what a regime string IS, shared by the metrics strip and the
+ * alignment panel so the same regime can never be classified differently
+ * across panels. Each component maps the tone to its own CSS classes.
+ */
+export function regimeTone(
+    regime: string | null | undefined,
+): 'bull' | 'bear' | 'vol' | 'range' | 'neutral' {
+    const u = String(regime ?? '').toUpperCase();
+    if (u.includes('BULL')) return 'bull';
+    if (u.includes('BEAR')) return 'bear';
+    if (
+        u.includes('TRANSITION')
+        || u.includes('EXPANSION')
+        || u.includes('COMPRESS')
+        || u.includes('CONTRACT')
+    ) {
+        return 'vol';
+    }
+    if (u.includes('RANGE')) return 'range';
+    return 'neutral';
+}
+
+/**
  * Colour for a Quality/value score (0..100). High score = good. Used
  * for the Dashboard's quality bars (Trend / Liquidity / Signal Stability
  * where the L5 risk score is inverted to a quality value).

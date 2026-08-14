@@ -15,7 +15,7 @@
 // `TerminalMonitor.test.ts` was long-standing. Any future refactor
 // that re-orders the rail or flips the default state will fail here.
 
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import TerminalMonitor from './TerminalMonitor.svelte';
 import { useAppStore } from '../state.svelte';
@@ -90,5 +90,55 @@ describe('TerminalMonitor — default active Tf is MTF (v7.0-prod D3)', () => {
         expect(activeRailItems.length).toBe(1);
         const label = activeRailItems[0].querySelector('span')?.textContent?.trim();
         expect(label).toBe('MTF');
+    });
+});
+
+describe('TerminalMonitor — cascade alert (M-3, v6.10.11)', () => {
+    // The single-TF body renders only when the registry is non-empty.
+    function seedWithRegistry() {
+        seedInstance();
+        const app = useAppStore();
+        app.indicatorRegistry = [{
+            key: 'rsi',
+            display_name: 'RSI 14',
+            group: 'Oscillators',
+            class: 'Oscillator',
+            render: 'Pane',
+            directional: true,
+            supports_divergence: true,
+            signal_types: [],
+            default_weight: 1,
+            default_enabled: true,
+            config_params: [],
+            value_format: 'number',
+            value_source: 'indicator',
+            color: '#22c55e',
+            guide_section: 'oscillators',
+        }] as any;
+        return app.instancesMap['BTC-USDT'];
+    }
+
+    it('renders the alert from the SNAPSHOT-path liquidity with 1-decimal intensity', () => {
+        const entry = seedWithRegistry();
+        entry.microTerm.latestSnapshot = {
+            timestamp: Math.floor(Date.now() / 1000),
+            liquidity: { cascade_state: 'SUSTAINED', cascade_intensity: 72.5 },
+        } as any;
+        render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
+        // 'Micro' also appears in the MTF grid column header — the
+        // rail button renders first in DOM order.
+        fireEvent.click(screen.getAllByText('Micro')[0]);
+        // M-3: snapshot source + toFixed(1) — matches the RiskPanel.
+        expect(screen.getByText(/CASCADE SUSTAINED · intensity 72\.5\/100/)).toBeTruthy();
+    });
+
+    it('does NOT render the alert from the tf-level liquidity (stale-prone source)', () => {
+        const entry = seedWithRegistry();
+        entry.microTerm.liquidity = { cascade_state: 'SUSTAINED', cascade_intensity: 90 } as any;
+        render(TerminalMonitor, { props: { pairKey: 'BTC-USDT' } });
+        // 'Micro' also appears in the MTF grid column header — the
+        // rail button renders first in DOM order.
+        fireEvent.click(screen.getAllByText('Micro')[0]);
+        expect(screen.queryByText(/CASCADE/)).toBeNull();
     });
 });

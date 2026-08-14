@@ -206,7 +206,14 @@ export function tfStatusFrom(
 // `tf.context.regime`. The headline number is the per-TF overall score
 // (used for the chip). The badge reads the regime label, which already
 // encodes bias direction (Trend Bull / Trend Bear / Range / Expansion / …).
-export function buildL1MetricsHeader(tf: TimeframeTelemetry | null | undefined): LayerHeaderSpec {
+// M-4 (v6.10.11): status flows through the canonical `tfStatusFrom`
+// (ws open/closed + pipeline STALE/FAILED) instead of the raw
+// `tf.isCompleted` flip — the previous code flashed "loading" between
+// candle closes without surfacing pipeline states.
+export function buildL1MetricsHeader(
+    tf: TimeframeTelemetry | null | undefined,
+    wss: { wsMicro: WebSocket | null } | null | undefined = null,
+): LayerHeaderSpec {
     const ctx = tf?.context ?? null;
     const label = ctx?.overall_label ?? null;
     const regime = ctx?.regime ?? null;
@@ -245,7 +252,7 @@ export function buildL1MetricsHeader(tf: TimeframeTelemetry | null | undefined):
             state: 'valid',
         },
         meta,
-        status: tf.isCompleted ? 'live' : 'loading',
+        status: tfStatusFrom(tf, wss),
     };
 }
 

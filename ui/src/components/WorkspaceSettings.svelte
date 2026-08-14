@@ -325,10 +325,10 @@
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
     {#snippet indicatorInputs(p: string, t: TermDraft)}
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaFast} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Med')}>EMA Med</label><input id={fieldId(p, 'EMA Med')} type="number" bind:value={t.emaMedium} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Slow')}>EMA Slow</label><input id={fieldId(p, 'EMA Slow')} type="number" bind:value={t.emaSlow} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Long')}>EMA Long</label><input id={fieldId(p, 'EMA Long')} type="number" bind:value={t.emaLong} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Instant')}>EMA Instant</label><input id={fieldId(p, 'EMA Instant')} type="number" bind:value={t.emaFast} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaMedium} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Medium')}>EMA Medium</label><input id={fieldId(p, 'EMA Medium')} type="number" bind:value={t.emaSlow} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Slow')}>EMA Slow</label><input id={fieldId(p, 'EMA Slow')} type="number" bind:value={t.emaLong} /></div>
         <div class={styles.tfInputRow}><label for={fieldId(p, 'RSI Window')}>RSI Window</label><input id={fieldId(p, 'RSI Window')} type="number" bind:value={t.rsiPeriod} /></div>
         <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Fast')}>MACD Fast</label><input id={fieldId(p, 'MACD Fast')} type="number" bind:value={t.macdFast} /></div>
         <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Slow')}>MACD Slow</label><input id={fieldId(p, 'MACD Slow')} type="number" bind:value={t.macdSlow} /></div>

@@ -17,8 +17,8 @@ export class SettingsStore {
         aroon_period: 25, chop_period: 14, linreg_period: 20, zscore_period: 20,
     });
 
-    emaFastLabel = $state('EMA-10'); emaMediumLabel = $state('EMA-50');
-    emaSlowLabel = $state('EMA-100'); emaLongLabel = $state('EMA-200');
+    emaFastLabel = $state('Instant'); emaMediumLabel = $state('Fast');
+    emaSlowLabel = $state('Medium'); emaLongLabel = $state('Slow');
     rsiLabel = $state('RSI (14)'); adxLabel = $state('ADX (14)');
     atrLabel = $state('ATR (14)'); macdLabel = $state('MACD (12,26,9)');
 }

@@ -14,10 +14,10 @@ This strategy uses a structured, four-timeframe EMA stacking model to classify m
 By adjusting the lookback period, each of the four EMAs is assigned a specific structural role in the execution pipeline:
 
 ### 2.1 The Stacking Components
-1.  **EMA 10 (Fast - Tactical Momentum):** Reacts rapidly to immediate price fluctuations. It serves as your short-term momentum tracker and tactical pullback reference.
-2.  **EMA 50 (Medium - Swing Trend):** Establishes the primary trend direction over a medium-term horizon. It acts as the dynamic support/resistance baseline during active trends.
-3.  **EMA 100 (Slow - Structural Support):** Represents the secondary structural boundary. It serves as a deeper value-area pullback zone.
-4.  **EMA 200 (Long - Macro Trend Filter):** Represents the ultimate structural trend filter. The angle and location of the EMA 200 define the macro market regime.
+1.  **EMA 10 (Instant - Tactical Momentum):** Reacts rapidly to immediate price fluctuations. It serves as your short-term momentum tracker and tactical pullback reference.
+2.  **EMA 50 (Fast - Swing Trend):** Establishes the primary trend direction over a medium-term horizon. It acts as the dynamic support/resistance baseline during active trends.
+3.  **EMA 100 (Medium - Structural Support):** Represents the secondary structural boundary. It serves as a deeper value-area pullback zone.
+4.  **EMA 200 (Slow - Macro Trend Filter):** Represents the ultimate structural trend filter. The angle and location of the EMA 200 define the macro market regime.
 
 ### 2.2 Mathematical Smoothing Factor
 Unlike SMAs, which weight all bars equally, the EMA calculation utilizes a multiplier ($\alpha$) based on the specified period ($P$):
@@ -50,7 +50,7 @@ To enter trend-following positions, the four EMAs must be stacked in sequential 
 
 ## 4. Entry and Management Rules
 
-### 4.1 The Macro Trend Filter (The 200 EMA Rule)
+### 4.1 The Macro Trend Filter (The Slow EMA Rule)
 The EMA 200 is the ultimate trend filter across all execution timeframes:
 *   **Long Prohibition:** If price is trading below the EMA 200 on your primary execution or macro chart, all Long entry signals are rejected.
 *   **Short Prohibition:** If price is trading above the EMA 200 on your primary execution or macro chart, all Short entry signals are rejected.

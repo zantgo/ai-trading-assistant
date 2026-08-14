@@ -6,7 +6,7 @@
     const SUPPORTED_EVENTS = [
         { key: 'squeeze_release', label: 'Squeeze Release' },
         { key: 'sr_flip', label: 'S/R Role Flip' },
-        { key: 'ema200_cross', label: '200 EMA Cross' },
+        { key: 'ema200_cross', label: 'Slow EMA Cross' },
         { key: 'confirmed_divergence', label: 'Confirmed Divergence' },
     ];
 

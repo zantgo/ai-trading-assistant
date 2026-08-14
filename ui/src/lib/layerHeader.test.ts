@@ -304,6 +304,22 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         expect(scoreChip.state).toBe('neutral');
         expect(scoreChip.color).toBe(COLORS.neutral);
     });
+
+    it('M-4: status flows through tfStatusFrom — ws closed → error, pipeline STALE → stale, shadow tick → loading', () => {
+        // The node test env has no global WebSocket — polyfill the two
+        // constants tfStatusFrom reads.
+        (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
+        const closedWs = { wsMicro: { readyState: 3 /* CLOSED */ } as WebSocket };
+        expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH' })), closedWs).status).toBe('error');
+        const stale = tfStub(ctx({ overall_label: 'BULLISH' }));
+        stale.pipelineState = 'STALE';
+        expect(buildL1MetricsHeader(stale).status).toBe('stale');
+        const shadow = tfStub(ctx({ overall_label: 'BULLISH' }));
+        shadow.isCompleted = false;
+        expect(buildL1MetricsHeader(shadow).status).toBe('loading');
+        // Healthy completed tick stays live.
+        expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH' }))).status).toBe('live');
+    });
 });
 
 describe('buildL1MtfHeader (L1 Multi-TF)', () => {
