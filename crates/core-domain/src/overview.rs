@@ -192,8 +192,15 @@ pub struct InstanceMeta {
     pub is_active: bool,
     /// Per-symbol L5 `overall_risk.score` — the canonical aggregate the L7
     /// risk distribution / risk_environment / systemic_risk_score bin on
-    /// (L7-A, v6.10.13).
+    /// (L7-A, v6.10.13). v6.10.18: the MEAN over the TF windows.
     pub overall_risk: f64,
+    /// v6.10.19 (P7): per-TF-window `(weight, risk)` pairs (micro 0.1 /
+    /// fast 0.2 / slow 0.3 / macro 0.4) feeding the TF-decayed
+    /// `high_pct` and `systemic_risk_score` — a transient MICRO risk
+    /// spike contributes at most 10% to the systemic path, so the PME
+    /// safety veto stays anchored to macro stability. Empty for legacy
+    /// callers → the systemic path falls back to `overall_risk`.
+    pub risk_windows: Vec<(f64, f64)>,
 }
 
 /// Compute the Overview Matrix from all Advisory Matrices, instance
@@ -317,34 +324,75 @@ pub fn compute_overview(
         GlobalBias::Mixed
     };
 
-    // Asset ranking per spec §3: score = 0.5 * confidence_assessment + 50.0
-    let mut rankings: Vec<AssetRank> = advisories
+    // v6.10.16 (FIX-O3): per-symbol L5 OVERALL risk map, hoisted above the
+    // rankings so AssetRank.risk_level and the risk distribution bin on the
+    // SAME canonical risk data. Bands: ≤30 low, ≥70 high, else moderate —
+    // missing symbols fall back to 50 (moderate), the same default the
+    // dashboard card uses.
+    let overall_by_symbol: HashMap<&str, f64> = active_instances
         .iter()
-        .map(|a| {
-            let score = 0.5 * a.confidence_assessment + 50.0;
-            let risk_level = if a.confidence_assessment >= 70.0 {
-                "LOW"
-            } else if a.confidence_assessment >= 40.0 {
-                "MODERATE"
-            } else {
-                "HIGH"
-            };
+        .map(|i| (i.symbol.as_str(), i.overall_risk))
+        .collect();
+    let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied().unwrap_or(50.0);
+    let risk_level_for = |symbol: &str| {
+        let r = overall_for(symbol);
+        if r <= 30.0 {
+            "LOW"
+        } else if r >= 70.0 {
+            "HIGH"
+        } else {
+            "MODERATE"
+        }
+    };
+
+    // Asset ranking per spec §3: score = 0.5 * confidence_assessment + 50.0.
+    // v6.10.18 (I-2): advisories arrive per TF WINDOW (0–4 per symbol from
+    // the daemon's tf-average basis) — rankings aggregate per symbol: the
+    // confidence is the MEAN over the symbol's windows, and the categorical
+    // bias/regime take the MODE (ties resolve to the fastest window, i.e.
+    // the first in iteration order).
+    let mut by_symbol: std::collections::BTreeMap<&str, Vec<&AdvisoryMatrix>> =
+        std::collections::BTreeMap::new();
+    for adv in advisories {
+        by_symbol.entry(adv.symbol.as_str()).or_default().push(adv);
+    }
+    let mode_of = |wins: &[&AdvisoryMatrix], f: &dyn Fn(&AdvisoryMatrix) -> String| -> String {
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut best: Option<String> = None;
+        for w in wins {
+            let key = f(w);
+            let cur = counts.get(&key).copied().unwrap_or(0) + 1;
+            counts.insert(key.clone(), cur);
+            // Strict `>` keeps the FIRST (fastest) window on ties.
+            if best.as_ref().map_or(true, |bk| cur > counts[bk]) {
+                best = Some(key);
+            }
+        }
+        best.unwrap_or_default()
+    };
+    let mut rankings: Vec<AssetRank> = by_symbol
+        .iter()
+        .map(|(symbol, wins)| {
+            let mean_conf =
+                wins.iter().map(|a| a.confidence_assessment).sum::<f64>() / wins.len() as f64;
+            let score = 0.5 * mean_conf + 50.0;
+            let risk_level = risk_level_for(symbol);
             // Mirror the per-symbol AlignmentMatrix onto the
             // AssetRank so REST / export consumers can show
             // multi-timeframe alignment per asset without a second
             // fetch. When no alignment is available for this symbol
             // (cold start, transient snapshot gap, or symbol not in
             // the alignment slice), default to neutral values.
-            let (mtf_score, mtf_label) = match alignments_by_symbol.get(a.symbol.as_str()) {
+            let (mtf_score, mtf_label) = match alignments_by_symbol.get(*symbol) {
                 Some(aln) => (aln.mtf_overall_score, aln.mtf_overall_label.clone()),
                 None => (0.0, "NO_DATA".to_string()),
             };
             AssetRank {
-                symbol: a.symbol.clone(),
+                symbol: symbol.to_string(),
                 score,
-                bias: format!("{:?}", a.directional_guidance),
-                confidence: a.confidence_assessment,
-                regime: format!("{:?}", a.strategy_environment),
+                bias: mode_of(wins, &|a| format!("{:?}", a.directional_guidance)),
+                confidence: mean_conf,
+                regime: mode_of(wins, &|a| format!("{:?}", a.strategy_environment)),
                 risk_level: risk_level.to_string(),
                 mtf_score,
                 mtf_label,
@@ -391,12 +439,9 @@ pub fn compute_overview(
     // labelled split; the 02-09 doc's confidence-based definition was
     // conceptually wrong (confidence ≠ risk). Bands: ≤30 low, ≥70 high,
     // else moderate — missing symbols fall back to 50 (moderate), the
-    // same default the dashboard card uses.
-    let overall_by_symbol: HashMap<&str, f64> = active_instances
-        .iter()
-        .map(|i| (i.symbol.as_str(), i.overall_risk))
-        .collect();
-    let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied().unwrap_or(50.0);
+    // same default the dashboard card uses. `overall_by_symbol` /
+    // `overall_for` are hoisted above the rankings (FIX-O3, v6.10.16) and
+    // shared with `AssetRank.risk_level`.
     let total_adv = advisories.len().max(1) as f64;
     let low_risk = advisories
         .iter()
@@ -404,6 +449,9 @@ pub fn compute_overview(
         .count() as f64
         / total_adv
         * 100.0;
+    // v6.10.19 (P7): the DESCRIPTIVE `high_pct` (risk distribution card)
+    // stays on the plain per-symbol mean — the dashboard must keep parity
+    // with the panels. The SYSTEMIC path below uses the TF-decayed count.
     let high_pct = advisories
         .iter()
         .filter(|a| overall_for(&a.symbol) >= 70.0)
@@ -411,12 +459,59 @@ pub fn compute_overview(
         / total_adv
         * 100.0;
 
-    // risk_environment per spec §2.3: NO_DATA → HIGH_RISK (≥50) → MODERATE (≥25) → LOW_RISK
+    // v6.10.19 (P7): TF-decayed systemic high-share — weights discount
+    // high-frequency Micro-tier volatility so a transient 60s risk spike
+    // contributes at most 10% to the PME safety veto. Falls back to the
+    // plain per-symbol mean when the daemon did not supply windows.
+    let systemic_high_pct = {
+        let mut weight_sum = 0.0;
+        let mut weighted_high = 0.0;
+        for meta in instances.iter().filter(|i| i.is_active) {
+            if meta.risk_windows.is_empty() {
+                weight_sum += 1.0;
+                if meta.overall_risk >= 70.0 {
+                    weighted_high += 1.0;
+                }
+            } else {
+                for (w, risk) in &meta.risk_windows {
+                    weight_sum += w;
+                    if *risk >= 70.0 {
+                        weighted_high += w;
+                    }
+                }
+            }
+        }
+        if weight_sum <= 0.0 {
+            0.0
+        } else {
+            weighted_high / weight_sum * 100.0
+        }
+    };
+
+    // risk_environment per spec §2.3 (v6.10.16 FIX-O3): bins on the MEAN
+    // per-asset overall risk — an environment where every asset sits in
+    // "moderate" must read MODERATE_RISK, never LOW_RISK. NO_DATA →
+    // HIGH_RISK (mean ≥50) → MODERATE (mean ≥25) → LOW_RISK.
+    // v6.10.18 (I-2): the mean is over DISTINCT symbols (repeated windows
+    // must not inflate the denominator).
+    // v6.10.19a: each symbol's canonical risk is the MICRO-window L5 score
+    // (the operator-visible number) — the daemon feeds it via
+    // `InstanceMeta.overall_risk`; the earlier TF-window mean made
+    // HIGH_RISK environments appear next to a visible avg-risk of 41–46.
+    let mean_overall_risk = if by_symbol.is_empty() {
+        0.0
+    } else {
+        by_symbol
+            .keys()
+            .map(|s| overall_for(s))
+            .sum::<f64>()
+            / by_symbol.len() as f64
+    };
     let risk_environment = if instance_count == 0 {
         "NO_DATA"
-    } else if high_pct >= 50.0 {
+    } else if mean_overall_risk >= 50.0 {
         "HIGH_RISK"
-    } else if high_pct >= 25.0 {
+    } else if mean_overall_risk >= 25.0 {
         "MODERATE"
     } else {
         "LOW_RISK"
@@ -453,7 +548,9 @@ pub fn compute_overview(
             SyncLevel::Fragmented => 10.0,
             SyncLevel::HighlyFragmented => 0.0,
         };
-    let systemic_risk_score = 0.6 * high_pct + 0.4 * sync_penalty;
+    // v6.10.19 (P7): the systemic path uses the TF-DECAYED high-share —
+    // the safety veto must not fire on a micro-tier noise spike.
+    let systemic_risk_score = 0.6 * systemic_high_pct + 0.4 * sync_penalty;
 
     // market_health per spec §3.4: POOR when HIGH_RISK, then bias-based
     let health = if risk_environment == "HIGH_RISK" {
@@ -624,6 +721,7 @@ mod tests {
             timeframe_label: "slow300".into(),
             is_active: true,
             overall_risk: 50.0,
+            risk_windows: vec![],
         }];
         let o = compute_overview(&[adv], &instances, &[]);
         assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
@@ -645,6 +743,12 @@ mod tests {
             mtf_volatility_alignment: 0.0,
             mtf_overall_score: mtf_score,
             mtf_overall_label: label.into(),
+            blend_weights: vec![
+                ("T".into(), 0.5),
+                ("M".into(), 0.3),
+                ("Vt".into(), 0.1),
+                ("Vm".into(), 0.1),
+            ],
             timeframe_alignments: Vec::new(),
             signal_cross_tf_count: 0,
             trend_agreement_pct: agreement,
@@ -709,6 +813,7 @@ mod tests {
             timeframe_label: "slow300".into(),
             is_active: true,
             overall_risk: 50.0,
+            risk_windows: vec![],
         }];
         let alignment = make_alignment("BTC-USD", 65.5, "STRONG_BULL_MTF", 80.0);
         let o = compute_overview(&[adv], &instances, &[alignment]);
@@ -741,6 +846,7 @@ mod tests {
                 timeframe_label: "slow300".into(),
                 is_active: true,
                 overall_risk: 20.0,
+            risk_windows: vec![],
             },
             InstanceMeta {
                 symbol: "SOL-USD".into(),
@@ -748,6 +854,7 @@ mod tests {
                 timeframe_label: "slow300".into(),
                 is_active: true,
                 overall_risk: 85.0,
+            risk_windows: vec![],
             },
         ];
         let o = compute_overview(&[adv_low, adv_high], &instances, &[]);
@@ -762,6 +869,71 @@ mod tests {
             "cascade_risk_index.confidence must be 100% with a full sample, got {}",
             o.cascade_risk_index.confidence
         );
+    }
+
+    #[test]
+    fn risk_environment_mean_based_not_high_pct() {
+        // v6.10.16 (FIX-O3): the environment label bins on the MEAN overall
+        // risk — an environment where 100% of assets sit in "moderate"
+        // (mean 37.5) must read MODERATE, never LOW_RISK (the old high_pct-
+        // only rule said LOW_RISK for any environment with <25% high assets).
+        let advs: Vec<AdvisoryMatrix> = vec!["BTC-USD", "SOL-USD"]
+            .iter()
+            .map(|s| AdvisoryMatrix {
+                symbol: s.to_string(),
+                ..AdvisoryMatrix::empty(s)
+            })
+            .collect();
+        let instances = vec![
+            InstanceMeta {
+                symbol: "BTC-USD".into(),
+                timeframe_secs: 300,
+                timeframe_label: "slow300".into(),
+                is_active: true,
+                overall_risk: 32.0,
+            risk_windows: vec![],
+            },
+            InstanceMeta {
+                symbol: "SOL-USD".into(),
+                timeframe_secs: 300,
+                timeframe_label: "slow300".into(),
+                is_active: true,
+                overall_risk: 43.0,
+            risk_windows: vec![],
+            },
+        ];
+        let o = compute_overview(&advs, &instances, &[]);
+        assert_eq!(o.risk_distribution.low_pct, 0.0);
+        assert_eq!(o.risk_distribution.moderate_pct, 100.0);
+        assert_eq!(o.risk_distribution.high_pct, 0.0);
+        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
+    }
+
+    #[test]
+    fn asset_rank_risk_level_bins_overall_risk_not_confidence() {
+        // v6.10.16 (FIX-O3): `AssetRank.risk_level` is L5 OVERALL risk —
+        // the field previously binned on `confidence_assessment` (75 → LOW
+        // under the old rule) which disagreed with the L5 panel. 75%
+        // confidence with 43 overall risk must read MODERATE (43 < 50 keeps
+        // the environment at MODERATE under the mean-based rule).
+        let adv = AdvisoryMatrix {
+            symbol: "BTC-USD".into(),
+            directional_guidance: DirectionalGuidance::Long,
+            confidence_assessment: 75.0,
+            ..AdvisoryMatrix::empty("BTC-USD")
+        };
+        let instances = vec![InstanceMeta {
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 300,
+            timeframe_label: "slow300".into(),
+            is_active: true,
+            overall_risk: 43.0,
+            risk_windows: vec![],
+        }];
+        let o = compute_overview(&[adv], &instances, &[]);
+        assert_eq!(o.asset_ranking.len(), 1);
+        assert_eq!(o.asset_ranking[0].risk_level, "MODERATE");
+        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
     }
 
     #[test]
@@ -781,6 +953,7 @@ mod tests {
             timeframe_label: "slow300".into(),
             is_active: true,
             overall_risk: 50.0,
+            risk_windows: vec![],
         }];
         let o = compute_overview(&[adv], &instances, &[]);
         assert_eq!(o.asset_ranking.len(), 1);
@@ -811,5 +984,99 @@ mod tests {
         assert_eq!(o.alignment_distribution.len(), 0);
         assert_eq!(o.alignment_consensus_index, 0.0);
         assert_eq!(o.multi_tf_agreement_pct, 0.0);
+    }
+
+    #[test]
+    fn systemic_risk_is_tf_decayed_not_micro_driven() {
+        // v6.10.19 (P7): a transient MICRO risk spike must not move the
+        // systemic path (the PME veto input) — slow/macro windows anchor
+        // the safety math. Weights: micro 0.1 / fast 0.2 / slow 0.3 /
+        // macro 0.4.
+        let mk = |symbol: &str, guidance: DirectionalGuidance| AdvisoryMatrix {
+            symbol: symbol.to_string(),
+            directional_guidance: guidance,
+            confidence_assessment: 30.0,
+            ..AdvisoryMatrix::empty(symbol)
+        };
+        // Micro window at risk 95 (a noise spike), the other three calm.
+        let spike = InstanceMeta {
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 300,
+            timeframe_label: "tf-average".into(),
+            is_active: true,
+            overall_risk: 48.0,
+            risk_windows: vec![(0.1, 95.0), (0.2, 30.0), (0.3, 35.0), (0.4, 40.0)],
+        };
+        let advs = vec![mk("BTC-USD", DirectionalGuidance::Long)];
+        let o = compute_overview(&advs, &[spike], &[]);
+        // Weighted high share = 0.1 (only micro ≥ 70) → systemic stays low.
+        let expected_high = 0.1 / 1.0 * 100.0;
+        assert!(
+            (o.systemic_risk_score - 0.6 * expected_high).abs() < 1e-6,
+            "micro spike must NOT drive systemic: got {}",
+            o.systemic_risk_score
+        );
+        // Descriptive high_pct (per-symbol mean) reads 0% — the plain
+        // mean 48 < 70 — panel parity preserved.
+        assert_eq!(o.risk_distribution.high_pct, 0.0);
+        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
+
+        // The mirror: a MACRO high window (weight 0.4) must move it.
+        let macro_high = InstanceMeta {
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 300,
+            timeframe_label: "tf-average".into(),
+            is_active: true,
+            overall_risk: 50.0,
+            risk_windows: vec![(0.1, 30.0), (0.2, 35.0), (0.3, 40.0), (0.4, 95.0)],
+        };
+        let o2 = compute_overview(&advs, &[macro_high], &[]);
+        assert!(
+            (o2.systemic_risk_score - 0.6 * 40.0).abs() < 1e-6,
+            "macro high must move systemic: got {}",
+            o2.systemic_risk_score
+        );
+    }
+
+    #[test]
+    fn tf_window_advisories_aggregate_per_symbol() {
+        // v6.10.18 (I-2): the L7 basis is the TF average — a symbol can
+        // contribute up to 4 window advisories. The rankings must emit ONE
+        // rank per symbol (mean confidence, mode bias/regime with the
+        // fastest window winning ties), and the global bias tallies the
+        // WINDOWS (3:1 bullish → BULLISH, not a degenerate 1-symbol
+        // STRONG_BULLISH).
+        let mk = |symbol: &str, guidance: DirectionalGuidance, conf: f64| AdvisoryMatrix {
+            symbol: symbol.to_string(),
+            directional_guidance: guidance,
+            confidence_assessment: conf,
+            ..AdvisoryMatrix::empty(symbol)
+        };
+        let advs = vec![
+            mk("BTC-USD", DirectionalGuidance::Short, 20.0), // micro
+            mk("BTC-USD", DirectionalGuidance::Long, 30.0), // fast
+            mk("BTC-USD", DirectionalGuidance::Long, 50.0), // slow
+            mk("BTC-USD", DirectionalGuidance::Long, 40.0), // macro
+        ];
+        let instances = vec![InstanceMeta {
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 300,
+            timeframe_label: "tf-average".into(),
+            is_active: true,
+            overall_risk: 41.0,
+            risk_windows: vec![],
+        }];
+        let o = compute_overview(&advs, &instances, &[]);
+        // ONE rank for the symbol; confidence = mean(20,30,50,40) = 35;
+        // score = 0.5×35 + 50 = 67.5; bias = mode = Long (3 windows).
+        assert_eq!(o.asset_ranking.len(), 1);
+        assert!((o.asset_ranking[0].confidence - 35.0).abs() < 1e-9);
+        assert!((o.asset_ranking[0].score - 67.5).abs() < 1e-9);
+        assert_eq!(o.asset_ranking[0].bias, "Long");
+        assert_eq!(o.asset_ranking[0].risk_level, "MODERATE");
+        // Global bias tallies windows: 3L/1S → breadth +50 → BULLISH.
+        assert!(matches!(o.global_market_bias, GlobalBias::Bullish));
+        // TF-mean risk 41 → MODERATE environment.
+        assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
     }
 }

@@ -1,15 +1,7 @@
-/* Watchlist Runner Button — compact CTA placed at the bottom of the
- * Market Monitor overview. Reuses the brutalist modal/style vocabulary
- * but stays inline (not a modal trigger). */
-
-.runnerBar {
-    margin-top: 4px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 14px 0 4px 0;
-    border-top: 1px dashed var(--line-strong, rgba(255, 255, 255, 0.08));
-}
+/* Watchlist Runner Button — compact inline CTA inside the unified bottom
+ * toolbar of the Market Monitor overview (GeneralDashboard `.runnerBar`).
+ * Reuses the brutalist modal/style vocabulary but stays inline (not a
+ * modal trigger). */
 
 .runnerBtn {
     display: inline-flex;
@@ -27,6 +19,7 @@
     text-transform: uppercase;
     cursor: pointer;
     transition: all 0.15s ease;
+    white-space: nowrap;
 }
 
 .runnerBtn:hover:not(:disabled) {
@@ -43,13 +36,4 @@
     display: inline-flex;
     align-items: center;
     color: var(--text-dim, #94a3b8);
-}
-
-.runnerBtnHint {
-    margin-left: 14px;
-    font-size: 10px;
-    color: var(--text-dim, #64748b);
-    letter-spacing: 0.04em;
-    text-transform: none;
-    font-weight: 400;
 }

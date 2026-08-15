@@ -704,6 +704,23 @@ fn run_setup_status(cli: &CliArgs) {
 
 // ─── Main ────────────────────────────────────────────────────────────
 
+/// v6.10.19a: the canonical per-pair risk feeding the L7 risk mean is the
+/// MICRO window's L5 score — the same number the Risk panel, the dashboard
+/// KPI, and the asset rows show. The previous TF-window MEAN drifted
+/// upward whenever the macro window scored high (MAX_COMPRESSION / thin
+/// participation) and rendered "HIGH_RISK" environments next to a visible
+/// avg-risk of 41–46. Falls back to the window mean during warmup (micro
+/// risk matrix not present yet), then 50 (moderate).
+fn canonical_overall_risk(micro_risk: Option<f64>, risk_count: u32, risk_sum: f64) -> f64 {
+    micro_risk.unwrap_or_else(|| {
+        if risk_count > 0 {
+            risk_sum / risk_count as f64
+        } else {
+            50.0
+        }
+    })
+}
+
 #[tokio::main]
 async fn main() {
     let cli = parse_args();
@@ -1339,30 +1356,78 @@ async fn main() {
                 let mut metas: Vec<core_domain::overview::InstanceMeta> = Vec::new();
                 for inst in &instances {
                     let snapshots = inst.active_pair.latest_snapshots_all_tf().await;
-                    let slow_advisory = snapshots.2.as_ref().and_then(|s| s.advisory.clone());
-                    let slow_alignment = snapshots.2.as_ref().and_then(|s| s.alignment.clone());
+                    // v6.10.18 (I-2): the L7 aggregates ALL FOUR timeframe
+                    // windows (micro / fast / slow / macro) — per-window
+                    // advisories feed the breadth / bias / opportunity /
+                    // regime tallies. The previous slow-300s-only basis
+                    // made the dashboard headline contradict every panel
+                    // (e.g. HIGH_RISK next to an avg-risk of 41, or a
+                    // stale "Pullback" while the Opportunity tab shows
+                    // Scalp).
+                    // v6.10.19a: the canonical per-pair risk is the MICRO
+                    // window's L5 score (the same number the Risk panel,
+                    // the dashboard KPI, and the asset rows show) — the
+                    // TF-window MEAN drifted upward whenever the macro
+                    // window scored high (MAX_COMPRESSION / thin
+                    // participation) and rendered "HIGH_RISK" next to a
+                    // visible avg-risk of 41–46. The window mean remains
+                    // the warmup fallback when micro has no risk matrix
+                    // yet.
+                    let snaps = [
+                        snapshots.0.as_ref(),
+                        snapshots.1.as_ref(),
+                        snapshots.2.as_ref(),
+                        snapshots.3.as_ref(),
+                    ];
                     let is_active = !inst.cancel.is_cancelled();
-                    if let Some(adv) = slow_advisory {
-                        advisories.push(adv);
-                    }
-                    if let Some(aln) = slow_alignment {
-                        alignments.push(aln);
+                    // v6.10.19 (P7): per-TF-window risk pairs with decay
+                    // weights (micro 0.1 / fast 0.2 / slow 0.3 / macro
+                    // 0.4) — the L7 SYSTEMIC path must stay anchored to
+                    // macro stability so a transient micro risk spike can
+                    // never fire the PME safety veto.
+                    let tf_weights = [0.1_f64, 0.2, 0.3, 0.4];
+                    let mut risk_windows: Vec<(f64, f64)> = Vec::new();
+                    let mut risk_sum = 0.0;
+                    let mut risk_count = 0u32;
+                    let mut alignment_pushed = false;
+                    for (i, snap) in snaps.iter().enumerate() {
+                        if let Some(snap) = snap {
+                            if let Some(adv) = snap.advisory.clone() {
+                                advisories.push(adv);
+                            }
+                            if let Some(r) = snap.risk.as_ref() {
+                                risk_windows.push((tf_weights[i], r.overall_risk.score));
+                                risk_sum += r.overall_risk.score;
+                                risk_count += 1;
+                            }
+                            // The MTF AlignmentMatrix is one per symbol — push
+                            // it once, from the fastest present window.
+                            if !alignment_pushed {
+                                if let Some(aln) = snap.alignment.clone() {
+                                    alignments.push(aln);
+                                    alignment_pushed = true;
+                                }
+                            }
+                        }
                     }
                     metas.push(core_domain::overview::InstanceMeta {
                         symbol: inst.pair.1.clone(),
                         timeframe_secs: 300,
-                        timeframe_label: "slow300".into(),
+                        timeframe_label: "tf-average".into(),
                         is_active,
                         // L7-A (v6.10.13): the per-symbol L5 overall risk —
                         // the canonical aggregate the L7 risk distribution
-                        // bins on. Falls back to 50 (moderate) when the
-                        // slow snapshot has no risk matrix yet.
-                        overall_risk: snapshots
-                            .2
-                            .as_ref()
-                            .and_then(|s| s.risk.as_ref())
-                            .map(|r| r.overall_risk.score)
-                            .unwrap_or(50.0),
+                        // bins on. v6.10.19a: the MICRO window's L5 score
+                        // (operator-visible); falls back to the window mean,
+                        // then 50 (moderate) during warmup.
+                        overall_risk: canonical_overall_risk(
+                            snaps[0]
+                                .and_then(|s| s.risk.as_ref())
+                                .map(|r| r.overall_risk.score),
+                            risk_count,
+                            risk_sum,
+                        ),
+                        risk_windows,
                     });
                 }
                 let overview =
@@ -1447,4 +1512,31 @@ async fn main() {
     }));
 
     let _ = futures_util::future::join_all(handles).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_overall_risk;
+
+    // v6.10.19a: the L7 canonical risk is the MICRO window's L5 score —
+    // the visible number. The window-mean drift (macro MAX_COMPRESSION
+    // windows) produced "HIGH_RISK" environments next to an avg-risk of
+    // 41–46; regression tests for all three input shapes.
+    #[test]
+    fn micro_risk_wins_over_window_mean() {
+        // Micro 41.45 vs windows averaging 58.6 (macro-heavy) — the old
+        // mean would have crossed the ≥50 HIGH_RISK line.
+        assert!((canonical_overall_risk(Some(41.45), 4, 234.4) - 41.45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn window_mean_is_the_warmup_fallback() {
+        assert!((canonical_overall_risk(None, 4, 234.4) - 58.6).abs() < 1e-9);
+        assert!((canonical_overall_risk(None, 2, 90.0) - 45.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn no_risk_matrices_yet_falls_back_to_moderate() {
+        assert_eq!(canonical_overall_risk(None, 0, 0.0), 50.0);
+    }
 }

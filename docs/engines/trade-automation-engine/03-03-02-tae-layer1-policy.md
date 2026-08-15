@@ -1,6 +1,6 @@
 # TAE Layer 1 — Policy Layer
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/policy/engine.rs`) is implemented; dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 1 of 2

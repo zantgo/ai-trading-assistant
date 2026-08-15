@@ -97,12 +97,27 @@
 
     const dimNames = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Signal', 'Regime', 'Confidence', 'Liquidity', 'Tradability'];
 
-    const weights = [
-        { label: 'Trend', key: 'T', pct: 50, color: '#22c55e' },
-        { label: 'Momentum', key: 'M', pct: 30, color: '#3b82f6' },
-        { label: 'Volume', key: 'Vt', pct: 10, color: '#a78bfa' },
-        { label: 'Volatility', key: 'Vm', pct: 10, color: '#f59e0b' },
-    ];
+    // v6.10.17 (P1): the weight chips and formula read the WIRE
+    // `blend_weights` — the backend publishes the ACTUAL blend (including
+    // the thin-participation reweight, e.g. 55/35/5/5) so the panel can
+    // never show a stale 50/30/10/10 beside a score the backend blended
+    // differently. Legacy payloads fall back to the canonical 50/30/10/10.
+    const weights = $derived.by(() => {
+        const wire = alignment?.blend_weights ?? [];
+        const chip = (key: string, pct: number): { label: string; key: string; pct: number; color: string } => ({
+            key,
+            pct: Math.round(pct * 100),
+            color: key === 'T' ? '#22c55e' : key === 'M' ? '#3b82f6' : key === 'Vt' ? '#a78bfa' : '#f59e0b',
+            label: key === 'T' ? 'Trend' : key === 'M' ? 'Momentum' : key === 'Vt' ? 'Volume' : 'Volatility',
+        });
+        if (wire.length === 4) return wire.map(([key, pct]) => chip(key, pct));
+        return [
+            { label: 'Trend', key: 'T', pct: 50, color: '#22c55e' },
+            { label: 'Momentum', key: 'M', pct: 30, color: '#3b82f6' },
+            { label: 'Volume', key: 'Vt', pct: 10, color: '#a78bfa' },
+            { label: 'Volatility', key: 'Vm', pct: 10, color: '#f59e0b' },
+        ];
+    });
 
     function getRawValue(key: string): number {
         if (!alignment) return 0;
@@ -115,16 +130,12 @@
 
     const blendDesc = $derived.by(() => {
         if (!alignment) return '';
-        const t = alignment.mtf_trend_alignment;
-        const m = alignment.mtf_momentum_alignment;
-        const vt = alignment.mtf_volume_alignment;
-        const vm = alignment.mtf_volatility_alignment;
-        const sum = alignment.mtf_overall_score;
         // AL-1 (v6.10.10): the backend scales the blend by ×100
-        // (`mtf_overall_score = 100·(0.5T + 0.3M + 0.1Vt + 0.1Vm)`, signed
-        // axes [−1, 1]) — the displayed equation must carry the factor or
-        // it never balances (0.5·0.45 + … ≈ 0.4 printed as "= 40.0").
-        return `(0.5 * (${t.toFixed(2)}) + 0.3 * (${m.toFixed(2)}) + 0.1 * (${vt.toFixed(2)}) + 0.1 * (${vm.toFixed(2)})) \u00D7 100 = ${sum.toFixed(1)}`;
+        // (`mtf_overall_score = 100·Σ(wᵢ·axisᵢ)`, signed axes [−1, 1]) —
+        // the displayed equation must carry the factor and the ACTUAL
+        // weights (v6.10.17) or it never balances against the score.
+        const parts = weights.map((w) => `${(w.pct / 100).toFixed(1)} * (${getRawValue(w.key).toFixed(2)})`);
+        return `(${parts.join(' + ')}) \u00D7 100 = ${alignment.mtf_overall_score.toFixed(1)}`;
     });
 
     // AL-7 (v6.10.10): the backend's warmup sentinel (`AlignmentMatrix::empty` —
@@ -299,7 +310,13 @@
                 {#if alignment.trend_agreement_pct >= 75}
                     Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
                     The composite score of {alignment.mtf_overall_score.toFixed(1)} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
-                    {alignment.signal_cross_tf_count > 0 ? `${alignment.signal_cross_tf_count} cross-timeframe signal votes reinforce the current bias.` : 'No cross-timeframe signal votes detected.'}
+                    {#if alignment.signal_cross_tf_count > 0}
+                        {mLabel(alignment.mtf_overall_label).toUpperCase() !== 'NEUTRAL'
+                            ? `${alignment.signal_cross_tf_count} cross-timeframe signal votes reinforce the current bias.`
+                            : `${alignment.signal_cross_tf_count} cross-timeframe signal votes detected across the aligned timeframes.`}
+                    {:else}
+                        No cross-timeframe signal votes detected.
+                    {/if}
                 {:else if alignment.trend_agreement_pct >= 50}
                     Alignment shows <strong>partial consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement).
                     The composite score of {alignment.mtf_overall_score.toFixed(1)} reflects <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong> conditions with mixed input from {alignment.timeframes_present} timeframes.

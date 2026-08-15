@@ -7,7 +7,7 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
@@ -463,7 +463,7 @@ Notes:
   "hold_scenario_note": null,
   "rr_internal": {
     "expected_rr_available": true, "expected_rr_value": 2.5, "expected_rr_reason": null,
-    "time_horizon": "SWING"
+    "gross_rr_value": 2.52, "time_horizon": "SWING"
   },
   "invalidation_note": "Close below 62800 invalidates the continuation thesis.",
   "evaluated_setups": [
@@ -606,7 +606,9 @@ Notes:
   ],
   "interpretation": "Price is making higher highs and higher lows on strong volume. Momentum is increasing and structure remains intact.",
   "interpretation_display": "Price is making <strong>higher</strong> highs and higher lows on <strong>strong</strong> volume. Momentum is <strong>increasing</strong> and structure remains intact.",
-  "rationale": "The market is in a healthy uptrend with broad participation across timeframes."
+  "rationale": "The market is in a healthy uptrend with broad participation across timeframes.",
+  "representative_bbwp": 83.3,
+  "representative_adx": 33.0
 }
 ```
 
@@ -615,6 +617,7 @@ Notes:
 - **L3 header chip (v6.10.13, M-3).** The L3 header chip is labelled **`State Conf`** (it reads `state_confidence`), distinct from the L6 risk-discounted `Confidence` chip.
 - **L3 warmup sentinel (v6.10.13, M-2).** An analysis with `timeframes_considered === 0` (the backend's empty-matrix sentinel) renders the null-state payload — never the fabricated Neutral/Poor/Transition values the sentinel carries.
 - With zero directional signals the hero still carries the screen sentences (`label_html: "No signals"`, `meta_html: "Waiting for cross-TF consensus"`) — including when `analysis` is null; the hero block is never absent.
+- **Signal lean hero (v6.10.16 FIX-O2).** Under a NEUTRAL market bias a directional TF vote renders amber with a "market bias neutral" qualifier instead of a green hero under the NEUTRAL badge — raw counts stay visible: `label_html: "TF votes: Net bullish (4↑ vs 0↓)"`, `meta_html: "4:0 signal ratio · market bias neutral"`, `tone: "split"`. Under a directional bias the hero is unchanged.
 - **Neutral signals (v6.10.8).** The hero distinguishes *no data yet* (empty `supporting_signals`/`contradicting_signals` → `"No signals"` / `"Waiting for cross-TF consensus"`) from *all timeframes neutral* (non-empty lists but zero bullish/bearish → `label_html: "Neutral signals"`, `meta_html: "No directional lean across timeframes"`, tone `split`). The screen renders neutral signals with a gray square + flat dash icon (never the bearish red styling).
 - **Zero-opposing ratio (v6.10.8).** `meta_html` renders `"3:0 signal ratio"` (or `"0:3"`) when the opposing count is zero — never a misleading `"3:1"` that implies opposing signals exist. The `2.0:1` format is unchanged when both sides have counts.
 - The split-tone hero label is exactly the screen's `"Split signals"` (the bull/bear counts live in `meta_html` — no parenthetical in `label_html`).
@@ -634,7 +637,8 @@ Notes:
   "gauge": {
     "net_bias_pct": 45, "bias_direction": "LONG",
     "long_pct": 60, "short_pct": 15, "hold_pct": 25,
-    "net_bias_display": "+45%"
+    "net_bias_display": "+45%",
+    "lean_floor_applied": false
   },
   "environment": {
     "directional_guidance": "Long", "market_stance": "Constructive",
@@ -659,6 +663,7 @@ Notes:
   "safety_flags": {
     "readiness": "READY",
     "rr_available": true, "rr_value": 2.5, "rr_reason": null,
+    "risk_adj_rr_explanation": null,
     "stop_loss_pct": 0.01, "confidence_pct": 72,
     "entry_danger_score": 35, "entry_danger_level": "LOW",
     "rr_display": "R:R 1 : 2.50",
@@ -680,8 +685,8 @@ Notes:
     "entry": "Pullback", "exit": "Trend Weakening",
     "protection": "ATR-Based", "target": "Resistance-Based", "hold_caption": null
   },
-  "final_verdict": "Long on pullback toward the 63200-63400 entry zone with invalidation below 62800.",
-  "final_verdict_guidance": null
+  "final_verdict": "LONG 60% — READY (readiness: READY).",
+  "final_verdict_guidance": "Environment guidance: Long on pullback toward the 63200-63400 entry zone with invalidation below 62800."
 }
 ```
 
@@ -693,14 +698,30 @@ Notes:
   `computeRiskReward` recompute here disagreed with the chip and the
   cards; see the export-consistency regression tests).
 - `safety_flags.*_display` are verbatim KPI-chip strings (`R:R 1 : 2.50`, `1.00%`, `72%`, `35 (LOW)`).
+- **`risk_adj_rr_explanation` (v6.10.14 / RR-008)** — the first-class R:R discount sentence, e.g. `"Risk-adjusted: geometric R:R 2.00 × risk factor 0.30 = 0.60"` — the exact string the L6 header chip tooltip renders. `null` when there is no real risk-adjusted R:R (or the factor is trivial). Consumers no longer need to recompute the factor from `top_setup.rr_value` ÷ `safety_flags.rr_value`.
+- **`risk_adj_rr_explanation` (v6.10.14 / RR-008).** First-class R:R discount sentence — the identical string the L6 header chip tooltip renders (`"Risk-adjusted: geometric R:R 2.00 × risk factor 0.30 = 0.60"`), so consumers don't recompute the factor. `null` when there is no real risk-adjusted R:R (HOLD with 0, or only one of the two values present).
 - Missing `entry_danger` reads 50 (MODERATE) exactly like the panel.
 - `top_setup_empty_text` carries the section-meta caption the panel renders when no qualifying setup exists (`"no qualifying setup yet"`); it is `null` whenever a setup renders.
 - The four `strategy` fields render the screen's `"—"` placeholder when the advisory guidance is absent.
-- **Gauge needle (v6.10.7 / R1, v6.10.12 GAUGE-001).** `gauge.net_bias_pct` / `bias_direction` are the raw long−short math, but the panel's needle renders **neutral** (amber, `0%`, no arc) whenever `verdict.top === "HOLD"` — a green "+44%" needle under an amber HOLD badge contradicted the verdict. Consumers derive the drawn needle from `verdict.top`. The needle IS the single final number: **no percentage readout is rendered under the dial**; the raw split stays in `gauge.long_pct` / `hold_pct` / `short_pct` for data consumers only.
+- **Gauge needle (v6.10.7 / R1, v6.10.12 GAUGE-001, v6.10.15 FIX-3, v6.10.17 decoupling).** `gauge.net_bias_pct` / `bias_direction` are the raw long−short math. The panel's needle renders **neutral** (amber, `0%`, no arc) only when `verdict.top === "HOLD"` — a directional lean gated by `STAND_ASIDE` (e.g. LONG 62/2/36) draws its REAL `+60%` needle next to the gate badge, because the directional read is decoupled from the execution gate (v6.10.17). The needle IS the single final number: **no percentage readout is rendered under the dial**; the raw split stays in `gauge.long_pct` / `hold_pct` / `short_pct` for data consumers only.
 - **Risk-Adj R:R chip (v6.10.7 / R2, v6.10.12 RR-001).** The L6 header chip is labelled **`Risk-Adj R:R`** (it reads `DecisionContext.expected_reward_risk_ratio` — geometric × (1 − overall_risk/100)) — distinct from the L4 geometric `R:R` the setup cards show. It mirrors the Safety-Flags KPI exactly: `N/A` only when `verdict.top === "HOLD"` AND the risk-adjusted R:R is `0`; a HOLD verdict with a non-zero R:R still surfaces `1:X.Y`. When a value renders, the chip's tooltip explains the discount (`geometric R:R × risk factor = value`).
-- **Final verdict (v6.10.7 / R6).** `final_verdict` is verdict-consistent: under `verdict.top === "HOLD"` it carries the verdict sentence (`HOLD — no directional call (readiness: …)`), never the advisory's directional "Entry: immediate" text; the advisory `final_recommendation` is carried separately as `final_verdict_guidance` (`Environment guidance: …`, `null` otherwise). `strategy.hold_caption` mirrors the panel's muted "environment playbook" caption under HOLD (`null` otherwise).
+- **Final verdict (v6.10.7 / R6, v6.10.15 FIX-4, v6.10.17).** `final_verdict` is the verdict — one of four graded sentences (v6.10.17):
+  - `HOLD — no directional call (readiness: …)` — only under a genuine HOLD top.
+  - `${TOP} lean ${pct}% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger ${LEVEL}).` — directional lean gated by the execution gate.
+  - `${TOP} ${pct}% — READY (readiness: READY).` — execution-cleared.
+  - `${TOP} lean ${pct}% — awaiting confirmation (readiness: ${WATCH|FORMING}).`
+  The advisory `final_recommendation` is carried separately as `final_verdict_guidance` (`Environment guidance: …`) whenever present.
+- **Strategy block (v6.10.16 FIX-O5, v6.10.17).** `strategy.entry` / `exit` / `protection` / `target` render `"—"` ONLY under a genuine HOLD top — a directional lean gated by STAND ASIDE carries its REAL playbook values (the lean is directional; only the gate differs). `strategy.hold_caption` mirrors the panel's muted "environment playbook" caption under HOLD (`null` otherwise).
+- **Gauge lean-floor flag (v6.10.19 P6).** `gauge.lean_floor_applied` (and `directional_bars.lean_floor_applied` on the Opportunity tab) is `true` when the graded-lean floors adjusted the split — the operator-facing LEAN annotation marks a structurally boosted low-confidence read, never a deep consensus.
+- **Net R:R (v6.10.19 P5).** The L4 `long_expected_rr_internal` / `short_expected_rr_internal` (and every card reading them) carry the NET R:R — the gross geometric ratio minus estimated fees/slippage/funding (`NetCostModel`, 6/5/0 bps defaults). `rr_internal.gross_rr_value` (from `long_gross_rr_internal` / `short_gross_rr_internal`) preserves the gross for offline analysis; the Risk-Adj R:R explanation sentence reads "Risk-adjusted: net R:R … × risk factor … = …".
+- **BelowFloor (v6.10.19 T3).** A sub-1.0 aggregated reference bracket exports `badge_text: "R:R BELOW ACTIONABLE FLOOR"` with the levels intact — it is a reference card, never a trade.
+- **Verdict-aware guidance (v6.10.19 T2/T5).** Under `verdict.top === "HOLD"` the `final_verdict_guidance` carries no "Entry:/Stop:" clauses and leads with "…no actionable directional edge (HOLD)" — the server omits the entry/stop suffix under Neutral/Avoid guidance too.
+- **Evaluated-setup scores (v6.10.19 T1).** `evaluated_setups[].score_display` and `trade_setups[].score_display` scale the raw wire `score` by the precondition ratio (0 when inactive) — the operator sees readiness at a glance; `score` stays raw.
+- **Analysis rationale traceability (v6.10.18 I-9).** The analysis payload carries `representative_bbwp` / `representative_adx` — the L3 regime-input values (first-TF-wins representative map) the rationale quotes, so a quant can trace the L3 regime derivation from the data itself. Intra-candle shadow drift means these can differ from any single per-TF row in the same export; the payload now makes the source explicit.
+- **Opportunity directional bars (v6.10.18 I-4).** `directional_bars` mirror the L6 verdict split (long/short/hold probabilities) whenever a decision context is present — the L4 and L6 panels can never show two different conviction numbers for the same market.
+- **Asset-ranking rows (v6.10.16 FIX-O1).** `asset_rankings.rows[].signal` is `BUY`/`SELL` only when that instance holds an Actionable + READY setup — the same gate the hero's `actionable_count` / `valid_setups` use — otherwise `WAIT` (a directional verdict with WATCH/STAND_ASIDE readiness never renders BUY beside "no READY trade yet"). `rows[].rr` comes from the shared `resolveActiveRr` chain (N/A when the L4/L6 panels mark N/A; never the legacy scalar).
 - `price_levels.hold_placeholder` (v6.10.7 / R5) describes the ACTUAL card state: the Top Setup card carries the aggregated bracket on the net-bias side (R:R `N/A` when geometry is inverted) — not the close-pinned sentinel the legacy copy claimed.
-- The `no_clear_card` renders only when the top setup is absent AND the primary opportunity is NoClearOpportunity. When present it carries the `title` / `body` strings:
+- **Top setup under No Clear (v6.10.17 A3).** `top_setup` is now ALWAYS published when the opportunity matrix exists: a state with no qualifying profile yields the **aggregated bracket on the bias side** (`opportunity_type: "Aggregated Bracket"`, `viability: "NoClear"`, real ENTRY/TARGET/SL + R:R, marked informational) so the operator always has TPs/SLs to work with. The `no_clear_card` renders alongside it (it explains WHY no profile qualifies) when the primary opportunity is NoClearOpportunity and the top setup is absent or NoClear — the two coexist by design. When present it carries the `title` / `body` strings:
 
 ```json
 {

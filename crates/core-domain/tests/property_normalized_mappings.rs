@@ -213,28 +213,48 @@ fn macd_panic_crossover_below_zero_rejected() {
     assert_eq!(v.state_label, "PANIC_BEARISH_CROSSOVER_REJECTED");
 }
 
-// ─────────────────── AUDIT-AIU-020: Williams %R ───────────────────
+// ─────────────────── AUDIT-AIU-020 + P0-1 (v6.10.17): Williams %R ───────────────────
 
 proptest! {
     #[test]
-    fn williams_r_normalized_monotonic_increasing(wr in -100.0f64..=0.0f64) {
-        // AUDIT-AIU-020: the mapping must be monotonic — wr near 0 (price at
-        // period high) is the most bullish, wr near -100 the most bearish.
+    fn williams_r_normalized_sign_follows_convention(wr in -100.0f64..=0.0f64) {
+        // v6.10.17 (P0-1): the platform's uniform RSI convention — price at
+        // the period high (wr >= −20, OVERBOUGHT) contributes NEGATIVE
+        // (distribution warning), price at the period low (wr <= −80,
+        // OVERSOLD) contributes POSITIVE (accumulation), and the middle
+        // band signs by momentum bias (wr > −50 bullish, < −50 bearish).
         let v = NormalizationEngine::normalize_williams_r(wr);
-        let expected = ((wr + 50.0) / 50.0).clamp(-1.0, 1.0);
+        let expected = if wr >= -20.0 {
+            -0.6 - ((wr + 20.0) / 20.0) * 0.4
+        } else if wr <= -80.0 {
+            0.6 + ((-80.0 - wr) / 20.0) * 0.4
+        } else {
+            (wr + 50.0) / 50.0
+        };
         prop_assert!((v.normalized - expected).abs() < 1e-9);
         prop_assert!(v.normalized >= -1.0 && v.normalized <= 1.0);
+        // Sign per band (the OVERBOUGHT/OVERSOLD boundaries are warning
+        // state transitions — the sign flips exactly there).
+        if wr >= -20.0 {
+            prop_assert!(v.normalized < 0.0, "wr={wr} overbought must be negative");
+        } else if wr <= -80.0 {
+            prop_assert!(v.normalized > 0.0, "wr={wr} oversold must be positive");
+        }
     }
 }
 
 #[test]
-fn williams_r_continuous_at_boundaries() {
-    // AUDIT-AIU-020: no step at -80 / -50 / -20.
-    let just_below = NormalizationEngine::normalize_williams_r(-80.0001);
-    let at = NormalizationEngine::normalize_williams_r(-80.0);
-    let just_above = NormalizationEngine::normalize_williams_r(-79.9999);
-    assert!((just_below.normalized - at.normalized).abs() < 0.001);
-    assert!((just_above.normalized - at.normalized).abs() < 0.001);
+fn williams_r_extreme_magnitudes_match_label_convention() {
+    // v6.10.17 (P0-1): deeply overbought (wr near 0) → −1.0 (strongest
+    // distribution warning); deeply oversold (wr near −100) → +1.0
+    // (strongest accumulation opportunity). The legacy mapping inverted
+    // both (wr=0 → +1.0 next to the OVERBOUGHT label).
+    let top = NormalizationEngine::normalize_williams_r(0.0);
+    assert_eq!(top.normalized, -1.0);
+    assert_eq!(top.state_label, "WILLIAMS_R_OVERBOUGHT");
+    let bottom = NormalizationEngine::normalize_williams_r(-100.0);
+    assert_eq!(bottom.normalized, 1.0);
+    assert_eq!(bottom.state_label, "WILLIAMS_R_OVERSOLD");
 }
 
 #[test]
@@ -246,11 +266,17 @@ fn williams_r_midline_is_neutral() {
 }
 
 #[test]
-fn williams_r_extremes_saturate() {
-    let top = NormalizationEngine::normalize_williams_r(0.0);
-    assert_eq!(top.normalized, 1.0);
-    let bottom = NormalizationEngine::normalize_williams_r(-100.0);
-    assert_eq!(bottom.normalized, -1.0);
+fn williams_r_sign_flips_at_the_warning_boundaries() {
+    // The OVERBOUGHT (≥ −20) and OVERSOLD (≤ −80) bands flip the sign
+    // against the middle bias band — this is the label semantics (a
+    // warning state is a bearish contribution), and the magnitude stays
+    // continuous (±0.6 at the boundaries).
+    let just_overbought = NormalizationEngine::normalize_williams_r(-19.9999);
+    let mid_bull = NormalizationEngine::normalize_williams_r(-20.0001);
+    assert!(just_overbought.normalized < 0.0);
+    assert!(mid_bull.normalized > 0.0);
+    assert!((just_overbought.normalized.abs() - 0.6).abs() < 0.01);
+    assert!((mid_bull.normalized.abs() - 0.6).abs() < 0.01);
 }
 
 // ─────────────────── AUDIT-AIU-021: ADX continuity ───────────────────

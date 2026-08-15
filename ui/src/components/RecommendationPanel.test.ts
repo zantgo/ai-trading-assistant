@@ -377,7 +377,13 @@ describe('RecommendationPanel — Top Setup card', () => {
             ],
         } as Partial<OpportunityMatrix>);
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        expect(screen.getByText(/No Clear Setup/i)).toBeTruthy();
+        // v6.10.17: the No Clear explanation card renders ALONGSIDE the
+        // informational aggregated bracket (the bracket card carries the
+        // TPs/SLs/R:R; the card explains why no profile qualifies).
+        const noClearMatches = screen.getAllByText(/No Clear Setup/i);
+        expect(noClearMatches.length).toBeGreaterThanOrEqual(2);
+        // The aggregated bracket is published with real price levels.
+        expect(screen.getAllByText(/Aggregated Bracket/i).length).toBeGreaterThan(0);
     });
 });
 
@@ -697,5 +703,70 @@ describe('RecommendationPanel — Final Verdict + Environment Playbook (R6)', ()
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         expect(screen.getByText('Environment Playbook')).toBeTruthy();
         expect(screen.getByText(/For reference — no active directional call/)).toBeTruthy();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// FIX-3/FIX-4/FIX-5 (v6.10.15) + v6.10.17 decoupling: the user's real
+// capture — a STAND ASIDE badge with a LONG-dominant probability verdict
+// (long 62 / hold 36) — now renders the DIRECTIONAL needle (+60%), the
+// graded verdict sentence ("LONG lean 62% — STAND ASIDE…"), and a REAL
+// playbook (the lean is directional, only the gate is STAND ASIDE). The
+// flat HOLD + STAND ASIDE state keeps the neutral needle and the
+// no-directional-call sentence.
+// ─────────────────────────────────────────────────────────────────────────
+describe('RecommendationPanel — STAND ASIDE with a directional verdict (v6.10.17)', () => {
+    function mountStandAsideWithLongVerdict() {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            trade_readiness: 'STAND_ASIDE',
+            long_probability: 62,
+            short_probability: 2,
+            hold_probability: 36,
+            net_bias_pct: 60,
+        });
+        return render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+    }
+
+    it('needle shows the +60% directional read under a STAND ASIDE badge (decoupled)', () => {
+        mountStandAsideWithLongVerdict();
+        const gaugeSvg = document.querySelector('svg.gauge, [class*="gauge"] svg');
+        const lines = gaugeSvg ? gaugeSvg.querySelectorAll('line') : [];
+        const needle = Array.from(lines).find((l) =>
+            l.getAttribute('x1') === '100' && l.getAttribute('y1') === '109'
+        );
+        expect(needle).toBeTruthy();
+        // Directional: the +60% LONG tip points right (x2 > 100), green.
+        expect(Number(needle!.getAttribute('x2'))).toBeGreaterThan(100);
+        expect(needle!.getAttribute('stroke')).toBe('#22c55e');
+        expect(screen.getByText('+60%')).toBeTruthy();
+    });
+
+    it('renders the graded verdict sentence + guidance (LONG lean 62% — STAND ASIDE)', () => {
+        mountStandAsideWithLongVerdict();
+        expect(screen.getByText(/LONG lean 62% — STAND ASIDE/)).toBeTruthy();
+        expect(screen.getByText(/Environment guidance:/)).toBeTruthy();
+        expect(screen.queryByText(/no directional call/)).toBeNull();
+    });
+
+    it('renders the real playbook under a directional-gated verdict', () => {
+        mountStandAsideWithLongVerdict();
+        expect(screen.queryByText(/For reference — no active directional call/)).toBeNull();
+        expect(screen.getByText(/Wait For Confirmation/)).toBeTruthy();
+    });
+
+    it('flat HOLD + STAND ASIDE keeps the neutral needle and no-directional-call sentence', () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            trade_readiness: 'STAND_ASIDE',
+            long_probability: 2,
+            short_probability: 2,
+            hold_probability: 96,
+            net_bias_pct: 0,
+            bias: 'Neutral',
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        expect(screen.getByText(/HOLD — no directional call/)).toBeTruthy();
+        expect(screen.getByText(/0%/)).toBeTruthy();
     });
 });

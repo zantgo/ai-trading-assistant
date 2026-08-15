@@ -68,6 +68,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         short_probability: 0.0,
         hold_probability: 0.0,
         net_bias_pct: 0.0,
+        lean_floor_applied: false,
     };
 
     MarketSnapshot {
@@ -146,7 +147,8 @@ fn assert_keys_eq(v: &Value, expected: &[&str], what: &str) {
 fn alignment_matrix_keys_match_frontend_contract() {
     let snap = build_realistic_snapshot();
     let v = serde_json::to_value(snap.alignment.as_ref().unwrap()).unwrap();
-    // `ui/src/types.ts` `AlignmentMatrix` (12 fields).
+    // `ui/src/types.ts` `AlignmentMatrix` (12 fields + v6.10.16
+    // `blend_weights`).
     assert_keys_eq(
         &v,
         &[
@@ -159,6 +161,7 @@ fn alignment_matrix_keys_match_frontend_contract() {
             "mtf_volatility_alignment",
             "mtf_overall_score",
             "mtf_overall_label",
+            "blend_weights",
             "timeframe_alignments",
             "signal_cross_tf_count",
             "trend_agreement_pct",
@@ -273,6 +276,7 @@ fn decision_context_keys_match_frontend_contract() {
             "short_probability",
             "hold_probability",
             "net_bias_pct",
+            "lean_floor_applied",
         ],
         "DecisionContext",
     );

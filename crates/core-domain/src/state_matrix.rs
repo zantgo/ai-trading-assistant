@@ -227,7 +227,11 @@ mod tests {
         AnalysisMatrix {
             symbol: symbol.to_string(),
             bias,
-            market_bias_score: confidence * 100.0,
+            // v6.10.18 (I-1): the wire unit is the FRACTION `score/100`
+            // (docs 02-02 §2.1) — the legacy `confidence * 100.0` sample
+            // fed `bias_lifted` a 0–100 value and silently marked every
+            // directional sample as margin-lifted.
+            market_bias_score: confidence,
             state_confidence: confidence,
             confidence,
             market_quality_score: 50.0,

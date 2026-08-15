@@ -1,13 +1,17 @@
 <script lang="ts">
     // SnapshotSchedulerButton — bottom-left CTA in `GeneralDashboard`.
     // Renders immediately to the left of `<WatchlistRunnerButton />`
-    // in the bottom CTA row (see `GeneralDashboard.module.css`'s
-    // `.runnerBar` flex container).
+    // in the unified bottom toolbar (see `GeneralDashboard.module.css`'s
+    // `.runnerBar` / `.actions` containers).
+    //
+    // Visual: a horizontal inline pill identical in height, padding and
+    // radius to the SCAN WATCHLIST button, with the status indicator
+    // (`● ON · 12s ago` / `● OFF` / red `ERROR`) as a trailing label
+    // separated by a bullet.
     //
     // Behaviour:
     // - Always polls the snapshot-export status (3s) so the status
-    //   pill (`ON · every 60s` / `OFF` / `12s ago` / red `error`)
-    //   stays fresh even when the modal is closed.
+    //   pill stays fresh even when the modal is closed.
     // - Click opens `<SnapshotSchedulerModal />` which owns the
     //   configuration form. The modal also takes over polling on
     //   open (the button's polling stops while the modal is mounted
@@ -51,16 +55,15 @@
         // also tracked via status being non-null.
         void tick;
         const s = status;
-        if (!s) return { dot: 'gray', label: 'OFF · loading…' };
+        if (!s) return { dot: 'gray', label: 'OFF …' };
         if (!s.enabled) return { dot: 'gray', label: 'OFF' };
         if (s.last_error) return { dot: 'red', label: 'ERROR' };
         const lastMs = s.last_snapshot_at ? Date.parse(s.last_snapshot_at) : null;
         if (lastMs != null) {
-            const ageSec = Math.max(0, Math.round((Date.now() - lastMs) / 1000));
             const friendly = formatRelativeTime(lastMs).label;
-            return { dot: 'green', label: `ON · last ${friendly}` };
+            return { dot: 'green', label: `ON · ${friendly}` };
         }
-        return { dot: 'amber', label: `ON · every ${s.interval_secs}s · no snapshots yet` };
+        return { dot: 'amber', label: `ON · ${s.interval_secs}s` };
     });
 
     function pillClass(dot: Pill['dot']): string {
@@ -77,12 +80,11 @@
     aria-label="Configure snapshot export schedule"
     type="button"
 >
-    <span class={styles.body}>
-        <span class={styles.title}>SCHEDULE SNAPSHOTS</span>
-        <span class={styles.pill}>
-            <span class="{styles.dot} {pillClass(pill.dot)}"></span>
-            <span class={styles.pillLabel}>{pill.label}</span>
-        </span>
+    <span class={styles.title}>SCHEDULE SNAPSHOTS</span>
+    <span class={styles.sep} aria-hidden="true">•</span>
+    <span class={styles.pill}>
+        <span class="{styles.dot} {pillClass(pill.dot)}"></span>
+        <span class={styles.pillLabel}>{pill.label}</span>
     </span>
 </button>
 

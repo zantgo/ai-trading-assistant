@@ -50,6 +50,21 @@ fn default_time_horizon(ot: OpportunityType) -> &'static str {
     }
 }
 
+/// v6.10.18 (I-5b): the horizon-appropriate stop budget in ATR units.
+/// A 60s scalp with a 4.5×ATR stop (VP-VAL anchored) produces a sub-1
+/// R:R bracket — a professional scalp stop belongs at ~1.5×ATR, a swing
+/// stop at ~3×ATR. The zone derivation prefers the NEARER of the
+/// structural stop and this horizon budget, so brackets carry an
+/// R:R the operator can actually trade.
+fn stop_atr_multiple_for(horizon: &str) -> f64 {
+    match horizon {
+        "SCALP" => 1.5,
+        "INTRADAY" => 2.0,
+        "SWING" => 3.0,
+        _ => 4.0, // POSITION
+    }
+}
+
 fn compute_candidate_score(
     opportunity_type: OpportunityType,
     analysis: &AnalysisMatrix,
@@ -458,7 +473,42 @@ fn cluster_levels(candidates: &[LevelCandidate], tolerance: f64) -> Vec<Vec<&Lev
     clusters
 }
 
-fn clusters_to_confluent(clusters: Vec<Vec<&LevelCandidate>>) -> Vec<ConfluentLevel> {
+/// The role a confluent level plays in the bracket — the SIDE semantics
+/// differ per role (v6.10.18 I-6): entries and invalidation levels sit on
+/// the trade's OWN side (below close = LONG entry / LONG stop, above
+/// close = SHORT entry / SHORT stop), while TARGETS are the profit zones
+/// and sit on the OPPOSITE geometric side (above close = LONG target,
+/// below close = SHORT target). One flat "above = SHORT" rule tagged a
+/// long's profit zone "SHORT" — misleading for the operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfluentRole {
+    Entry,
+    Target,
+    Invalidation,
+}
+
+impl ConfluentRole {
+    fn side_for(&self, price: f64, close: f64) -> Option<String> {
+        let above = price > close;
+        let below = price < close;
+        if !above && !below {
+            return None;
+        }
+        // Entry / Invalidation: LONG below, SHORT above.
+        // Target: reversed — LONG above (profit zone), SHORT below.
+        let is_long = match self {
+            ConfluentRole::Target => above,
+            ConfluentRole::Entry | ConfluentRole::Invalidation => below,
+        };
+        Some(if is_long { "LONG".to_string() } else { "SHORT".to_string() })
+    }
+}
+
+fn clusters_to_confluent(
+    clusters: Vec<Vec<&LevelCandidate>>,
+    close: f64,
+    role: ConfluentRole,
+) -> Vec<ConfluentLevel> {
     let mut out: Vec<ConfluentLevel> = Vec::new();
     for cluster in &clusters {
         let avg_price = cluster.iter().map(|c| c.price).sum::<f64>() / cluster.len() as f64;
@@ -468,11 +518,14 @@ fn clusters_to_confluent(clusters: Vec<Vec<&LevelCandidate>>) -> Vec<ConfluentLe
         let confluence_count = sources.len() as u32;
         let total_weight: f64 = cluster.iter().map(|c| c.weight).sum();
         let strength = (total_weight * 100.0).min(100.0);
+        // F23 (v6.10.17) + I-6 (v6.10.18): role-aware side semantics.
+        let side = role.side_for(avg_price, close);
         out.push(ConfluentLevel {
             price: avg_price,
             confluence_count,
             sources,
             strength,
+            side,
         });
     }
     out.sort_by(|a, b| {
@@ -508,8 +561,8 @@ fn derive_confluent_zones(
     let entry_clusters = cluster_levels(&entry_candidates, tolerance);
     let target_clusters = cluster_levels(&target_candidates, tolerance);
 
-    let mut entry_levels = clusters_to_confluent(entry_clusters);
-    let mut target_levels = clusters_to_confluent(target_clusters);
+    let mut entry_levels = clusters_to_confluent(entry_clusters, close, ConfluentRole::Entry);
+    let mut target_levels = clusters_to_confluent(target_clusters, close, ConfluentRole::Target);
 
     // ── ATR-based fallback for entry/target ──
     // When every structural source (Fibonacci / Volume Profile / Pivot
@@ -544,6 +597,7 @@ fn derive_confluent_zones(
                 confluence_count: 1,
                 sources: vec![LevelSource::AtrFallback],
                 strength: 35.0, // synthetic strength below typical real levels
+                side: Some(if bias_bullish { "LONG".to_string() } else { "SHORT".to_string() }),
             });
         }
         if target_levels.is_empty() && atr > 0.0 {
@@ -557,6 +611,7 @@ fn derive_confluent_zones(
                 confluence_count: 1,
                 sources: vec![LevelSource::AtrFallback],
                 strength: 35.0,
+                side: Some(if bias_bullish { "LONG".to_string() } else { "SHORT".to_string() }),
             });
         }
     }
@@ -606,7 +661,7 @@ fn derive_confluent_zones(
     };
 
     let inval_clusters = cluster_levels(&invalidation_candidates, tolerance);
-    let invalidation_levels = clusters_to_confluent(inval_clusters);
+    let invalidation_levels = clusters_to_confluent(inval_clusters, close, ConfluentRole::Invalidation);
 
     (entry_levels, target_levels, invalidation_levels)
 }
@@ -626,6 +681,7 @@ fn derive_side_zones(
     atr: f64,
     primary_score: f64,
     bias_long: bool,
+    stop_atr_multiple: f64,
 ) -> (
     core_domain::opportunity::PriceRange,
     core_domain::opportunity::PriceRange,
@@ -747,17 +803,37 @@ fn derive_side_zones(
                 }
             })
             .collect();
-        if let Some(best) = survivors.first() {
-            best.price.max(0.0)
-        } else if bias_long {
-            (entry_zone.low - atr * 0.5).max(0.0)
+        // v6.10.18 (I-5b): horizon-aware stop preference. The structural
+        // stop (e.g. VP VAL / VAH) can sit FAR from the entry — a 60s
+        // scalp with a 4.5×ATR stop is a sub-1 R:R bracket nobody can
+        // trade. Prefer the NEARER of the structural survivor and the
+        // horizon stop (`ATR × multiple` from the entry mid), always
+        // staying outside the entry zone. The structural stop still wins
+        // when it is already tighter than the horizon budget.
+        let entry_mid = (entry_zone.low + entry_zone.high) / 2.0;
+        let horizon_stop = if bias_long {
+            (entry_mid - atr * stop_atr_multiple).max(0.0)
         } else {
-            entry_zone.high + atr * 0.5
+            entry_mid + atr * stop_atr_multiple
+        };
+        let structural = survivors.first().map(|c| c.price.max(0.0));
+        let chosen = match (structural, bias_long) {
+            // LONG: the HIGHER stop is the closer one.
+            (Some(s), true) => s.max(horizon_stop),
+            // SHORT: the LOWER stop is the closer one.
+            (Some(s), false) => s.min(horizon_stop),
+            (None, true) => horizon_stop,
+            (None, false) => horizon_stop,
+        };
+        if bias_long {
+            chosen.min(entry_zone.low - atr * 0.05).max(0.0)
+        } else {
+            chosen.max(entry_zone.high + atr * 0.05)
         }
     } else if bias_long {
-        (entry_zone.low - atr * 0.5).max(0.0)
+        (entry_zone.low - atr * stop_atr_multiple).max(0.0)
     } else {
-        entry_zone.high + atr * 0.5
+        entry_zone.high + atr * stop_atr_multiple
     };
 
     // ── Geometry invariant assertions ────────────────────────────────
@@ -906,7 +982,6 @@ fn compute_opportunity(
         .max(0.0)
         .min(100.0);
     let struct_dim = alignment.dimensions.get(4).map(|d| d.score).unwrap_or(50.0);
-    let tradability_dim = alignment.dimensions.get(9).map(|d| d.score).unwrap_or(50.0);
 
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
 
@@ -1080,9 +1155,13 @@ fn compute_opportunity(
             OpportunityType::MeanReversion => {
                 (if vol_dim <= 30.0 && is_range { 2 } else { 0 }, 2)
             }
-            OpportunityType::NoClearOpportunity => {
-                (if tradability_dim < 30.0 { 1 } else { 0 }, 1)
-            }
+            // v6.10.19a (N1): NoClearOpportunity is the unconditional
+            // "no setup detected" sentinel — it must never read "met".
+            // The previous `tradability_dim < 30` gate let a weak-market
+            // fallback profile show "1/1 preconditions met" on the strip,
+            // which reads as an activated setup next to "informational
+            // only". The sentinel always reports 0/1.
+            OpportunityType::NoClearOpportunity => (0, 1),
         };
 
         let (score, notes, raw_score, precondition_ratio) = compute_candidate_score(
@@ -1123,7 +1202,15 @@ fn compute_opportunity(
         long_conf_entry,
         long_conf_target,
         long_conf_inval,
-    ) = derive_side_zones(indicators, cluster, close, atr, primary_score, true);
+    ) = derive_side_zones(
+        indicators,
+        cluster,
+        close,
+        atr,
+        primary_score,
+        true,
+        stop_atr_multiple_for(default_time_horizon(primary_opportunity)),
+    );
     let (
         short_entry_zone,
         short_target_zone,
@@ -1131,7 +1218,15 @@ fn compute_opportunity(
         short_conf_entry,
         short_conf_target,
         short_conf_inval,
-    ) = derive_side_zones(indicators, cluster, close, atr, primary_score, false);
+    ) = derive_side_zones(
+        indicators,
+        cluster,
+        close,
+        atr,
+        primary_score,
+        false,
+        stop_atr_multiple_for(default_time_horizon(primary_opportunity)),
+    );
 
     // Per-side reward/risk computed with the three-state model
     // (`core_domain::risk_reward::compute_side_rr_v2`) which distinguishes:
@@ -1172,8 +1267,49 @@ fn compute_opportunity(
     fn rr_is_ok(status: &SideRrStatus) -> bool {
         matches!(status, SideRrStatus::Value(_))
     }
-    let long_expected_rr_internal = rr_value(&long_rr_status);
-    let short_expected_rr_internal = rr_value(&short_rr_status);
+    // v6.10.19 (P5): ACTIONABLE requires the NET R:R ≥ 1.0 — the gross
+    // geometric ratio minus estimated entry/exit fees + slippage
+    // (`NetCostModel`, defaults 6/5/0 bps, config-tunable in a
+    // follow-up). A gross 1:1 bracket nets ~0.98 at 22 bps of friction
+    // and must demote to Qualifying. The GROSS ratio stays on the wire
+    // (`long_gross_rr_internal` / `short_gross_rr_internal`).
+    let viability_for =
+        |status: &SideRrStatus, net_rr: f64| -> core_domain::opportunity::TradeViability {
+            if rr_is_ok(status) && net_rr >= 1.0 {
+                core_domain::opportunity::TradeViability::Actionable
+            } else if rr_is_ok(status) {
+                core_domain::opportunity::TradeViability::Qualifying
+            } else {
+                core_domain::opportunity::TradeViability::GeometryInverted
+            }
+        };
+    let long_gross_rr_internal = rr_value(&long_rr_status);
+    let short_gross_rr_internal = rr_value(&short_rr_status);
+    let cost_model = core_domain::risk_reward::NetCostModel::default();
+    let long_net_rr = if rr_is_ok(&long_rr_status) {
+        cost_model.net_rr(
+            (long_entry_zone.low + long_entry_zone.high) / 2.0,
+            (long_target_zone.low + long_target_zone.high) / 2.0,
+            long_invalidation_level,
+            core_domain::risk_reward::Side::Long,
+        )
+    } else {
+        0.0
+    };
+    let short_net_rr = if rr_is_ok(&short_rr_status) {
+        cost_model.net_rr(
+            (short_entry_zone.low + short_entry_zone.high) / 2.0,
+            (short_target_zone.low + short_target_zone.high) / 2.0,
+            short_invalidation_level,
+            core_domain::risk_reward::Side::Short,
+        )
+    } else {
+        0.0
+    };
+    // v6.10.19 (P5): the published per-side values are NET; the gross
+    // rides in the new `long_gross_rr_internal` / `short_gross_rr_internal`.
+    let long_expected_rr_internal = long_gross_rr_internal.map(|_| long_net_rr);
+    let short_expected_rr_internal = short_gross_rr_internal.map(|_| short_net_rr);
 
     let long_geometry_consistent = rr_is_ok(&long_rr_status);
     let short_geometry_consistent = rr_is_ok(&short_rr_status);
@@ -1283,24 +1419,19 @@ fn compute_opportunity(
         // Per-profile `trade_viability`: only set when the profile is
         // the PRIMARY opportunity. The frontend uses this to highlight
         // actionable setups versus side profiles.
+        // v6.10.18 (I-5): Actionable requires the bracket R:R ≥ 1.0;
+        // valid sub-1 brackets demote to Qualifying (the trade is real,
+        // the edge is not).
         let trade_viability_at_profile = if *ot == primary_opportunity {
             match (profile_family, bias_bullish, bias_bearish) {
                 (analysis::DirectionFamily::Neutral, _, _) => {
                     Some(core_domain::opportunity::TradeViability::DirectionalNeutral)
                 }
                 (analysis::DirectionFamily::TrendRiding, true, _) => {
-                    if rr_is_ok(&long_rr_status) {
-                        Some(core_domain::opportunity::TradeViability::Actionable)
-                    } else {
-                        Some(core_domain::opportunity::TradeViability::GeometryInverted)
-                    }
+                    Some(viability_for(&long_rr_status, long_net_rr))
                 }
                 (analysis::DirectionFamily::TrendRiding, false, true) => {
-                    if rr_is_ok(&short_rr_status) {
-                        Some(core_domain::opportunity::TradeViability::Actionable)
-                    } else {
-                        Some(core_domain::opportunity::TradeViability::GeometryInverted)
-                    }
+                    Some(viability_for(&short_rr_status, short_net_rr))
                 }
                 (analysis::DirectionFamily::CounterTrend, true, _)
                 | (analysis::DirectionFamily::CounterTrend, false, true) => {
@@ -1308,15 +1439,9 @@ fn compute_opportunity(
                     // populated (deviation-driven, family × bias fallback).
                     let ct_long = countertrend_resolved_long.unwrap_or(!bias_bullish);
                     if ct_long {
-                        if rr_is_ok(&long_rr_status) {
-                            Some(core_domain::opportunity::TradeViability::Actionable)
-                        } else {
-                            Some(core_domain::opportunity::TradeViability::GeometryInverted)
-                        }
-                    } else if rr_is_ok(&short_rr_status) {
-                        Some(core_domain::opportunity::TradeViability::Actionable)
+                        Some(viability_for(&long_rr_status, long_net_rr))
                     } else {
-                        Some(core_domain::opportunity::TradeViability::GeometryInverted)
+                        Some(viability_for(&short_rr_status, short_net_rr))
                     }
                 }
                 _ => Some(core_domain::opportunity::TradeViability::DirectionalNeutral),
@@ -1466,10 +1591,19 @@ fn compute_opportunity(
         )
     };
 
-    let invalidation_note = format!(
-        "Close {} {:.1} invalidates the {:?} thesis.",
-        note_side, note_level, primary_opportunity
-    );
+    // v6.10.17 (F21): under NoClearOpportunity there is no thesis to
+    // invalidate — "Close above X invalidates the NoClearOpportunity
+    // thesis" is nonsense. The note is suppressed for the no-clear case.
+    let invalidation_note = if primary_opportunity
+        == core_domain::analysis::OpportunityType::NoClearOpportunity
+    {
+        String::new()
+    } else {
+        format!(
+            "Close {} {:.1} invalidates the {:?} thesis.",
+            note_side, note_level, primary_opportunity
+        )
+    };
 
     Some(OpportunityMatrix {
         symbol: analysis.symbol.clone(),
@@ -1491,6 +1625,8 @@ fn compute_opportunity(
         short_invalidation_level,
         long_expected_rr_internal: long_expected_rr_internal.unwrap_or(0.0),
         short_expected_rr_internal: short_expected_rr_internal.unwrap_or(0.0),
+        long_gross_rr_internal: long_gross_rr_internal.unwrap_or(0.0),
+        short_gross_rr_internal: short_gross_rr_internal.unwrap_or(0.0),
         time_horizon,
         confluent_entry_levels: confluent_entry,
         confluent_target_levels: confluent_target,
@@ -1512,6 +1648,7 @@ pub fn synthesize_cross_tf(
     previous_score: Option<f64>,
     previous_regime: Option<core_domain::analysis::MarketRegime>,
     previous_volume_dim: Option<f64>,
+    previous_bias: Option<core_domain::analysis::MarketBias>,
 ) -> CrossTfSynthesisResult {
     let tf_data: Vec<(
         &str,
@@ -1564,6 +1701,7 @@ pub fn synthesize_cross_tf(
         previous_score,
         previous_regime,
         previous_volume_dim,
+        previous_bias,
     );
 
     let close = tf_snapshots
@@ -1572,6 +1710,19 @@ pub fn synthesize_cross_tf(
         .and_then(|d| d.to_f64())
         .unwrap_or(0.0);
 
+    // v6.10.18 (I-8): the per-TF L2 volatility states feed the L5
+    // volatility-risk dimension (micro .7 / fast .3 — the actionable
+    // horizons). The L2 score is signed −1..+1 → unipolar 0–100.
+    let tf_volatility: Vec<(String, String, f64)> = tf_data
+        .iter()
+        .map(|(label, _, _, _, ctx)| {
+            (
+                label.to_string(),
+                ctx.volatility.label.clone(),
+                (((ctx.volatility.score + 1.0) / 2.0) * 100.0).clamp(0.0, 100.0),
+            )
+        })
+        .collect();
     let risk = risk::compute_risk(
         &analysis.symbol,
         &analysis,
@@ -1583,6 +1734,7 @@ pub fn synthesize_cross_tf(
         // v6.10.9: the previous L2 mtf overall score feeds the derived
         // RiskState trend arm (Increasing/Improving/Stable).
         previous_score,
+        &tf_volatility,
     );
 
     let opportunity = compute_opportunity(
@@ -1593,6 +1745,14 @@ pub fn synthesize_cross_tf(
         cluster,
         close,
     );
+
+    // v6.10.18 (I-3): the L3 deprecated `opportunity_analysis` chain can
+    // disagree with the L4 tree (e.g. L3 "Pullback opportunity forming"
+    // beside an L4 primary Scalp). The ANALYSIS is authoritative for the
+    // qualitative assessments, but the opportunity CLASSIFICATION belongs
+    // to L4 — sync the published analysis to the L4 primary so no two
+    // panels answer "what's the setup?" differently.
+    let analysis = sync_analysis_opportunity(analysis, opportunity.as_ref());
 
     let advisory = advisory::compute_advisory(&analysis, &risk, opportunity.as_ref(), cluster);
 
@@ -1613,6 +1773,50 @@ fn slot_label(snap: &MarketSnapshot) -> String {
         TimeframeSlot::Macro => "MACRO".to_string(),
         TimeframeSlot::Custom { id } => format!("CUSTOM-{}", id),
     }
+}
+
+/// v6.10.18 (I-3): sync the published AnalysisMatrix's opportunity
+/// classification (and the interpretation's opportunity clause) to the L4
+/// PRIMARY opportunity — the L4 tree is the canonical "what's the setup?"
+/// answer. The L3 deprecated chain stays as an input trace only.
+fn sync_analysis_opportunity(
+    mut analysis: core_domain::analysis::AnalysisMatrix,
+    opportunity: Option<&core_domain::opportunity::OpportunityMatrix>,
+) -> core_domain::analysis::AnalysisMatrix {
+    let Some(opp) = opportunity else {
+        return analysis;
+    };
+    analysis.opportunity_analysis = opp.primary_opportunity;
+    let clause = match opp.primary_opportunity {
+        core_domain::analysis::OpportunityType::TrendContinuation => "Favors trend continuation.",
+        core_domain::analysis::OpportunityType::Breakout => "Breakout conditions present.",
+        core_domain::analysis::OpportunityType::Pullback => "Pullback opportunity forming.",
+        core_domain::analysis::OpportunityType::MeanReversion => {
+            "Mean reversion conditions detected."
+        }
+        core_domain::analysis::OpportunityType::Reversal => "Reversal signals emerging.",
+        core_domain::analysis::OpportunityType::LiquiditySqueeze => {
+            "Liquidity squeeze setup (Phase 3)."
+        }
+        core_domain::analysis::OpportunityType::Scalp => "Scalp opportunity active.",
+        core_domain::analysis::OpportunityType::NoClearOpportunity => {
+            "No clear opportunity identified."
+        }
+    };
+    // Swap the interpretation's final opportunity sentence (derive_analysis
+    // appends it as the last sentence of `market_interpretation`).
+    if let Some(idx) = analysis.market_interpretation.rfind(". ") {
+        analysis.market_interpretation = format!(
+            "{} {}",
+            analysis.market_interpretation[..idx + 1].trim_end(),
+            clause
+        );
+    } else if analysis.market_interpretation.is_empty() {
+        analysis.market_interpretation = clause.to_string();
+    } else {
+        analysis.market_interpretation.push_str(&format!(" {}", clause));
+    }
+    analysis
 }
 
 /// Leak a per-call `slot_label` String into a `&'static str`. Acceptable in
@@ -1822,7 +2026,7 @@ mod tests {
 
     #[test]
     fn synthesize_empty_returns_neutral() {
-        let result = synthesize_cross_tf("BTC-USD", &[], None, None, &[], None, None, None);
+        let result = synthesize_cross_tf("BTC-USD", &[], None, None, &[], None, None, None, None);
         assert_eq!(result.alignment.timeframes_present, 0);
         assert_eq!(result.analysis.timeframes_considered, 0);
         assert_eq!(
@@ -1835,7 +2039,7 @@ mod tests {
     fn synthesize_single_tf_works() {
         let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
         let snap = make_snapshot(60, 64000.0, ctx);
-        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, &[], None, None, None);
+        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, &[], None, None, None, None);
         assert_eq!(result.alignment.timeframes_present, 1);
         assert_eq!(result.alignment.dimensions.len(), 10);
         assert!(result.analysis.state_confidence <= 0.5);
@@ -1862,6 +2066,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         assert_eq!(result.alignment.timeframes_present, 4);
         assert!(result.alignment.mtf_overall_score > 0.0);
@@ -1895,6 +2100,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         assert!(result.alignment.mtf_overall_score.abs() < 40.0);
     }
@@ -1920,6 +2126,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(opp.long_entry_zone.high >= opp.long_entry_zone.low);
@@ -2012,6 +2219,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(
@@ -2057,6 +2265,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         let long_target_mid =
@@ -2095,6 +2304,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         let close = 64000.0;
@@ -2131,6 +2341,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(matches!(
@@ -2165,6 +2376,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(matches!(
@@ -2207,6 +2419,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
 
         let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
@@ -2247,6 +2460,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
 
         let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
@@ -2276,6 +2490,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
 
         let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
@@ -2334,6 +2549,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
 
         // The headline `opportunity_score` equals the selected primary
@@ -2395,6 +2611,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
 
@@ -2440,6 +2657,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
 
@@ -2485,6 +2703,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let bull_opp = bull_result.opportunity.expect("bullish opp");
         let close = 64000.0_f64;
@@ -2519,6 +2738,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
         let bear_opp = bear_result.opportunity.expect("bearish opp");
         let bear_entry = bear_opp
@@ -2640,6 +2860,7 @@ mod tests {
             None,
             None,
             None,
+        None,
         );
 
         let rows = &result.alignment.timeframe_alignments;
@@ -2713,6 +2934,18 @@ mod tests {
         assert_eq!(
             opp_expansion.primary_opportunity,
             OpportunityType::NoClearOpportunity
+        );
+        let no_clear = opp_expansion
+            .profiles
+            .iter()
+            .find(|p| p.opportunity_type == OpportunityType::NoClearOpportunity)
+            .expect("NoClearOpportunity profile");
+        assert_eq!(
+            (no_clear.preconditions_met, no_clear.preconditions_total),
+            (0, 1),
+            "v6.10.19a (N1): the no-setup sentinel must never read met — \
+             the strip would otherwise claim '1/1 preconditions met' next \
+             to 'informational only'"
         );
     }
 

@@ -51,9 +51,15 @@ pub enum DirectionFamily {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TradeViability {
-    /// Profile qualifies AND its per-side zones pass the LONG/SHORT
-    /// geometry invariants. Operator can act on this profile.
+    /// Profile qualifies, geometry passes, AND the bracket's R:R ≥ 1.0
+    /// (v6.10.18 I-5 — a sub-1 R:R bracket is never "act on this").
+    /// Operator can act on this profile.
     Actionable,
+    /// v6.10.18 (I-5): profile qualifies with valid geometry but the
+    /// bracket's R:R < 1.0 — a real bracket, yet not worth acting on
+    /// (a sub-1 R:R needs a >50% win rate just to break even). The
+    /// frontend renders QUALIFYING; the readiness gate still applies.
+    Qualifying,
     /// Profile qualifies (preconditions met) but `selectProfileSide`
     /// resolves to NEUTRAL — typically Neutral family + Neutral bias.
     /// The aggregated Neutral sentinel (close-pinned) is the only
@@ -384,6 +390,116 @@ impl AnalysisMatrix {
     }
 }
 
+/// v6.10.16 grace-band constants (L3 bias): a composite inside
+/// `(BIAS_GRACE_BAND_MIN, BIAS_GRACE_BAND_MAX]` is rescued to a
+/// directional bias only when the per-timeframe vote is coherent.
+/// See `derive_analysis` for the full gate.
+pub const BIAS_GRACE_BAND_MIN: f64 = 15.0;
+pub const BIAS_GRACE_BAND_MAX: f64 = 20.0;
+/// Minimum decisive TFs required on the dominant side (4:0 or 3:1).
+/// Scaled to ≥3/4 of `timeframes_present` (never below 3) — a 2-TF
+/// warmup window can never grace.
+pub const BIAS_GRACE_VOTE_MIN: usize = 3;
+/// A per-TF `overall_score` with `|score| <= BIAS_GRACE_FLAT_TF` does not
+/// count as a directional vote (it is effectively flat).
+pub const BIAS_GRACE_FLAT_TF: i32 = 10;
+/// Intra-pair multi-TF agreement required on the grace path.
+pub const BIAS_GRACE_AGREEMENT_MIN: f64 = 75.0;
+/// Cross-TF signal breadth required on the grace path.
+pub const BIAS_GRACE_SIGNALS_MIN: u32 = 3;
+/// Confidence haircut applied to a graced read (the raw math did not
+/// confirm the direction).
+pub const BIAS_GRACE_CONFIDENCE_FACTOR: f64 = 0.9;
+/// Hysteresis (FIX-H1): once graced, the bias HOLDS while `|score|` stays
+/// above this lower band and the vote does not collapse — preventing
+/// Bullish↔Neutral flip-flop on sub-point composite moves.
+pub const BIAS_GRACE_HOLD_BAND_MIN: f64 = 12.0;
+/// Hysteresis: minimum decisive votes to sustain a held grace (2:1+).
+pub const BIAS_GRACE_HOLD_VOTE_MIN: usize = 2;
+/// A per-TF window in `COMPRESSION` does not cast a grace vote — its
+/// positive score is mean-reversion bait, not directional confirmation.
+const BIAS_GRACE_SKIP_REGIME: &str = "COMPRESSION";
+/// v6.10.17 LEAN tier (L3 bias): a composite inside the
+/// `[-BIAS_LEAN_COMPOSITE_TOLERANCE, +BIAS_LEAN_COMPOSITE_TOLERANCE]`
+/// window below the grace band is still rescued to a directional bias
+/// when the per-timeframe vote is decisive (≥3:1) and agreement/signal
+/// gates hold — so a MINIMAL bearish/bullish confirmation (e.g. composite
+/// 2.6 with a 3:1 bearish vote) yields a LEAN directional read instead of
+/// a flat NEUTRAL + 96% HOLD. The composite may oppose the vote only
+/// within this tolerance; a stronger disagreement vetoes the lean.
+pub const BIAS_LEAN_COMPOSITE_TOLERANCE: f64 = 10.0;
+/// Confidence haircut applied to a LEAN-tier read (heavier than grace,
+/// ×0.8) because the composite sits entirely below the grace band — only
+/// the vote coherence carries the direction.
+pub const BIAS_LEAN_CONFIDENCE_FACTOR: f64 = 0.8;
+
+/// v6.10.17: `true` when a Bullish/Bearish bias was LIFTED by the margin
+/// machinery (grace band, hysteresis hold, or LEAN tier) rather than
+/// produced by a plain threshold — a directional bias with
+/// `|market_bias_score| <= BIAS_GRACE_BAND_MAX` (in 0–100 composite
+/// units) can only have come from those paths (plain Bullish/Bearish
+/// requires `score > 20` strictly, Strong `> 40`). Downstream consumers
+/// (DecisionContext probabilities, Advisory guidance, UI qualifier
+/// labels) use this to treat a lifted read as directional even when the
+/// risk gate would otherwise silence it.
+///
+/// **v6.10.18 (P0 unit fix):** `AnalysisMatrix.market_bias_score` is the
+/// WIRE FRACTION `mtf_overall_score / 100` (range `[-1, 1]`, docs 02-02
+/// §2.1) — the comparison therefore multiplies by 100 to land on the
+/// 0–100 composite scale the band constants live on. Before this fix
+/// every directional bias (e.g. plain Bullish at composite 21.77 →
+/// fraction 0.2177) satisfied `|0.2177| <= 20` and was wrongly treated
+/// as margin-lifted, silently disabling the §3.1 risk gate.
+pub fn bias_lifted(bias: MarketBias, market_bias_score: f64) -> bool {
+    matches!(bias, MarketBias::Bullish | MarketBias::Bearish)
+        && (market_bias_score.abs() * 100.0) <= BIAS_GRACE_BAND_MAX
+}
+
+/// Per-timeframe directional vote: counts `timeframe_alignments` with a
+/// decisive `overall_score` on each side (flat TFs and COMPRESSION
+/// windows excluded). Returns the dominant side when it holds
+/// `minimum_votes` decisive TFs and the opponent holds at most
+/// `max_opponent` — a 4:0 or 3:1 window at the fire threshold.
+fn vote_lean_with(
+    alignment: &AlignmentMatrix,
+    minimum_votes: usize,
+    max_opponent: usize,
+) -> Option<MarketBias> {
+    let mut bull = 0usize;
+    let mut bear = 0usize;
+    for tf in &alignment.timeframe_alignments {
+        if tf.regime.to_uppercase() == BIAS_GRACE_SKIP_REGIME {
+            continue;
+        }
+        if tf.overall_score > BIAS_GRACE_FLAT_TF {
+            bull += 1;
+        } else if tf.overall_score < -BIAS_GRACE_FLAT_TF {
+            bear += 1;
+        }
+    }
+    if bull >= minimum_votes && bear <= max_opponent {
+        Some(MarketBias::Bullish)
+    } else if bear >= minimum_votes && bull <= max_opponent {
+        Some(MarketBias::Bearish)
+    } else {
+        None
+    }
+}
+
+/// Fire-side vote: ≥3/4 of `timeframes_present` (min 3) decisive, ≤1
+/// opponent — requires real breadth, never a warmup window.
+fn directional_vote_lean(alignment: &AlignmentMatrix) -> Option<MarketBias> {
+    let required = ((alignment.timeframes_present as f64 * 0.75).ceil() as usize)
+        .max(BIAS_GRACE_VOTE_MIN);
+    vote_lean_with(alignment, required, 1)
+}
+
+/// Hold-side vote (hysteresis): a looser 2:1+ requirement so a graced
+/// bias survives minor vote erosion without surviving a collapse.
+fn directional_vote_hold(alignment: &AlignmentMatrix) -> Option<MarketBias> {
+    vote_lean_with(alignment, BIAS_GRACE_HOLD_VOTE_MIN, 1)
+}
+
 /// Derive an Analysis Matrix from the Alignment Matrix, optionally enriched with
 /// per-timeframe indicator data (BBWP, ADX) and prior-bar state for the full
 /// 8-state regime decision tree.
@@ -393,6 +509,10 @@ impl AnalysisMatrix {
 /// - `previous_score`: the prior bar's `mtf_overall_score` for slope calculation.
 /// - `previous_regime`: the regime from the previous bar for transition/stickiness detection.
 /// - `previous_volume_dim`: the prior bar's volume dimension score (dim 2) for Wyckoff MarketPhase trend.
+/// - `previous_bias`: the prior bar's categorical bias — used by the grace-band
+///   hysteresis (FIX-H1): a graced direction HOLDS while the score stays above
+///   `BIAS_GRACE_HOLD_BAND_MIN` and the vote does not collapse, so a 19.5→13.8
+///   composite move does not flip the bias Bullish→Neutral mid-consensus.
 pub fn derive_analysis(
     alignment: &AlignmentMatrix,
     bbwp: Option<f64>,
@@ -400,12 +520,50 @@ pub fn derive_analysis(
     previous_score: Option<f64>,
     previous_regime: Option<MarketRegime>,
     previous_volume_dim: Option<f64>,
+    previous_bias: Option<MarketBias>,
 ) -> AnalysisMatrix {
     if alignment.timeframes_present == 0 {
         return AnalysisMatrix::empty(&alignment.symbol);
     }
 
     let score = alignment.mtf_overall_score;
+    let mut graced = false;
+    let mut leaned = false;
+    // FIX-H1 (hysteresis): a previously-graced direction holds while the
+    // score stays inside the hold band and the vote survives (2:1+). The
+    // `previous_score` guard separates grace-held states from plain
+    // threshold states (a plain Bullish has prev_score > 20).
+    let held = previous_bias
+        .filter(|pb| matches!(pb, MarketBias::Bullish | MarketBias::Bearish))
+        .filter(|_| {
+            previous_score.is_some_and(|ps| {
+                (ps > BIAS_GRACE_HOLD_BAND_MIN && ps <= BIAS_GRACE_BAND_MAX)
+                    || (ps < -BIAS_GRACE_HOLD_BAND_MIN && ps >= -BIAS_GRACE_BAND_MAX)
+            })
+        })
+        .and_then(|pb| {
+            let in_band = (score > BIAS_GRACE_HOLD_BAND_MIN && score <= BIAS_GRACE_BAND_MAX)
+                || (score < -BIAS_GRACE_HOLD_BAND_MIN && score >= -BIAS_GRACE_BAND_MAX);
+            if !in_band || alignment.trend_agreement_pct < BIAS_GRACE_AGREEMENT_MIN {
+                return None;
+            }
+            match pb {
+                MarketBias::Bullish
+                    if matches!(directional_vote_hold(alignment), Some(MarketBias::Bullish)) =>
+                {
+                    Some(MarketBias::Bullish)
+                }
+                MarketBias::Bearish
+                    if matches!(directional_vote_hold(alignment), Some(MarketBias::Bearish)) =>
+                {
+                    Some(MarketBias::Bearish)
+                }
+                _ => None,
+            }
+        });
+
+    let held_active = held.is_some();
+
     let bias = if score > 40.0 {
         MarketBias::StrongBullish
     } else if score > 20.0 {
@@ -413,6 +571,59 @@ pub fn derive_analysis(
     } else if score < -40.0 {
         MarketBias::StrongBearish
     } else if score < -20.0 {
+        MarketBias::Bearish
+    } else if let Some(held_bias) = held {
+        // Hysteresis hold (FIX-H1) — the grace state persists; the
+        // haircut keeps applying because the read is still grace-sustained.
+        graced = true;
+        held_bias
+    } else if score > BIAS_GRACE_BAND_MIN
+        && score <= BIAS_GRACE_BAND_MAX
+        && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
+        && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
+        && matches!(directional_vote_lean(alignment), Some(MarketBias::Bullish))
+    {
+        // v6.10.16 grace band: a composite just below the ±20 line is
+        // rescued ONLY when the per-timeframe vote is directionally
+        // coherent (≥3/4 TFs decisive on the same side, high intra-pair
+        // agreement, cross-TF signal breadth; COMPRESSION windows do not
+        // vote). The cap is Bullish/Bearish — grace never fabricates
+        // Strong conviction — and the confidence is haircut (×0.9)
+        // because the raw math did not confirm the read.
+        graced = true;
+        MarketBias::Bullish
+    } else if score < -BIAS_GRACE_BAND_MIN
+        && score >= -BIAS_GRACE_BAND_MAX
+        && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
+        && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
+        && matches!(directional_vote_lean(alignment), Some(MarketBias::Bearish))
+    {
+        graced = true;
+        MarketBias::Bearish
+    } else if score >= -BIAS_LEAN_COMPOSITE_TOLERANCE
+        && score <= BIAS_GRACE_BAND_MIN
+        && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
+        && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
+        && matches!(directional_vote_lean(alignment), Some(MarketBias::Bullish))
+    {
+        // v6.10.17 LEAN tier: the composite sits below the grace band
+        // (|score| ≤ 15) yet the per-timeframe vote is decisively bullish
+        // (≥3:1, agreement ≥ 75, cross-TF signal breadth; COMPRESSION
+        // windows do not vote) and does not oppose the lean by more than
+        // the tolerance. A minimal bullish confirmation therefore yields a
+        // directional read — capped at Bullish (never Strong) with the
+        // heavier ×0.8 confidence haircut.
+        leaned = true;
+        MarketBias::Bullish
+    } else if score <= BIAS_LEAN_COMPOSITE_TOLERANCE
+        && score >= -BIAS_GRACE_BAND_MIN
+        && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
+        && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
+        && matches!(directional_vote_lean(alignment), Some(MarketBias::Bearish))
+    {
+        // v6.10.17 LEAN tier — bearish mirror (composite may oppose the
+        // bearish vote by at most +BIAS_LEAN_COMPOSITE_TOLERANCE).
+        leaned = true;
         MarketBias::Bearish
     } else {
         MarketBias::Neutral
@@ -430,6 +641,12 @@ pub fn derive_analysis(
     }
     if alignment.timeframes_present <= 1 {
         state_confidence = state_confidence.min(0.5);
+    }
+    if graced {
+        state_confidence *= BIAS_GRACE_CONFIDENCE_FACTOR;
+    }
+    if leaned {
+        state_confidence *= BIAS_LEAN_CONFIDENCE_FACTOR;
     }
 
     let bbwp_val = bbwp.unwrap_or(50.0);
@@ -646,11 +863,12 @@ let market_quality = if quality_score >= 85.0 {
 };
 
     let mut rationale_parts: Vec<String> = Vec::new();
+    // v6.10.17 (F22): BBWP/ADX render with one decimal so the rationale
+    // matches the indicator-history values (73.7, not "75"). The bias
+    // qualifier phrase explains any lifted read so the rationale can
+    // never claim a plain directional bias for a grace/lean/hold state.
     rationale_parts.push(format!(
-        // `{:?}` (PascalCase) — the `Display` impl prints SCREAMING_SNAKE
-        // ("BEARISH"), which contradicted the prettified badge the panel
-        // renders ("Bearish").
-        "MTF overall score {:.0}/100 → {:?}. {} of {} timeframes agree ({:.0}%). BBWP={:.0} ADX={:.0}.",
+        "MTF overall score {:.0}/100 → {:?}. {} of {} timeframes agree ({:.0}%). BBWP={:.1} ADX={:.1}.{}",
         score,
         bias,
         if alignment.trend_agreement_pct >= 50.0 {
@@ -662,6 +880,12 @@ let market_quality = if quality_score >= 85.0 {
         alignment.trend_agreement_pct,
         bbwp_val,
         adx_val,
+        match (held_active, graced, leaned) {
+            (true, _, _) => " Bias lifted by TF-vote margin (held from a previous grace state).",
+            (false, true, _) => " Bias lifted by TF-vote margin (grace band).",
+            (false, false, true) => " Bias lifted by TF-vote margin (LEAN tier — minimal confirmation).",
+            (false, false, false) => "",
+        }
     ));
     rationale_parts.push(format!("Regime: {}", regime));
     if alignment.signal_cross_tf_count > 0 {
@@ -759,8 +983,7 @@ mod tests {
     use crate::alignment::{AlignmentMatrix, TfAlignmentInfo};
 
     fn simple_alignment(tfs: u8, score: f64, agreement: f64, cross_tf: u32) -> AlignmentMatrix {
-        let mut alignments = Vec::new();
-        let labels = ["micro60", "fast180", "slow300", "macro900"];
+        let mut alignments = Vec::new();        let labels = ["micro60", "fast180", "slow300", "macro900"];
         let secs = [60, 180, 300, 900];
         for i in 0..tfs as usize {
             alignments.push(TfAlignmentInfo {
@@ -792,16 +1015,51 @@ mod tests {
             } else {
                 "NEUTRAL_MTF".into()
             },
+            blend_weights: vec![
+                ("T".into(), 0.5),
+                ("M".into(), 0.3),
+                ("Vt".into(), 0.1),
+                ("Vm".into(), 0.1),
+            ],
             timeframe_alignments: alignments,
             signal_cross_tf_count: cross_tf,
             trend_agreement_pct: agreement,
         }
     }
 
+    /// Realistic multi-TF shape (v6.10.17): explicit per-TF `overall_score`
+    /// values with a composite that may differ from their mean — exactly
+    /// how the live pipeline produces e.g. −58 / −51 / −11 / +42 at a
+    /// composite of 2.6 (the user's 03:40 capture).
+    fn capture_alignment(
+        score: f64,
+        agreement: f64,
+        cross_tf: u32,
+        per_tf_scores: &[i32],
+    ) -> AlignmentMatrix {
+        let labels = ["micro60", "fast180", "slow300", "macro900"];
+        let secs = [60, 180, 300, 900];
+        let mut c = simple_alignment(per_tf_scores.len() as u8, score, agreement, cross_tf);
+        for (i, tf) in c.timeframe_alignments.iter_mut().enumerate() {
+            let s = per_tf_scores[i] as f64;
+            tf.timeframe = labels[i].to_string();
+            tf.timeframe_secs = secs[i];
+            tf.overall_score = per_tf_scores[i];
+            tf.trend_score = s / 100.0;
+            tf.momentum_score = s / 120.0;
+            tf.regime = if s.abs() > 30.0 {
+                "TRENDING".into()
+            } else {
+                "RANGE".into()
+            };
+        }
+        c
+    }
+
     #[test]
     fn strong_bullish_mtf_produces_bullish() {
         let c = simple_alignment(4, 75.0, 100.0, 4);
-        let d = derive_analysis(&c, Some(60.0), Some(28.0), None, None, None);
+        let d = derive_analysis(&c, Some(60.0), Some(28.0), None, None, None, None);
         assert!(matches!(
             d.bias,
             MarketBias::Bullish | MarketBias::StrongBullish
@@ -812,14 +1070,322 @@ mod tests {
     #[test]
     fn neutral_score_neutral() {
         let c = simple_alignment(4, 10.0, 40.0, 0);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
         assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    // ── v6.10.16 grace band (sensitivity lever) ──
+
+    #[test]
+    fn grace_band_rescues_coherent_vote_just_below_threshold() {
+        // The user's live capture shape: composite 19.1, 4/4 TFs positive,
+        // 100% agreement, 33 cross-TF signals → Bullish, not HOLD.
+        let c = simple_alignment(4, 19.0, 100.0, 33);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Bullish);
+        // Never Strong from the grace path.
+        assert!(!matches!(d.bias, MarketBias::StrongBullish));
+        // Confidence haircut ×0.9 applied (base 0.19 +0.15 +0.1 = 0.44 → 0.396).
+        assert!((d.state_confidence - 0.396).abs() < 1e-9);
+    }
+
+    #[test]
+    fn grace_band_rescues_bearish_vote() {
+        let c = simple_alignment(4, -19.0, 100.0, 33);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Bearish);
+    }
+
+    #[test]
+    fn grace_band_requires_three_quarter_vote() {
+        // 2:2 split at 19 → no grace.
+        let mut c = simple_alignment(4, 19.0, 100.0, 33);
+        for (i, tf) in c.timeframe_alignments.iter_mut().enumerate() {
+            if i >= 2 {
+                tf.overall_score = -tf.overall_score;
+            }
+        }
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn grace_band_requires_agreement() {
+        let c = simple_alignment(4, 19.0, 60.0, 33);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn grace_band_requires_signal_breadth() {
+        let c = simple_alignment(4, 19.0, 100.0, 1);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn lean_tier_fires_below_grace_band_with_coherent_vote() {
+        // v6.10.17: 14.9 with a perfect 4:0 vote is now a LEAN read (the
+        // grace band was (15,20]; the LEAN tier rescues (0,15] with the
+        // same vote/agreement/signal gates). The user's 03:40 capture
+        // (composite 2.6, 3:1 bearish vote) is the canonical case.
+        let c = simple_alignment(4, 14.9, 100.0, 33);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Bullish);
+        assert!(bias_lifted(d.bias, d.market_bias_score));
+        // Heavier ×0.8 haircut: base 0.149 + 0.15 + 0.1 = 0.399 → 0.3192.
+        assert!((d.state_confidence - 0.3192).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lean_tier_rescues_minimal_bearish_confirmation() {
+        // The 03:40-style state: composite 2.6 but the per-TF scores are
+        // −58 / −51 / −11 / +42 → a 3:1 bearish vote (agreement 75,
+        // 37 cross-TF signals) → LEAN Bearish, never a flat HOLD.
+        let c = capture_alignment(2.6, 75.0, 37, &[-58, -51, -11, 42]);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Bearish);
+        assert!(bias_lifted(d.bias, d.market_bias_score));
+        // base 0.026 + 0.15 + 0.1 = 0.276 → ×0.8 = 0.2208
+        assert!((d.state_confidence - 0.2208).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lean_tier_does_not_fire_on_balanced_vote() {
+        // 2:2 vote at composite 2.6 (−58 / +51 / −11 / +42) → genuinely
+        // flat → Neutral (the flat state keeps its 96% HOLD — HOLD is
+        // reserved for real no-direction).
+        let c = capture_alignment(2.6, 75.0, 37, &[-58, 51, -11, 42]);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn lean_tier_is_vetoed_by_opposing_composite() {
+        // 3:1 bearish vote but composite +12 (opposition beyond the ±10
+        // tolerance) → the vote and the composite conflict → Neutral.
+        let c = capture_alignment(12.0, 75.0, 37, &[-58, -51, -11, 42]);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn lean_tier_requires_agreement() {
+        // 3:1 bullish vote but agreement 60 < 75 → no lean → Neutral.
+        let c = capture_alignment(6.0, 60.0, 33, &[58, 51, 11, -42]);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn lean_tier_requires_signal_breadth() {
+        let c = capture_alignment(6.0, 100.0, 2, &[58, 51, 11, -42]);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn bias_lifted_uses_the_composite_scale() {
+        // v6.10.18 (I-1) unit fix: `market_bias_score` is the wire
+        // FRACTION (`mtf_overall_score / 100`) — the lift predicate
+        // compares on the 0–100 composite scale.
+        // Plain Bullish at composite 21.77 → fraction 0.2177 → NOT lifted.
+        assert!(!bias_lifted(MarketBias::Bullish, 0.2177));
+        assert!(!bias_lifted(MarketBias::Bearish, -0.2177));
+        // Graced at 19.9 → 0.199 → lifted.
+        assert!(bias_lifted(MarketBias::Bullish, 0.199));
+        assert!(bias_lifted(MarketBias::Bearish, -0.199));
+        // LEAN at 2.6 → 0.026 → lifted.
+        assert!(bias_lifted(MarketBias::Bullish, 0.026));
+        assert!(bias_lifted(MarketBias::Bearish, -0.026));
+        // Strong biases are never lifted.
+        assert!(!bias_lifted(MarketBias::StrongBullish, 0.5));
+        assert!(!bias_lifted(MarketBias::StrongBearish, -0.5));
+        // Neutral is never lifted.
+        assert!(!bias_lifted(MarketBias::Neutral, 0.0));
+    }
+
+    #[test]
+    fn lean_tier_fires_for_bullish_mirror() {
+        // The exact mirror of the 03:40 capture (+58 / +51 / +11 / −42 at
+        // composite −2.6) → LEAN Bullish — longs and shorts are generated
+        // with equal possibility (sign-symmetric).
+        let c = capture_alignment(-2.6, 75.0, 37, &[58, 51, 11, -42]);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Bullish);
+        assert!(bias_lifted(d.bias, d.market_bias_score));
+    }
+
+    #[test]
+    fn grace_band_flat_tfs_do_not_vote() {
+        // Per-TF scores of 8 are below the flat threshold (|score| <= 10) —
+        // 4 flat TFs at 19 → no directional vote → Neutral.
+        let mut c = simple_alignment(4, 19.0, 100.0, 33);
+        for tf in c.timeframe_alignments.iter_mut() {
+            tf.overall_score = 8;
+        }
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn grace_band_does_not_affect_scores_above_band() {
+        // 25 → normal Bullish path, no haircut.
+        let c = simple_alignment(4, 25.0, 100.0, 33);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Bullish);
+        assert!((d.state_confidence - 0.5).abs() < 1e-9); // 0.25 + 0.15 + 0.1 = 0.5, no ×0.9
+    }
+
+    // ── FIX-H1: grace-band hysteresis ──
+
+    #[test]
+    fn grace_band_holds_bias_across_band_reentry() {
+        // Frame 1: 19.0 with a 4:0 vote fires Bullish.
+        let c1 = simple_alignment(4, 19.0, 100.0, 33);
+        let d1 = derive_analysis(&c1, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d1.bias, MarketBias::Bullish);
+        // Frame 2: composite drifts to 13.8 — still a 4:0 vote. Without
+        // hysteresis this flipped Bullish→Neutral on a sub-point move; the
+        // hold path keeps the bias while the score stays > 12.
+        let c2 = simple_alignment(4, 13.8, 100.0, 33);
+        let d2 = derive_analysis(
+            &c2,
+            Some(50.0),
+            Some(20.0),
+            Some(19.0),
+            None,
+            None,
+            Some(MarketBias::Bullish),
+        );
+        assert_eq!(d2.bias, MarketBias::Bullish);
+        // The haircut keeps applying to held states.
+        assert!(d2.state_confidence < d1.state_confidence);
+    }
+
+    #[test]
+    fn grace_band_exits_below_hold_band() {
+        // Held Bullish at 11.0: the hysteresis hold band is (12,20] so the
+        // hold path exits — but the LEAN tier (v6.10.17) still rescues the
+        // read because the 4:0 vote remains coherent (|11| ≤ 15, no
+        // opposition). The bias persists via the LEAN path with the
+        // heavier ×0.8 haircut instead of freezing stale state.
+        let c = simple_alignment(4, 11.0, 100.0, 33);
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(19.0),
+            None,
+            None,
+            Some(MarketBias::Bullish),
+        );
+        assert_eq!(d.bias, MarketBias::Bullish);
+        assert!(bias_lifted(d.bias, d.market_bias_score));
+        // base 0.11 + 0.15 + 0.1 = 0.36 → ×0.8 = 0.288
+        assert!((d.state_confidence - 0.288).abs() < 1e-9);
+    }
+
+    #[test]
+    fn grace_band_exits_on_vote_collapse() {
+        // Held Bullish at 13.8, but the vote collapses to 2:2 → Neutral.
+        let mut c = simple_alignment(4, 13.8, 100.0, 33);
+        for (i, tf) in c.timeframe_alignments.iter_mut().enumerate() {
+            if i >= 2 {
+                tf.overall_score = -tf.overall_score;
+            }
+        }
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(19.0),
+            None,
+            None,
+            Some(MarketBias::Bullish),
+        );
+        assert_eq!(d.bias, MarketBias::Neutral);
+    }
+
+    #[test]
+    fn grace_band_is_not_held_from_plain_threshold_state() {
+        // Previous frame was plain Bullish (score 25, no grace) and the
+        // current frame drops to 13.8 with a 4:0 vote — the hold path must
+        // NOT engage (prev_score 25 is outside the grace band), so the
+        // state cannot freeze a stale bias. The LEAN tier (v6.10.17)
+        // legitimately re-fires on the coherent vote with the ×0.8 haircut.
+        let c = simple_alignment(4, 13.8, 100.0, 33);
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(25.0),
+            None,
+            None,
+            Some(MarketBias::Bullish),
+        );
+        assert_eq!(d.bias, MarketBias::Bullish);
+        assert!(bias_lifted(d.bias, d.market_bias_score));
+        // base 0.138 + 0.15 + 0.1 = 0.388 → ×0.8 = 0.3104
+        assert!((d.state_confidence - 0.3104).abs() < 1e-9);
+    }
+
+    #[test]
+    fn grace_band_bearish_hold_is_symmetric() {
+        // simple_alignment(-13.8) gives per-TF scores of -13 → a 4:0
+        // bearish vote; the held Bearish bias must persist.
+        let c = simple_alignment(4, -13.8, 100.0, 33);
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(-19.0),
+            None,
+            None,
+            Some(MarketBias::Bearish),
+        );
+        assert_eq!(d.bias, MarketBias::Bearish);
+    }
+
+    #[test]
+    fn grace_band_compression_tfs_do_not_vote() {
+        // 2 TRENDING + 2 COMPRESSION windows, composite 19: the vote is
+        // only 2:0 — below the ≥3 requirement → Neutral. COMPRESSION
+        // positive scores are mean-reversion bait, not confirmation.
+        let mut c = simple_alignment(4, 19.0, 100.0, 33);
+        for (i, tf) in c.timeframe_alignments.iter_mut().enumerate() {
+            if i >= 2 {
+                tf.regime = "COMPRESSION".into();
+            }
+        }
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d.bias, MarketBias::Neutral);
+
+        // 3 TRENDING + 1 COMPRESSION → 3:0 vote → still fires.
+        let mut c2 = simple_alignment(4, 19.0, 100.0, 33);
+        c2.timeframe_alignments[3].regime = "COMPRESSION".into();
+        let d2 = derive_analysis(&c2, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d2.bias, MarketBias::Bullish);
+    }
+
+    #[test]
+    fn grace_band_vote_is_pinned_to_timeframes_present() {
+        // 3 decisive TFs of 3 present → required = max(3, ceil(2.25)) = 3
+        // → 3:0 fires. 2 decisive TFs of 2 present → required 3 → a 2-TF
+        // warmup window can never grace.
+        let c3 = simple_alignment(3, 19.0, 100.0, 33);
+        let d3 = derive_analysis(&c3, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d3.bias, MarketBias::Bullish);
+
+        let c2 = simple_alignment(2, 19.0, 100.0, 33);
+        let d2 = derive_analysis(&c2, Some(50.0), Some(20.0), None, None, None, None);
+        assert_eq!(d2.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn empty_returns_empty() {
         let c = AlignmentMatrix::empty("BTC-USD");
-        let d = derive_analysis(&c, None, None, None, None, None);
+        let d = derive_analysis(&c, None, None, None, None, None, None);
         assert_eq!(d.bias, MarketBias::Neutral);
         assert_eq!(d.timeframes_considered, 0);
     }
@@ -827,42 +1393,42 @@ mod tests {
     #[test]
     fn expansion_regime_from_high_bbwp() {
         let c = simple_alignment(4, 50.0, 60.0, 2);
-        let d = derive_analysis(&c, Some(90.0), Some(22.0), None, None, None);
+        let d = derive_analysis(&c, Some(90.0), Some(22.0), None, None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Expansion);
     }
 
     #[test]
     fn contraction_regime_from_low_bbwp() {
         let c = simple_alignment(4, 0.0, 50.0, 1);
-        let d = derive_analysis(&c, Some(5.0), Some(20.0), None, None, None);
+        let d = derive_analysis(&c, Some(5.0), Some(20.0), None, None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Contraction);
     }
 
     #[test]
     fn trending_bull_from_adx_and_score() {
         let c = simple_alignment(4, 55.0, 70.0, 3);
-        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None);
+        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None, None);
         assert_eq!(d.market_regime, MarketRegime::TrendingBull);
     }
 
     #[test]
     fn trending_bear_from_adx_and_negative_score() {
         let c = simple_alignment(4, -55.0, 70.0, 3);
-        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None);
+        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None, None);
         assert_eq!(d.market_regime, MarketRegime::TrendingBear);
     }
 
     #[test]
     fn accumulation_from_rising_score() {
         let c = simple_alignment(4, 15.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), None, None);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Accumulation);
     }
 
     #[test]
     fn distribution_from_falling_score() {
         let c = simple_alignment(4, -15.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(-5.0), None, None);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(-5.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Distribution);
     }
 
@@ -876,6 +1442,7 @@ mod tests {
             Some(5.0),
             Some(MarketRegime::TrendingBull),
             None,
+            None,
         );
         assert_eq!(d.market_regime, MarketRegime::Transition);
     }
@@ -883,7 +1450,7 @@ mod tests {
     #[test]
     fn range_fallback_when_nothing_matches() {
         let c = simple_alignment(4, 5.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None, None);
+        let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Range);
     }
 
@@ -981,7 +1548,7 @@ mod tests {
         // mirrors the fixed L4 tree (B2 parity).
         let a = custom_alignment(0.0, 50.0, 25.0, 50.0, 10.0);
         // bbwp ≥ 85 → Expansion regime.
-        let d = derive_analysis(&a, Some(90.0), Some(20.0), None, None, None);
+        let d = derive_analysis(&a, Some(90.0), Some(20.0), None, None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Expansion);
         assert_eq!(d.opportunity_analysis, OpportunityType::NoClearOpportunity);
     }
@@ -991,7 +1558,7 @@ mod tests {
         // The same compressed-vol profile in a RANGE regime classifies as
         // MeanReversion (is_range satisfied).
         let a = custom_alignment(0.0, 50.0, 25.0, 50.0, 10.0);
-        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None);
+        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Range);
         assert_eq!(d.opportunity_analysis, OpportunityType::MeanReversion);
     }
@@ -1000,12 +1567,12 @@ mod tests {
     fn opportunity_trend_continuation_requires_bias_and_momentum() {
         // trend ≥ 75 + directional bias + stable momentum → TrendContinuation.
         let a = custom_alignment(0.75, 70.0, 45.0, 60.0, 30.0);
-        let d = derive_analysis(&a, Some(50.0), Some(28.0), None, None, None);
+        let d = derive_analysis(&a, Some(50.0), Some(28.0), None, None, None, None);
         assert_eq!(d.opportunity_analysis, OpportunityType::TrendContinuation);
 
         // Reversing momentum must NOT classify as TrendContinuation.
         let a2 = custom_alignment(0.75, 25.0, 45.0, 60.0, 30.0);
-        let d2 = derive_analysis(&a2, Some(50.0), Some(28.0), None, None, None);
+        let d2 = derive_analysis(&a2, Some(50.0), Some(28.0), None, None, None, None);
         assert_ne!(d2.opportunity_analysis, OpportunityType::TrendContinuation);
     }
 
@@ -1014,7 +1581,7 @@ mod tests {
         // trend 65 (≥ 60) + Weakening momentum + vol above the 30 gate
         // → Pullback, not MeanReversion.
         let a = custom_alignment(0.3, 45.0, 45.0, 50.0, 10.0);
-        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None);
+        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None, None);
         assert_eq!(d.opportunity_analysis, OpportunityType::Pullback);
     }
 }

@@ -1,6 +1,6 @@
 # Stochastic Oscillator (18, 5, 9)
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function
@@ -30,7 +30,7 @@ The normalized score in [-1, 1] is a linear mapping from %K:
 norm = (%K − 50) / 50   clamped to [-1, 1]
 ```
 
-Labels include: `STOCH_OVERBOUGHT` (%K ≥ 80), `STOCH_OVERSOLD` (%K ≤ 20), `STOCH_BULLISH_BIAS`, `STOCH_BEARISH_BIAS`, `STOCH_NEUTRAL`. The `values` sub-map carries `k_line` and `d_line`.
+Labels include: `OVERBOUGHT_DISTRIBUTION` (%K ≥ 80), `OVERSOLD_ACCUMULATION` (%K ≤ 20), `BULLISH_MOMENTUM_ALIGNMENT` (%K > %D), `BEARISH_MOMENTUM_ALIGNMENT` (%K ≤ %D). The `values` sub-map carries `k_line` and `d_line`.
 
 ## 4. Signals
 

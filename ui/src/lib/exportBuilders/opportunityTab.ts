@@ -27,7 +27,7 @@ import {
   type InstanceTermsLike,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
-import { computeOpportunityBars } from '../../lib/opportunityBars';
+import { computeOpportunityBars, directionBarsFromRank } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 
 // ── Payload types ────────────────────────────────────────────────────────
@@ -43,6 +43,8 @@ export interface TradeSetupRow {
   opportunity_type: string;
   viability: string;
   badge_text: string;
+  /** v6.10.19 (T1): precondition-scaled display score (0 when inactive). */
+  score_display: number;
   side: 'LONG' | 'SHORT' | 'NEUTRAL';
   rank_idx: number;
   is_top: boolean;
@@ -64,6 +66,9 @@ export interface TradeSetupRow {
 export interface RrInternalBlock {
   expected_rr_available: boolean;
   expected_rr_value: number | null;
+  /** v6.10.19 (P5): the GROSS geometric R:R (pre-cost) — the net lives
+   *  in `expected_rr_value`; the gross stays for offline analysis. */
+  gross_rr_value: number | null;
   expected_rr_reason: string | null;
   time_horizon: string;
 }
@@ -72,6 +77,8 @@ export interface EvaluatedSetupRow {
   opportunity_type: string;
   viability: string;
   score: number;
+  /** v6.10.19 (T1): precondition-scaled display score (0 when inactive). */
+  score_display: number;
   preconditions_met: number;
   preconditions_total: number;
   trade_viability: string | null;
@@ -82,6 +89,8 @@ export interface ConfluentLevelRow {
   price: number;
   sources: string[];
   strength: number;
+  /** v6.10.17 (F23): LONG / SHORT / null — which side the level serves. */
+  side: 'LONG' | 'SHORT' | null;
 }
 
 export interface MarketPositionBlock {
@@ -104,6 +113,8 @@ export interface DirectionalBarsBlock {
   bearish_pct: number;
   hold_pct: number;
   sort: 'desc';
+  /** v6.10.19 (P6): floor-boosted lean — see `GaugeBlock`. */
+  lean_floor_applied: boolean;
 }
 
 export interface NoClearStripBlock {
@@ -132,6 +143,18 @@ export interface OpportunityPayload {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * v6.10.19 (T1): the DISPLAY score scales the raw wire score by the
+ * precondition ratio — 0/3 met → 0 (muted, a dead setup), 2/3 → 2/3 of
+ * the score, 3/3 → the full score. The raw wire `score` stays untouched
+ * for data-science consumers; only what the operator SEES changes, so a
+ * trader can instantly separate "nearly ready" from "completely dead".
+ */
+function displayScore(score: number, met: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round(score * Math.min(1, met / total));
+}
 
 function setupQuality(s: number): string {
   if (s >= 85) return 'PRIME';
@@ -176,8 +199,9 @@ function buildOpportunityHeaderBlock(
 function setupBadgeText(viability: string, isTop: boolean): string {
   // Mirrors `OpportunitiesPanel.svelte` badge branches — the screen shows
   // NO badge for plain Actionable cards (only TOP · ACTIONABLE,
-  // NEUTRAL · HOLD and GEOMETRY INVERTED are rendered).
+  // QUALIFYING, NEUTRAL · HOLD and GEOMETRY INVERTED are rendered).
   if (viability === 'Actionable' && isTop) return 'TOP · ACTIONABLE';
+  if (viability === 'Qualifying' && isTop) return 'QUALIFYING';
   if (viability === 'DirectionalNeutral') return 'NEUTRAL · HOLD';
   if (viability === 'GeometryInverted') return 'GEOMETRY INVERTED';
   return '';
@@ -185,9 +209,10 @@ function setupBadgeText(viability: string, isTop: boolean): string {
 
 const SETUP_VIABILITY_RANK: Record<string, number> = {
   Actionable: 0,
-  DirectionalNeutral: 1,
-  GeometryInverted: 2,
-  NoClear: 3,
+  Qualifying: 1,
+  DirectionalNeutral: 2,
+  GeometryInverted: 3,
+  NoClear: 4,
 };
 
 function buildTradeSetups(
@@ -217,7 +242,11 @@ function buildTradeSetups(
             Math.abs(b - z.entry.low - ((z.entry.high - z.entry.low) / 2)),
         )
       : [];
-    const rr = buildRrBlock(s.rr, 'no_actionable_geometry');
+    // v6.10.16 (FIX-O4): use the resolver's real reason — a
+    // DirectionalNeutral card with consistent geometry reports
+    // "no_directional_bias" (matching rr_internal and the recommendation),
+    // never the hardcoded geometry fallback.
+    const rr = buildRrBlock(s.rr, s.rr_reason ?? 'no_actionable_geometry');
     const isTop = idx === 0 && topAction !== 'HOLD';
     out.push({
       opportunity_type: prettifyOpportunityType(p.opportunity_type),
@@ -226,6 +255,7 @@ function buildTradeSetups(
       side: s.side,
       rank_idx: idx,
       is_top: isTop,
+      score_display: displayScore(p.score, p.preconditions_met, p.preconditions_total),
       geometry_consistent: z?.geometry_consistent ?? false,
       entry_mid: z ? (z.entry.low + z.entry.high) / 2 : null,
       entry_zone: z ? { low: z.entry.low, high: z.entry.high } : null,
@@ -277,8 +307,13 @@ function buildEvaluatedSetups(opportunity: OpportunityMatrix | null): EvaluatedS
     .filter((p) => p.opportunity_type !== 'NoClearOpportunity')
     .map((p) => ({
       opportunity_type: prettifyOpportunityType(p.opportunity_type),
-      viability: p.trade_viability ?? 'NoClear',
+      // v6.10.17 (P1): a profile with met preconditions but a null wire
+      // viability is QUALIFYING (a real bracket) — never NoClear.
+      viability: p.trade_viability ?? (p.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
       score: p.score,
+      // v6.10.19 (T1): the operator-facing score scales by precondition
+      // ratio; the raw wire value stays in `score`.
+      score_display: displayScore(p.score, p.preconditions_met, p.preconditions_total),
       preconditions_met: p.preconditions_met,
       preconditions_total: p.preconditions_total,
       // Keep the raw wire value so consumers can round-trip the enum;
@@ -298,6 +333,7 @@ function buildConfluentLevels(
     // Screen `fmtSource` defaults unknown tokens to "ATR" — mirror it.
     sources: l.sources.map((s) => LEVEL_SOURCE_ABBREV[s] ?? 'ATR'),
     strength: l.strength,
+    side: l.side ?? null,
   }));
 }
 
@@ -325,18 +361,22 @@ function buildEnvironment(analysis: AnalysisMatrix | null): EnvironmentBlock {
 function buildDirectionalBars(
   opportunity: OpportunityMatrix | null,
   bias: MarketBias | null,
+  decisionContext: DecisionContext | null | undefined,
 ): DirectionalBarsBlock {
-  // The panel ALWAYS renders all three bars — even when the matrix is
-  // absent `computeOpportunityBars` yields the 0/0/100 HOLD-dominant
-  // split. Direction resolution (top profile side → bias → argmax R:R)
-  // mirrors the panel exactly so the export can never disagree with
-  // the screen.
-  const bars = computeOpportunityBars(opportunity, bias);
+  // v6.10.18 (I-4): the L4 bars mirror the L6 verdict split whenever a
+  // decision context exists (the panel's rule) — the bracket-conviction
+  // math below is the legacy fallback so the export can never disagree
+  // with the screen. The panel ALWAYS renders all three bars.
+  const bars = directionBarsFromRank(decisionContext) ??
+    computeOpportunityBars(opportunity, bias);
   return {
     bullish_pct: bars.bullish,
     bearish_pct: bars.bearish,
     hold_pct: bars.hold,
     sort: 'desc',
+    // v6.10.19 (P6): floor-boosted lean — the split is structurally
+    // adjusted, not a deep consensus.
+    lean_floor_applied: decisionContext?.lean_floor_applied === true,
   };
 }
 
@@ -397,7 +437,7 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     source_tab: 'opportunity',
     meta,
     header: buildHeaderBlock(args.headerSpec),
-    directional_bars: buildDirectionalBars(opp, (args.decisionContext?.bias ?? args.analysis?.bias) ?? null),
+    directional_bars: buildDirectionalBars(opp, (args.decisionContext?.bias ?? args.analysis?.bias) ?? null, args.decisionContext),
     header_block: buildOpportunityHeaderBlock(opp, lean),
     trade_setups: buildTradeSetups(opp, args.analysis, args.decisionContext, rank.top),
     no_clear_strip: buildNoClearStrip(opp),
@@ -405,6 +445,9 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     rr_internal: {
       expected_rr_available: expectedRrBlock.available,
       expected_rr_value: expectedRrBlock.value,
+      // v6.10.19 (P5): the GROSS geometric R:R (pre-cost) for offline
+      // analysis — the net lives in `expected_rr_value`.
+      gross_rr_value: opp?.long_gross_rr_internal ?? opp?.short_gross_rr_internal ?? null,
       expected_rr_reason: expectedRrBlock.reason,
       // Screen renders "—" when the horizon is absent.
       time_horizon: opp?.time_horizon ?? '\u2014',

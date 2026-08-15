@@ -122,6 +122,17 @@ pub struct AlignmentMatrix {
     pub mtf_volatility_alignment: f64,
     pub mtf_overall_score: f64,
     pub mtf_overall_label: String,
+    /// Effective blend weights applied to `mtf_overall_score`
+    /// (`[(key, weight)]` over T / M / Vt / Vm). Always populated by
+    /// `compute_alignment` so consumers (the Alignment export's
+    /// score_calculation block, docs) mirror the EXACT formula used.
+    /// v6.10.16: under thin participation (volume dimension < 25) the
+    /// volume weight drops 0.10 → 0.05 and the freed weight moves to
+    /// Trend/Momentum (0.50/0.30 → 0.55/0.35) so four aligned timeframes
+    /// can no longer be vetoed below threshold by a low-participation
+    /// volume read.
+    #[serde(default)]
+    pub blend_weights: Vec<(String, f64)>,
     pub timeframe_alignments: Vec<TfAlignmentInfo>,
     pub signal_cross_tf_count: u32,
     pub trend_agreement_pct: f64,
@@ -139,6 +150,7 @@ impl AlignmentMatrix {
             mtf_volatility_alignment: 0.0,
             mtf_overall_score: 0.0,
             mtf_overall_label: "NO_DATA".to_string(),
+            blend_weights: Vec::new(),
             timeframe_alignments: Vec::new(),
             signal_cross_tf_count: 0,
             trend_agreement_pct: 0.0,
@@ -368,10 +380,32 @@ pub fn compute_alignment(
         0.0
     };
 
-    let mtf_blend = mtf_trend_alignment * 0.5
-        + mtf_momentum_alignment * 0.3
-        + mtf_volume_alignment * 0.1
-        + mtf_volatility_alignment * 0.1;
+    // v6.10.16 (FIX-H2, thin-participation reweight): when the volume
+    // dimension reads THIN/VERY_THIN (score < 25) the volume vote is a
+    // participation qualifier, not a directional signal — a 10%-weight
+    // dimension must not be able to veto four aligned timeframes into
+    // NEUTRAL. The effective weights shift Vt 0.10 → 0.05 with the freed
+    // weight re-distributed to Trend/Momentum (0.50/0.30 → 0.55/0.35).
+    // The applied weights ride on `blend_weights` so the export's
+    // score_calculation mirrors the exact formula (02-01 §blend).
+    let volume_dim = AlignmentDimension::from_signed(mtf_volume_alignment);
+    let thin_participation = volume_dim.score < 25.0;
+    let (wt, wm, wvt, wvm): (f64, f64, f64, f64) = if thin_participation {
+        (0.55, 0.35, 0.05, 0.05)
+    } else {
+        (0.5, 0.3, 0.1, 0.1)
+    };
+    let blend_weights: Vec<(String, f64)> = vec![
+        ("T".into(), wt),
+        ("M".into(), wm),
+        ("Vt".into(), wvt),
+        ("Vm".into(), wvm),
+    ];
+
+    let mtf_blend = mtf_trend_alignment * wt
+        + mtf_momentum_alignment * wm
+        + mtf_volume_alignment * wvt
+        + mtf_volatility_alignment * wvm;
     let mtf_overall_score = (mtf_blend * 100.0).max(-100.0).min(100.0);
 
     let total_tf = tf_data.len() as f64;
@@ -394,7 +428,6 @@ pub fn compute_alignment(
         tf_data.iter().map(|d| d.3).collect();
     let dim_1_trend = AlignmentDimension::from_signed(mtf_trend_alignment);
     let dim_2_momentum = AlignmentDimension::from_signed(mtf_momentum_alignment);
-    let dim_3_volume = AlignmentDimension::from_signed(mtf_volume_alignment);
     let dim_4_volatility = AlignmentDimension::from_signed(mtf_volatility_alignment);
     let dim_5_structure = AlignmentMatrix::compute_structure_alignment(&tf_maps);
     let dim_6_signal =
@@ -410,7 +443,7 @@ pub fn compute_alignment(
         dimensions: vec![
             dim_1_trend,
             dim_2_momentum,
-            dim_3_volume,
+            volume_dim,
             dim_4_volatility,
             dim_5_structure,
             dim_6_signal,
@@ -425,6 +458,7 @@ pub fn compute_alignment(
         mtf_volatility_alignment,
         mtf_overall_score,
         mtf_overall_label: AlignmentMatrix::overall_label(mtf_overall_score),
+        blend_weights,
         timeframe_alignments: alignments_vec,
         signal_cross_tf_count: cross_tf_count,
         trend_agreement_pct: agreement,
@@ -582,6 +616,66 @@ mod tests {
         );
         assert!(c.mtf_overall_score.abs() < 30.0);
         assert!(c.trend_agreement_pct <= 75.0);
+    }
+
+    #[test]
+    fn standard_blend_weights_applied_by_default() {
+        let bull = build_map(70.0, 0.8, 30.0, 60.0, 1.5);
+        let ctx = bull_ctx(70);
+        let c = compute_alignment(
+            "BTC-USD",
+            &[
+                ("micro60", 60, 64000.0, &bull, &ctx),
+                ("fast180", 180, 64000.0, &bull, &ctx),
+                ("slow300", 300, 64000.0, &bull, &ctx),
+                ("macro900", 900, 64000.0, &bull, &ctx),
+            ],
+        );
+        assert_eq!(c.blend_weights.len(), 4);
+        let w = |k: &str| c.blend_weights.iter().find(|(kk, _)| kk == k).map(|(_, v)| *v).unwrap();
+        assert_eq!(w("T"), 0.5);
+        assert_eq!(w("M"), 0.3);
+        assert_eq!(w("Vt"), 0.1);
+        assert_eq!(w("Vm"), 0.1);
+    }
+
+    #[test]
+    fn thin_participation_reweights_volume_down() {
+        // v6.10.16 (FIX-H2): THIN volume (dim score < 25) shifts the blend
+        // to T 0.55 / M 0.35 / Vt 0.05 / Vm 0.05 so a low-participation
+        // volume read cannot veto four aligned timeframes into NEUTRAL.
+        let bull = build_map(70.0, 0.8, 30.0, 60.0, 1.5);
+        let mut ctx = bull_ctx(70);
+        ctx.volume = ContextDimension {
+            score: -0.95,
+            confidence: 0.8,
+            label: "THIN".into(),
+        };
+        let c = compute_alignment(
+            "BTC-USD",
+            &[
+                ("micro60", 60, 64000.0, &bull, &ctx),
+                ("fast180", 180, 64000.0, &bull, &ctx),
+                ("slow300", 300, 64000.0, &bull, &ctx),
+                ("macro900", 900, 64000.0, &bull, &ctx),
+            ],
+        );
+        assert!(c.dimensions[2].score < 25.0, "volume dim must read THIN");
+        let w = |k: &str| c.blend_weights.iter().find(|(kk, _)| kk == k).map(|(_, v)| *v).unwrap();
+        assert_eq!(w("T"), 0.55);
+        assert_eq!(w("M"), 0.35);
+        assert_eq!(w("Vt"), 0.05);
+        assert_eq!(w("Vm"), 0.05);
+        // With the drag reweighted (0.10 → 0.05) the composite reads
+        // materially higher than the standard blend would give.
+        let standard_blend = c.mtf_trend_alignment * 0.5
+            + c.mtf_momentum_alignment * 0.3
+            + c.mtf_volume_alignment * 0.1
+            + c.mtf_volatility_alignment * 0.1;
+        assert!(
+            c.mtf_overall_score / 100.0 > standard_blend + 0.04,
+            "reweighted composite must beat the standard blend under thin participation"
+        );
     }
 }
 

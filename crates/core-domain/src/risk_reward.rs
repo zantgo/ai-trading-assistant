@@ -112,6 +112,65 @@ pub const RR_MEANINGFUL_FLOOR: f64 = 0.1;
 ///   valid for the active side. `ratio = |reward| / |risk|`.
 /// - `NoValue(reason)` for degenerate brackets (see `NoValueReason`).
 /// - `Error(msg)` for unexpected input (NaN, Inf, division by zero).
+/// v6.10.19 (P5): the net R:R cost model — a gross geometric R:R of
+/// exactly 1:1 is rarely tradeable once entry/exit fees, slippage and
+/// hold-time funding are deducted (round-trip baseline: 2× taker fee +
+/// 2× slippage = 22 bps at the 6/5 defaults). The defaults are
+/// config-tunable via `OpportunityMatrixConfig` (plumbed in a
+/// follow-up; synthesis uses `NetCostModel::default()`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NetCostModel {
+    /// Taker fee in basis points per side (default 6 = 0.06%).
+    pub taker_fee_bps: f64,
+    /// Assumed slippage in basis points per side (default 5 = 0.05%).
+    pub slippage_bps: f64,
+    /// Hold-time funding cost in basis points on the entry notional
+    /// (default 0).
+    pub funding_bps: f64,
+}
+
+impl Default for NetCostModel {
+    fn default() -> Self {
+        Self {
+            taker_fee_bps: 6.0,
+            slippage_bps: 5.0,
+            funding_bps: 0.0,
+        }
+    }
+}
+
+impl NetCostModel {
+    /// Net R:R from the geometric magnitudes. Costs: entry price ×
+    /// (taker + slippage) bps at entry; target price × (taker + slippage)
+    /// bps plus the entry notional × funding bps at exit. Returns 0 for
+    /// degenerate brackets (the caller's `NoValue` path).
+    pub fn net_rr(&self, entry_mid: f64, target_mid: f64, invalidation: f64, side: Side) -> f64 {
+        let reward = if side == Side::Long {
+            target_mid - entry_mid
+        } else {
+            entry_mid - target_mid
+        };
+        let risk = if side == Side::Long {
+            entry_mid - invalidation
+        } else {
+            invalidation - entry_mid
+        };
+        if reward <= 0.0 || risk <= 0.0 || entry_mid <= 0.0 || target_mid <= 0.0 {
+            return 0.0;
+        }
+        let cost_per_side = (self.taker_fee_bps + self.slippage_bps) / 10000.0;
+        let entry_cost = entry_mid * cost_per_side;
+        let exit_cost = target_mid * cost_per_side + entry_mid * (self.funding_bps / 10000.0);
+        let reward_net = reward - entry_cost - exit_cost;
+        let risk_net = risk + entry_cost;
+        if reward_net <= 0.0 || risk_net <= 0.0 {
+            0.0
+        } else {
+            reward_net / risk_net
+        }
+    }
+}
+
 pub fn compute_side_rr_v2(
     entry_low: f64,
     entry_high: f64,
@@ -328,6 +387,33 @@ mod tests {
     fn error_on_nan_input() {
         let r = compute_side_rr_v2(f64::NAN, 105.0, 115.0, 120.0, 95.0, 110.0, LONG);
         assert!(matches!(r, SideRrStatus::Error(_)));
+    }
+
+    #[test]
+    fn net_cost_model_demotes_a_gross_one_to_one_bracket() {
+        // v6.10.19 (P5): a gross 1:1 bracket nets ~0.98 at the 22 bps
+        // round-trip baseline (2×6 fees + 2×5 slippage) — the Actionable
+        // gate (net ≥ 1.0) must reject it. The gross stays on the wire.
+        let model = NetCostModel::default();
+        // entry 100.00, target 101.00, inv 99.00 → reward 1.0, risk 1.0.
+        let net = model.net_rr(100.0, 101.0, 99.0, Side::Long);
+        assert!(net < 1.0, "net {net} must be below 1.0 after costs");
+        // Exact: reward 1.0 − entry cost 0.11 − exit cost 0.1111 =
+        // 0.7789 over risk 1.0 + 0.11 = 0.7017 — friction eats 30% of a
+        // tight 1% bracket, which is precisely why the net gate exists.
+        assert!((net - 0.7017).abs() < 1e-3, "net {net}");
+        // A zero-cost model returns the gross exactly.
+        let free = NetCostModel {
+            taker_fee_bps: 0.0,
+            slippage_bps: 0.0,
+            funding_bps: 0.0,
+        };
+        assert!((free.net_rr(100.0, 101.0, 99.0, Side::Long) - 1.0).abs() < 1e-9);
+        // Degenerate brackets → 0 (the NoValue path).
+        assert_eq!(model.net_rr(100.0, 99.0, 101.0, Side::Long), 0.0);
+        // SHORT mirror is symmetric (entry 101, target 100, inv 102).
+        let short_net = model.net_rr(101.0, 100.0, 102.0, Side::Short);
+        assert!((short_net - 0.7017).abs() < 1e-3, "short net {short_net}");
     }
 
     #[test]

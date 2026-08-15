@@ -218,18 +218,28 @@ function buildScoreCalcBlock(alignment: AlignmentMatrix): AlignmentScoreCalcBloc
     if (key === 'Vt') return alignment.mtf_volume_alignment;
     return alignment.mtf_volatility_alignment;
   };
+  // v6.10.16 (FIX-H2): the backend may apply thin-participation
+  // reweighting (T 0.55 / M 0.35 / Vt 0.05 / Vm 0.05) — consume the
+  // wire's effective weights so the export formula ALWAYS balances the
+  // composite it mirrors. Legacy payloads fall back to the standard
+  // static table.
+  const effective = (key: string): number => {
+    const found = (alignment.blend_weights ?? []).find(([k]) => k === key);
+    return found ? found[1] : SCORE_CALC_WEIGHTS.find((w) => w.key === key)!.pct / 100;
+  };
   const weights = SCORE_CALC_WEIGHTS.map((w) => {
-    const value = getValue(w.key);
+    const value = getValue(w.key as 'T' | 'M' | 'Vt' | 'Vm');
+    const pct = effective(w.key);
     return {
       key: w.key,
       label: w.label,
-      pct: w.pct,
+      pct: Math.round(pct * 100),
       color: w.color,
       value,
       value_display: signedStr(value, 2),
-      contribution: value * (w.pct / 100),
+      contribution: value * pct,
       // Screen shows the contribution at 2 decimals (Weight chips row).
-      contribution_display: signedStr(value * (w.pct / 100), 2),
+      contribution_display: signedStr(value * pct, 2),
     };
   });
   const t = alignment.mtf_trend_alignment.toFixed(2);
@@ -237,12 +247,13 @@ function buildScoreCalcBlock(alignment: AlignmentMatrix): AlignmentScoreCalcBloc
   const vt = alignment.mtf_volume_alignment.toFixed(2);
   const vm = alignment.mtf_volatility_alignment.toFixed(2);
   const overall = alignment.mtf_overall_score.toFixed(1);
+  const fmt = (v: number) => String(Math.round(v * 100) / 100);
   // AL-1 (v6.10.10): the backend scales the blend by ×100 — the formula
   // must carry the factor or the equation never balances (the left side
   // evaluates on the signed [−1, 1] axes).
   return {
     weights,
-    formula: `(0.5 * (${t}) + 0.3 * (${m}) + 0.1 * (${vt}) + 0.1 * (${vm})) × 100 = ${overall}`,
+    formula: `(${fmt(effective('T'))} * (${t}) + ${fmt(effective('M'))} * (${m}) + ${fmt(effective('Vt'))} * (${vt}) + ${fmt(effective('Vm'))} * (${vm})) × 100 = ${overall}`,
   };
 }
 
@@ -260,8 +271,13 @@ function buildInterpretation(alignment: AlignmentMatrix | null): string {
   if (pct >= 75) {
     // AL-4: "signal votes" — the cross-TF count is a scaled proxy
     // (signals × 0.3), not a literal signal count.
+    // v6.10.16 (FIX-O6): when the composite classifies NEUTRAL the votes
+    // cannot "reinforce" it (the capture: 4/4 positive TFs + NEUTRAL
+    // composite) — the wording describes what the votes actually do.
     const crossLine = crossTf > 0
-      ? `${crossTf} cross-timeframe signal votes reinforce the current bias.`
+      ? label === 'NEUTRAL'
+        ? `${crossTf} cross-timeframe signal votes detected across the aligned timeframes.`
+        : `${crossTf} cross-timeframe signal votes reinforce the current bias.`
       : 'No cross-timeframe signal votes detected.';
     // Mirrors the screen paragraph verbatim — the label is the REAL
     // mtf_overall_label, never a hardcoded token.

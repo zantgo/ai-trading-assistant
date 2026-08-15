@@ -2,7 +2,7 @@
     import type { AdvisoryMatrix, DecisionContext, MarketSnapshot, OpportunityMatrix, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import type { WsState } from '../lib/websocket.svelte';
-    import { buildRecommendationTabExport } from '../lib/exportBuilders/recommendationTab';
+    import { buildRecommendationTabExport, verdictAwareGuidance } from '../lib/exportBuilders/recommendationTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL6DecisionHeader, type LayerHeaderSpec } from '../lib/layerHeader';
@@ -61,10 +61,12 @@
     // `hold_pct` / `short_pct`) for data consumers.
     const longPct = $derived(rank.long.probability);
     const shortPct = $derived(rank.short.probability);
-    // R1: the needle is the VERDICT-consistent directional indicator.
-    // When the verdict is HOLD (hold probability dominates), the needle
-    // renders neutral — a green "+44%" needle under an amber HOLD badge
-    // contradicted the verdict.
+    // R1 + FIX-3 (v6.10.15) + v6.10.17 decoupling: the needle is the
+    // VERDICT-consistent directional indicator. It renders neutral only
+    // when the top action itself is HOLD — a STAND ASIDE badge no longer
+    // erases a directional lean (the gate reports *when* you can act, not
+    // *what* the market is saying). A directional-but-gated state now
+    // shows the real net-bias needle next to the STAND ASIDE badge.
     const gaugeNeutral = $derived(rank.top === 'HOLD');
     const displayNet = $derived(gaugeNeutral ? 0 : longPct - shortPct);
     const netAbs = $derived(Math.abs(displayNet));
@@ -203,12 +205,18 @@
     // aggregated primary bracket so even Neutral-family profiles
     // surface a usable price level. R:R prefers the wire's per-side
     // `expected_rr_internal` over the geometric computation.
+    // v6.10.17 (A3): `topSetupSummary` now ALWAYS publishes a bracket when
+    // the opportunity matrix exists — a No Clear state yields the
+    // aggregated bracket on the bias side marked NoClear (informational),
+    // so the operator always has TPs/SLs/R:R to work with. The No Clear
+    // explanation card renders alongside it (it explains WHY there is no
+    // qualifying profile, not that no levels exist).
     const topSetup = $derived(topSetupSummary(opportunity, analysis, decisionCtx));
     const hasNoClearSetup = $derived(
-        topSetup === null
-            && !!opportunity
+        !!opportunity
             && !!advisory
-            && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity',
+            && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity'
+            && (topSetup === null || topSetup.viability === 'NoClear'),
     );
 
     // ── R:R (Risk-Adj R:R) display: when verdict is HOLD AND the
@@ -277,15 +285,20 @@
                 <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
                 <span class="{styles.gaugeLong} {biasDirection !== 'LONG' ? styles.dim : ''}">LONG</span>
             </div>
+            <!-- v6.10.19 (P6): cognitive transparency — the floors boosted
+                 this lean; the operator sees it's not a deep consensus. -->
+            {#if rank.lean_floor_applied}
+                <div class={styles.leanFloorTag}>LEAN — floor-boosted (low-confidence read)</div>
+            {/if}
         </div>
     </div>
 
     <!-- ── Top Setup card (single highest-scored profile) ──────────────────── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>
-            Top Setup
+            {topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'Top Setup'}
             <span class={styles.sectionMeta}>
-                {topSetup ? `score ${topSetup.score.toFixed(0)}` : 'no qualifying setup yet'}
+                {topSetup ? (topSetup.below_floor ? 'not actionable' : `score ${topSetup.score.toFixed(0)}`) : 'no qualifying setup yet'}
             </span>
         </div>
         {#if topSetup}
@@ -299,8 +312,17 @@
                     </span>
                     <span class={styles.profileCardScore}>{topSetup.score.toFixed(0)}</span>
                 </div>
-                {#if topSetup.viability === 'Actionable' && rank.top !== 'HOLD'}
+                {#if topSetup.below_floor}
+                    <!-- v6.10.19 (T3): sub-1 R:R reference brackets are
+                         red-flagged and never framed as a trade. -->
+                    <div class={styles.profileCardBadgeInverted}>R:R BELOW ACTIONABLE FLOOR</div>
+                    <div class={styles.profileCardNotes}>Reference only — the bracket's R:R is below the 1.0 actionable floor. Levels are shown for manual analysis; nothing here is a trade.</div>
+                {:else if topSetup.viability === 'Actionable' && rank.top !== 'HOLD'}
                     <div class={styles.profileCardBadgeActionable}>ACTIONABLE</div>
+                {:else if topSetup.viability === 'Qualifying'}
+                    <!-- v6.10.17 (P1): a qualifying profile (preconditions
+                         met, real bracket) is never a "no clear setup". -->
+                    <div class={styles.profileCardBadgeNeutral}>QUALIFYING</div>
                 {:else if topSetup.viability === 'DirectionalNeutral'}
                     <div class={styles.profileCardBadgeNeutral}>HOLD · NO DIRECTIONAL EDGE</div>
                 {:else if topSetup.viability === 'GeometryInverted'}
@@ -360,7 +382,8 @@
                     <div class={styles.profileCardNotes}>{topSetup.rationale}</div>
                 {/if}
             </div>
-        {:else if hasNoClearSetup}
+        {/if}
+        {#if hasNoClearSetup}
             <div class={styles.noClearCard}>
                 <div class={styles.noClearTitle}>No Clear Setup</div>
                 <div class={styles.noClearBody}>
@@ -416,7 +439,7 @@
     <!-- ── Why (top-3 rationale, gated by rank consistency) -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Why</div>
-        {#if rank.headline.action === 'STAND_ASIDE' || hasNoClearSetup}
+        {#if rank.top === 'HOLD'}
             <div class={styles.whyNote}>
                 No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.
             </div>
@@ -484,40 +507,56 @@
         <div class={styles.grid2}>
             <div class={styles.card}>
                 <span class={styles.cardLabel}>Entry</span>
-                <span class={styles.cardValue}>{sanitizeLabel(advisory?.entry_guidance ?? '')}</span>
+                <!-- v6.10.16 (FIX-O5) + v6.10.17: the playbook values are
+                     non-actionable ONLY under a genuine HOLD verdict (the
+                     directional-but-gated state carries a real lean, so its
+                     playbook is real too). -->
+                <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : sanitizeLabel(advisory?.entry_guidance ?? '')}</span>
             </div>
             <div class={styles.card}>
                 <span class={styles.cardLabel}>Exit</span>
-                <span class={styles.cardValue}>{sanitizeLabel(advisory?.exit_guidance ?? '')}</span>
+                <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : sanitizeLabel(advisory?.exit_guidance ?? '')}</span>
             </div>
             <div class={styles.card}>
                 <span class={styles.cardLabel}>Protection</span>
-                <span class={styles.cardValue}>{prettifyEnum(advisory?.protection_strategy ?? '')}</span>
+                <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : prettifyEnum(advisory?.protection_strategy ?? '')}</span>
             </div>
             <div class={styles.card}>
                 <span class={styles.cardLabel}>Target</span>
-                <span class={styles.cardValue}>{prettifyEnum(advisory?.target_strategy ?? '')}</span>
+                <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : prettifyEnum(advisory?.target_strategy ?? '')}</span>
             </div>
         </div>
     </div>
 
     <!-- ── Final Verdict ──
-         R6: the verdict hero is the authoritative call. The advisory's
-         `final_recommendation` describes the environment guidance and
-         is NOT the verdict — under a HOLD verdict it must not contradict
-         the HOLD badge ("Entry: immediate" under a HOLD verdict was a
-         contradiction), so it renders as muted environment guidance. -->
+         R6 + FIX-4 (v6.10.15) + v6.10.17: the verdict hero is the
+         authoritative call. Under a genuine HOLD it reads "no directional
+         call"; under a directional lean it carries the graded percentage
+         AND the readiness gate ("SHORT lean 38% — STAND ASIDE (entry_danger
+         HIGH)") — the operator always sees what the market says and when it
+         can be acted on. The advisory's `final_recommendation` renders as
+         muted environment guidance below. -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Final Verdict</div>
         {#if rank.top === 'HOLD'}
             <blockquote class={styles.verdictQuote}>
                 HOLD — no directional call (readiness: {rank.headline.state}).
             </blockquote>
-            {#if advisory?.final_recommendation}
-                <div class={styles.verdictGuidance}>Environment guidance: {advisory.final_recommendation}</div>
+            {#if verdictAwareGuidance(advisory, rank.top)}
+                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top)}</div>
             {/if}
         {:else}
-            <blockquote class={styles.verdictQuote}>{advisory?.final_recommendation || '—'}</blockquote>
+            {@const verdictPct = Math.round(rank.top_prob)}
+            {@const verdictSentence =
+                rank.headline.state === 'STAND_ASIDE'
+                    ? `${rank.top} lean ${verdictPct}% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger ${dangerLevel}).`
+                    : rank.headline.state === 'READY'
+                        ? `${rank.top} ${verdictPct}% — READY (readiness: READY).`
+                        : `${rank.top} lean ${verdictPct}% — awaiting confirmation (readiness: ${rank.headline.state}).`}
+            <blockquote class={styles.verdictQuote}>{verdictSentence}</blockquote>
+            {#if verdictAwareGuidance(advisory, rank.top)}
+                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top)}</div>
+            {/if}
         {/if}
     </div>
 </div>

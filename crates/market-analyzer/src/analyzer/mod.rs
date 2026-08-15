@@ -966,6 +966,7 @@ pub async fn run_single(
     let mut prev_mtf_score: Option<f64> = None;
     let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
     let mut prev_volume_dim: Option<f64> = None;
+    let mut prev_bias: Option<core_domain::analysis::MarketBias> = None;
 
     // OI delta tracking: rolling 3600 s time window of OI values
     // `(timestamp_secs, value)` (AUDIT-AIU-051). Sourced from the per-TF
@@ -1349,6 +1350,7 @@ pub async fn run_single(
                             &mut prev_mtf_score,
                             &mut prev_regime,
                             &mut prev_volume_dim,
+                            &mut prev_bias,
                             &mut last_cascade_state,
                             &mut liquidity_acc,
                         &latest_oi,
@@ -2186,6 +2188,7 @@ pub async fn run_single(
                         &mut prev_mtf_score,
                         &mut prev_regime,
                         &mut prev_volume_dim,
+                        &mut prev_bias,
                         &mut last_cascade_state,
                         &mut liquidity_acc,
                         &latest_oi,
@@ -2535,6 +2538,7 @@ async fn synthesize_completed_candle(
     prev_mtf_score: &mut Option<f64>,
     prev_regime: &mut Option<core_domain::analysis::MarketRegime>,
     prev_volume_dim: &mut Option<f64>,
+    prev_bias: &mut Option<core_domain::analysis::MarketBias>,
     last_cascade_state: &mut core_domain::liquidity::CascadeState,
     liquidity_acc: &mut core_domain::liquidity::LiquidityEventAccumulator,
     latest_oi: &Arc<RwLock<Option<Decimal>>>,
@@ -3328,11 +3332,13 @@ async fn synthesize_completed_candle(
         *prev_mtf_score,
         *prev_regime,
         *prev_volume_dim,
+        *prev_bias,
     );
 
     *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
     *prev_regime = Some(synthesis.analysis.market_regime);
     *prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
+    *prev_bias = Some(synthesis.analysis.bias.clone());
 
     let confluence_score = {
         // v6.10 (Phase 6 / F1): Unsigned 3-factor quality

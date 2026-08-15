@@ -23,9 +23,13 @@
         /** Optional slot for the panel title + ExportDataButton. Rendered
          * to the right of the status pill so it never overlaps the badge. */
         trailing?: Snippet;
+        /** Stack the status pill and the trailing slot vertically in a
+         * right-edge column instead of a single row. Opt-in (Overview
+         * page only); all other tabs keep the single-row layout. */
+        stackRight?: boolean;
     }
 
-    let { spec, trailing }: Props = $props();
+    let { spec, trailing, stackRight = false }: Props = $props();
 
     const badgeCls: Record<ValueState, string> = {
         valid: styles.badgeValid,
@@ -83,14 +87,28 @@
         </div>
     {/if}
 
-    <div class={styles.statusIndicator} aria-live="polite">
-        <span class="{styles.statusDot} {statusDotCls[spec.status]}"></span>
-        <span>{spec.status}</span>
-    </div>
-
-    {#if trailing}
-        <div class={styles.trailing}>
-            {@render trailing()}
+    {#snippet statusIndicator()}
+        <div class={styles.statusIndicator} aria-live="polite">
+            <span class="{styles.statusDot} {statusDotCls[spec.status]}"></span>
+            <span>{spec.status}</span>
         </div>
+    {/snippet}
+
+    {#if stackRight}
+        <div class={styles.rightStack}>
+            {@render statusIndicator()}
+            {#if trailing}
+                <div class={styles.trailing}>
+                    {@render trailing()}
+                </div>
+            {/if}
+        </div>
+    {:else}
+        {@render statusIndicator()}
+        {#if trailing}
+            <div class={styles.trailing}>
+                {@render trailing()}
+            </div>
+        {/if}
     {/if}
 </div>

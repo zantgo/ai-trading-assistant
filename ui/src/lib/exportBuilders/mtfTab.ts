@@ -643,6 +643,11 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
       // (Macro) always won and the MTF aggregates (group_confluence /
       // signals_by_kind / divergences / levels) became macro-only.
       // Normalize to the same unit before comparing.
+      // v6.10.17 (P1): the comparison is STRICT `>` so ties keep the FIRST
+      // timeframe (Micro — the fastest horizon, i.e. the freshest read) —
+      // the previous `>=`-style winner-TF-only behavior already existed,
+      // but a tie is now deterministic instead of last-TF-biased. The
+      // aggregation order (micro → fast → slow → macro) fixes the winner.
       const prefer = !existing || (ind.confidence_pct ?? 0) > (existing.confidence ?? 0) * 100;
       if (!prefer) continue;
       mergedIndicators[m.key] = {

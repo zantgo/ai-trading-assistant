@@ -78,7 +78,7 @@ function makeOpportunity(): OpportunityMatrix {
   } as unknown as OpportunityMatrix;
 }
 
-function makeAnalysis(): AnalysisMatrix {
+function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
   return {
     bias: 'Bullish',
     confidence: 0.28,
@@ -97,6 +97,7 @@ function makeAnalysis(): AnalysisMatrix {
     market_interpretation: '',
     rationale: '',
     opportunity_analysis: 'Breakout',
+    ...overrides,
   } as unknown as AnalysisMatrix;
 }
 
@@ -173,6 +174,83 @@ describe('buildOpportunityTabExport', () => {
     expect('expected_rr_value' in p.rr_internal).toBe(true);
   });
 
+  it('FIX-O4: a DirectionalNeutral card reports no_directional_bias, not no_actionable_geometry', () => {
+    // The user's live capture: a Pullback DirectionalNeutral card with
+    // consistent geometry whose R:R reads N/A because the market bias is
+    // Neutral. The card reason must match `rr_internal` and the
+    // recommendation ("no directional bias"), never the hardcoded
+    // geometry fallback.
+    const neutralOpp: OpportunityMatrix = {
+      ...makeOpportunity(),
+      primary_opportunity: 'Pullback',
+      // Top-level aggregated bracket (the capture's Pullback geometry) —
+      // the NEUTRAL-side card resolves it via the net-bias fallback.
+      long_entry_zone: { low: 62350.67, high: 62916.26 },
+      long_target_zone: { low: 63217.72, high: 63688.67 },
+      long_invalidation_level: 62343.41,
+      long_expected_rr_internal: 0,
+      long_geometry_consistent: true,
+      profiles: [
+        {
+          opportunity_type: 'Pullback',
+          score: 60.24,
+          preconditions_met: 2,
+          preconditions_total: 2,
+          notes: 'Pullback',
+          direction_family: 'Neutral',
+          trade_viability: 'DirectionalNeutral',
+          long_entry_zone: null,
+          long_target_zone: null,
+          long_invalidation_level: null,
+          long_expected_rr_internal: 0,
+          long_geometry_consistent: true,
+          short_entry_zone: null,
+          short_target_zone: null,
+          short_invalidation_level: null,
+          short_expected_rr_internal: 0,
+          short_geometry_consistent: true,
+        },
+        {
+          opportunity_type: 'NoClearOpportunity',
+          score: 0,
+          preconditions_met: 1,
+          preconditions_total: 1,
+          notes: 'NoClearOpportunity',
+          direction_family: 'Neutral',
+          trade_viability: 'NoClear',
+        },
+      ],
+    } as unknown as OpportunityMatrix;
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: neutralOpp,
+      analysis: makeAnalysis({ bias: 'Neutral' }),
+      // Hold-dominant like the capture (21/2/77) so the L6 top is HOLD —
+      // that is what makes rr_internal report no_directional_bias.
+      decisionContext: {
+        ...makeDecisionContext(),
+        bias: 'Neutral',
+        net_bias_pct: 0,
+        long_probability: 21,
+        short_probability: 2,
+        hold_probability: 77,
+      },
+      symbol: 'BTC-USDC',
+      markPrice: 63018,
+      headerSpec,
+    }));
+    const card = p.trade_setups.find((s: { opportunity_type: string }) => s.opportunity_type === 'Pullback');
+    expect(card).toBeTruthy();
+    expect(card.viability).toBe('DirectionalNeutral');
+    expect(card.geometry_consistent).toBe(true);
+    expect(card.rr_available).toBe(false);
+    // Resolver's human-readable reason — matches the recommendation's
+    // top_setup ("no directional bias"); rr_internal keeps the wire
+    // snake_case key ('no_directional_bias') per the key-vs-display
+    // convention.
+    expect(card.rr_reason).toBe('no directional bias');
+    expect(p.rr_internal.expected_rr_reason).toBe('no_directional_bias');
+  });
+
   it('evaluated_setups carry viability and display-formatted types', () => {
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: makeOpportunity(),
@@ -211,11 +289,12 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    // First setup is the top one with viability='Actionable' + topAction='STAND_ASIDE' (HOLD)
-    // → `is_top=false` so badge text falls through to just 'ACTIONABLE' or 'GEOMETRY INVERTED'
+    // v6.10.18 (I-5): the top profile's bracket carries a sub-1 R:R in
+    // this fixture — the badge demotes to QUALIFYING (a real bracket, no
+    // edge to act on), never "TOP · ACTIONABLE".
     expect(p.trade_setups.length).toBeGreaterThan(0);
     const first = p.trade_setups[0];
-    expect(['TOP · ACTIONABLE', 'ACTIONABLE', 'NEUTRAL · HOLD', 'GEOMETRY INVERTED', 'Actionable', 'DirectionalNeutral', 'GeometryInverted', 'NoClear'])
+    expect(['TOP · ACTIONABLE', 'QUALIFYING', 'ACTIONABLE', 'NEUTRAL · HOLD', 'GEOMETRY INVERTED', 'Actionable', 'Qualifying', 'DirectionalNeutral', 'GeometryInverted', 'NoClear'])
       .toContain(first.badge_text);
     expect(first.viability).toBeDefined();
   });
@@ -246,7 +325,10 @@ describe('buildOpportunityTabExport', () => {
     expect(p.evaluated_setups[0].notes).toBe('pullback_to_EMA20');
   });
 
-  it('directional_bars always emit — 0/0/100 when the matrix is absent', () => {
+  it('directional_bars always emit — mirror the L6 split, 0/0/100 only without probabilities', () => {
+    // v6.10.18 (I-4): the L4 bars mirror the L6 verdict split whenever a
+    // decision context carries probabilities (the panel rule) — the
+    // 0/0/100 shape survives only for probability-less legacy payloads.
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: null,
       analysis: makeAnalysis(),
@@ -255,7 +337,17 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    expect(p.directional_bars).toEqual({ bullish_pct: 0, bearish_pct: 0, hold_pct: 100, sort: 'desc' });
+    expect(p.directional_bars).toEqual({ bullish_pct: 30, bearish_pct: 40, hold_pct: 30, sort: 'desc', lean_floor_applied: false });
+
+    const legacy = JSON.parse(buildOpportunityTabExport({
+      opportunity: null,
+      analysis: makeAnalysis(),
+      decisionContext: { ...makeDecisionContext(), long_probability: undefined, short_probability: undefined, hold_probability: undefined } as any,
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(legacy.directional_bars).toEqual({ bullish_pct: 0, bearish_pct: 0, hold_pct: 100, sort: 'desc', lean_floor_applied: false });
   });
 
   it('expected R:R of 0 with a non-HOLD top renders available:true value:0 ("0.00" on screen)', () => {

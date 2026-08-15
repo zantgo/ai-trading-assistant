@@ -1,6 +1,6 @@
 # Interactive Setup CLI — Flow & Rationale
 
-**Version:** 6.10.4 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.4 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators using `execution-daemon setup` for headless / first-boot configuration.
 

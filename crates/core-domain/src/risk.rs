@@ -260,10 +260,22 @@ fn assess_market_risk(
 }
 
 /// Assess volatility risk: danger from abnormal price movement.
+///
+/// v6.10.18 (I-8): the dimension now integrates the ACTIONABLE timeframe
+/// volatility STATE — `tf_volatility` carries the per-window L2 volatility
+/// dimension `(label, state_label, score)` pairs (scores on the 0–100
+/// unipolar scale). The legacy BBWP + relative-ATR formula said LOW (23)
+/// while the micro window was EXPANDING and the fast window
+/// EXPANSION_CLIMAX — evidence and score contradicted each other and the
+/// operator. The fast-weighted state (micro 0.7 / fast 0.3 — the horizons
+/// a scalp/intraday operator actually trades) is blended with the BBWP
+/// component; the relative-ATR term only modulates when it is meaningful
+/// (≥1% of price) and never drags a BTC-scale sub-0.1% print to zero.
 fn assess_volatility_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
     close: f64,
+    tf_volatility: &[(String, String, f64)],
 ) -> RiskDimension {
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
     let atr = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
@@ -283,17 +295,38 @@ fn assess_volatility_risk(
         score += 10.0;
         evidence.push("Squeeze compression active".into());
     }
+    // v6.10.18 (I-8): the fast-weighted TF volatility state.
+    let mut vol_component: Option<f64> = None;
+    if !tf_volatility.is_empty() {
+        for (label, state, _) in tf_volatility {
+            evidence.push(format!("{} volatility {}", label, state));
+        }
+        let micro = tf_volatility.first().map(|(_, _, s)| *s);
+        let fast = tf_volatility.get(1).map(|(_, _, s)| *s);
+        vol_component = match (micro, fast) {
+            (Some(m), Some(f)) => Some(0.7 * m + 0.3 * f),
+            (Some(m), None) => Some(m),
+            (None, Some(f)) => Some(f),
+            (None, None) => None,
+        };
+    }
+    if let Some(vc) = vol_component {
+        score = (score + vc) / 2.0;
+    }
     if atr > 0.0 && close > 0.0 {
         // Relative ATR (ATR as % of close). The legacy absolute-ATR
         // formula `score_mag(atr, 500.0)` saturated for any high-TF BTC
         // candle (1d ATR ≈ $1000, 1w ATR ≈ $5000–$15000) — `volatility_risk`
         // hit 100 even on quiet 1w prints, which broke the L5→L6
         // discount and the dashboard's risk gauge for HTF symbols.
-        // Relative ATR is price-normalized: 0% → 0 risk, 5% → 100 risk,
-        // which matches the L2 `volatility_assessment` saturation band.
+        // Relative ATR is price-normalized: 0% → 0 risk, 5% → 100 risk.
+        // v6.10.18: only modulates when meaningful (≥1%), so it can no
+        // longer drag a sub-0.1% BTC print to LOW beside a climax state.
         let atr_pct = (atr / close) * 100.0;
-        let rel_atr = score_mag(atr_pct, 5.0);
-        score = (score + rel_atr) / 2.0;
+        if atr_pct >= 1.0 {
+            let rel_atr = score_mag(atr_pct, 5.0);
+            score = (score + rel_atr) / 2.0;
+        }
     }
     RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
         .with_evidence(evidence)
@@ -534,13 +567,17 @@ pub fn compute_risk(
     // AUDIT-AIU-062: discrete liquidity signals feed the cascade dimension.
     liquidity_signals: &[crate::liquidity::LiquiditySignal],
     previous_overall: Option<f64>,
+    // v6.10.18 (I-8): per-TF L2 volatility states `(label, state_label,
+    // score_0_100)` — the actionable-horizon volatility signal for the
+    // volatility-risk dimension. Empty for legacy callers (warmup).
+    tf_volatility: &[(String, String, f64)],
 ) -> RiskMatrix {
     if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
     }
 
     let market = assess_market_risk(analysis, indicators);
-    let volatility = assess_volatility_risk(analysis, indicators, close);
+    let volatility = assess_volatility_risk(analysis, indicators, close, tf_volatility);
     let liquidity = assess_execution_liquidity_risk(analysis, indicators);
     let structure = assess_structure_risk(analysis, indicators);
     let momentum = assess_momentum_risk(analysis);
@@ -669,7 +706,7 @@ mod tests {
     fn compute_with_analysis_produces_valid_dimensions() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
         assert!(
@@ -679,10 +716,44 @@ mod tests {
     }
 
     #[test]
+    fn volatility_risk_integrates_actionable_tf_state() {
+        // v6.10.18 (I-8): the 13:25 capture — micro vol EXPANDING 0.665
+        // (→ 83), fast EXPANSION_CLIMAX 0.944 (→ 97), BBWP 78.5 elevated.
+        // The legacy BBWP+relative-ATR formula printed 23 (LOW) next to a
+        // climax window; the dimension must now read HIGH with the TF
+        // states in the evidence.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 4;
+        analysis.state_confidence = 0.4677;
+        let mut indicators = HashMap::new();
+        indicators.insert(
+            "bbwp".to_string(),
+            NormalizedIndicatorValue::scalar(78.5, 0.0, "BBWP_ELEVATED".to_string()),
+        );
+        indicators.insert(
+            "atr".to_string(),
+            NormalizedIndicatorValue::scalar(9.26, 0.0, "ATR".to_string()),
+        );
+        let tf_volatility = vec![
+            ("micro60".to_string(), "EXPANDING".to_string(), 83.25),
+            ("fast180".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
+            ("slow300".to_string(), "NORMAL".to_string(), 58.0),
+            ("macro900".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
+        ];
+        let risk = compute_risk("BTC-USD", &analysis, &indicators, None, None, 63017.0, &[], None, &tf_volatility);
+        let vol = &risk.volatility_risk;
+        // (30 + 15) blended with 0.7×83.25 + 0.3×97.2 = 87.4 → 66.2 → HIGH.
+        assert!(vol.score >= 60.0, "volatility_risk {} must be HIGH with a climax window", vol.score);
+        let evidence = vol.evidence.join(" ");
+        assert!(evidence.contains("EXPANSION_CLIMAX"), "evidence must list the TF states: {}", evidence);
+        assert!(evidence.contains("BBWP elevated"));
+    }
+
+    #[test]
     fn cascade_risk_does_not_crash_with_zero_inputs() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
         // Baseline (no flow, no cluster) → score = 30.0
         assert!(
             (r.cascade_risk.score - 30.0).abs() < 1e-9,
@@ -701,7 +772,7 @@ mod tests {
         };
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0, &[], None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0, &[], None, &[]);
         // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
         assert!(
             r.cascade_risk.score >= 90.0,
@@ -734,7 +805,7 @@ mod tests {
         );
         let analysis = make_analysis_with_timeframes();
         // close = $60_000 → atr_pct = 2.5% → score_mag(2.5, 5.0) = 50
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0, &[], None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0, &[], None, &[]);
         assert!(
             r.volatility_risk.score < 100.0,
             "volatility_risk should not saturate; got {}",
@@ -750,7 +821,7 @@ mod tests {
         // dimension scores is ≈ 1.0 (within ±5%) rather than ≈ 0.90.
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
         let dims = [
             r.market_risk.score,
             r.volatility_risk.score,
@@ -799,7 +870,7 @@ mod tests {
         let indicators = HashMap::new();
         // First synthesis (no previous reference) → trend arm is Stable;
         // every sub-60 dimension inherits the overall state.
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
         for dim in [
             &r.market_risk,
             &r.volatility_risk,
@@ -820,10 +891,10 @@ mod tests {
         }
         // A strongly bearish previous synthesis (normalized reference far
         // above the current overall) → Improving trend.
-        let r2 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(90.0));
+        let r2 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(90.0), &[]);
         assert_eq!(r2.overall_risk.state, RiskState::Improving);
         // A strongly negative previous synthesis (reference ≈ 5) → Increasing.
-        let r3 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(-90.0));
+        let r3 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(-90.0), &[]);
         assert_eq!(r3.overall_risk.state, RiskState::Increasing);
     }
 }

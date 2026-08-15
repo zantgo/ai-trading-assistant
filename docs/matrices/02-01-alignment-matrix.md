@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -128,6 +128,8 @@ The four signed consensus scores are blended with fixed weights:
 $$\text{mtf\_overall\_score} = \text{clamp}\big((0.5\,T + 0.3\,M + 0.1\,V_{t} + 0.1\,V_{m}) \times 100,\ -100,\ 100\big)$$
 
 where `T` = `mtf_trend_alignment`, `M` = `mtf_momentum_alignment`, `V_t` = `mtf_volatility_alignment`, `V_m` = `mtf_volume_alignment`.
+
+> **Thin-participation reweight (v6.10.16, FIX-H2).** When the volume dimension reads THIN/VERY_THIN (`dimensions[2].score < 25`) the blend switches to `0.55·T + 0.35·M + 0.05·V_t + 0.05·V_m` — the low-participation volume read is a participation qualifier, not a directional signal, so it can no longer veto four aligned timeframes into NEUTRAL. The **effective weights ride on the wire** (`blend_weights: [["T", 0.55], …]`) and the Alignment export's `score_calculation` block mirrors them exactly, so the displayed formula always balances the composite. Standard weights are the default; the reweight only applies in the thin regime. (The L3 grace band in [02-02 §3.1](./02-02-analysis-matrix.md) is the margin policy for the residual band; this reweight is the structural fix below it.)
 
 ### 4.3 Trend Agreement Percentage
 

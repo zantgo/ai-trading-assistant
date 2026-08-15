@@ -1,6 +1,6 @@
 # Supertrend (10, 3.0)
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function

@@ -188,7 +188,15 @@ describe('buildRecommendationTabExport', () => {
   it('strategy fields are display-formatted (no raw enums)', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext(),
+      // A directional verdict is required for the playbook values to
+      // render — under HOLD/STAND_ASIDE they are "—" (FIX-O5 v6.10.16).
+      decisionContext: makeDecisionContext({
+        trade_readiness: 'FORMING',
+        long_probability: 60,
+        short_probability: 10,
+        hold_probability: 30,
+        net_bias_pct: 50,
+      }),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
       symbol: 'SOL-USDC',
@@ -197,6 +205,26 @@ describe('buildRecommendationTabExport', () => {
     }));
     expect(p.strategy.protection).toBe('ATR-Based');
     expect(p.strategy.entry).toBe('Breakout');
+    expect(p.strategy.hold_caption).toBeNull();
+  });
+
+  it('FIX-O5: strategy values are "—" under a HOLD verdict (never "Entry: Immediate")', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(), // hold-dominant (12/2/86) → HOLD
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.strategy.entry).toBe('—');
+    expect(p.strategy.exit).toBe('—');
+    expect(p.strategy.protection).toBe('—');
+    expect(p.strategy.target).toBe('—');
+    expect(p.strategy.hold_caption).toContain('no active directional call');
+    // The advisory text still survives as environment guidance.
+    expect(p.final_verdict_guidance).toContain('Environment guidance:');
   });
 
   it('top_setup carries badge_text mirroring screen badge', () => {
@@ -244,7 +272,11 @@ describe('buildRecommendationTabExport', () => {
     expect(p.top_setup!.viability).toBeDefined();
   });
 
-  it('no qualifying setup → top_setup_empty_text mirrors the screen caption', () => {
+  it('no qualifying setup → the aggregated bracket is published (v6.10.17 A3)', () => {
+    // v6.10.17: with zero qualifying profiles the top setup block now
+    // carries the aggregated bracket on the bias side (marked NoClear,
+    // informational) — never a bare null. The "no qualifying setup yet"
+    // caption only appears when the opportunity matrix is absent.
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
@@ -254,8 +286,13 @@ describe('buildRecommendationTabExport', () => {
       markPrice: 75.55,
       headerSpec,
     }));
-    expect(p.top_setup).toBeNull();
-    expect(p.top_setup_empty_text).toBe('no qualifying setup yet');
+    expect(p.top_setup).not.toBeNull();
+    expect(p.top_setup!.viability).toBe('NoClear');
+    expect(p.top_setup!.badge_text).toBe('NO CLEAR SETUP');
+    expect(p.top_setup_empty_text).toBeNull();
+    // The No Clear explanation card coexists with the informational bracket.
+    expect(p.no_clear_card).not.toBeNull();
+    expect(p.no_clear_card!.title).toBe('No Clear Setup');
   });
 
   it('strategy fields render "—" when the advisory is absent (screen parity)', () => {
@@ -277,7 +314,9 @@ describe('buildRecommendationTabExport', () => {
   it('R6: final_verdict is verdict-consistent under HOLD (advisory demoted to guidance)', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory({ final_recommendation: 'Long bias: BULLISH bias with 34% confidence. Entry: immediate.' }),
-      decisionContext: makeDecisionContext(), // hold-dominant (12/2/86) → HOLD
+      // Hold-dominant (12/2/86) → HOLD; readiness FORMING (NOT STAND_ASIDE)
+      // so the headline state is HOLD, not STAND ASIDE.
+      decisionContext: makeDecisionContext({ trade_readiness: 'FORMING' }),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
       symbol: 'SOL-USDC',
@@ -289,15 +328,18 @@ describe('buildRecommendationTabExport', () => {
     // sentence under a HOLD badge.
     expect(p.final_verdict).toContain('HOLD — no directional call');
     expect(p.final_verdict).not.toContain('immediate');
-    // The advisory text survives as environment guidance.
+    // v6.10.19 (T5): the advisory text survives as VERDICT-AWARE
+    // environment guidance — no "Entry: immediate" execution instruction
+    // under a HOLD, and the claim reads "no actionable directional edge".
     expect(p.final_verdict_guidance).toContain('Environment guidance:');
-    expect(p.final_verdict_guidance).toContain('immediate');
+    expect(p.final_verdict_guidance).toContain('no actionable directional edge');
+    expect(p.final_verdict_guidance).not.toContain('immediate');
   });
 
-  it('R6: final_verdict carries the advisory sentence under a directional verdict', () => {
+  it('R6 (v6.10.17): final_verdict carries the graded sentence under a directional verdict', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory({ final_recommendation: 'Strong long bias: BULLISH bias with 72% confidence.' }),
-      decisionContext: makeDecisionContext({ long_probability: 60, short_probability: 10, hold_probability: 30, net_bias_pct: 50 }),
+      decisionContext: makeDecisionContext({ trade_readiness: 'FORMING', long_probability: 60, short_probability: 10, hold_probability: 30, net_bias_pct: 50 }),
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
       symbol: 'SOL-USDC',
@@ -305,9 +347,92 @@ describe('buildRecommendationTabExport', () => {
       headerSpec,
     }));
     expect(p.verdict.top).toBe('LONG');
-    expect(p.final_verdict).toContain('Strong long bias');
-    expect(p.final_verdict_guidance).toBeNull();
+    // v6.10.17: the verdict sentence is the graded call, never the raw
+    // advisory sentence; the advisory text survives as environment guidance.
+    expect(p.final_verdict).toContain('LONG lean 60% — awaiting confirmation (readiness: FORMING)');
+    expect(p.final_verdict).not.toContain('Strong long bias');
+    expect(p.final_verdict_guidance).toContain('Environment guidance:');
     expect(p.strategy.hold_caption).toBeNull();
+  });
+
+  it('FIX-4 (v6.10.17): directional verdict gated by STAND ASIDE reports lean + gate', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ final_recommendation: 'Long bias: BULLISH bias with 20% confidence. Entry: immediate. Stop: ATR-based.' }),
+      // The user's real capture: long 62 / short 2 / hold 36 with readiness
+      // STAND_ASIDE — the verdict is LONG (62%) and the gate is STAND ASIDE.
+      decisionContext: makeDecisionContext({ trade_readiness: 'STAND_ASIDE', long_probability: 62, short_probability: 2, hold_probability: 36, net_bias_pct: 60 }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.verdict.top).toBe('LONG');
+    expect(p.final_verdict).toContain('LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger MODERATE)');
+    expect(p.final_verdict).not.toContain('no directional call');
+    expect(p.final_verdict_guidance).toContain('Environment guidance:');
+    expect(p.final_verdict_guidance).toContain('immediate');
+    // v6.10.17: a directional lean carries a REAL playbook — no caption.
+    expect(p.strategy.hold_caption).toBeNull();
+    expect(p.strategy.entry).not.toBe('—');
+  });
+
+  it('v6.10.19a (D2a): HOLD guidance has no orphaned ":," / trailing ":" after the confidence strip', () => {
+    // The live Neutral-claim sentence ("…no directional edge: NEUTRAL bias
+    // with 13% confidence, cautious…") loses the bias fragment to the
+    // strip — the leftover ":," must collapse, never surface as "edge:,".
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ final_recommendation: 'Neutral — no directional edge: NEUTRAL bias with 13% confidence, cautious stance in a high-volatility environment. No clear opportunity.' }),
+      decisionContext: makeDecisionContext({ trade_readiness: 'STAND_ASIDE', long_probability: 2, short_probability: 2, hold_probability: 96, net_bias_pct: 0, bias: 'Neutral' }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.verdict.top).toBe('HOLD');
+    // The "Environment guidance:" prefix colon is legitimate — the artifact
+    // to ban is the orphaned ":," / dangling "edge:" after the claim.
+    expect(p.final_verdict_guidance).not.toContain('edge:');
+    expect(p.final_verdict_guidance).not.toContain(',,');
+    expect(p.final_verdict_guidance).toContain('no directional edge');
+    expect(p.final_verdict_guidance).not.toContain('NEUTRAL bias with 13% confidence');
+    expect(p.final_verdict_guidance).toContain('cautious stance');
+  });
+
+  it('P6 (v6.10.19): lean_floor_applied rides the gauge when the floors boosted the split', () => {    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext({ bias: 'Bullish', lean_floor_applied: true }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.gauge.lean_floor_applied).toBe(true);
+  });
+
+  it('T3 (v6.10.19): a sub-1.0 aggregated bracket exports as R:R BELOW ACTIONABLE FLOOR with levels intact', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext({ bias: 'Bullish' }),
+      opportunity: {
+        ...makeOpportunity(),
+        profiles: [],
+        long_expected_rr_internal: 0.4,
+        short_expected_rr_internal: 0.0,
+      } as any,
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.top_setup).not.toBeNull();
+    expect(p.top_setup!.badge_text).toBe('R:R BELOW ACTIONABLE FLOOR');
+    expect(p.top_setup!.rr_display).toBe('R:R 1 : 0.40');
+    // Levels stay visible for manual analysis.
+    expect(p.top_setup!.entry_zone).not.toBeNull();
+    expect(p.top_setup!.invalidation).not.toBeNull();
   });
 
   it('R5: hold placeholder describes the aggregated bracket (not the close-pinned sentinel)', () => {
@@ -324,5 +449,42 @@ describe('buildRecommendationTabExport', () => {
     expect(p.price_levels.hold_placeholder).toContain('aggregated bracket on the net-bias side');
     expect(p.price_levels.hold_placeholder).not.toContain('entry = target = invalidation = close');
     expect(p.strategy.hold_caption).toContain('For reference — no active directional call');
+  });
+
+  it('RR-008: risk_adj_rr_explanation mirrors the header tooltip sentence', () => {
+    const opp = {
+      ...makeOpportunity(),
+      primary_opportunity: 'TrendContinuation',
+      long_expected_rr_internal: 2.0,
+    } as OpportunityMatrix;
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext({
+        bias: 'Bullish',
+        expected_reward_risk_ratio: 0.6,
+        long_probability: 60,
+        short_probability: 10,
+        hold_probability: 30,
+      }),
+      opportunity: opp,
+      analysis: { ...makeAnalysis(), bias: 'Bullish' },
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.safety_flags.risk_adj_rr_explanation).toBe('Risk-adjusted: net R:R 2.00 × risk factor 0.30 = 0.60');
+  });
+
+  it('RR-008: explanation is null when there is no risk-adjusted R:R', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.safety_flags.risk_adj_rr_explanation).toBeNull();
   });
 });

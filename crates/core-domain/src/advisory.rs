@@ -275,6 +275,11 @@ pub fn compute_advisory(
     let directional = if stance == MarketStance::Avoid {
         DirectionalGuidance::AvoidDirectionalExposure
     } else {
+        // v6.10.17: a LIFTED bias (grace / hysteresis hold / LEAN tier —
+        // `bias_lifted`) is always directional regardless of the risk gate,
+        // mirroring `DecisionContext::compute` so the advisory guidance and
+        // the probability split can never contradict each other.
+        let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score);
         match analysis.bias {
             crate::analysis::MarketBias::StrongBullish => {
                 if risk.overall_risk.score < 50.0 {
@@ -284,7 +289,7 @@ pub fn compute_advisory(
                 }
             }
             crate::analysis::MarketBias::Bullish => {
-                if risk.overall_risk.score < 40.0 {
+                if lifted || risk.overall_risk.score < 40.0 {
                     DirectionalGuidance::Long
                 } else {
                     DirectionalGuidance::Neutral
@@ -298,7 +303,7 @@ pub fn compute_advisory(
                 }
             }
             crate::analysis::MarketBias::Bearish => {
-                if risk.overall_risk.score < 40.0 {
+                if lifted || risk.overall_risk.score < 40.0 {
                     DirectionalGuidance::Short
                 } else {
                     DirectionalGuidance::Neutral
@@ -488,18 +493,57 @@ pub fn compute_advisory(
         (base_pct + risk_bump).clamp(0.5, 15.0) // final: percent in [0.5, 15.0]
     };
 
+    // v6.10.19 (T5): under a Neutral or Avoid directional read there is no
+    // actionable entry — the "Entry: …. Stop: …" clauses are execution
+    // instructions that must not ride on a "no directional call" sentence
+    // (a trader could read them as pending-order guidance under a HOLD).
+    let entry_stop_clause = if matches!(
+        directional,
+        DirectionalGuidance::Neutral | DirectionalGuidance::AvoidDirectionalExposure
+    ) {
+        String::new()
+    } else {
+        format!(
+            " Entry: {}. Stop: {}.",
+            match entry {
+                EntryGuidance::Immediate => "immediate",
+                EntryGuidance::WaitForConfirmation => "wait for confirmation",
+                EntryGuidance::Pullback => "on pullback",
+                EntryGuidance::Breakout => "on breakout",
+                EntryGuidance::NoEntryContext => "no entry context",
+            },
+            match protection {
+                ProtectionStrategy::StructureBased => "structure-based",
+                ProtectionStrategy::VolatilityBased => "volatility-based",
+                ProtectionStrategy::ATRBased => "ATR-based",
+                ProtectionStrategy::SRBased => "S/R-based",
+                ProtectionStrategy::NoRecommendation => "no recommendation",
+            }
+        )
+    };
+    // v6.10.19a (D2b): the sentence previously read "Neutral — no
+    // directional edge: NEUTRAL bias with 13% confidence, …" — the claim
+    // already states the read, so the "X bias with N% confidence" fragment
+    // duplicated it behind a colon. Neutral/Avoid claims now carry only the
+    // confidence; directional claims keep "LONG bias with 72% confidence".
+    let claim = match directional {
+        DirectionalGuidance::StrongLong => "Strong long bias",
+        DirectionalGuidance::Long => "Long bias",
+        DirectionalGuidance::StrongShort => "Strong short bias",
+        DirectionalGuidance::Short => "Short bias",
+        DirectionalGuidance::Neutral => "Neutral — no directional edge",
+        DirectionalGuidance::AvoidDirectionalExposure => "Avoid directional exposure",
+    };
+    let bias_fragment = match directional {
+        DirectionalGuidance::Neutral | DirectionalGuidance::AvoidDirectionalExposure => {
+            format!("{:.0}% confidence", confidence)
+        }
+        _ => format!("{} bias with {:.0}% confidence", analysis.bias, confidence),
+    };
     let recommendation = format!(
-        "{}: {} bias with {} confidence, {} stance in a {} environment. {} opportunity. Entry: {}. Stop: {}.",
-        match directional {
-            DirectionalGuidance::StrongLong => "Strong long bias",
-            DirectionalGuidance::Long => "Long bias",
-            DirectionalGuidance::StrongShort => "Strong short bias",
-            DirectionalGuidance::Short => "Short bias",
-            DirectionalGuidance::Neutral => "Neutral — no directional edge",
-            DirectionalGuidance::AvoidDirectionalExposure => "Avoid directional exposure",
-        },
-        analysis.bias,
-        format!("{:.0}%", confidence),
+        "{}: {}, {} stance in a {} environment. {} opportunity.{}",
+        claim,
+        bias_fragment,
         match stance {
             MarketStance::Aggressive => "aggressive",
             MarketStance::Constructive => "constructive",
@@ -525,20 +569,7 @@ pub fn compute_advisory(
             OpportunityClass::Scalp => "Scalp",
             OpportunityClass::NoClearOpportunity => "No clear",
         },
-        match entry {
-            EntryGuidance::Immediate => "immediate",
-            EntryGuidance::WaitForConfirmation => "wait for confirmation",
-            EntryGuidance::Pullback => "on pullback",
-            EntryGuidance::Breakout => "on breakout",
-            EntryGuidance::NoEntryContext => "no entry context",
-        },
-        match protection {
-            ProtectionStrategy::StructureBased => "structure-based",
-            ProtectionStrategy::VolatilityBased => "volatility-based",
-            ProtectionStrategy::ATRBased => "ATR-based",
-            ProtectionStrategy::SRBased => "S/R-based",
-            ProtectionStrategy::NoRecommendation => "no recommendation",
-        }
+        entry_stop_clause
     );
 
     AdvisoryMatrix {
@@ -573,5 +604,63 @@ mod tests {
             DirectionalGuidance::Neutral
         ));
         assert_eq!(adv.confidence_assessment, 0.0);
+    }
+
+    // v6.10.19a (D2b): the Neutral claim must not duplicate the bias behind
+    // a colon ("…no directional edge: NEUTRAL bias with 13% confidence, …"),
+    // and no execution clause may ride on a no-directional-call sentence.
+    #[test]
+    fn neutral_claim_sentence_has_no_duplicated_bias_fragment() {
+        use crate::analysis::MarketBias;
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Neutral;
+        let risk = RiskMatrix::empty("BTC-USD");
+        let adv = compute_advisory(&analysis, &risk, None, None);
+        assert!(matches!(
+            adv.directional_guidance,
+            DirectionalGuidance::Neutral
+        ));
+        assert!(
+            adv.final_recommendation.contains("Neutral — no directional edge"),
+            "claim missing: {}",
+            adv.final_recommendation
+        );
+        assert!(
+            !adv.final_recommendation.contains("NEUTRAL bias with"),
+            "bias duplicated behind the claim: {}",
+            adv.final_recommendation
+        );
+        assert!(
+            !adv.final_recommendation.contains("Entry:"),
+            "no execution clause under a neutral read: {}",
+            adv.final_recommendation
+        );
+    }
+
+    // v6.10.19a (D2b): directional claims keep the "X bias with N%
+    // confidence" fragment — only the Neutral/Avoid claims drop it.
+    #[test]
+    fn directional_claim_sentence_keeps_bias_fragment() {
+        use crate::analysis::MarketBias;
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::StrongBullish;
+        let risk = RiskMatrix::empty("BTC-USD");
+        let adv = compute_advisory(&analysis, &risk, None, None);
+        // `RiskMatrix::empty` carries overall risk 50.0, so the StrongBullish
+        // gate demotes to a plain LONG — the fragment shape is what matters.
+        assert!(matches!(
+            adv.directional_guidance,
+            DirectionalGuidance::Long
+        ));
+        assert!(
+            adv.final_recommendation
+                .starts_with("Long bias: STRONG_BULLISH bias with"),
+            "sentence: {}",
+            adv.final_recommendation
+        );
+        assert!(adv.final_recommendation.contains("% confidence"));
+        assert!(adv.final_recommendation.contains("Entry:"));
     }
 }

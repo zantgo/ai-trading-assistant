@@ -8,7 +8,7 @@
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, resolveActiveRr } from '../lib/decisionRank';
-import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunityBars';
+import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } from '../lib/opportunityBars';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -70,7 +70,13 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     // the dominant-HOLD case (the chart showed only a single HOLD=100%
     // bar and operators couldn't see that bullish/bearish were genuinely
     // zero). Showing all three explicitly communicates the full split.
-    const directionBars = $derived.by((): DirectionalBars => computeOpportunityBars(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null));
+    // v6.10.18 (I-4): the L4 bars mirror the L6 verdict split whenever a
+    // decision context exists — one conviction number across panels; the
+    // bracket-conviction math is the legacy fallback only.
+    const directionBars = $derived.by((): DirectionalBars =>
+        directionBarsFromRank(decisionContext) ??
+        computeOpportunityBars(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null),
+    );
     const sortedBars = $derived.by(() => [
         { id: 'bullish', label: 'BULLISH', value: directionBars.bullish, cls: 'bullish' },
         { id: 'bearish', label: 'BEARISH', value: directionBars.bearish, cls: 'bearish' },
@@ -97,7 +103,7 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     // NoClearOpportunity is filtered out of the Trade Setup list —
     // it's the unconditional "no actionable setup" fallback, rendered
     // separately as a muted placeholder in the Evaluated Setups section.
-    type Viability = 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+    type Viability = 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
     interface ActiveSetup {
         opportunity_type: string;
         side: 'LONG' | 'SHORT' | 'NEUTRAL';
@@ -120,9 +126,10 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
     // then GeometryInverted. Within each tier, sort by score desc.
     const viabilityRank: Record<Viability, number> = {
         Actionable: 0,
-        DirectionalNeutral: 1,
-        GeometryInverted: 2,
-        NoClear: 3,
+        Qualifying: 1,
+        DirectionalNeutral: 2,
+        GeometryInverted: 3,
+        NoClear: 4,
     };
     const activeSetups = $derived.by((): ActiveSetup[] => {
         const profiles = opportunity?.profiles ?? [];
@@ -265,6 +272,13 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
 
     const q = $derived(setupQuality(oppScore));
 
+    // v6.10.19 (T1): the operator-facing score scales by precondition
+    // ratio (0/3 → 0 muted, 2/3 → scaled, 3/3 → full). Mirrors the
+    // export's displayScore rule so screen and clipboard agree.
+    function displayScore(score: number, met: number, total: number): number {
+        if (total <= 0) return 0;
+        return Math.round(score * Math.min(1, met / total));
+    }
     function fmtScore(n: number): string {
         if (n >= 1) return n.toFixed(0);
         if (n >= 0.1) return n.toFixed(1);
@@ -347,16 +361,21 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
         {/snippet}
     </LayerHeader>
 
-    <!-- Directional conviction bars — normalized from the top-level opportunity
-         matrix R:R values and capped by opportunity_score. -->
+    <!-- Directional conviction bars — mirror the L6 verdict split (I-4).
+         v6.10.19 (P6): when the graded-lean floors boosted the split, a
+         LEAN marker + pattern fill tells the operator this is a
+         structurally adjusted low-confidence read, not a deep consensus. -->
     <div class={styles.dirBarRow}>
         {#each sortedBars as bar (bar.id)}
             <div class={styles.dirBarCell}>
-                <div class="{styles.dirBarFill} {styles[bar.cls]}" style="width: {bar.value.toFixed(1)}%"></div>
+                <div class="{styles.dirBarFill} {styles[bar.cls]} {decisionContext?.lean_floor_applied ? styles.dirBarFillLean : ''}" style="width: {bar.value.toFixed(1)}%"></div>
                 <span class={styles.dirBarLabel}>{bar.label}</span>
                 <span class={styles.dirBarPct}>{bar.value}%</span>
             </div>
         {/each}
+        {#if decisionContext?.lean_floor_applied}
+            <span class={styles.leanFloorTag}>LEAN — floor-boosted split</span>
+        {/if}
     </div>
 
     <div class={styles.section}>
@@ -407,10 +426,14 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
                         <div class="{styles.setupCard} {setup.viability === 'Actionable' && rank.top !== 'HOLD' ? styles.setupCardActive : styles.setupCardHypo} {!setup.geometry_consistent ? styles.setupCardInverted : ''} {setup.viability === 'DirectionalNeutral' ? styles.setupCardMuted : ''}">
                             <div class="{styles.setupHeader} {setupHeaderClass(setup.side)}">
                                 <span class={styles.setupHeaderTitle}>{`${oppLabel(setup.opportunity_type)} · ${setup.side}`}</span>
-                                <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{fmtScore(setup.score)}</span>
+                                <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{fmtScore(displayScore(setup.score, setup.preconditions_met, setup.preconditions_total))}</span>
                             </div>
                             {#if setup.viability === 'Actionable' && setup.rankIdx === 0 && rank.top !== 'HOLD'}
                                 <div class={styles.setupBadgeTop}>TOP · ACTIONABLE</div>
+                            {:else if setup.viability === 'Qualifying'}
+                                <!-- v6.10.17 (P1): a qualifying profile is a
+                                     real bracket — never a "no clear setup". -->
+                                <div class={styles.setupBadgeNeutral}>QUALIFYING</div>
                             {:else if setup.viability === 'DirectionalNeutral'}
                                 <div class={styles.setupBadgeNeutral}>NEUTRAL · HOLD</div>
                             {:else if setup.viability === 'GeometryInverted'}
@@ -442,7 +465,7 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
                                     </span>
                                 </div>
                                 <div class={styles.setupRowMeta}>
-                                    {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {fmtScore(setup.score)}
+                                    {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {fmtScore(displayScore(setup.score, setup.preconditions_met, setup.preconditions_total))}
                                 </div>
                             </div>
                         </div>
@@ -494,7 +517,7 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
                         <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
                             <div class={styles.profileHeader}>
                                 <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
-                                <span class={styles.profileScore} style="color: {scoreColor(profile.score)}">{fmtScore(profile.score)}</span>
+                                <span class={styles.profileScore} style="color: {scoreColor(displayScore(profile.score, profile.preconditions_met, profile.preconditions_total))}; {profile.preconditions_met === 0 ? 'opacity: 0.45' : ''}">{fmtScore(displayScore(profile.score, profile.preconditions_met, profile.preconditions_total))}</span>
                             </div>
                             <div class={styles.profilePreconditions}>
                                 <span class={styles.profilePreLabel}>Preconditions</span>
@@ -527,6 +550,11 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
                     {#each (opportunity?.confluent_entry_levels ?? []).slice(0, 4) as level}
                         <div class={styles.confluenceRow}>
                             <span class={styles.confluencePrice}>{fmtPx(level.price, markPrice)}</span>
+                            <!-- F23 (v6.10.17): the level's side is explicit
+                                 (LONG below close / SHORT above close). -->
+                            {#if level.side}
+                                <span class="{styles.confluenceSide} {level.side === 'LONG' ? styles.confluenceSideLong : styles.confluenceSideShort}">{level.side}</span>
+                            {/if}
                             <div class={styles.confluenceSources}>
                                 {#each level.sources as src}
                                     <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">
@@ -543,6 +571,9 @@ import { computeOpportunityBars, type DirectionalBars } from '../lib/opportunity
                     {#each (opportunity?.confluent_target_levels ?? []).slice(0, 4) as level}
                         <div class={styles.confluenceRow}>
                             <span class={styles.confluencePrice}>{fmtPx(level.price, markPrice)}</span>
+                            {#if level.side}
+                                <span class="{styles.confluenceSide} {level.side === 'LONG' ? styles.confluenceSideLong : styles.confluenceSideShort}">{level.side}</span>
+                            {/if}
                             <div class={styles.confluenceSources}>
                                 {#each level.sources as src}
                                     <span class={styles.sourceTag} style="background: {sourceColor(src)}22; color: {sourceColor(src)}; border-color: {sourceColor(src)}44">

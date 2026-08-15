@@ -18,6 +18,7 @@ import {
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { prettifyPhase, highlightKeywords } from '../prettifyPhase';
+import { computeAnalysisLean, isVotingTfLine } from '../analysisLean';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -91,6 +92,12 @@ export interface AnalysisPayload {
   /** Marked-up HTML mirroring the panel's keyword-bolded interpretation. */
   interpretation_display: string;
   rationale: string;
+  /** v6.10.18 (I-9): the L3 regime-input values (representative map —
+   *  first-TF-wins) the rationale quotes. Exported so a quant can trace
+   *  the L3 regime derivation from the data itself; `null` when the
+   *  snapshot did not carry them. */
+  representative_bbwp: number | null;
+  representative_adx: number | null;
 }
 
 // Also surface the original analysis header for analysts who want it
@@ -212,47 +219,25 @@ function buildSignalLeanHero(
   const supporting = analysis?.supporting_signals ?? [];
   const contradicting = analysis?.contradicting_signals ?? [];
   const allTexts = [...supporting, ...contradicting];
-  const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
-  const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
-  // AN-2: empty lists → pre-warmup placeholder; non-empty but all-neutral
-  // → an honest "Neutral signals" hero (never "No signals" beside rendered
-  // neutral squares).
-  if (allTexts.length === 0) {
-    return {
-      label_html: 'No signals',
-      meta_html: 'Waiting for cross-TF consensus',
-      bullish_pct: 0,
-      bearish_pct: 0,
-      tone: 'split',
-    };
-  }
-  if (bull === 0 && bear === 0) {
-    return {
-      label_html: 'Neutral signals',
-      meta_html: 'No directional lean across timeframes',
-      bullish_pct: 0,
-      bearish_pct: 0,
-      tone: 'split',
-    };
-  }
+  // v6.10.18 (I-7): the hero vote uses the bias machinery's filter —
+  // COMPRESSION windows and flat TFs (|score| ≤ 10) do not vote. The
+  // placeholder logic keys on the RAW text presence (empty lists → "No
+  // signals"; neutral TFs → "Neutral signals · no directional lean").
+  const voteTexts = allTexts.filter(isVotingTfLine);
+  const bull = voteTexts.filter((t) => signalDirection(t) === 'bullish').length;
+  const bear = voteTexts.filter((t) => signalDirection(t) === 'bearish').length;
+  // v6.10.16 (FIX-O2): the shared bias-aware lean — under a Neutral market
+  // bias a directional TF vote renders with a neutral (amber) tone and a
+  // "market bias neutral" qualifier instead of a green bull hero under the
+  // NEUTRAL badge. Raw counts stay visible.
+  const lean = computeAnalysisLean(analysis?.bias, bull, bear, allTexts.length);
   const total = bull + bear;
-  const bullishPct = total > 0 ? Math.round((bull / total) * 100) : 0;
-  const bearishPct = total > 0 ? Math.round((bear / total) * 100) : 0;
-  const tone: 'bull' | 'bear' | 'split' =
-    bull > bear * 1.5 ? 'bull' : bear > bull * 1.5 ? 'bear' : 'split';
-  const direction = tone === 'bull' ? 'bullish' : tone === 'bear' ? 'bearish' : 'Split signals';
-  // AN-3: a zero-opposing count renders "3:0" (never "3:1").
-  const ratioText = (dominant: number, opposing: number) =>
-    opposing === 0 ? `${dominant}:0` : `${(dominant / opposing).toFixed(1)}:1`;
-  const hero = tone === 'split'
-    ? 'Split signals'
-    : `Net ${direction} (${bull}↑ vs ${bear}↓)`;
   return {
-    label_html: hero,
-    meta_html: tone === 'split' ? `${bull}↑ vs ${bear}↓` : `${tone === 'bull' ? ratioText(bull, bear) : ratioText(bear, bull)} signal ratio`,
-    bullish_pct: bullishPct,
-    bearish_pct: bearishPct,
-    tone,
+    label_html: lean.callHtml,
+    meta_html: lean.metaHtml,
+    bullish_pct: total > 0 ? Math.round((bull / total) * 100) : 0,
+    bearish_pct: total > 0 ? Math.round((bear / total) * 100) : 0,
+    tone: lean.tone,
   };
 }
 
@@ -260,22 +245,23 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
   const supporting = analysis?.supporting_signals ?? [];
   const contradicting = analysis?.contradicting_signals ?? [];
   const allTexts = [...supporting, ...contradicting];
-  const bull = allTexts.filter((t) => signalDirection(t) === 'bullish').length;
-  const bear = allTexts.filter((t) => signalDirection(t) === 'bearish').length;
+  // v6.10.18 (I-7): the hero vote uses the bias machinery's filter —
+  // COMPRESSION windows and flat TFs (|score| ≤ 10) do not vote.
+  const voteTexts = allTexts.filter(isVotingTfLine);
+  const bull = voteTexts.filter((t) => signalDirection(t) === 'bullish').length;
+  const bear = voteTexts.filter((t) => signalDirection(t) === 'bearish').length;
   let lean: AnalysisSignalsBlock['lean'];
-  // AN-2: mirrors the panel — empty lists are the pre-warmup placeholder;
-  // all-neutral signals surface the honest neutral lean.
-  if (allTexts.length === 0) {
-    lean = { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split' };
-  } else if (bull === 0 && bear === 0) {
-    lean = { label: 'Neutral signals · no directional lean', bullish: 0, bearish: 0, tone: 'split' };
-  } else if (bull > bear * 1.5) {
-    lean = { label: `Net bullish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bull' };
-  } else if (bear > bull * 1.5) {
-    lean = { label: `Net bearish · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'bear' };
-  } else {
-    lean = { label: `Split signals · ${bull}↑ vs ${bear}↓`, bullish: bull, bearish: bear, tone: 'split' };
-  }
+  // AN-2 + FIX-O2: mirrors the panel via the shared bias-aware helper —
+  // empty lists are the pre-warmup placeholder; all-neutral signals surface
+  // the honest neutral lean; a directional vote under a Neutral market bias
+  // carries the "market bias neutral" qualifier.
+  const computed = computeAnalysisLean(analysis?.bias, bull, bear, allTexts.length);
+  lean = {
+    label: computed.label,
+    bullish: computed.bullish,
+    bearish: computed.bearish,
+    tone: computed.tone,
+  };
   return {
     supporting: supporting.map((s) => decomposeSignal(s)),
     contradicting: contradicting.map((c) => decomposeSignal(c)),
@@ -338,6 +324,9 @@ function buildPerTimeframeBlock(alignment: AlignmentMatrix | null): PerTimeframe
 export interface AnalysisTabInputs {
   analysis: AnalysisMatrix | null;
   alignment: AlignmentMatrix | null;
+  /** v6.10.18 (I-9): the representative L3 regime inputs (bbwp/adx raw
+   *  values from the first-TF-wins representative map) for traceability. */
+  representative?: { bbwp: number | null; adx: number | null } | null;
   symbol: string;
   exchange?: string;
   tfSecs?: number | null;
@@ -381,6 +370,8 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
     // Screen renders "—" when the rationale is absent (AnalysisPanel.svelte:
     // `analysis?.rationale || '—'`) — `||` so an empty string also falls back.
     rationale: analysis?.rationale || '\u2014',
+    representative_bbwp: args.representative?.bbwp ?? null,
+    representative_adx: args.representative?.adx ?? null,
   };
   return JSON.stringify(payload, null, 2);
 }

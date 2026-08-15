@@ -10,6 +10,10 @@
 
 const TO_PASCAL: Record<string, string> = {
   ACTIONABLE: 'Actionable',
+  QUALIFYING: 'Qualifying',
+  // Pass-through for already-normalized or backbone values.
+  Qualifying: 'Qualifying',
+  qualifying: 'Qualifying',
   DIRECTIONAL_NEUTRAL: 'DirectionalNeutral',
   GEOMETRY_INVERTED: 'GeometryInverted',
   NO_CLEAR: 'NoClear',
@@ -27,8 +31,8 @@ const TO_PASCAL: Record<string, string> = {
   null: 'NoClear',
 };
 
-export function normalizeViability(raw: unknown): 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear' {
+export function normalizeViability(raw: unknown): 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear' {
   if (raw == null) return 'NoClear';
   const key = String(raw);
-  return (TO_PASCAL[key] ?? 'NoClear') as 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+  return (TO_PASCAL[key] ?? 'NoClear') as 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
 }

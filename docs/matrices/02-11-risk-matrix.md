@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -66,6 +66,8 @@ otherwise  → VeryLow
 ```
 
 ---
+
+**Volatility risk (v6.10.18 I-8).** The dimension blends three components: a base `30` + BBWP band (extreme expansion `90+` → +30, elevated `70+` → +15, squeeze → +10), the **actionable-horizon TF volatility state** (`0.7 × micro + 0.3 × fast` L2 vol scores, each on the 0–100 unipolar scale, evidence lists every window's state), and a relative-ATR modifier that only fires at `1%+` of price (it can no longer drag a sub-0.1% BTC print to LOW beside a climax window). The 13:25 capture — micro EXPANDING (83), fast EXPANSION_CLIMAX (97), BBWP 78.5 — reads **66 (HIGH)** with the states in the evidence, replacing the old 23 (LOW) that contradicted its own "BBWP elevated" evidence.
 
 ## 3. Unipolar Scoring Principle
 

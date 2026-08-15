@@ -70,6 +70,12 @@ pub struct ConfluentLevel {
     pub confluence_count: u32,
     pub sources: Vec<LevelSource>,
     pub strength: f64,
+    /// v6.10.17 (F23): which trade direction this level serves, derived
+    /// from its price relative to close — below close = LONG-side level,
+    /// above close = SHORT-side level (a SHORT entry sits ABOVE price,
+    /// its target BELOW). `None` when the level sits on the close.
+    #[serde(default)]
+    pub side: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -117,6 +123,14 @@ pub struct OpportunityMatrix {
     /// from `short_target_zone` vs `short_entry_zone` and `short_invalidation_level`.
     #[serde(default)]
     pub short_expected_rr_internal: f64,
+    /// v6.10.19 (P5): the GROSS geometric R:R (pre-cost) per side — the
+    /// NET (gross minus estimated entry/exit fees + slippage) lives in
+    /// `long_expected_rr_internal` / `short_expected_rr_internal`; the
+    /// gross stays on the wire for offline/data-science analysis.
+    #[serde(default)]
+    pub long_gross_rr_internal: f64,
+    #[serde(default)]
+    pub short_gross_rr_internal: f64,
     pub time_horizon: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub confluent_entry_levels: Vec<ConfluentLevel>,

@@ -1,6 +1,6 @@
 # Overview Matrix Specification
 
-**Version:** 6.10.3 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.3 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 7 — Overview Layer
@@ -62,7 +62,7 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `bias` | `string` | Directional guidance label. |
 | `confidence` | `f64` | Decision Matrix `confidence_assessment` value (mirror, in `[0, 100]`). |
 | `regime` | `string` | Strategy environment label. |
-| `risk_level` | `string` | Risk band. |
+| `risk_level` | `string` | Risk band — per-asset L5 `overall_risk.score` (v6.10.16 FIX-O3): `≤ 30` LOW, `≥ 70` HIGH, else MODERATE. |
 | `mtf_score` | `f64 ∈ [-100, 100]` (v6.10.3+) | `AlignmentMatrix.mtf_overall_score` for this symbol. `0.0` when no alignment is available for the symbol. |
 | `mtf_label` | `string` (v6.10.3+) | `AlignmentMatrix.mtf_overall_label` for this symbol — `STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`. |
 
@@ -75,18 +75,39 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `high_pct` | `f64` | % at high risk. |
 | `risk_environment` | `string` | `LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA`. |
 
-`risk_environment` is derived from the distribution (ordered, first match wins):
+`risk_environment` is derived from the **mean** per-asset L5 overall risk (ordered, first match wins):
 
 | Priority | Condition | `risk_environment` |
 |----------|-----------|--------------------|
 | 1 | `instance_count = 0` | `NO_DATA` |
-| 2 | `high_pct ≥ 50` | `HIGH_RISK` |
-| 3 | `high_pct ≥ 25` | `MODERATE` |
+| 2 | mean overall risk `≥ 50` | `HIGH_RISK` |
+| 3 | mean overall risk `≥ 25` | `MODERATE` |
 | 4 | otherwise | `LOW_RISK` |
+
+> **v6.10.16 (FIX-O3).** `risk_environment` previously binned on `high_pct` alone — an environment where 100% of assets sat in "moderate" (mean ≈ 37) was labelled `LOW_RISK`, contradicting the L5 panels and the dashboard card. Binning the mean makes "100% moderate" read `MODERATE`. The `AssetRank.risk_level` field (§2.2) likewise bins per-asset L5 `overall_risk.score` (`≤ 30` LOW / `≥ 70` HIGH / else MODERATE) — it previously binned on `confidence_assessment`, a confidence value mislabeled as risk (75% confidence with 50 overall risk read `LOW`).
 
 ---
 
 ## 3. Classification Vocabularies
+
+> **Systemic risk (P7, v6.10.19).** The `systemic_risk_score` and its
+> `high_pct` term use the **TF-decayed** high-share (micro 0.1 / fast 0.2 /
+> slow 0.3 / macro 0.4 weights) — a transient micro-tier risk spike
+> contributes at most 10% to the PME safety veto; the safety math stays
+> anchored to macro stability. The descriptive `risk_distribution` /
+> `risk_environment` / health keep the plain TF-mean (screen-to-panel
+> parity).
+
+> **L7 aggregation basis (v6.10.18 I-2).** The Overview aggregates ALL FOUR
+> timeframe windows per symbol (micro/fast/slow/macro; the 300s-slow-only
+> basis made the headline contradict every panel — e.g. HIGH_RISK next to
+> an avg-risk of 41). Per-window advisories feed the breadth/bias/
+> opportunity/regime tallies; per-symbol scalars (confidence, overall
+> risk) are the MEAN over the windows; categorical per-asset fields are
+> the MODE (ties resolve to the fastest window). Under `low_coverage`
+> (≤2 active symbols) the frontend demotes STRONG_* display tokens one
+> tier and appends the pair count — "BULLISH (1 pair)", never
+> "STRONG BULLISH 100% breadth" from a single symbol (I-10).
 
 ### 3.1 GlobalBias
 `STRONG_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `STRONG_BEARISH`, `MIXED`.
@@ -96,13 +117,12 @@ priority 1: long_count/total ≥ 0.8  AND market_synchronization ∈ { HIGHLY_SY
 priority 1: short_count/total ≥ 0.8 AND market_synchronization ∈ { HIGHLY_SYNCHRONIZED, SYNCHRONIZED } → STRONG_BEARISH
 priority 2: long_count/total  ≥ 0.6                                → BULLISH
 priority 2: short_count/total ≥ 0.6                                → BEARISH
-priority 3: neutral_count/total ≥ 0.6                              → NEUTRAL
-priority 4: long_count > short_count                              → BULLISH
-priority 4: short_count > long_count                              → BEARISH
-priority 5: else                                                 → MIXED
+priority 3: long_count > short_count                              → BULLISH
+priority 3: short_count > long_count                              → BEARISH
+priority 4: else                                                 → MIXED
 ```
 
-All six variants are reachable from this rule.
+All six variants are reachable from this rule. **v6.10.17 (P2):** the legacy `neutral_count/total ≥ 0.6 → NEUTRAL` priority was stale — the code (`overview.rs::aggregate`) resolves tie-broken direction by count and falls through to `MIXED`; a split market is `MIXED`, never `NEUTRAL` (a global NEUTRAL would misrepresent a genuine directional disagreement as no information).
 
 ### 3.2 MarketBreadth
 `VERY_WEAK`, `WEAK`, `BALANCED`, `POSITIVE`, `STRONG_POSITIVE`, `NEGATIVE`, `STRONG_NEGATIVE`.

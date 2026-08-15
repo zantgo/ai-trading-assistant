@@ -116,6 +116,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         short_probability: 0.0,
         hold_probability: 0.0,
         net_bias_pct: 0.0,
+        lean_floor_applied: false,
     };
 
     MarketSnapshot {

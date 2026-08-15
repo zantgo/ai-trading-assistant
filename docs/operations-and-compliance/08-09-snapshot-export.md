@@ -1,6 +1,6 @@
 # Snapshot Export Operator Manual
 
-**Version:** 6.10.4 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.4 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators configuring the periodic JSON dump that feeds the offline data-science pipeline.
 
@@ -329,3 +329,15 @@ production deployment, lower the retention to 200 (~72MB) or move the output to 
 - [`crates/api-gateway/src/handlers/snapshot_export.rs`](../../crates/api-gateway/src/handlers/snapshot_export.rs) — HTTP handlers.
 - [`ui/src/components/SnapshotSchedulerButton.svelte`](../../ui/src/components/SnapshotSchedulerButton.svelte) — Bottom CTA button.
 - [`ui/src/components/SnapshotSchedulerModal.svelte`](../../ui/src/components/SnapshotSchedulerModal.svelte) — Configuration modal.
+
+## 5. Grace-band validation sweep (v6.10.16)
+
+The snapshot corpus is the offline data path for the L3 bias **grace-band validation sweep** — the institutional calibration tool that answers "is the (15, 20] band better than (10, 20], and is the grace hypothesis directionally accurate?" with evidence instead of preference:
+
+```
+cargo run -p core-domain --example grace_sweep -- <snapshot_dir>
+```
+
+For every snapshot tick the sweep re-derives the L3 bias under each swept constant set (band edges {10, 12, 15, 18} × 20, vote ratios {2/4, 3/4, 4/4}, agreement {60, 75, 90}, signal breadth {2, 3}) and labels each directional call against the **forward price** of the same pair (horizons 1/3/6/12 samples). Output: directional accuracy, coverage, and flip rate (Bullish↔Neutral↔Bearish transitions per sample) per rule, plus the engine's shipped rule (grace + hysteresis) vs its no-hysteresis twin.
+
+**Process rule:** widen the band (e.g. to (10, 20]) only if the sweep shows graced accuracy in the lower zone at or above plain-threshold accuracy — expected to be below, because a composite in (10, 15] is *genuinely weak* (trend/momentum near zero), not drag-suppressed like (15, 20]. The full constant re-tune should use a time-split holdout (first 70% calibration, last 30% validation). No snapshots yet? Enable `[snapshot_export]` in `config.toml` and let the daemon run; each tick writes one envelope per tab.

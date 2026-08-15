@@ -37,6 +37,10 @@ export interface RankSide {
 }
 
 export interface DecisionRank {
+    /** v6.10.19 (P6): the graded-lean floors adjusted this split (HOLD
+     *  capped at 60% and/or the directional arm raised to 15%) — the
+     *  read is structurally boosted, not a deep consensus. */
+    lean_floor_applied: boolean;
     long: RankSide;
     short: RankSide;
     hold: RankSide;
@@ -107,6 +111,8 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
         decisionContext?.short_probability != null &&
         decisionContext?.hold_probability != null;
 
+    // v6.10.19 (P6): the graded-lean floors moved this split?
+    let leanFloorApplied = false;
     if (hasBackendProbs) {
         long = decisionContext!.long_probability!;
         short = decisionContext!.short_probability!;
@@ -119,11 +125,16 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
         let directionalOffset = 0;
         if (score === 0 && opportunity) {
             const profiles = opportunity.profiles ?? [];
+            // v6.10.17 (P2 parity): the backend filter uses `preconditions_met > 0`
+            // (decision_context.rs) — the legacy `>= 0` let EVERY profile
+            // qualify, including 0/N warmup rows. Mirrored exactly here.
             const qualifying = profiles.filter(
-                (p) => p.preconditions_met >= 0 && p.opportunity_type !== 'NoClearOpportunity'
+                (p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity'
             );
             if (qualifying.length > 0) {
-                const topProfile = [...qualifying].sort((a, b) => b.score - a.score)[0];
+                // v6.10.17 (P2 parity): the backend `max_by` keeps the LAST
+                // element on score ties — replicate with a strict-`>=` fold.
+                const topProfile = qualifying.reduce((acc, p) => (p.score >= acc.score ? p : acc));
 
                 const hasLong = opportunity.long_entry_zone && opportunity.long_entry_zone.low > 0;
                 const hasShort = opportunity.short_entry_zone && opportunity.short_entry_zone.low > 0;
@@ -181,7 +192,11 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
             hold *= 1.5;
         }
 
-        if (expectedRr < 1.0) {
+        // R:R modulation. v6.10.17 (mirror of the backend): the ×0.6
+        // penalty applies only when an ACTUAL sub-1.0 R:R exists — a
+        // missing R:R (0) is unknown, not bad, and must not punish a
+        // vote-driven lifted lean.
+        if (expectedRr > 0 && expectedRr < 1.0) {
             if (g.includes('long')) long *= 0.6;
             else if (g.includes('short')) short *= 0.6;
         }
@@ -211,6 +226,21 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
             long = Math.max(long, MIN_PCT);
             short = Math.max(short, MIN_PCT);
             hold = Math.max(hold, MIN_PCT);
+            // v6.10.17 graded-lean floors (mirror of the backend): when a
+            // directional read exists, HOLD caps at 60% and the directional
+            // arm never sinks below 15% — the verdict can never collapse
+            // into a 96% HOLD next to a minimal bearish/bullish confirmation.
+            const g2 = guidance.toLowerCase();
+            if (g2.includes('long') || g2.includes('short')) {
+                // v6.10.19 (P6): mirror the backend flag — did the floors
+                // actually move the split?
+                const preHold = hold;
+                const preArm = g2.includes('long') ? long : short;
+                hold = Math.min(hold, 60);
+                if (g2.includes('long')) long = Math.max(long, 15);
+                else short = Math.max(short, 15);
+                if (preHold > 60 || preArm < 15) leanFloorApplied = true;
+            }
             const reSum = long + short + hold;
             long = Math.round((long / reSum) * 100);
             short = Math.round((short / reSum) * 100);
@@ -223,11 +253,28 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     // the data does not support a directional call. Collapse to HOLD so the
     // operator does not see a confident "LONG" headline when the math
     // actually says "all three are about equal".
+    // v6.10.17: when the macro bias IS directional (incl. lifted grace/LEAN
+    // reads — `decisionContext.score` carries its sign), the verdict mirrors
+    // it unless HOLD is overwhelmingly dominant: the bias-side arm wins when
+    // it holds ≥35% and stays within 10 points of the hold share. This is the
+    // "do not say HOLD when there is a minimal bullish/bearish confirmation"
+    // rule — a graded directional read beats a bare HOLD, while the readiness
+    // gate still governs when it can be acted on.
     let top: DecisionAction = 'HOLD';
     let topProb = hold;
     const maxProb = Math.max(long, short, hold);
+    const biasSide: DecisionAction =
+        bias === 'Bullish' || bias === 'StrongBullish'
+            ? 'LONG'
+            : bias === 'Bearish' || bias === 'StrongBearish'
+              ? 'SHORT'
+              : 'HOLD';
     if (maxProb >= 35) {
-        if (long === maxProb) {
+        const biasArm = biasSide === 'LONG' ? long : biasSide === 'SHORT' ? short : 0;
+        if (biasSide !== 'HOLD' && biasArm >= 35 && biasArm >= hold - 10) {
+            top = biasSide;
+            topProb = biasArm;
+        } else if (long === maxProb) {
             top = 'LONG';
             topProb = long;
         } else if (short === maxProb) {
@@ -237,14 +284,25 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     }
 
     // ── 5. Headline (gate-aware) ───────────────────────────────────────────
+    // v6.10.17: the directional read is decoupled from the execution gate —
+    // STAND ASIDE no longer erases a directional lean; it reports the gate
+    // ("SHORT — STAND ASIDE (lean 38%)"). The flat "HOLD — STAND ASIDE"
+    // headline now applies only when the top action itself is HOLD.
     let headline: DecisionRank['headline'];
     if (readiness === 'STAND_ASIDE') {
-        headline = {
-            action: 'STAND_ASIDE',
-            label: `HOLD — STAND ASIDE`,
-            state: 'STAND_ASIDE',
-            confidence_pct: Math.round(confidence),
-        };
+        headline = top === 'HOLD'
+            ? {
+                action: 'STAND_ASIDE',
+                label: `HOLD — STAND ASIDE`,
+                state: 'STAND_ASIDE',
+                confidence_pct: Math.round(confidence),
+            }
+            : {
+                action: top,
+                label: `${top} — STAND ASIDE (lean ${topProb}%)`,
+                state: 'STAND_ASIDE',
+                confidence_pct: Math.round(confidence),
+            };
     } else if (top === 'HOLD') {
         headline = {
             action: 'HOLD',
@@ -264,6 +322,7 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
     // ── 6. Rationale ──────────────────────────────────────────────────────
     const rationale = buildRationale({
         score,
+        scoreConfidence,
         bias,
         readiness,
         guidance,
@@ -280,7 +339,10 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
         top,
     });
 
+    // v6.10.19 (P6): prefer the backend's authoritative flag.
+    const floorApplied = decisionContext?.lean_floor_applied === true || leanFloorApplied;
     return {
+        lean_floor_applied: floorApplied,
         long: { probability: long, reasons: [] },
         short: { probability: short, reasons: [] },
         hold: { probability: hold, reasons: [] },
@@ -476,6 +538,10 @@ function clamp(lo: number, hi: number, x: number): number {
 
 interface RationaleInputs {
     score: number;
+    /** `DecisionContext.score_confidence` — |unsigned blend|/100. Lets the
+     * why-line report the true unsigned blend when Neutral bias zeroes the
+     * signed score (v6.10.16). */
+    scoreConfidence: number;
     bias: string;
     readiness: DecisionState;
     guidance: string;
@@ -742,6 +808,23 @@ export function resolveActiveRr(
 }
 
 /**
+ * The human-readable R:R discount explanation (RR-008, v6.10.14), e.g.
+ * `"Risk-adjusted: net R:R 12.90 × risk factor 0.15 = 1.93"`.
+ * v6.10.19 (P5): the base value is the NET R:R (gross minus estimated
+ * entry/exit fees + slippage) — the value the operator can actually
+ * expect after costs.
+ * `null` when either value is absent or the factor is trivial (values
+ * identical). Shared by the L6 header chip tooltip and the recommendation
+ * export so screen and JSON always carry the identical sentence.
+ */
+export function riskAdjRrExplanation(geometricRr: number, riskAdjustedRr: number): string | null {
+    if (riskAdjustedRr <= 0 || geometricRr <= 0) return null;
+    if (Math.abs(geometricRr - riskAdjustedRr) < 1e-9) return null;
+    const factor = riskAdjustedRr / geometricRr;
+    return `Risk-adjusted: net R:R ${geometricRr.toFixed(2)} × risk factor ${factor.toFixed(2)} = ${riskAdjustedRr.toFixed(2)}`;
+}
+
+/**
  * Read the resolved per-side zones directly from an `OpportunityProfile`.
  * Returns `null` when the profile has no zones for that side (legacy
  * payloads, Neutral family, or un-met preconditions).
@@ -853,12 +936,16 @@ export interface TopSetupSummary {
     preconditions_met: number;
     preconditions_total: number;
     direction: 'LONG' | 'SHORT' | 'NEUTRAL';
-    viability: 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+    viability: 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
     zones: ProfileZones | null;
     rr: number | null;
     /** Human-readable N/A reason — rendered as a tooltip on the card. */
     rr_reason: string | null;
     rationale: string;
+    /** v6.10.19 (T3): the aggregated reference bracket's R:R is below the
+     *  1.0 actionable floor — levels stay visible but the card is demoted
+     *  to "Reference Bracket (Below Actionable Floor)", never "Top Setup". */
+    below_floor: boolean;
 }
 
 export function topSetupSummary(
@@ -869,7 +956,42 @@ export function topSetupSummary(
     if (!opportunity) return null;
     const top = topQualifyingProfile(opportunity);
     if (!top) {
-        return null;
+        // v6.10.17 (A3): no qualifying profile (e.g. No Clear — every
+        // profile has 0/N preconditions) — the AGGREGATED bracket is still
+        // published on the bias side so the operator always has TPs/SLs/R:R
+        // to work with, explicitly marked weak/informational. The side
+        // resolves from the bias first, then net_bias_pct, then NEUTRAL —
+        // fixing the legacy blind-LONG default at exactly 0.
+        const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
+        let side: 'LONG' | 'SHORT' | 'NEUTRAL' =
+            macroBias === 'Bullish' || macroBias === 'StrongBullish'
+                ? 'LONG'
+                : macroBias === 'Bearish' || macroBias === 'StrongBearish'
+                  ? 'SHORT'
+                  : 'NEUTRAL';
+        if (side === 'NEUTRAL') {
+            const net = decisionContext?.net_bias_pct ?? 0;
+            side = net < 0 ? 'SHORT' : net > 0 ? 'LONG' : 'NEUTRAL';
+        }
+        const zones = side === 'NEUTRAL' ? null : aggregateZones(opportunity, side);
+        const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, null, macroBias);
+        const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+        // v6.10.19 (T3): a sub-1.0 bracket is NEVER framed as a trade —
+        // levels remain visible for reference, but the card demotes.
+        const below_floor = resolvedRr.available && resolvedRr.value < 1.0;
+        return {
+            opportunity_type: 'AggregatedBracket',
+            score: 0,
+            preconditions_met: 0,
+            preconditions_total: 0,
+            direction: side,
+            viability: 'NoClear',
+            zones,
+            rr,
+            rr_reason: resolvedRr.available ? null : resolvedRr.reason,
+            rationale: 'aggregated bracket (informational — no qualifying profile)',
+            below_floor,
+        };
     }
     // R4: the macro bias prefers the DecisionContext mirror (the
     // same-candle field the verdict/probabilities come from). The
@@ -899,8 +1021,17 @@ export function topSetupSummary(
     const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, top);
     const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
     const rrReason = resolvedRr.available ? null : resolvedRr.reason;
-    // Viability — wire-side default to `NoClear` when missing.
-    const viability = normalizeViability(top.trade_viability ?? 'NoClear') as TopSetupSummary['viability'];
+    // Viability — wire-side default to `NoClear` when missing, except
+    // that a qualifying profile (preconditions met) reads QUALIFYING
+    // (v6.10.17 P1 — a real bracket is never labelled "no clear setup").
+    // v6.10.18 (I-5): ACTIONABLE additionally requires R:R ≥ 1.0 — a
+    // legacy payload that says ACTIONABLE with a sub-1 bracket is
+    // re-derated to QUALIFYING (a real bracket, no edge to act on).
+    const viability = normalizeViability(
+        top.trade_viability ?? (top.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
+    ) as TopSetupSummary['viability'];
+    const effectiveViability =
+        viability === 'Actionable' && (rr == null || rr < 1) ? 'Qualifying' : viability;
     // Clean rationale (no raw/ratio debug strings).
     const rationale = `${top.opportunity_type}: preconditions ${top.preconditions_met}/${top.preconditions_total}`;
     return {
@@ -909,11 +1040,12 @@ export function topSetupSummary(
         preconditions_met: top.preconditions_met,
         preconditions_total: top.preconditions_total,
         direction: side,
-        viability,
+        viability: effectiveViability,
         zones,
         rr,
         rr_reason: rrReason,
         rationale,
+        below_floor: false,
     };
 }
 
@@ -931,10 +1063,14 @@ export function profileSummary(
     side: 'LONG' | 'SHORT' | 'NEUTRAL';
     zones: ProfileZones | null;
     rr: number | null;
-    viability: 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+    /** Human-readable N/A reason from the shared resolver — the L4 card
+     * must not fall back to a hardcoded "no_actionable_geometry" when the
+     * true cause is a missing directional bias (v6.10.16 FIX-O4). */
+    rr_reason: string | null;
+    viability: 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
 } {
     if (!profile) {
-        return { side: 'NEUTRAL', zones: null, rr: null, viability: 'NoClear' };
+        return { side: 'NEUTRAL', zones: null, rr: null, rr_reason: 'no directional bias', viability: 'NoClear' };
     }
     // R4: the macro bias prefers the DecisionContext mirror — see
     // `topSetupSummary` for the rationale.
@@ -955,20 +1091,41 @@ export function profileSummary(
     // with the exact backend formula.
     const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, profile);
     const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
-    const viability = normalizeViability(profile.trade_viability ?? 'NoClear') as 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
-    return { side, zones, rr, viability };
+    const rr_reason = resolvedRr.available ? null : resolvedRr.reason;
+    // v6.10.17 (P1): a profile with met preconditions but a null wire
+    // viability is QUALIFYING (a real bracket), not NoClear.
+    // v6.10.18 (I-5): ACTIONABLE additionally requires R:R ≥ 1.0.
+    const viability = normalizeViability(
+        profile.trade_viability ?? (profile.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
+    ) as 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+    const effectiveViability =
+        viability === 'Actionable' && (rr == null || rr < 1) ? 'Qualifying' : viability;
+    return { side, zones, rr, rr_reason, viability: effectiveViability };
 }
 
 function buildRationale(r: RationaleInputs): string[] {
     const out: string[] = [];
 
     // 1. Bias + score
+    // v6.10.16: when bias is Neutral the signed `score` is 0 by design
+    // (`DecisionContext` zeroes direction under Neutral bias) — the
+    // underlying unsigned blend is NOT 0 (≈ score_confidence × 100).
+    // State both so the why-line never misattributes the zero to the
+    // L2/L3/L4 blend.
+    const unsignedBlend =
+        r.scoreConfidence != null && r.scoreConfidence > 0
+            ? Math.round(r.scoreConfidence * 100)
+            : null;
     const driverSuffix =
         r.bias === 'Neutral' && r.top !== 'HOLD'
             ? ` (math-driven by confluence score ${r.score.toFixed(0)}; wire bias reads Neutral)`
             : '';
+    const signedNote =
+        r.bias === 'Neutral' && unsignedBlend != null
+            ? ` — signed 0 because Neutral bias zeroes the directional blend (unsigned ≈ ${unsignedBlend})`
+            : '';
     out.push(
-        `${r.bias} bias, confluence score ${r.score.toFixed(0)} (L2 tradability_dim + L3 quality + L4 opportunity)${driverSuffix}`,
+        `${r.bias} bias, confluence score ${r.score.toFixed(0)} (L2 tradability_dim + L3 quality + L4 opportunity)${signedNote}${driverSuffix}`,
     );
 
     // 2. Setup identification

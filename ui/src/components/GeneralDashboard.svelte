@@ -7,16 +7,19 @@
     //
     // Layout (top-down) — v7.0-prod:
     //   1. LayerHeader (L7 MARKET OVERVIEW) — canonical badge + meta
-    //      chips (health, systemic risk, sync) + status pill; trailing
-    //      slot hosts the UTC clock + scan strip + panel title.
-    //   2. RecommendationHero (TRADE / WAIT / STAND ASIDE)
-    //   3. Header KPI strip (6 cards)
-    //   4. 5-up card row: Trade Opportunities, Risk Distribution,
+    //      chips (health, systemic risk, sync) + status pill; the
+    //      stackRight variant pins the LIVE pill over the ExportDataButton
+    //      in a right-edge column.
+    //   2. Scan bar (MARKET OVERVIEW title + UTC clock + scan strip)
+    //   3. RecommendationHero (TRADE / WAIT / STAND ASIDE)
+    //   4. Header KPI strip (6 cards)
+    //   5. 5-up card row: Trade Opportunities, Risk Distribution,
     //      Signal Quality, Direction, Market Alignment
-    //   5. Market Health card (4 sub-dim bars)
-    //   6. Regime Distribution (ASCII bars)
-    //   7. Asset Rankings table (11-column leaderboard incl. MTF cols)
-    //   8. Bottom CTA row: SnapshotScheduler (left) | WatchlistRunner (right)
+    //   6. Market Health card (4 sub-dim bars)
+    //   7. Regime Distribution (ASCII bars)
+    //   8. Asset Rankings table (11-column leaderboard incl. MTF cols)
+    //   9. Bottom toolbar: [SCHEDULE SNAPSHOTS] [SCAN WATCHLIST] buttons
+    //      grouped left, explanatory caption right-aligned
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import LayerHeader from './LayerHeader.svelte';
@@ -87,19 +90,23 @@
                 </p>
             </div>
         {:else}
-            <!-- L7 HEADER (v7.0-prod — shared chrome across all MME tabs) -->
-            <LayerHeader spec={headerSpec}>
+            <!-- L7 HEADER (v7.0-prod — shared chrome across all MME tabs).
+                 stackRight stacks the LIVE pill over the EXPORT DATA button
+                 in a right-edge column; the scan bar below keeps the
+                 MARKET OVERVIEW title + UTC clock + scan strip. -->
+            <LayerHeader spec={headerSpec} stackRight>
                 {#snippet trailing()}
-                    <div class={styles.header}>
-                        <div class={styles.headerLeft}>
-                            <h2 class={styles.title}>MARKET OVERVIEW</h2>
-                            <UtcClockBadge />
-                        </div>
-                        <ScanStatusStrip />
-                    </div>
                     <ExportDataButton onExport={buildExport} title="Copy all Overview data as JSON" />
                 {/snippet}
             </LayerHeader>
+
+            <div class={styles.scanBar}>
+                <div class={styles.headerLeft}>
+                    <h2 class={styles.title}>MARKET OVERVIEW</h2>
+                    <UtcClockBadge />
+                </div>
+                <ScanStatusStrip />
+            </div>
 
             <RecommendationHero />
 
@@ -121,8 +128,13 @@
         {/if}
 
         <div class={styles.runnerBar}>
-            <SnapshotSchedulerButton />
-            <WatchlistRunnerButton {wssMap} />
+            <div class={styles.actions}>
+                <SnapshotSchedulerButton />
+                <WatchlistRunnerButton {wssMap} />
+            </div>
+            <span class={styles.caption}>
+                Add a basket of pairs and keep only those with a clear decision.
+            </span>
         </div>
     </div>
 </div>

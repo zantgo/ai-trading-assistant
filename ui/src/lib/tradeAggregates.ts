@@ -24,7 +24,7 @@ import type {
     TradeViability,
 } from '../types';
 import { normalizeViability } from './viability';
-import { selectProfileSide } from './decisionRank';
+import { selectProfileSide, resolveActiveRr } from './decisionRank';
 
 export type HeroState = 'TRADE' | 'WAIT' | 'STAND_ASIDE';
 
@@ -107,7 +107,19 @@ export function collectActiveSetups(
             out.push({
                 symbol: inst.symbol,
                 profile: p,
-                viability: normalizeViability(p.trade_viability ?? 'NoClear') as TradeViability,
+                // v6.10.17 (P1): qualifying profiles (preconditions met,
+                // null wire viability) count as real setups, not NoClear.
+                // v6.10.18 (I-5): ACTIONABLE additionally requires R:R ≥ 1.0.
+                viability: (() => {
+                    const v = normalizeViability(
+                        p.trade_viability ?? (p.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
+                    ) as TradeViability;
+                    const rr =
+                        direction === 'SHORT'
+                            ? p.short_expected_rr_internal ?? 0
+                            : p.long_expected_rr_internal ?? 0;
+                    return v === 'Actionable' && rr < 1 ? 'Qualifying' : v;
+                })(),
                 direction,
                 opportunityScore: p.score ?? opp.opportunity_score ?? 0,
                 rr: profileRR(p, direction, aggregated > 0 ? aggregated : null),
@@ -153,28 +165,22 @@ export function pickBestOpportunity(instances: InstanceState[]): SetupSummary | 
 }
 
 /**
- * Aggregate R:R across instances for the KPI strip. Returns the
- * mean of the per-side `long_expected_rr_internal` (or SHORT side if
- * the macro bias is bearish) from every instance with an
- * OpportunityMatrix. The KPI reflects the system's general R:R, not
- * just the actionable subset.
+ * Aggregate R:R across instances for the KPI strip. v6.10.16 (FIX-O1):
+ * reads the shared `resolveActiveRr` chain — the same resolver the
+ * per-asset rows and the L4/L6 panels use — so the KPI can never show a
+ * value the panels mark N/A. The KPI reflects the system's general R:R,
+ * not just the actionable subset.
  */
 export function aggregateRR(instances: InstanceState[]): { avg: number; best: number; count: number } {
     let sum = 0;
     let best = 0;
     let count = 0;
     for (const inst of instances) {
-        const opp = inst.opportunity;
-        if (!opp) continue;
-        const bias = inst.analysis?.bias ?? null;
-        const isBearish = bias === 'Bearish' || bias === 'StrongBearish';
-        const r = isBearish
-            ? (opp.short_expected_rr_internal ?? 0)
-            : (opp.long_expected_rr_internal ?? 0);
-        if (r > 0) {
-            sum += r;
+        const resolved = resolveActiveRr(inst.opportunity, inst.decisionContext, inst.analysis);
+        if (resolved.available && resolved.value > 0) {
+            sum += resolved.value;
             count += 1;
-            if (r > best) best = r;
+            if (resolved.value > best) best = resolved.value;
         }
     }
     return { avg: count > 0 ? sum / count : 0, best, count };

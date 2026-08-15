@@ -7,6 +7,7 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { computeAnalysisLean, isVotingTfLine } from '../lib/analysisLean';
     import styles from './AnalysisPanel.module.css';
 
     const app = useAppStore();
@@ -37,9 +38,20 @@
     const pairKey = $derived(app.activeTab ?? '');
 
     function buildExport() {
+        // v6.10.19a (D1): the canonical indicator map is the term-level
+        // `microTerm.indicators` (the same map every chart and the Metrics
+        // tab read) — the snapshot's raw map is the transient wire shape
+        // and produced null traceability fields on live exports.
+        const snapInd = (microTerm?.indicators ?? {}) as Record<string, { raw_value?: number | null }>;
         return buildAnalysisTabExport({
             analysis,
             alignment,
+            // v6.10.18 (I-9): the representative L3 regime inputs (the
+            // rationale's BBWP/ADX) for traceability.
+            representative: {
+                bbwp: snapInd['bbwp']?.raw_value ?? null,
+                adx: snapInd['adx']?.raw_value ?? null,
+            },
             symbol: pairKey,
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
@@ -157,6 +169,9 @@
     // must not claim "No signals" while neutral squares render below.
     // AN-3: a zero-opposing count renders "3:0" (or "0:3"), never a
     // misleading "3:1" that implies opposing signals exist.
+    // v6.10.16 (FIX-O2): shared bias-aware helper — under a Neutral market
+    // bias a directional TF vote renders amber with a "market bias neutral"
+    // qualifier instead of a green bull hero under the NEUTRAL badge.
     const signalLean = $derived.by((): {
         label: string;
         bullish: number;
@@ -166,28 +181,22 @@
         metaHtml: string;
     } => {
         const allTexts = [...(analysis?.supporting_signals ?? []), ...(analysis?.contradicting_signals ?? [])];
-        const bull = allTexts.filter(t => signalDirection(t) === 'bullish').length;
-        const bear = allTexts.filter(t => signalDirection(t) === 'bearish').length;
-        if (allTexts.length === 0) {
-            return { label: 'No per-TF signals', bullish: 0, bearish: 0, tone: 'split',
-                callHtml: 'No signals', metaHtml: 'Waiting for cross-TF consensus' };
-        }
-        if (bull === 0 && bear === 0) {
-            return { label: 'Neutral signals · no directional lean', bullish: 0, bearish: 0, tone: 'split',
-                callHtml: 'Neutral signals', metaHtml: 'No directional lean across timeframes' };
-        }
-        const ratioText = (dominant: number, opposing: number) =>
-            opposing === 0 ? `${dominant}:0` : `${(dominant / opposing).toFixed(1)}:1`;
-        if (bull > bear * 1.5) {
-            return { label: `Net bullish \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'bull',
-                callHtml: `Net bullish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratioText(bull, bear)} signal ratio` };
-        }
-        if (bear > bull * 1.5) {
-            return { label: `Net bearish \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'bear',
-                callHtml: `Net bearish (${bull}\u2191 vs ${bear}\u2193)`, metaHtml: `${ratioText(bear, bull)} signal ratio` };
-        }
-        return { label: `Split signals \u00b7 ${bull}\u2191 vs ${bear}\u2193`, bullish: bull, bearish: bear, tone: 'split',
-            callHtml: 'Split signals', metaHtml: `${bull}\u2191 vs ${bear}\u2193` };
+        // v6.10.18 (I-7): the hero vote uses the bias machinery's filter —
+        // COMPRESSION windows and flat TFs (|score| ≤ 10) do not vote.
+        const voteTexts = allTexts.filter(isVotingTfLine);
+        const bull = voteTexts.filter(t => signalDirection(t) === 'bullish').length;
+        const bear = voteTexts.filter(t => signalDirection(t) === 'bearish').length;
+        // Placeholder logic keys on the RAW presence (AN-2), counts on the
+        // filtered vote (I-7).
+        const lean = computeAnalysisLean(analysis?.bias, bull, bear, allTexts.length);
+        return {
+            label: lean.label,
+            bullish: lean.bullish,
+            bearish: lean.bearish,
+            tone: lean.tone,
+            callHtml: lean.callHtml,
+            metaHtml: lean.metaHtml,
+        };
     });
 
     // Helper to decompose raw signal strings into structural elements

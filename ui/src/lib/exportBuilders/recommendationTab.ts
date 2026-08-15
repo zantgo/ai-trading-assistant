@@ -13,6 +13,8 @@ import type {
 } from '../../types';
 import {
   computeDecisionRank,
+  resolveActiveRr,
+  riskAdjRrExplanation,
   topSetupSummary,
   entryDangerLevel,
 } from '../../lib/decisionRank';
@@ -68,11 +70,14 @@ export interface TopSetupBlock {
   rationale: string;
 }
 
-function viabilityBadgeText(viability: string, top: string): string {
-  // Mirrors `RecommendationPanel.svelte:281-287` — emits the same literal
-  // badge text the screen shows. Empty string when the screen shows
-  // nothing (e.g. Actionable + HOLD verdict).
+function viabilityBadgeText(viability: string, top: string, belowFloor = false): string {
+  // Mirrors `RecommendationPanel.svelte` — emits the same literal badge
+  // text the screen shows. Empty string when the screen shows nothing
+  // (e.g. Actionable + HOLD verdict).
+  // v6.10.19 (T3): a sub-1.0 reference bracket is NEVER framed as a trade.
+  if (belowFloor) return 'R:R BELOW ACTIONABLE FLOOR';
   if (viability === 'Actionable' && top !== 'HOLD') return 'ACTIONABLE';
+  if (viability === 'Qualifying') return 'QUALIFYING';
   if (viability === 'DirectionalNeutral') return 'HOLD · NO DIRECTIONAL EDGE';
   if (viability === 'GeometryInverted') return 'GEOMETRY INVERTED';
   if (viability === 'NoClear') return 'NO CLEAR SETUP';
@@ -84,6 +89,10 @@ export interface SafetyFlagsBlock {
   rr_available: boolean;
   rr_value: number | null;
   rr_reason: string | null;
+  /** The first-class R:R discount explanation (RR-008) — the same sentence
+   *  the L6 header chip tooltip renders. `null` when there is no real
+   *  risk-adjusted R:R. */
+  risk_adj_rr_explanation: string | null;
   stop_loss_pct: number;
   confidence_pct: number;
   entry_danger_score: number;
@@ -101,7 +110,13 @@ export interface GaugeBlock {
   long_pct: number;
   short_pct: number;
   hold_pct: number;
-  /** Verbatim copy of the gauge needle label ("+37%" / "0%" / "-14%"). */
+  /** v6.10.19 (P6): the graded-lean floors adjusted this split — the
+   *  directional read is structurally boosted (LEAN annotation). */
+  lean_floor_applied: boolean;
+  /** Verbatim copy of the gauge needle label ("+37%" / "0%" / "-14%").
+   *  v6.10.17: the needle is verdict-consistent — neutral only when the
+   *  top action is HOLD; a directional lean gated by STAND ASIDE keeps
+   *  its real net-bias display. */
   net_bias_display: string;
 }
 
@@ -148,6 +163,45 @@ export interface RecommendationPayload {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * v6.10.19 (T2 + T5): verdict-aware environment guidance. Under a genuine
+ * HOLD top the guidance sentence must say exactly what the 0% needle
+ * means — no "Long bias: …" claim leading the sentence, no "Entry: ….
+ * Stop: …." execution instructions. Shared by the panel and the export so
+ * screen and clipboard can never disagree. Non-HOLD verdicts pass the
+ * advisory sentence through unchanged.
+ */
+export function verdictAwareGuidance(
+  advisory: AdvisoryMatrix | null,
+  top: 'LONG' | 'SHORT' | 'HOLD',
+): string | null {
+  if (!advisory?.final_recommendation) return null;
+  if (top !== 'HOLD') return advisory.final_recommendation;
+  let g = advisory.final_recommendation;
+  // Strip any residual "Entry: …. Stop: …." clauses (server-side already
+  // omits them under Neutral/Avoid — this is the defensive layer for
+  // legacy payloads and directional-guidance HOLD states).
+  g = g.replace(/\s*Entry: [^.]*\.?\s*Stop: [^.]*\.?\s*$/i, '');
+  g = g.replace(/\s*Entry: [^.]*\.?\s*$/i, '');
+  // Reword the leading directional claim — under HOLD the read exists
+  // but the edge does not.
+  const guidance = advisory.directional_guidance ?? '';
+  const conf = Math.round(advisory.confidence_assessment ?? 0);
+  g = g
+    .replace(/^Strong long bias:/i, `${guidance} bias at ${conf}% — no actionable directional edge;`)
+    .replace(/^Long bias:/i, `BULLISH bias at ${conf}% — no actionable directional edge;`)
+    .replace(/^Strong short bias:/i, `${guidance} bias at ${conf}% — no actionable directional edge;`)
+    .replace(/^Short bias:/i, `BEARISH bias at ${conf}% — no actionable directional edge;`);
+  // Drop the duplicated "… bias with N% confidence" fragment that follows
+  // the reworded claim (the confidence already lives in the new claim).
+  g = g.replace(/,?\s*[A-Za-z]+ bias with \d+% confidence/i, '');
+  // v6.10.19a (D2a): the strip can leave an orphaned ":," behind
+  // ("…no actionable directional edge:, cautious…") — collapse both.
+  g = g.replace(/:\s*,\s*/g, ', ');
+  g = g.replace(/\s*:\s*$/g, '');
+  return g.trim();
+}
 
 function sanitizeLabel(s: string): string {
   // Screen renders "—" for falsy input — mirror it.
@@ -248,6 +302,7 @@ function buildGaugeBlock(
     short_pct: rank.short.probability,
     hold_pct: rank.hold.probability,
     net_bias_display: netBias === 0 ? '0%' : `${netBias > 0 ? '+' : ''}${netBias}%`,
+    lean_floor_applied: rank.lean_floor_applied === true,
   };
 }
 
@@ -267,11 +322,15 @@ function buildTopSetupBlock(
   const viability =
     summary.viability === 'Actionable'
       ? 'Actionable'
-      : summary.viability === 'DirectionalNeutral'
+      : summary.viability === 'Qualifying'
+        ? 'Qualifying'
+        : summary.viability === 'DirectionalNeutral'
         ? 'DirectionalNeutral'
         : summary.viability === 'GeometryInverted'
           ? 'GeometryInverted'
           : 'NoClear';
+  // v6.10.19 (T3): a sub-1.0 reference bracket is never framed as a trade.
+  const belowFloor = summary.below_floor === true;
   const rr = buildRrBlock(summary.rr, 'no_actionable_setup');
   const entryDisplay = z
     ? `$${fmtPriceScale(z.entry.low, markPrice)}–$${fmtPriceScale(z.entry.high, markPrice)}`
@@ -299,7 +358,7 @@ function buildTopSetupBlock(
   return {
     opportunity_type: sanitizeLabel(summary.opportunity_type),
     viability,
-    badge_text: viabilityBadgeText(viability, top),
+    badge_text: viabilityBadgeText(viability, top, belowFloor),
     score: summary.score,
     preconditions_met: summary.preconditions_met,
     preconditions_total: summary.preconditions_total,
@@ -325,6 +384,7 @@ function buildSafetyFlagsBlock(
   advisory: AdvisoryMatrix | null,
   readiness: string,
   topAction: 'LONG' | 'SHORT' | 'HOLD',
+  opportunity: OpportunityMatrix | null,
 ): SafetyFlagsBlock {
   const rrRaw = decisionContext?.expected_reward_risk_ratio ?? 0;
   const rrNotApplicable = topAction === 'HOLD' && rrRaw === 0;
@@ -335,11 +395,17 @@ function buildSafetyFlagsBlock(
   const stopLossPct = advisory?.stop_loss_distance_pct ?? 0;
   const confidence = advisory?.confidence_assessment ?? 0;
   const entryDangerLevelVal = entryDangerLevel(score);
+  // RR-008 (v6.10.14): the first-class discount explanation — the SAME
+  // sentence the L6 header chip tooltip renders, so consumers don't
+  // recompute the factor. Null when there is no real risk-adjusted R:R.
+  const geometricRr = resolveActiveRr(opportunity, decisionContext).value;
+  const rrExplanation = rrRaw > 0 ? riskAdjRrExplanation(geometricRr, rrRaw) : null;
   return {
     readiness,
     rr_available: rr.available,
     rr_value: rr.value,
     rr_reason: rr.reason,
+    risk_adj_rr_explanation: rrExplanation,
     stop_loss_pct: stopLossPct,
     confidence_pct: confidence,
     entry_danger_score: score,
@@ -354,9 +420,12 @@ function buildSafetyFlagsBlock(
 
 function buildWhyNote(
   rank: ReturnType<typeof computeDecisionRank>,
-  noClearCard: boolean,
 ): string | null {
-  if (rank.headline.action === 'STAND_ASIDE' || noClearCard) {
+  // v6.10.17: the note applies ONLY under a genuine HOLD top — a
+  // directional lean (even gated by STAND ASIDE or coexisting with the
+  // No Clear explanation card) has real directional meaning and must
+  // never carry the "no directional edge" disclaimer.
+  if (rank.top === 'HOLD') {
     return 'No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.';
   }
   return null;
@@ -367,13 +436,16 @@ function buildNoClearCard(
   opportunity: OpportunityMatrix | null,
   topSetup: TopSetupBlock | null,
 ): NoClearCardBlock | null {
-  // Mirrors the panel: the No Clear Setup card renders only when the top
-  // setup is absent AND the primary opportunity is NoClearOpportunity.
+  // Mirrors the panel (v6.10.17): the No Clear Setup card renders when
+  // the primary opportunity is NoClearOpportunity AND the top setup is
+  // either absent (warmup) or the informational aggregated bracket
+  // (viability NoClear). It explains WHY there is no qualifying profile
+  // — the bracket card above still carries TPs/SLs/R:R.
   const hasNoClear =
-    topSetup === null
-      && !!opportunity
-      && !!advisory
-      && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity';
+    !!opportunity
+    && !!advisory
+    && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity'
+    && (topSetup === null || topSetup.viability === 'NoClear');
   if (!hasNoClear) return null;
   const body =
     advisory?.final_recommendation ||
@@ -423,21 +495,24 @@ function buildPriceLevelsBlock(
 
 function buildStrategyBlock(
   advisory: AdvisoryMatrix | null,
-  topAction: 'LONG' | 'SHORT' | 'HOLD',
+  noActiveCall: boolean,
 ): RecommendationPayload['strategy'] {
   // Entry/Exit use the sanitizeLabel title-casing the screen renders;
   // Protection/Target use prettifyEnum with the -Based / ATR / S-R /
-  // R:R / SL overrides. Under a HOLD verdict the screen renders a muted
-  // caption ("environment playbook, not a trade trigger").
+  // R:R / SL overrides. Under a genuine HOLD verdict (no active directional
+  // call) the screen renders a muted caption ("environment playbook, not a
+  // trade trigger") — FIX-5 (v6.10.15) — and the actionable-sounding values
+  // are replaced with "—" (FIX-O5 v6.10.16). v6.10.17: a directional lean
+  // gated by STAND ASIDE is a REAL lean — its playbook values render real.
+  // The advisory text survives in `final_verdict_guidance`.
   return {
-    entry: sanitizeLabel(advisory?.entry_guidance ?? ''),
-    exit: sanitizeLabel(advisory?.exit_guidance ?? ''),
-    protection: prettifyEnum(advisory?.protection_strategy ?? ''),
-    target: prettifyEnum(advisory?.target_strategy ?? ''),
-    hold_caption:
-      topAction === 'HOLD'
-        ? 'For reference — no active directional call. The guidance below describes the environment, not a trade trigger.'
-        : null,
+    entry: noActiveCall ? '\u2014' : sanitizeLabel(advisory?.entry_guidance ?? ''),
+    exit: noActiveCall ? '\u2014' : sanitizeLabel(advisory?.exit_guidance ?? ''),
+    protection: noActiveCall ? '\u2014' : prettifyEnum(advisory?.protection_strategy ?? ''),
+    target: noActiveCall ? '\u2014' : prettifyEnum(advisory?.target_strategy ?? ''),
+    hold_caption: noActiveCall
+      ? 'For reference — no active directional call. The guidance below describes the environment, not a trade trigger.'
+      : null,
   };
 }
 
@@ -480,7 +555,20 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
   });
   const topSetup = buildTopSetupBlock(args.opportunity, args.analysis, args.decisionContext, args.markPrice ?? 0, rank.top);
   const noClearCard = buildNoClearCard(args.advisory, args.opportunity, topSetup);
+  // FIX-4/FIX-5 (v6.10.15) + v6.10.17 decoupling: "no active directional
+  // call" applies ONLY under a genuine HOLD verdict — a directional lean
+  // gated by STAND ASIDE carries a real (graded) read whose sentence
+  // reports both the lean and the gate.
+  const noActiveCall = rank.top === 'HOLD';
   const header = buildHeaderBlock(args.headerSpec);
+  const score = readEntryDangerScore(args.decisionContext);
+  const verdictSentence = noActiveCall
+    ? `HOLD — no directional call (readiness: ${rank.headline.state}).`
+    : rank.headline.state === 'STAND_ASIDE'
+      ? `${rank.top} lean ${Math.round(rank.top_prob)}% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger ${entryDangerLevel(score)}).`
+      : rank.headline.state === 'READY'
+        ? `${rank.top} ${Math.round(rank.top_prob)}% — READY (readiness: READY).`
+        : `${rank.top} lean ${Math.round(rank.top_prob)}% — awaiting confirmation (readiness: ${rank.headline.state}).`;
   const payload: RecommendationPayload = {
     source_tab: 'recommendation',
     meta,
@@ -489,25 +577,25 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     environment: buildEnvironmentBlock(args.advisory, args.decisionContext, rank.headline.state),
     verdict: buildVerdictBlock(rank),
     top_setup: topSetup,
-    // Verbatim section-meta caption the panel renders when no qualifying
-    // setup exists (top_setup null and no NoClear card).
+    // Verbatim section-meta caption the panel renders when no setup exists
+    // (top_setup null — opportunity matrix absent).
     top_setup_empty_text: topSetup ? null : 'no qualifying setup yet',
     no_clear_card: noClearCard,
-    safety_flags: buildSafetyFlagsBlock(args.decisionContext, args.advisory, rank.headline.state, rank.top),
-    why_note: buildWhyNote(rank, !!noClearCard),
+    safety_flags: buildSafetyFlagsBlock(args.decisionContext, args.advisory, rank.headline.state, rank.top, args.opportunity),
+    why_note: buildWhyNote(rank),
     why: rank.rationale.slice(0, 3),
     price_levels: buildPriceLevelsBlock(args.opportunity, rank.top),
-    strategy: buildStrategyBlock(args.advisory, rank.top),
-    // R6: the final verdict is the verdict — never the advisory's
-    // directional sentence under a HOLD badge. The advisory text is
-    // carried separately as environment guidance.
-    final_verdict:
-      rank.top === 'HOLD'
-        ? `HOLD — no directional call (readiness: ${rank.headline.state}).`
-        : args.advisory?.final_recommendation || '\u2014',
+    strategy: buildStrategyBlock(args.advisory, noActiveCall),
+    // R6 + FIX-4 + v6.10.17: the final verdict is the verdict — under a
+    // genuine HOLD it reads "no directional call"; under a directional
+    // lean it carries the graded percentage AND the gate. The advisory
+    // text is carried separately as environment guidance.
+    final_verdict: verdictSentence,
+    // v6.10.19 (T2/T5): verdict-aware — under a HOLD top the guidance is
+    // reworded and stripped of execution instructions.
     final_verdict_guidance:
-      rank.top === 'HOLD' && args.advisory?.final_recommendation
-        ? `Environment guidance: ${args.advisory.final_recommendation}`
+      verdictAwareGuidance(args.advisory, rank.top) != null
+        ? `Environment guidance: ${verdictAwareGuidance(args.advisory, rank.top)}`
         : null,
   };
   return JSON.stringify(payload, null, 2);

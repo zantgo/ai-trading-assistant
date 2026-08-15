@@ -14,7 +14,7 @@
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor, rrColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import { resolveEffectiveDirection, RR_MEANINGFUL_FLOOR } from './opportunityBars';
-import { resolveActiveRr } from './decisionRank';
+import { resolveActiveRr, riskAdjRrExplanation } from './decisionRank';
 import type {
     AdvisoryMatrix,
     AlignmentMatrix,
@@ -409,19 +409,16 @@ export function buildL4OpportunityHeader(
         };
     }
 
-    const longRr = o?.long_expected_rr_internal ?? 0;
-    const shortRr = o?.short_expected_rr_internal ?? 0;
     // Single effective direction (4a/4b): the top qualifying profile's
     // resolved side (zone-presence aware — deviation-driven for
-    // CounterTrend setups), else the macro bias, else the argmax of the
-    // per-side R:R. The previous bias-only override contradicted the
-    // documented CounterTrend resolution: a MeanReversion under bearish
-    // bias rendered a red SHORT badge while its profile card resolved
-    // LONG. `resolveEffectiveDirection` is shared with the bars and the
-    // R:R displays so the header can never disagree with the panel.
+    // CounterTrend setups), else the macro bias. `resolveEffectiveDirection`
+    // is shared with the bars and the R:R displays so the header can never
+    // disagree with the panel. FIX-2 (v6.10.15): a NEUTRAL resolution
+    // renders a neutral-tone badge — the legacy argmax of the per-side
+    // R:R lit the badge directionally on a directionally-neutral panel
+    // (bear tone beside a DirectionalNeutral card and N/A R:R).
     const resolved = resolveEffectiveDirection(o, bias ?? null);
-    const effectiveDir: 'LONG' | 'SHORT' =
-        resolved === 'NEUTRAL' ? (longRr >= shortRr ? 'LONG' : 'SHORT') : resolved;
+    const effectiveDir: 'LONG' | 'SHORT' | 'NEUTRAL' = resolved;
     // RR-002 (v6.10.12): the header chip reads the active side's geometric
     // R:R through the shared resolver (wire → aligned zones fallback), so
     // it can never disagree with the cards or the R:R (Internal) section.
@@ -526,11 +523,16 @@ export function buildL6DecisionHeader(input: {
     const stance = advisory?.market_stance ?? null;
     const readiness = decisionContext?.trade_readiness ?? null;
 
+    // v6.10.17: the badge mirrors the VERDICT (rank.top). The STAND ASIDE
+    // override applies only under a genuine HOLD verdict (the flat state —
+    // no directional call). A directional lean gated by STAND ASIDE shows
+    // its direction as the badge with the readiness as the sublabel, so
+    // the header, the gauge, the verdict hero, and the export can never
+    // contradict each other.
     let label: string = rank.top;
-    if (rank.headline.state === 'STAND_ASIDE' || decisionContext?.trade_readiness === 'STAND_ASIDE') {
+    if (rank.top === 'HOLD'
+        && (rank.headline.state === 'STAND_ASIDE' || decisionContext?.trade_readiness === 'STAND_ASIDE')) {
         label = 'STAND ASIDE';
-    } else if (rank.top === 'HOLD') {
-        label = 'HOLD';
     }
     const color =
         label === 'LONG' ? DASHBOARD_COLORS.bullish
@@ -544,14 +546,10 @@ export function buildL6DecisionHeader(input: {
     // RR-001 (v6.10.12): this chip is the L6 RISK-ADJUSTED decision R:R
     // (geometric × (1 − overall_risk/100)) — named distinctly from the L4
     // geometric "R:R" the setup cards show, and its discount is explainable
-    // in the tooltip.
+    // in the tooltip (shared sentence with the export, RR-008).
     let rrTitle: string | undefined;
     if (rr > 0) {
-        const geometric = resolveActiveRr(opportunity, decisionContext).value;
-        if (geometric > 0 && geometric !== rr) {
-            const factor = rr / geometric;
-            rrTitle = `Risk-adjusted: geometric R:R ${geometric.toFixed(2)} × risk factor ${factor.toFixed(2)} = ${rr.toFixed(2)}`;
-        }
+        rrTitle = riskAdjRrExplanation(resolveActiveRr(opportunity, decisionContext).value, rr) ?? undefined;
     }
     const meta: MetaChipSpec[] = [
         chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
@@ -607,14 +605,29 @@ export function buildL7OverviewHeader(
             status,
         };
     }
+    // v6.10.18 (I-10): under LOW coverage (≤2 active symbols) the global
+    // STRONG_* tokens overstate a breadth statistic that is statistically
+    // meaningless — demote the DISPLAY token one tier (STRONG_BULLISH →
+    // BULLISH, STRONG_BEARISH → BEARISH) and append the pair count to the
+    // sublabel so a professional trader reads "BULLISH (1 pair)", never
+    // "STRONG BULLISH 100% breadth" from a single symbol. The wire value
+    // stays intact for data consumers.
+    const lowCoverage = (overview.low_coverage ?? false) || (count != null && count <= 2);
+    const displayBias =
+        lowCoverage && bias === 'StrongBullish'
+            ? 'Bullish'
+            : lowCoverage && bias === 'StrongBearish'
+              ? 'Bearish'
+              : bias;
+    const coverageSuffix = lowCoverage && count != null ? ` (${count} pair${count === 1 ? '' : 's'})` : '';
     return {
         layerNumber: 7,
         layerName: 'Overview',
         badge: {
-            label: prettifyEnum(bias as GlobalBias),
-            sublabel: health ? prettifyEnum(health) : undefined,
-            color: biasColor(bias),
-            background: hexToRgba(biasColor(bias), 0.08),
+            label: prettifyEnum(displayBias as GlobalBias),
+            sublabel: `${health ? prettifyEnum(health) : ''}${coverageSuffix}`.trim() || undefined,
+            color: biasColor(displayBias),
+            background: hexToRgba(biasColor(displayBias), 0.08),
             state: 'valid',
         },
         meta: [

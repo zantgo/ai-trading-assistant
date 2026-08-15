@@ -430,6 +430,22 @@ describe('buildL4OpportunityHeader (L4)', () => {
         expect(rr.value).toBe('1:1.00');
     });
 
+    it('FIX-2: Neutral bias renders a NEUTRAL-tone badge (no argmax directionality)', () => {
+        // The user's capture: a directionally-neutral panel (Pullback
+        // DirectionalNeutral, N/A R:R) must NOT render a bear/bull tone
+        // just because one per-side R:R happens to be larger.
+        const spec = buildL4OpportunityHeader(opportunityStub({
+            primary_opportunity: 'Pullback',
+            long_expected_rr_internal: 1.0,
+            short_expected_rr_internal: 2.5,
+        }), 'Neutral');
+        expect(spec.badge.label).toBe('Pullback');
+        expect(spec.badge.color).toBe(COLORS.neutral);
+        // The R:R chip reads nothing directional under a neutral bias.
+        const rr = spec.meta.find((m) => m.label === 'R:R')!;
+        expect(rr.value).toBe('—');
+    });
+
     it('Score chip renders neutral amber when opportunity_score=0 but a type IS set', () => {
         const spec = buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'Pullback', opportunity_score: 0 }));
         const score = spec.meta.find((m) => m.label === 'Score')!;
@@ -498,10 +514,23 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
     });
 
-    it('STAND_ASIDE overrides anything else (low readiness gate)', () => {
+    it('directional verdict gated by STAND_ASIDE keeps its direction (v6.10.17)', () => {
+        // v6.10.17 decoupling: a LONG verdict gated by STAND ASIDE shows
+        // the direction as the badge (with the readiness as sublabel) —
+        // only a HOLD top under STAND_ASIDE collapses to "STAND ASIDE".
         const decision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0 });
         const advisory = advisoryStub({ directional_guidance: 'Long' });
         const rank = { top: 'LONG' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
+        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
+        expect(spec.badge.label).toBe('LONG');
+        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
+        expect(spec.badge.sublabel).toBe('STAND ASIDE');
+    });
+
+    it('flat HOLD under the STAND_ASIDE gate renders STAND ASIDE in amber', () => {
+        const decision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0, bias: 'Neutral' });
+        const advisory = advisoryStub({ directional_guidance: 'Neutral' });
+        const rank = { top: 'HOLD' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
         expect(spec.badge.label).toBe('STAND ASIDE');
         expect(spec.badge.color).toBe(COLORS.neutral);
@@ -725,13 +754,41 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
         assertVocabulary(buildL6DecisionHeader({ rank, decisionContext: decision, advisory }));
     });
 
-    it('L6 (HOLD / STAND_ASIDE → amber, NEVER red)', () => {
+    it('L6 (directional-gated LONG → green; flat HOLD/STAND_ASIDE → amber)', () => {
+        // v6.10.17: a directional verdict gated by STAND ASIDE keeps its
+        // direction colour — red/green, never amber. Amber is reserved for
+        // the genuinely flat no-directional-call state.
         const decision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0 });
-        const advisory = advisoryStub({ directional_guidance: 'Neutral', market_stance: 'Neutral' });
+        const advisory = advisoryStub({ directional_guidance: 'Long', market_stance: 'Neutral' });
         const rank = { top: 'LONG' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        expect(spec.badge.color).toBe('#f59e0b');
+        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
         assertVocabulary(spec);
+
+        const flatDecision = decisionCtxStub({ trade_readiness: 'STAND_ASIDE', score: 0, bias: 'Neutral' });
+        const flatRank = { top: 'HOLD' as const, headline: { state: 'STAND_ASIDE' as const, confidence_pct: 0 } };
+        const flatSpec = buildL6DecisionHeader({ rank: flatRank, decisionContext: flatDecision, advisory });
+        expect(flatSpec.badge.color).toBe('#f59e0b');
+        assertVocabulary(flatSpec);
+    });
+
+    it('L7 (low coverage → STRONG demoted + pair count) (v6.10.18 I-10)', () => {
+        // A single-pair market must not headline "STRONG BULLISH 100%
+        // breadth" — the display token demotes one tier and the sublabel
+        // carries the pair count ("BULLISH (1 pair)"). Wire value intact.
+        const spec = buildL7OverviewHeader(
+            overviewStub({ global_market_bias: 'StrongBullish', market_health: 'Poor', instance_count: 1, low_coverage: true }),
+            { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 },
+        );
+        expect(spec.badge.label).toBe('Bullish');
+        expect(spec.badge.sublabel).toContain('(1 pair)');
+        // A 5-pair synchronized market keeps the STRONG token.
+        const strong = buildL7OverviewHeader(
+            overviewStub({ global_market_bias: 'StrongBullish', market_health: 'Healthy', instance_count: 5 }),
+            { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 },
+        );
+        expect(strong.badge.label).toBe('Strong Bullish');
+        expect(strong.badge.sublabel).toBe('Healthy');
     });
 
     it('L7 (bullish → green, bearish → red)', () => {

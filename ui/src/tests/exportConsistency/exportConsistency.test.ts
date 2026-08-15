@@ -500,8 +500,115 @@ describe('export consistency — Recommendation tab', () => {
     expect(p.strategy.protection).toBe('ATR-Based');
     expectInDomAndJson(c, 'ATR-Based');
     expect(p.strategy.target).toBe('Resistance-Based');
-    expect(p.final_verdict).toContain('Long on pullback');
+    // v6.10.17: the final verdict is the graded verdict sentence in the
+    // DOM AND the export (the advisory sentence renders as environment
+    // guidance below both).
+    expect(p.final_verdict).toMatch(/^LONG \d+% — READY \(readiness: READY\)\.$/);
+    expectInDomAndJson(c, 'READY (readiness: READY)');
+    expect(p.final_verdict_guidance).toContain('Long on pullback');
     expectInDomAndJson(c, 'Long on pullback');
+  });
+
+  it('STAND ASIDE + directional verdict: gauge, sentence and playbook agree across screen and export (v6.10.17)', async () => {
+    const c = await renderPanelAndExport(RecommendationPanel, { pairKey: PAIR }, () => {
+      seedRichInstance();
+      const entry = useAppStore().instancesMap[PAIR];
+      // The user's real capture shape: LONG-dominant probabilities gated
+      // by STAND ASIDE (long 62 / short 2 / hold 36, net +60).
+      entry.decisionContext = {
+        ...entry.decisionContext!,
+        trade_readiness: 'STAND_ASIDE',
+        long_probability: 62,
+        short_probability: 2,
+        hold_probability: 36,
+        net_bias_pct: 60,
+        bias: 'Bullish',
+        entry_danger: { score: 60, level: 'High', state: 'Stable', confidence: 50, evidence: [] },
+      } as any;
+    });
+    const p = c.payload;
+
+    // Gauge: the directional needle shows +60% in the DOM AND the export.
+    expect(p.gauge.net_bias_display).toBe('+60%');
+    expectInDomAndJson(c, '+60%');
+    // The verdict hero is the graded sentence with the gate attached.
+    expect(p.final_verdict).toBe('LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH).');
+    expectInDomAndJson(c, 'LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH)');
+    // The playbook is REAL under a directional-gated verdict (no caption).
+    expect(p.strategy.hold_caption).toBeNull();
+    expect(p.strategy.entry).not.toBe('—');
+    expectInDomAndJson(c, p.strategy.entry);
+    // Price levels resolve to the LONG side.
+    expect(p.price_levels.side).toBe('long');
+  });
+
+  it('No Clear + bearish lean: the aggregated SHORT bracket and the explanation card coexist (v6.10.17 A3)', async () => {
+    const c = await renderPanelAndExport(RecommendationPanel, { pairKey: PAIR }, () => {
+      seedRichInstance();
+      const entry = useAppStore().instancesMap[PAIR];
+      entry.decisionContext = {
+        ...entry.decisionContext!,
+        trade_readiness: 'WATCH',
+        bias: 'Bearish',
+        score: -40,
+        long_probability: 18,
+        short_probability: 45,
+        hold_probability: 37,
+        net_bias_pct: -27,
+        entry_danger: { score: 45, level: 'Moderate', state: 'Stable', confidence: 50, evidence: [] },
+      } as any;
+      entry.opportunity = {
+        ...entry.opportunity!,
+        primary_opportunity: 'NoClearOpportunity',
+        invalidation_note: 'No qualifying setup; market conditions do not currently favor a directional trade.',
+        profiles: (entry.opportunity!.profiles ?? []).map((p) => ({
+          ...p,
+          opportunity_type: 'NoClearOpportunity',
+          preconditions_met: 0,
+          preconditions_total: 1,
+          trade_viability: null,
+        })),
+      } as any;
+    });
+    const p = c.payload;
+    // The aggregated bracket is published on the SHORT side.
+    expect(p.top_setup).not.toBeNull();
+    expect(p.top_setup!.direction_label).toBe('SHORT');
+    expect(p.top_setup!.viability).toBe('NoClear');
+    expect(p.top_setup!.badge_text).toBe('NO CLEAR SETUP');
+    expectInDomAndJson(c, 'NO CLEAR SETUP');
+    // The explanation card coexists (both in DOM and JSON).
+    expect(p.no_clear_card).not.toBeNull();
+    expectInDomAndJson(c, 'No Clear Setup');
+    // The verdict is the directional lean, gated by readiness.
+    expect(p.verdict.top).toBe('SHORT');
+    expect(p.final_verdict).toContain('SHORT lean');
+  });
+
+  it('Alignment weights render the WIRE blend (thin-participation reweight) on screen AND in the export', async () => {
+    const c = await renderPanelAndExport(AlignmentPanel, { pairKey: PAIR }, () => {
+      seedRichInstance();
+      const entry = useAppStore().instancesMap[PAIR];
+      // The backend publishes the ACTUAL blend when the volume dimension
+      // is thin (55/35/5/5) — the panel chips must mirror it.
+      entry.alignment = {
+        ...entry.alignment!,
+        blend_weights: [
+          ['T', 0.55],
+          ['M', 0.35],
+          ['Vt', 0.05],
+          ['Vm', 0.05],
+        ],
+      } as any;
+    });
+    const p = c.payload;
+    // The export carries the wire percentages as numbers…
+    expect(p.score_calculation.weights.map((w: { pct: number }) => w.pct)).toEqual([55, 35, 5, 5]);
+    // …and the screen renders them as the parenthesized chip labels.
+    expect(c.dom).toContain('(55%)');
+    expect(c.dom).toContain('(35%)');
+    expect(c.dom).toContain('(5%)');
+    expect(c.jsonText).toContain('"pct": 55');
   });
 });
 

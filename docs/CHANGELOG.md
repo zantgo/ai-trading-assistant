@@ -6,6 +6,155 @@
 
 
 
+## v6.10.19 (2026-08-15) — Trader-clarity layer (reviewer T1–T5 + Pitfalls A/B/C)
+
+External professional-trader review of the v6.10.18 build surfaced five UI/logic frictions (inactive setups flatlining at 58; a 0% needle beside "Bullish bias" text; a lethal 1:0.16 R:R framed as Top Setup; "FORMING" beside "NO CLEAR SETUP"; a playbook with entry instructions under a HOLD verdict) plus three structural pitfalls (gross 1:1 R:R is net-negative after fees; the forced lean floor hides the boost; micro-tier noise could fire the PME systemic veto). All are addressed:
+
+**T1 — precondition-scaled display scores (`ui`).** `evaluated_setups[].score_display` / `trade_setups[].score_display` (and every panel surface) scale the raw wire `score` by `min(1, preconditions_met/preconditions_total)` — 0/3 met → 0 (muted), 2/3 → scaled, 3/3 → full. The raw value stays untouched for data consumers.
+
+**T2 + T5 — verdict-aware guidance (`core-domain` + `ui`).** `compute_advisory` omits the "Entry: …. Stop: …." suffix when the directional guidance is Neutral/Avoid; a shared `verdictAwareGuidance` (panel + export) strips any residual clauses under a HOLD top and rewrites the leading bias claim ("BULLISH bias at 13% — no actionable directional edge (HOLD)"). The 0% needle now sits beside text that means exactly what it shows.
+
+**T3 — BelowFloor reference brackets (`ui`).** A sub-1.0 AGGREGATED reference bracket (No Clear) renders as "Reference Bracket (Below Actionable Floor)" with a red-flagged R:R and the badge `R:R BELOW ACTIONABLE FLOOR` — the levels stay visible for manual analysis, never framed as a trade.
+
+**T4 — FORMING requires a qualifying profile (`core-domain`).** Readiness rule 3 fires only with ≥1 non-NoClear profile whose `preconditions_met > 0`; a dead no-clear market with a directional lean reads WATCH (the lean stays visible via the decoupling).
+
+**Pitfall A — Net R:R model (`core-domain` + `synthesis` + `ui`).** New `NetCostModel` (taker 6 bps + slippage 5 bps per side, funding 0; `OpportunityMatrixConfig` knobs added, plumbed in a follow-up) — the per-side published R:R and the Actionable gate are NET (gross minus round-trip friction; a gross 1:1 bracket nets ≈0.98 → Qualifying). The gross stays on the wire (`long_gross_rr_internal` / `short_gross_rr_internal`) and in the export (`rr_internal.gross_rr_value`); the Risk-Adj explanation reads "net R:R … × risk factor … = …".
+
+**Pitfall B — lean-floor transparency (`core-domain` + `ui`).** `DecisionContext.lean_floor_applied` (serde default) is true whenever the floors adjusted the split; the gauge and the directional bars render a LEAN annotation (amber marker + pattern fill) so a boosted low-confidence read is never mistaken for a deep consensus.
+
+**Pitfall C — TF-decayed systemic path (`core-domain` + daemon).** `InstanceMeta.risk_windows` carries per-TF `(weight, risk)` pairs (micro 0.1 / fast 0.2 / slow 0.3 / macro 0.4); `systemic_high_pct` and `systemic_risk_score` (the PME safety-veto input) are TF-weighted — a transient micro spike contributes at most 10%. The descriptive `risk_distribution` / `risk_environment` / health keep the plain TF-mean (screen-to-panel parity preserved).
+
+**Verification.** core-domain 168 lib (net-cost golden, lean-floor flag, FORMING gate, systemic-decay tests); market-analyzer 304 lib + contract/golden/e2e; UI 893 (62 files); full `./manage.sh test` (5 suites) + `test-doc` + `bun run check` + `bun run build` green.
+
+**Open item (fast-follow v6.10.20, per reviewer):** dynamic slippage — scale `slippage_bps` by the active L5 execution/volatility risk (`effective_slippage = base × (1 + execution_risk/100)`) once the net-cost config is plumbed into the analyzer.
+
+## v6.10.18 (2026-08-15) — Institutional coherence: P0 unit fix + TF-average L7 + trader-exact brackets
+
+Fresh live-export audit (13:25 UTC, BTC-USDC, all 11 panels): the v6.10.17 sensitivity machinery was visible and working, but the audit surfaced one P0 regression (the §3.1 risk gate was silently dead), a systemic cross-panel contradiction (L7 aggregated the slow-300s TF while every panel showed the 60s frame), and several trader-visible cohesion gaps (a 4.5×ATR-stop scalp badged ACTIONABLE at R:R 0.55; "SHORT" tags on a long's profit zones; a hero that counted a COMPRESSION window as a vote; an L5 volatility dimension that said LOW beside an EXPANSION_CLIMAX window).
+
+**P0 — `bias_lifted` unit fix (I-1).** `market_bias_score` is the wire FRACTION (`mtf_overall_score/100`, docs 02-02 §2.1) but the predicate compared it against ±20 directly — EVERY directional bias was "lifted" and the §3.1 rows 5/9 risk gate (`BULLISH/BEARISH + risk ≥ 40 → NEUTRAL`) was dead. Now `|market_bias_score| × 100 ≤ 20`. The 13:25 export (plain Bullish 21.77 at risk 41.07) had shown guidance "Long" — the gate is restored. **I-1b:** the R:R ×0.6 penalty and the graded-lean floors are now keyed to the BIAS direction, not the guidance — a poor bracket caps the directional conviction even when the risk gate says Neutral (a trader rejects "worse R:R → higher conviction"). End state for the capture: split 65/2/33, verdict LONG lean 65%, direction never lost. `state_matrix.rs` sample + 02-02 §3.1 wording corrected; unit-invariant + bias-keyed-penalty tests added.
+
+**I-2 — L7 aggregates ALL FOUR TF windows.** The daemon feeds per-window advisories (micro/fast/slow/macro; slow kept as fallback per missing window) and the per-symbol risk is the MEAN over the windows; `compute_overview` groups advisories per symbol (mean confidence, mode bias/regime with fastest-window tie-break, guidance tallied per window for breadth/bias). The 13:25 headline read HIGH_RISK · POOR next to avg-risk 41 and a stale "Pullback" beside the Scalp tab — with the TF-average basis it reads MODERATE · Healthy with a real BULLISH (3:1 windows) bias. **I-10:** under `low_coverage` the frontend demotes STRONG_* tokens one tier and appends the pair count ("BULLISH (1 pair)").
+
+**I-5 — Actionable requires R:R ≥ 1.0 + horizon-aware stops.** New `TradeViability::Qualifying` (valid geometry, R:R < 1 — a real bracket, no edge to act on); `ACTIONABLE` now requires a ≥1.0 bracket, server-side and re-derated defensively on every frontend gate (top-setup card, opportunity cards, hero counts). The invalidation selection prefers the NEARER of the structural stop and the horizon budget (SCALP 1.5× / INTRADAY 2× / SWING 3× / POSITION 4× ATR) — a 60s scalp can no longer carry a 4.5×ATR stop that condemns it to R:R 0.55.
+
+**I-6 — role-aware confluent sides.** Entries and invalidation levels keep below→LONG / above→SHORT; TARGETS are reversed (above close = LONG profit zone) — a long's target is never tagged "SHORT" again.
+
+**I-4 — one conviction number.** The L4 directional bars mirror the L6 verdict split whenever a decision context exists (panel + export + shared helper); the bracket-conviction math is the legacy fallback only.
+
+**I-3 — L3 ↔ L4 opportunity sync.** The published AnalysisMatrix's opportunity classification and interpretation clause follow the L4 primary — no more "Pullback opportunity forming" beside a Scalp Actionable badge.
+
+**I-7 — one vote definition.** The analysis hero counts use the bias machinery's vote filter (COMPRESSION windows and |score| ≤ 10 flat TFs do not vote) — the hero no longer counts a compression window as a bullish vote (3↑ vs 1↓ → 2↑ vs 1↓ in the capture). Placeholder logic keys on raw text presence (AN-2 preserved).
+
+**I-8 — L5 volatility risk integrates the actionable TF state.** `compute_risk` threads the per-window L2 volatility states; the dimension blends BBWP with 0.7×micro + 0.3×fast vol scores (evidence lists every window's state) and the relative-ATR term only modulates at ≥1% of price. The 13:25 capture reads 66 (HIGH) with "Fast volatility EXPANSION_CLIMAX" in the evidence — replacing the 23 (LOW) that contradicted its own evidence.
+
+**I-9 — traceability.** The analysis export carries `representative_bbwp` / `representative_adx` (the L3 regime inputs the rationale quotes); intra-candle shadow drift is documented.
+
+**Docs:** 02-02 (wire units), 02-04 (§2.4 bias-keyed penalty + §3.1 gate restored), 02-08 (Actionable R:R floor + Qualifying + horizon stops + role-aware sides + bars source), 02-09 + 03-02-08 (L7 TF-average basis + low-coverage badge), 02-11 (volatility formula), 07-05 (traceability + bars + L7).
+
+**Verification:** core-domain 162 lib; market-analyzer 304 lib + 7 contract + 24 golden + 44 pipeline e2e; UI 889 (62 files); full `./manage.sh test` + `test-doc` + `bun run build` green.
+
+## v6.10.17 (2026-08-15) — Production sensitivity: LEAN tier + graded verdicts + P0 sign corrections
+
+Full MME audit (five-layer sweep + two institutional reviews) + fresh live-capture verification (03:40 UTC 2026-08-15, BTC-USDC): the pipeline was internally consistent, but two classes of problems blocked professional usability — (1) value-correctness: MFI / Stochastic / Williams %R normalized signs were inverted vs their own labels (feeding wrong L4 votes), and (2) sensitivity: a minimal bearish/bullish confirmation (composite 2.6 with a 3:1 TF vote) still produced a flat NEUTRAL + **96% HOLD** — useless for a discretionary trader. This release makes the verdict engine continuously graded (LONG/SHORT/HOLD percentages with floors), decouples the directional read from the execution gate, and corrects every audit finding (P0-P2).
+
+**Sensitivity core (`core-domain` + `ui`):**
+* **LEAN tier (L3).** `derive_analysis` rescues a composite inside `(0, 15]` / `[-15, 0)` to `BULLISH`/`BEARISH` when the per-TF vote is ≥3:1 (agreement ≥ 75, signals ≥ 3, COMPRESSION excluded) and the composite opposes the vote by at most `BIAS_LEAN_COMPOSITE_TOLERANCE` (±10) — heavier `×0.8` haircut. The user's 03:40 capture (−58/−51/−11/+42 at composite 2.6) now reads **LEAN BEAR**; the mirror reads LEAN BULL (sign-symmetric, equal long/short possibility). A 2:2 vote stays genuinely flat. `bias_lifted()` (`|market_bias_score| ≤ 20` + directional bias ⇒ margin path) is the shared predicate.
+* **Lifted-bias guidance override (L6).** A lifted bias is always directional in the §3.1 guidance table (risk gate bypassed) — mirrored in `DecisionContext::compute` and `compute_advisory` so guidance and probabilities never contradict. A minimal confirmation can no longer be silenced into 96% HOLD.
+* **Graded-lean floors.** When a directional read exists: HOLD capped at 60%, directional arm floored at 15% (2% floor now applies only to the genuinely flat state). HOLD ≥ 90% is the exception (true no-direction), not the norm.
+* **R:R penalty scoped.** The ×0.6 penalty applies only to a REAL sub-1.0 R:R — a missing R:R (0, no-clear matrices) no longer punishes a vote-driven lean.
+* **Verdict/readiness decoupling.** `verdict.top = argmax(probabilities)` always; STAND ASIDE reports the gate, not the direction: "SHORT lean 38% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH)". Gauge needle, L6 badge, strategy block, price levels and final-verdict sentence all follow the verdict (neutral/"—" only under a genuine HOLD). FIX-3/4/5 re-scoped accordingly; the flat HOLD+STAND_ASIDE state keeps the old neutral needle + "no directional call" sentence.
+* **Bracket always published (A3).** `topSetupSummary` never returns null when the opportunity matrix exists: a No Clear state publishes the AGGREGATED bracket on the bias side (`AggregatedBracket`, viability NoClear, informational) with TPs/SLs/R:R — the operator always has a price plan. The No Clear explanation card renders alongside. Tie-break fix: a 0 net-bias resolves NEUTRAL (no fake bracket) instead of the legacy blind LONG.
+* **Mirror-symmetry release gate.** Flipping every input must swap LONG↔SHORT exactly (probabilities, net bias) — the equal-possibility guarantee. Tests: `lifted_lean_bias_mirror_is_sign_symmetric`, tier/veto/agreement/breadth gates, floors, flat-state preservation, graded-lean sentences (panel + export).
+
+**P0 — value correctness (`market-analyzer`):**
+* `normalize_mfi` middle band sign fixed (48.9 BEARISH_FLOW → −0.03; 51.8 BULLISH_FLOW → +0.04). `normalize_stochastic` now follows the uniform RSI convention (overbought → negative, oversold → positive; middle band signs by k/d alignment, magnitude |k−50|/50 capped ±0.7). `normalize_williams_r` same convention (wr ≥ −20 overbought → negative ramp to −1.0; wr ≤ −80 oversold → positive; middle keeps the bias sign; magnitude continuous ±0.6 at the label boundaries).
+* **Sign-consistency invariant suite** (`crates/market-analyzer/tests/property_sign_consistency.rs`): label-vs-sign grid sweep across RSI/MFI/Stochastic/Williams/CMF/ChandeMO + capture-value regressions (03:40 micro/slow/macro values).
+* **AssetRankingsTable gate (P0-2).** The Signal cell now applies the same Actionable + READY gate as the overview export — BUY/SELL only for execution-ready rows; the Direction column keeps the raw lean.
+
+**P1 — panel/export parity (`ui`):**
+* AlignmentPanel weight chips + formula read the WIRE `blend_weights` (thin-participation reweight renders 55/35/5/5, never stale 50/30/10/10); NEUTRAL interpretation wording fixed ("votes detected across the aligned timeframes").
+* READY gate mirrors the FULL §3.4 entry-guidance (Developing + vol ≥ 20 and Weak/Exhausted trends are wait-states) — READY can never coexist with "Entry: Wait for confirmation".
+* MTF cross-TF aggregation: strict-`>` tie-break keeps the FIRST timeframe (Micro) — deterministic winner, never last-TF-biased.
+* Secondary-profile viability: a profile with met preconditions and null wire viability is now **Qualifying** (real bracket), never NoClear — new token in `TradeViability`, badge on both panels, hero counts it as a setup (still gated to Actionable+READY for TRADE).
+
+**P2 — hygiene:**
+* F21: no-clear invalidation note suppressed ("invalidates the NoClearOpportunity thesis" was nonsense). F22: rationale BBWP/ADX render at one decimal (73.7, not "75"). F23: confluent levels carry `side` (LONG below close / SHORT above close) — panel tag + export field. F24: 02-09 §3.1 GlobalBias table now mirrors the code (NEUTRAL never emitted; split = MIXED). Stance doc (02-04 §3.2) now matches `compute_advisory` exactly (AVOID requires POOR/EXCELLENT **and** risk ≥ 80). Fallback parity: `decisionRank.ts` geometric-offset filter `preconditions_met > 0` + last-max tie-break mirror the backend exactly.
+* Export-consistency suite extended: STAND_ASIDE-directional (gauge/sentence/playbook), no-clear aggregated bracket + explanation card, wire blend_weights parity.
+
+**Doc corrections:** 02-02 §3.1 (LEAN tier + `bias_lifted`), 02-04 §2.4/§3.1/§3.2/§4 (graded floors, lifted override, stance table, readiness mirror, verdict sentences), 02-08 (confluent `side`), 02-09 §3.1 (GlobalBias), 07-05 (verdict sentences, bracket-under-no-clear, gauge needle, confluent side), indicator docs 04-02-12/14/23 (sign conventions), CHANGELOG.
+
+**Verification:** UI 888 tests (62 files); core-domain 158 lib + 27 property tests; market-analyzer 304 lib + sign-consistency suite; full `./manage.sh test` green; `test-doc` green; `bun run build` green.
+
+## v6.10.16 (2026-08-15) — Sensitivity lever (L3 bias grace band) + cross-layer consistency
+
+Live-capture audit (2026-08-15 00:03–00:05 UTC, BTC-USDC): the system answered **HOLD (77%)** to a market showing 4/4 TFs aligned (100% agreement), 33 cross-TF signals, trend 77 / structure 100, and all four TF scores positive — the ±20 composite threshold (score 19.1) zeroed the signed confluence and the whole pipeline went blind, not conservative. The readiness gate (WATCH) already guarded execution; the fix makes the system *hear* consensus without weakening that gate.
+
+**Sensitivity lever — L3 bias grace band (`core-domain`):**
+* `derive_analysis` (02-02 §3.1): a composite inside `(15, 20]` / `[-20, -15)` is upgraded `NEUTRAL → BULLISH/BEARISH` (never STRONG) only when the per-TF vote is coherent — ≥3/4 `timeframe_alignments` decisive on the dominant side (`|overall_score| > 10`), `trend_agreement_pct ≥ 75`, `signal_cross_tf_count ≥ 3` — with a `×0.9` confidence haircut. Constants `BIAS_GRACE_*` in `analysis.rs`. Cascade: signed confluence nonzero → L4 resolves the side → L6 verdict carries the direction while readiness still gates the trade. Tests: 7 grace-band cases + the `DecisionContext` cascade (graced Bullish → positive signed score).
+
+**FIX-O1 — Overview signal/validity gate (`ui`):**
+* `asset_rankings.rows[].signal` renders BUY/SELL only when that instance has an Actionable + READY setup (the same set the hero's `actionable_count`/`valid_setups` count); directional-with-WATCH renders WAIT. Rows can no longer say BUY beside "0 READY trades". Rows' R:R and the KPI `avg_rr` now read the shared `resolveActiveRr` chain (the legacy scalar divergence is gone).
+
+**FIX-O2 — Analysis lean hero is bias-aware (`ui`):**
+* New shared `computeAnalysisLean` (`ui/src/lib/analysisLean.ts`) used by `AnalysisPanel` and the export: under a NEUTRAL market bias a directional TF vote renders amber ("TF votes: Net bullish (4↑ vs 0↓)" + "· market bias neutral") instead of a green hero under the NEUTRAL badge; raw counts stay visible. Under directional bias behaviour is unchanged.
+
+**FIX-O3 — Overview risk mapping (`core-domain`):**
+* `AssetRank.risk_level` now bins per-asset L5 `overall_risk.score` (≤30 LOW / ≥70 HIGH / else MODERATE) — the old confidence-based mapping labelled a 43-risk asset HIGH.
+* `risk_environment` now bins on the **mean** overall risk (≥50 HIGH / ≥25 MODERATE / else LOW_RISK) — 100%-moderate environments read MODERATE, never LOW_RISK (02-09 §2.3 updated).
+
+**FIX-O4 — L4 R:R reason (`ui`):** `profileSummary` propagates the resolver's real reason; a DirectionalNeutral card with consistent geometry reports "no directional bias" instead of the hardcoded `no_actionable_geometry` (which also contradicted `rr_internal`).
+
+**FIX-O5 — Strategy block under HOLD/STAND_ASIDE (`ui`):** `strategy.entry/exit/protection/target` render `"—"` ("Entry: Immediate" beside "not a trade trigger" was a contradiction); the advisory text survives in `final_verdict_guidance`.
+
+**FIX-O6 — Alignment wording (`ui`):** "33 cross-timeframe signal votes reinforce the current bias" becomes "…detected across the aligned timeframes" when the composite classifies NEUTRAL (votes cannot reinforce a neutral read).
+
+**Why-line (`ui`):** under Neutral bias the Recommendation panel reports the true unsigned blend (`signed 0 because Neutral bias zeroes the directional blend (unsigned ≈ 63)`) — the old text misattributed the zero to the L2/L3/L4 blend.
+
+**Institutional hardening (same release, from the professional review):**
+* **FIX-H1 — grace hysteresis (`core-domain`).** Once graced, the bias HOLDS while `|score|` stays above 12 and the vote survives at 2:1+ (guarded by the previous frame's score being inside the grace band, so plain-threshold states are never "held"; a vote collapse or a drop ≤ 12 exits). Kills discontinuous Bullish↔Neutral flip-flop on sub-point composite moves. Tests: hold/exit/vote-collapse/plain-threshold-guard/bearish-symmetry.
+* **FIX-H2 — thin-participation composite reweight (`core-domain`).** When the volume dimension reads THIN (`score < 25`) the blend switches to `0.55·T + 0.35·M + 0.05·Vt + 0.05·Vm` — a 10%-weight participation qualifier can no longer veto four aligned timeframes into NEUTRAL below the grace band. The effective weights ride on the wire (`AlignmentMatrix.blend_weights`) and the Alignment export's `score_calculation` mirrors them exactly (formula always balances). 02-01 §4.2 updated.
+* **Vote pinning + COMPRESSION exclusion (`core-domain`).** The grace vote requires ≥3/4 of `timeframes_present` (min 3) — a 2-TF warmup can never grace — and `COMPRESSION` windows do not vote (their positive scores are mean-reversion bait).
+* **Haircut decided (`docs`).** `×0.9` stays and is documented precisely: it flows into L6 `confidence_assessment` and the L5 dimension confidences, not the probability split (which runs off the signed score).
+* **Validation sweep (`core-domain` example).** `cargo run -p core-domain --example grace_sweep -- <snapshot_dir>` re-derives the bias under every swept constant set against the snapshot corpus and labels each call with the forward price (accuracy, coverage, flip rate, horizon sensitivity) — the evidence path for the band question and any future constant change. 08-09 §5 documents the process rule (widen only on evidence; holdout split).
+
+**Doc corrections:** 02-02 §3.1 (grace + hysteresis + vote pinning + COMPRESSION exclusion + haircut scope), 02-01 §4.2 (thin-participation reweight + `blend_weights`), 08-09 §5 (sweep manual), 07-05 (analysis hero, strategy block, asset rows).
+
+
+
+## v6.10.15 (2026-08-14) — L4 Neutral-bias fix + L6 STAND_ASIDE gate consistency
+
+Two real inconsistencies surfaced from live captures: the Opportunity panel could render directional conviction (57% "bearish" bars + bear-tone badge) on a directionally-neutral setup, and the Recommendation panel rendered a green "+60%" LONG needle plus an "Entry: immediate" final verdict under a STAND ASIDE badge.
+
+**FIX-1 — L4 directional surfaces are neutral under Neutral bias (`ui`):**
+* `resolveEffectiveDirection` dropped the argmax-of-per-side-R:R fallback: under a Neutral (or absent) bias with no profile-side resolution the direction is NEUTRAL. The live capture — a Pullback DirectionalNeutral panel with `Lean: neutral`, N/A R:R, and a Neutral market bias — previously rendered 57% bearish conviction bars and a bear-tone badge purely because one side's geometric R:R was larger. Bracket geometry stays visible in the setup cards and confluent levels; only the directional-conviction visuals go neutral (bars 0/0/100, badge neutral tone). 02-08 §2.3 updated.
+
+**FIX-2 — L4 header badge tone (`ui`):**
+* `buildL4OpportunityHeader` removed its local argmax fallback — a NEUTRAL resolution renders a neutral-tone badge (no more "bear" tone on a directionally-neutral panel).
+
+**FIX-3 — gauge needle neutral under STAND ASIDE (`ui`):**
+* The user's 1s capture: `verdict.top = LONG` (62/2/36) with readiness `STAND_ASIDE` rendered a green "+60%" needle under an amber STAND ASIDE badge — the R1 contradiction, un-fixed for the STAND_ASIDE arm. `gaugeNeutral` now includes `headline.state === 'STAND_ASIDE'`.
+
+**FIX-4 — final verdict gated by STAND ASIDE (`ui`):**
+* The R6 verdict gate only covered HOLD — under STAND ASIDE the panel rendered the advisory sentence ("Neutral — no directional edge: BULLISH bias … Entry: immediate") as the Final Verdict. The gate now covers both: `STAND ASIDE — no directional call (readiness: …)` with the advisory text demoted to `final_verdict_guidance` (panel + export).
+
+**FIX-5 — playbook caption under STAND ASIDE (`ui`):**
+* `strategy.hold_caption` and the panel caption render under HOLD **and** STAND ASIDE ("For reference — no active directional call…").
+
+**Doc corrections:** 02-08 §2.3 (Neutral-bias neutrality), 07-05 §3.7 (gauge needle STAND ASIDE arm, final-verdict/guidance/caption gates).
+
+## v6.10.14 (2026-08-14) — R:R discount explanation as a first-class export field
+
+**RR-008 — `risk_adj_rr_explanation` (`ui`):**
+* The recommendation export's `safety_flags` block now carries the R:R discount sentence as a first-class string — the identical text the L6 header chip tooltip renders (`"Risk-adjusted: geometric R:R 2.00 × risk factor 0.30 = 0.60"`) — so consumers don't recompute the factor from `top_setup.rr_value` / `safety_flags.rr_value`. The sentence is built by the shared `riskAdjRrExplanation` helper (`decisionRank.ts`), used by both the header tooltip and the export, guaranteeing screen ↔ JSON parity. `null` when there is no real risk-adjusted R:R.
+
+**Doc corrections:** `07-05-export-data-payload-schema.md` §3.7 (field in the example + note).
+
+## v6.10.14 (2026-08-14) — first-class R:R discount explanation in the recommendation export
+
+**RR-008 — `risk_adj_rr_explanation` (`ui`):**
+* The recommendation export now carries the first-class discount sentence (`Risk-adjusted: geometric R:R X × risk factor F = Y`) in `safety_flags.risk_adj_rr_explanation` — the exact string the L6 header chip tooltip renders (shared `riskAdjRrExplanation` helper in `decisionRank.ts`), so consumers don't recompute the factor. `null` when there is no real risk-adjusted R:R. Screen ↔ export parity for the explanation is now guaranteed by construction; 07-05 §3.7 documents the field.
+
 ## v6.10.13 (2026-08-14) — MME final consistency sweep (L2/L3/L7 seams)
 
 The remaining cross-layer inconsistencies from the final MME audit: the L2↔L3 bias-band contradiction, the L3 warmup sentinel, the "Confidence" label collision, the L7 risk-distribution sources, and the last R:R surface off the resolver.

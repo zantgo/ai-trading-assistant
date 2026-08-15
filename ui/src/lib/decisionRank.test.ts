@@ -135,7 +135,11 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
 }
 
 describe('computeDecisionRank', () => {
-    it('forces STAND_ASIDE hero when readiness is STAND_ASIDE regardless of bias', () => {
+    it('decouples the directional read from the STAND_ASIDE gate (v6.10.17)', () => {
+        // v6.10.17: a directional verdict gated by STAND ASIDE keeps its
+        // direction in the hero — the gate reports *when* you can act,
+        // not *what* the market says. Only a HOLD top under STAND ASIDE
+        // collapses to the flat "HOLD — STAND ASIDE" hero.
         const rank = computeDecisionRank({
             advisory: makeAdvisory({ directional_guidance: 'Long', market_stance: 'Constructive' }),
             decisionContext: makeDecisionContext({
@@ -151,10 +155,32 @@ describe('computeDecisionRank', () => {
         });
 
         expect(rank.headline.state).toBe('STAND_ASIDE');
-        expect(rank.headline.action).toBe('STAND_ASIDE');
-        expect(rank.headline.label).toBe('HOLD — STAND ASIDE');
+        expect(rank.headline.action).toBe('LONG');
+        expect(rank.headline.label).toBe('LONG — STAND ASIDE (lean 66%)');
+        expect(rank.top).toBe('LONG');
         // probabilities sum to 100
         expect(rank.long.probability + rank.short.probability + rank.hold.probability).toBe(100);
+    });
+
+    it('keeps the flat HOLD — STAND ASIDE hero when the top action is HOLD', () => {
+        const rank = computeDecisionRank({
+            advisory: makeAdvisory({ directional_guidance: 'Neutral', market_stance: 'Cautious' }),
+            decisionContext: makeDecisionContext({
+                score: 0,
+                bias: 'Neutral',
+                score_confidence: 0.1,
+                entry_danger: makeDanger(75),
+                expected_reward_risk_ratio: 0,
+                trade_readiness: 'STAND_ASIDE',
+            }),
+            opportunity: makeOpportunity({ primary_opportunity: 'NoClearOpportunity' }),
+            analysis: makeAnalysis({ bias: 'Neutral' }),
+        });
+
+        expect(rank.headline.state).toBe('STAND_ASIDE');
+        expect(rank.headline.action).toBe('STAND_ASIDE');
+        expect(rank.headline.label).toBe('HOLD — STAND ASIDE');
+        expect(rank.top).toBe('HOLD');
     });
 
     it('ranks LONG top when bullish with READY readiness', () => {
@@ -952,22 +978,99 @@ describe('topSetupSummary', () => {
         expect(t!.rr).toBeNull();
     });
 
-    it('returns null when no qualifying profile exists', () => {
+    it('flags the aggregated bracket below_floor when R:R < 1.0 (v6.10.19 T3)', () => {
+        // No qualifying profiles + a sub-1.0 aggregated bracket → the
+        // levels stay visible but the card demotes (below_floor).
         const opp = makeOpportunity();
         opp.profiles = [];
-        expect(topSetupSummary(opp, makeAnalysis('Bullish'))).toBeNull();
+        opp.long_expected_rr_internal = 0.4;
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.below_floor).toBe(true);
+        expect(t!.rr).toBeCloseTo(0.4, 1);
+        expect(t!.zones).not.toBeNull();
+    });
+
+    it('does NOT flag the aggregated bracket below_floor when R:R >= 1.0', () => {
+        const opp = makeOpportunity();
+        opp.profiles = [];
+        opp.long_expected_rr_internal = 1.5;
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.below_floor).toBe(false);
+    });
+
+    it('publishes the aggregated bracket when no qualifying profile exists (v6.10.17)', () => {
+        // v6.10.17 (A3): with zero qualifying profiles (No Clear), the
+        // aggregated bracket is still published on the bias side so the
+        // operator always has TPs/SLs/R:R — marked NoClear/informational.
+        const opp = makeOpportunity();
+        opp.profiles = [];
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('LONG');
+        expect(t!.viability).toBe('NoClear');
+        expect(t!.zones).not.toBeNull();
+        expect(t!.rationale).toContain('aggregated bracket');
+    });
+
+    it('publishes the SHORT aggregated bracket for a bearish no-clear state', () => {
+        // The 03:40-style capture: No Clear primary, no profiles, Bearish
+        // bias → the SHORT side bracket surfaces.
+        const opp = makeOpportunity(
+            {},
+            {
+                primary_opportunity: 'NoClearOpportunity',
+                profiles: [],
+                short_entry_zone: { low: 63100, high: 63300 },
+                short_target_zone: { low: 62800, high: 63000 },
+                short_invalidation_level: 63500,
+                short_expected_rr_internal: 1.2,
+            },
+        );
+        const t = topSetupSummary(opp, makeAnalysis('Bearish'), { bias: 'Bearish' } as any);
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('SHORT');
+        expect(t!.zones).not.toBeNull();
+        expect(t!.rr).toBeCloseTo(1.2, 1);
+    });
+
+    it('resolves NEUTRAL when nothing is directional (no bracket published)', () => {
+        // Genuinely flat: Neutral bias, zero net bias, no profiles → no
+        // bracket (the flat state carries no fake levels).
+        const opp = makeOpportunity({ primary_opportunity: 'NoClearOpportunity' });
+        opp.profiles = [];
+        const t = topSetupSummary(opp, makeAnalysis('Neutral'), { bias: 'Neutral', net_bias_pct: 0 } as any);
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('NEUTRAL');
+        expect(t!.zones).toBeNull();
     });
 
     it('returns null when opportunity is null', () => {
         expect(topSetupSummary(null, null)).toBeNull();
     });
 
-    it('uses default NoClear viability when wire is missing the field', () => {
+    it('maps a missing wire viability to Qualifying when preconditions are met (v6.10.17)', () => {
+        // v6.10.17 (P1): a qualifying profile (preconditions met) with a
+        // null wire viability is QUALIFYING — a real bracket is never a
+        // "no clear setup".
         const opp = makeOpportunity({ trade_viability: undefined });
         // ensure trade_viability is undefined on the profile
         opp.profiles[0] = { ...opp.profiles[0] };
         // @ts-ignore - delete to simulate legacy payload
         delete opp.profiles[0].trade_viability;
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'));
+        expect(t).not.toBeNull();
+        expect(t!.viability).toBe('Qualifying');
+    });
+
+    it('keeps NoClear viability when preconditions are unmet AND the wire is missing', () => {
+        // 0/N preconditions + null wire viability → still NoClear.
+        const opp = makeOpportunity({
+            trade_viability: undefined,
+            preconditions_met: 0,
+        });
+        delete (opp.profiles[0] as any).trade_viability;
         const t = topSetupSummary(opp, makeAnalysis('Bullish'));
         expect(t).not.toBeNull();
         expect(t!.viability).toBe('NoClear');

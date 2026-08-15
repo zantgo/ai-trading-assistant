@@ -1047,6 +1047,18 @@ pub struct OpportunityMatrixConfig {
     /// for bearish). Higher k = wider target bracket.
     #[serde(default = "default_confluent_atr_k_target")]
     pub confluent_atr_k_target: f64,
+    /// v6.10.19 (P5): taker fee in basis points per side for the NET R:R
+    /// cost model (default 6 = 0.06%). Plumbed through in a follow-up —
+    /// the synthesis currently uses `NetCostModel::default()`.
+    #[serde(default = "default_net_taker_fee_bps")]
+    pub net_taker_fee_bps: f64,
+    /// Assumed slippage in basis points per side (default 5 = 0.05%).
+    #[serde(default = "default_net_slippage_bps")]
+    pub net_slippage_bps: f64,
+    /// Hold-time funding cost in basis points on the entry notional
+    /// (default 0).
+    #[serde(default = "default_net_funding_bps")]
+    pub net_funding_bps: f64,
 }
 
 fn default_confluent_atr_fallback_enabled() -> bool {
@@ -1059,12 +1071,27 @@ fn default_confluent_atr_k_target() -> f64 {
     2.5
 }
 
+fn default_net_taker_fee_bps() -> f64 {
+    6.0
+}
+
+fn default_net_slippage_bps() -> f64 {
+    5.0
+}
+
+fn default_net_funding_bps() -> f64 {
+    0.0
+}
+
 impl Default for OpportunityMatrixConfig {
     fn default() -> Self {
         Self {
             confluent_atr_fallback_enabled: default_confluent_atr_fallback_enabled(),
             confluent_atr_k_entry: default_confluent_atr_k_entry(),
             confluent_atr_k_target: default_confluent_atr_k_target(),
+            net_taker_fee_bps: default_net_taker_fee_bps(),
+            net_slippage_bps: default_net_slippage_bps(),
+            net_funding_bps: default_net_funding_bps(),
         }
     }
 }

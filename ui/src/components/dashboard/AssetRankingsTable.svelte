@@ -8,7 +8,8 @@
     //          Confidence, MTF Score, MTF Label, Risk, Updated.
     import { useAppStore } from '../../state.svelte';
     import { formatRelativeTime } from '../../lib/relTime';
-    import { resolveActiveRr } from '../../lib/decisionRank';
+    import { resolveActiveRr, topQualifyingProfile } from '../../lib/decisionRank';
+    import { normalizeViability } from '../../lib/viability';
     import {
         biasColor,
         directionColor,
@@ -88,7 +89,22 @@
             const aln = inst.alignment;
             const guidance = adv?.directional_guidance ?? null;
             const direction = directionLabel(guidance);
-            const signal = signalLabel(guidance);
+            // v6.10.17 (P0-2): the Signal cell applies the SAME Actionable +
+            // READY gate the L7 overview export uses — a row can only say
+            // BUY/SELL when this instance carries an Actionable profile AND
+            // readiness READY. A directional lean gated by WATCH/STAND_ASIDE
+            // renders WAIT, so "0 READY trades" and a "BUY" row can never
+            // coexist on screen (the export was fixed in v6.10.16; this is
+            // the panel-side mirror). The Direction column keeps the raw
+            // lean so the operator still sees the directional read.
+            const topProfile = topQualifyingProfile(opp);
+            const topViability = topProfile
+                ? normalizeViability(topProfile.trade_viability ?? 'NoClear')
+                : 'NoClear';
+            const readiness = inst.decisionContext?.trade_readiness ?? null;
+            const signal = readiness === 'READY' && topViability === 'Actionable'
+                ? signalLabel(guidance)
+                : 'WAIT';
             // Aggregate opportunity score: prefer highest per-profile score,
             // fall back to opportunity_score from the matrix.
             let score = 0;

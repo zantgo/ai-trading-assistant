@@ -71,6 +71,13 @@ pub struct DecisionContext {
     /// short-leaning.
     #[serde(default)]
     pub net_bias_pct: f64,
+    /// v6.10.19 (P6): `true` when the graded-lean floors actually
+    /// adjusted the split (HOLD was capped at 60% and/or the directional
+    /// arm was raised to 15%) — the operator-facing LEAN annotation
+    /// ("floor-boosted") tells the trader this is a structurally boosted
+    /// low-confidence read, not a deep consensus.
+    #[serde(default)]
+    pub lean_floor_applied: bool,
 }
 
 impl DecisionContext {
@@ -190,6 +197,12 @@ impl DecisionContext {
 
         // -- Directional guidance (exact replication of AdvisoryMatrix A3 / §3.1)
         //    Returns (is_long, is_short) booleans for the percentage modulation.
+        // v6.10.17: a LIFTED bias (grace / hysteresis hold / LEAN tier —
+        // `bias_lifted`) is always treated as directional regardless of the
+        // risk gate, so a minimal bullish/bearish confirmation produces a
+        // graded directional probability split instead of a 96% HOLD. The
+        // risk gate still applies to plain directional biases (unchanged).
+        let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score);
         let (direction_is_long, direction_is_short) = if stance_is_avoid {
             (false, false) // AvoidDirectionalExposure — no directional lean
         } else {
@@ -202,8 +215,8 @@ impl DecisionContext {
                     }
                 }
                 crate::analysis::MarketBias::Bullish => {
-                    if risk.overall_risk.score < 40.0 {
-                        (true, false) // Long
+                    if lifted || risk.overall_risk.score < 40.0 {
+                        (true, false) // Long (lifted reads bypass the risk gate)
                     } else {
                         (false, false) // Neutral
                     }
@@ -216,8 +229,8 @@ impl DecisionContext {
                     }
                 }
                 crate::analysis::MarketBias::Bearish => {
-                    if risk.overall_risk.score < 40.0 {
-                        (false, true) // Short
+                    if lifted || risk.overall_risk.score < 40.0 {
+                        (false, true) // Short (lifted reads bypass the risk gate)
                     } else {
                         (false, false) // Neutral
                     }
@@ -228,8 +241,38 @@ impl DecisionContext {
 
         let directional_is_non_neutral = direction_is_long || direction_is_short;
 
-        // -- entry_guidance (matches AdvisoryMatrix `compute_advisory`)
-        let entry_guidance_is_wait = risk.volatility_risk.score >= 60.0;
+        // -- entry_guidance (mirrors AdvisoryMatrix `compute_advisory` §3.4).
+        //    v6.10.17 (P1): the READY gate must not fire when the advisory
+        //    would tell the operator to WAIT — the legacy volatility-only
+        //    proxy let a READY badge coexist with "Entry: Wait for
+        //    confirmation" (a Developing trend with vol ≥ 20). The full
+        //    mirror: NoEntryContext (vol ≥ 60, or a weak/exhausted trend)
+        //    and WaitForConfirmation (Developing with vol ≥ 20) are both
+        //    wait-states; only Immediate/Pullback/Breakout entries pass.
+        let entry_guidance_is_wait = risk.volatility_risk.score >= 60.0
+            || matches!(
+                analysis.trend_assessment,
+                crate::analysis::TrendAssessment::Weak
+                    | crate::analysis::TrendAssessment::Exhausted
+            )
+            || (analysis.trend_assessment == crate::analysis::TrendAssessment::Developing
+                && risk.volatility_risk.score >= 20.0);
+
+        // v6.10.19 (T4): "FORMING" means a setup is actually coiling — it
+        // requires at least one QUALIFYING profile (preconditions_met > 0,
+        // non-NoClear). A directional read with zero qualifying profiles
+        // is a dead no-clear market: the lean stays visible (v6.10.17
+        // decoupling) but the readiness honest WATCH, never a misleading
+        // "FORMING" next to "NO CLEAR SETUP".
+        let has_qualifying_profile = opportunity
+            .map(|o| {
+                o.profiles.iter().any(|p| {
+                    p.preconditions_met > 0
+                        && p.opportunity_type
+                            != crate::analysis::OpportunityType::NoClearOpportunity
+                })
+            })
+            .unwrap_or(false);
 
         let trade_readiness = if stance_is_avoid || confidence_assessment < 20.0 {
             "STAND_ASIDE"
@@ -239,7 +282,7 @@ impl DecisionContext {
             && !entry_guidance_is_wait
         {
             "READY"
-        } else if directional_is_non_neutral {
+        } else if directional_is_non_neutral && has_qualifying_profile {
             "FORMING"
         } else {
             "WATCH"
@@ -335,11 +378,26 @@ impl DecisionContext {
             hold *= 1.5;
         }
 
-        // R:R modulation
-        if expected_reward_risk_ratio < 1.0 {
-            if direction_is_long {
+        // R:R modulation. v6.10.17: the ×0.6 penalty applies only when an
+        // ACTUAL sub-1.0 R:R exists (`expected_reward_risk_ratio > 0`). A
+        // missing R:R (0 — no-clear matrices, warmup) is unknown, not bad,
+        // and must not further punish a vote-driven lifted lean: the
+        // aggregated bracket surfaced by the panel carries the real
+        // geometric R:R for the operator.
+        // v6.10.18 (I-1b): the penalty is keyed to the BIAS direction, not
+        // the risk-gate guidance — when the §3.1 gate produces Neutral
+        // guidance at elevated risk (plain Bullish, risk ≥ 40), the poor
+        // bracket must STILL cap the directional conviction (a trader
+        // rejects "worse R:R → higher conviction"). The read direction is
+        // the bias; the guidance only governs the gate.
+        let bias_is_long =
+            matches!(analysis.bias, crate::analysis::MarketBias::StrongBullish | crate::analysis::MarketBias::Bullish);
+        let bias_is_short =
+            matches!(analysis.bias, crate::analysis::MarketBias::StrongBearish | crate::analysis::MarketBias::Bearish);
+        if expected_reward_risk_ratio > 0.0 && expected_reward_risk_ratio < 1.0 {
+            if bias_is_long {
                 long *= 0.6;
-            } else if direction_is_short {
+            } else if bias_is_short {
                 short *= 0.6;
             }
         }
@@ -364,6 +422,41 @@ impl DecisionContext {
         l = l.max(MIN_PCT);
         s = s.max(MIN_PCT);
         h = h.max(MIN_PCT);
+
+        // v6.10.17 graded-lean floors: whenever a directional read exists
+        // the distribution must stay GRADED — HOLD is capped at 60% and
+        // the directional arm never sinks below 15% — so the verdict can
+        // never collapse into a 96% HOLD next to a minimal bearish or
+        // bullish confirmation. The 2% floor applies only to the truly
+        // flat (Neutral-bias) state. v6.10.18 (I-1b): keyed to the BIAS
+        // direction (a directional read exists whenever the bias is
+        // directional), matching the R:R modulation.
+        let directional_active = bias_is_long || bias_is_short;
+        let mut lean_floor_applied = false;
+        if directional_active {
+            let mut dl = l;
+            let mut ds = s;
+            let mut dh = h;
+            // v6.10.19 (P6): track whether the floors actually moved the
+            // split — the operator must SEE that this is a boosted lean.
+            let mut floor_moved = false;
+            if dh > 60.0 {
+                floor_moved = true;
+                dh = 60.0;
+            }
+            if bias_is_long && dl < 15.0 {
+                floor_moved = true;
+                dl = 15.0;
+            } else if bias_is_short && ds < 15.0 {
+                floor_moved = true;
+                ds = 15.0;
+            }
+            lean_floor_applied = floor_moved;
+            l = dl;
+            s = ds;
+            h = dh;
+        }
+
         let re_sum = l + s + h;
         let long_probability = ((l / re_sum) * 100.0).round();
         let short_probability = ((s / re_sum) * 100.0).round();
@@ -382,6 +475,7 @@ impl DecisionContext {
             short_probability,
             hold_probability,
             net_bias_pct,
+            lean_floor_applied,
         }
     }
 }
@@ -524,6 +618,39 @@ mod tests {
     }
 
     #[test]
+    fn graced_bias_produces_nonzero_signed_confluence() {
+        // v6.10.16 sensitivity lever: a Bullish bias produced by the L3
+        // grace band must carry a positive signed confluence (the Neutral
+        // zeroing at decision_context.rs is driven by bias, so rescuing the
+        // bias rescues the direction) — this is the exact cascade that
+        // turned the user's 4:0-vote capture into a HOLD.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Average);
+        analysis.bias = MarketBias::Bullish;
+        let risk = make_risk_with_overall(43.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::Pullback,
+            opportunity_score: 60.0,
+            setup_quality: crate::analysis::SetupQuality::Moderate,
+            profiles: vec![],
+            forecast_confidence: 0.44,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 0.0,
+            time_horizon: "SWING".to_string(),
+            ..Default::default()
+        };
+        // Unsigned blend ≈ 0.5×75 + 0.3×quality + 0.2×60 ≈ 63 (as the
+        // capture's L6). With a Bullish bias the signed score must be
+        // positive, not zeroed.
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 63.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "Bullish");
+        assert!((ctx.score - 63.0).abs() < 1e-9);
+        assert!(ctx.long_probability > ctx.hold_probability);
+        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn strong_bullish_mirrors_analysis_bias() {
         let mut analysis = make_analysis_with_quality(QualityLevel::Excellent);
         analysis.bias = MarketBias::StrongBullish;
@@ -617,6 +744,297 @@ mod tests {
         assert!((ctx.entry_danger.score - 70.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
         assert!(ctx.long_probability > 0.0);
+    }
+
+    #[test]
+    fn lifted_lean_bias_grades_probabilities() {
+        // v6.10.17: the 03:40-style capture — Bearish bias lifted by the
+        // LEAN tier (composite 2.6, 3:1 bearish vote), risk 41.87 (> 40,
+        // would silence a plain Bearish), blend 55, no-clear matrix (R:R 0
+        // → no ×0.6 penalty). The probability split must be GRADED
+        // directional — never a 96% HOLD.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Average);
+        analysis.bias = MarketBias::Bearish;
+        analysis.market_bias_score = 0.026; // wire fraction of the 2.6 composite
+        let risk = make_risk_with_overall(41.87);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 60.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.0,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 0.0,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "Bearish");
+        assert!(ctx.short_probability > ctx.long_probability);
+        assert!(ctx.short_probability > ctx.hold_probability);
+        assert!(ctx.hold_probability <= 60.0);
+        assert!(ctx.short_probability >= 15.0);
+        assert!(ctx.net_bias_pct < -30.0);
+        let total = ctx.long_probability + ctx.short_probability + ctx.hold_probability;
+        assert!((total - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lifted_lean_bias_mirror_is_sign_symmetric() {
+        // v6.10.17 equal long/short possibility: the exact mirror of the
+        // LEAN-bearish capture (Bullish, composite −2.6) must swap the
+        // long/short arms exactly and keep hold identical.
+        let mut bear = make_analysis_with_quality(QualityLevel::Average);
+        bear.bias = MarketBias::Bearish;
+        bear.market_bias_score = 0.026;
+        let mut bull = make_analysis_with_quality(QualityLevel::Average);
+        bull.bias = MarketBias::Bullish;
+        bull.market_bias_score = -0.026;
+        let risk = make_risk_with_overall(41.87);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 60.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.0,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 0.0,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx_bear =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bear, Some(&opp), &risk);
+        let ctx_bull =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bull, Some(&opp), &risk);
+        assert_eq!(ctx_bear.long_probability, ctx_bull.short_probability);
+        assert_eq!(ctx_bear.short_probability, ctx_bull.long_probability);
+        assert_eq!(ctx_bear.hold_probability, ctx_bull.hold_probability);
+        assert_eq!(ctx_bear.net_bias_pct, -ctx_bull.net_bias_pct);
+    }
+
+    #[test]
+    fn flat_neutral_state_keeps_hold_dominant() {
+        // v6.10.17: the genuinely flat state (Neutral bias, no qualifying
+        // profiles, no directional offset) keeps its hold-dominant split —
+        // HOLD ≥ 90 is the EXCEPTION reserved for real no-direction.
+        let analysis = make_analysis_with_quality(QualityLevel::Average);
+        let risk = make_risk_with_overall(41.87);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 60.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.0,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 0.0,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "Neutral");
+        assert!(ctx.hold_probability >= 90.0);
+        assert!(ctx.long_probability >= 2.0);
+        assert!(ctx.short_probability >= 2.0);
+        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sub_1_real_rr_still_penalizes_directional_arm() {
+        // v6.10.17: a REAL sub-1.0 R:R (0.5, not 0) still applies the ×0.6
+        // penalty — only a MISSING R:R (0) is exempt.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Average);
+        analysis.bias = MarketBias::Bearish;
+        analysis.market_bias_score = 0.026; // wire fraction of the 2.6 composite
+        let risk = make_risk_with_overall(41.87);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 60.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.0,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 0.5,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+        // 0.5 × (1 − 0.4187) = 0.2907 < 1.0 → penalty applies: the short
+        // arm is compressed, so HOLD overtakes it while the split stays
+        // graded (hold ≤ 60, short ≥ 15).
+        assert!(ctx.hold_probability > ctx.short_probability);
+        assert!(ctx.hold_probability <= 60.0);
+        assert!(ctx.short_probability >= 15.0);
+        assert!(ctx.short_probability > ctx.long_probability);
+        let total = ctx.long_probability + ctx.short_probability + ctx.hold_probability;
+        assert!((total - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lean_floor_applied_flag_tracks_the_boost() {
+        // v6.10.19 (P6): when the graded-lean floors actually move the
+        // split (HOLD capped at 60% / arm raised to 15%), the flag tells
+        // the UI to render the LEAN annotation.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Average);
+        analysis.bias = MarketBias::Bearish;
+        analysis.market_bias_score = 0.026; // lifted
+        let risk = make_risk_with_overall(41.87);
+        let indicators = HashMap::new();
+        // Low opportunity score → high entry danger → hold > 60 pre-cap.
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 20.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.3,
+            long_expected_rr_internal: 0.0,
+            short_expected_rr_internal: 0.0,
+            time_horizon: "INTRADAY".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+        assert!(ctx.lean_floor_applied, "floors must be flagged when they adjust the split");
+        // The cap fires pre-renormalization; the final renormalization
+        // lets HOLD absorb the rounding residual (≤ ~62), never the
+        // pre-cap value.
+        assert!(ctx.hold_probability <= 62.0);
+    }
+
+    #[test]
+    fn lean_floor_applied_false_for_a_natural_split() {
+        // A strong directional read whose split already satisfies the
+        // floors needs no boost — no annotation.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
+        analysis.bias = MarketBias::Bullish;
+        analysis.market_bias_score = 0.0; // lifted
+        let risk = make_risk_with_overall(20.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::Scalp,
+            opportunity_score: 85.0,
+            setup_quality: crate::analysis::SetupQuality::Prime,
+            profiles: vec![],
+            forecast_confidence: 0.85,
+            long_expected_rr_internal: 2.5,
+            time_horizon: "SWING".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+        assert!(!ctx.lean_floor_applied);
+    }
+
+    #[test]
+    fn forming_requires_a_qualifying_profile() {
+        // v6.10.19 (T4): a directional read with NO qualifying profile is
+        // a dead no-clear market — readiness WATCH (the lean stays
+        // visible via the decoupling), never a misleading "FORMING".
+        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
+        analysis.bias = MarketBias::Bullish;
+        // Lifted (score 0 → guidance Long despite the risk gate) with a
+        // confidence that keeps the state BELOW the READY arm (conf 32.8).
+        analysis.market_bias_score = 0.0;
+        let risk = make_risk_with_overall(60.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::NoClearOpportunity,
+            opportunity_score: 40.0,
+            setup_quality: crate::analysis::SetupQuality::None,
+            profiles: vec![],
+            forecast_confidence: 0.4,
+            long_expected_rr_internal: 2.0,
+            time_horizon: "SWING".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.trade_readiness, "WATCH");
+    }
+
+    #[test]
+    fn forming_fires_with_a_qualifying_profile() {
+        // The same directional read WITH a qualifying profile (2/3
+        // preconditions) is a real coiling setup → FORMING.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Good);
+        analysis.bias = MarketBias::Bullish;
+        analysis.market_bias_score = 0.0;
+        let risk = make_risk_with_overall(60.0);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::Scalp,
+            opportunity_score: 60.0,
+            setup_quality: crate::analysis::SetupQuality::Moderate,
+            profiles: vec![crate::analysis::OpportunityProfile {
+                opportunity_type: OpportunityType::Scalp,
+                score: 58.0,
+                preconditions_met: 2,
+                preconditions_total: 3,
+                notes: "Scalp".into(),
+                direction_family: Some(crate::analysis::DirectionFamily::TrendRiding),
+                long_entry_zone: None,
+                long_target_zone: None,
+                long_invalidation_level: None,
+                long_expected_rr_internal: 0.0,
+                short_entry_zone: None,
+                short_target_zone: None,
+                short_invalidation_level: None,
+                short_expected_rr_internal: 0.0,
+                long_geometry_consistent: false,
+                short_geometry_consistent: false,
+                trade_viability: None,
+                scoring_factors: None,
+            }],
+            forecast_confidence: 0.6,
+            long_expected_rr_internal: 2.0,
+            time_horizon: "SCALP".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.trade_readiness, "FORMING");
+    }
+
+    #[test]
+    fn bias_keyed_rr_penalty_applies_even_when_the_risk_gate_says_neutral() {
+        // v6.10.18 (I-1 + I-1b): plain Bullish (NOT lifted — composite
+        // 21.77 > 20) at risk 41.07 ≥ 40 → the §3.1 risk gate produces
+        // Neutral guidance — but the sub-1.0 bracket must STILL cap the
+        // directional conviction (bias-keyed penalty), never inflate it.
+        let mut analysis = make_analysis_with_quality(QualityLevel::Average);
+        analysis.bias = MarketBias::Bullish;
+        analysis.market_bias_score = 0.2177; // wire fraction of 21.77
+        let risk = make_risk_with_overall(41.07);
+        let indicators = HashMap::new();
+        let opp = crate::opportunity::OpportunityMatrix {
+            symbol: "BTC-USD".to_string(),
+            primary_opportunity: OpportunityType::Scalp,
+            opportunity_score: 58.69,
+            setup_quality: crate::analysis::SetupQuality::Moderate,
+            profiles: vec![],
+            forecast_confidence: 0.71,
+            long_expected_rr_internal: 0.55,
+            short_expected_rr_internal: 0.0,
+            time_horizon: "SCALP".to_string(),
+            ..Default::default()
+        };
+        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 71.0, &analysis, Some(&opp), &risk);
+        assert_eq!(ctx.bias, "Bullish");
+        // The split stays GRADED with the penalty: long ≈ 57, hold ≈ 41,
+        // net ≈ +55 — versus ~75/23 unpenalized (the 0.55 R:R must cap).
+        assert!(ctx.long_probability > ctx.hold_probability);
+        assert!(ctx.hold_probability <= 60.0);
+        assert!(ctx.long_probability < 75.0);
+        assert!(ctx.net_bias_pct > 30.0);
+        let total = ctx.long_probability + ctx.short_probability + ctx.hold_probability;
+        assert!((total - 100.0).abs() < 1e-9);
     }
 
     #[test]

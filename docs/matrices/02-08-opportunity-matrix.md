@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -98,7 +98,7 @@ The cadence is implemented as a debounced scheduler on the L6 Decision Layer (se
 
 The mapping is total over all eight `OpportunityType` values. The frontend's `selectProfileSide(profile, macroBias)` resolves the profile's side from its **populated zones first** (the L4 producer populates exactly one side per profile, so the populated side *is* the wire-side resolution), falling back to the family × bias combination above when the profile carries no zones (legacy payloads, neutral bias).
 
-> **Single effective direction (v6.10.6).** Every directional surface of the L4 output — the header badge tone + R:R chip, the directional conviction bars, the `R:R (Internal)` block, the invalidation note, the matrix-level confluent display, and the legacy scalar `entry_zone` / `target_zone` / `invalidation_level` — resolves from **one** canonical direction: the top qualifying profile's resolved side (zone-presence aware `selectProfileSide`), falling back to the macro bias side, then to the argmax of the per-side geometric R:R. This closes the historical CounterTrend duality where a profile card could read LONG while the note, confluent levels, and header described the SHORT thesis. The L6 decision context remains macro-bias driven by design (L6 is the market verdict; the L4 card is the setup direction).
+> **Single effective direction (v6.10.6; FIX-1 v6.10.15).** Every directional surface of the L4 output — the header badge tone + R:R chip, the directional conviction bars, the `R:R (Internal)` block, the invalidation note, the matrix-level confluent display, and the legacy scalar `entry_zone` / `target_zone` / `invalidation_level` — resolves from **one** canonical direction: the top qualifying profile's resolved side (zone-presence aware `selectProfileSide`), falling back to the macro bias side. Under a **Neutral** bias (or absent bias with no profile-side resolution) the direction is **NEUTRAL** — the legacy argmax of the per-side geometric R:R lit the bars/badge directionally on a directionally-neutral panel (57% "bearish" beside a DirectionalNeutral card, `Lean: neutral`, and N/A R:R) and contradicted the L6 HOLD verdict; bracket geometry remains visible in the setup cards and confluent levels, only the directional-conviction surfaces go neutral. This closes the historical CounterTrend duality where a profile card could read LONG while the note, confluent levels, and header described the SHORT thesis. The L6 decision context remains macro-bias driven by design (L6 is the market verdict; the L4 card is the setup direction).
 
 #### 2.2.2 Per-profile geometry invariants
 
@@ -112,6 +112,11 @@ The non-positive bound invariant (`low > 0`, `high > 0` for entry and target) wa
 If the confluent pick violates the invariant, the L4 producer falls back to the directional ATR-only bracket; if even the ATR fallback can't satisfy the invariant (e.g. fresh symbol with no historical candles), the profile emits `null` for every zone and the consumer falls back to the aggregated `long_* / short_*` fields.
 
 The server-side `long_geometry_consistent` / `short_geometry_consistent` flags are computed from the same per-side `compute_side_rr_v2()` status that the `trade_viability` badge uses. The frontend prefers these flags over local re-computation.
+
+**Trade viability (v6.10.18 I-5 + v6.10.19 P5) — "actionable" means worth acting on, AFTER costs.** `ACTIONABLE` requires preconditions met + valid geometry **AND a NET R:R ≥ 1.0** — the gross geometric ratio minus estimated entry/exit fees and slippage (`NetCostModel`: taker 6 bps + slippage 5 bps per side, funding 0; round-trip baseline 22 bps; config knobs in `OpportunityMatrixConfig`, plumbed in a follow-up). A gross 1:1 bracket nets ≈0.98 and demotes to **`QUALIFYING`**; the GROSS ratio stays on the wire (`long_gross_rr_internal` / `short_gross_rr_internal`) and in the export (`rr_internal.gross_rr_value`) for offline analysis, while the cards display the NET value with the gross in the explanation. The frontend re-derates any legacy `ACTIONABLE` wire whose R:R < 1 the same way. **BelowFloor (v6.10.19 T3):** a sub-1.0 AGGREGATED reference bracket under No Clear renders as "Reference Bracket (Below Actionable Floor)" — levels visible, red-flagged, never framed as a trade.
+**Evaluated-setup display scores (v6.10.19 T1):** the operator-facing score scales by the precondition ratio (0/3 → 0 muted, 2/3 → 2/3 of the score, 3/3 → full); the raw wire `score` is untouched for data consumers. The invalidation selection is **horizon-aware** (I-5b): the stop prefers the NEARER of the structural level (e.g. VP VAL) and the horizon budget (`SCALP` 1.5×ATR / `INTRADAY` 2×ATR / `SWING` 3×ATR / `POSITION` 4×ATR from the entry mid), so a 60s scalp can no longer carry a 4.5×ATR stop that condemns its bracket to R:R 0.55.
+
+**Directional bars (v6.10.18 I-4).** The L4 directional bars mirror the **L6 verdict split** (long/short/hold probabilities) whenever a decision context exists — one conviction number across panels; the bracket-conviction math is the legacy fallback only.
 
 **Geometry examples (correct):**
 

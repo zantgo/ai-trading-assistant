@@ -1,4 +1,4 @@
-import type { MarketBias, OpportunityMatrix } from '../types';
+import type { DecisionContext, MarketBias, OpportunityMatrix } from '../types';
 import { selectProfileSide, topQualifyingProfile } from './decisionRank';
 // RR-001 (v6.10.12): the R:R floor is owned by `decisionRank` (shared with
 // the R:R resolver + zones formula) and re-exported here for the bars.
@@ -10,6 +10,23 @@ export interface DirectionalBars {
   bullish: number;
   bearish: number;
   hold: number;
+}
+
+/**
+ * v6.10.18 (I-4): the L4 directional bars mirror the L6 VERDICT split
+ * (long/short/hold probabilities) whenever a DecisionContext is present —
+ * one conviction number across panels, never two stories for the same
+ * market. `null` when the decision context carries no probabilities
+ * (legacy payloads → `computeOpportunityBars` fallback).
+ */
+export function directionBarsFromRank(
+    decisionContext: DecisionContext | null | undefined,
+): DirectionalBars | null {
+    const l = decisionContext?.long_probability;
+    const s = decisionContext?.short_probability;
+    const h = decisionContext?.hold_probability;
+    if (l == null || s == null || h == null) return null;
+    return { bullish: Math.round(l), bearish: Math.round(s), hold: Math.round(h) };
 }
 
 /**
@@ -31,8 +48,15 @@ export type EffectiveDirection = 'LONG' | 'SHORT' | 'NEUTRAL';
  *
  *   1. the top qualifying profile's resolved side (zone-presence aware
  *      `selectProfileSide` — deviation-driven for CounterTrend setups),
- *   2. the macro bias (Bullish → LONG, Bearish → SHORT),
- *   3. the argmax of the per-side geometric R:R.
+ *   2. the macro bias (Bullish → LONG, Bearish → SHORT).
+ *
+ * Under a Neutral (or absent) bias with no profile-side resolution the
+ * direction is NEUTRAL (v6.10.15, FIX-1) — the legacy argmax of the two
+ * per-side geometric R:R values lit the bars/badge directionally on a
+ * directionally-neutral panel (57% "bearish" beside a DirectionalNeutral
+ * card, `Lean: neutral`, and N/A R:R) and contradicted the L6 HOLD
+ * verdict. Bracket geometry stays visible in the setup cards and
+ * confluent levels; only the directional-conviction surfaces go neutral.
  *
  * One resolution, shared everywhere, so the bull/bear/hold bars can
  * never contradict the panel that renders them.
@@ -49,10 +73,7 @@ export function resolveEffectiveDirection(
   }
   if (bias === 'Bullish' || bias === 'StrongBullish') return 'LONG';
   if (bias === 'Bearish' || bias === 'StrongBearish') return 'SHORT';
-  const longRR = Math.max(0, opp.long_expected_rr_internal ?? 0);
-  const shortRR = Math.max(0, opp.short_expected_rr_internal ?? 0);
-  if (longRR === shortRR) return 'NEUTRAL';
-  return longRR > shortRR ? 'LONG' : 'SHORT';
+  return 'NEUTRAL';
 }
 
 function clamp(x: number, lo: number, hi: number): number {

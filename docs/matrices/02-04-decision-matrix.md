@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -75,6 +75,10 @@ decision_context.score = 0.50 · alignment.tradability_dim
                        + 0.20 · opportunity.opportunity_score
 ```
 
+> **Signed vs unsigned (v6.10.16).** The blend above is **unsigned** `[0, 100]` — the wire `score` is that blend signed by `Analysis.bias` (`+` Bullish, `−` Bearish, **`0` when bias is Neutral**, see `decision_context.rs`). A Neutral bias therefore zeroes the signed score even when the blend is strong (e.g. ≈63) — the Recommendation panel's why-line now reports both: `confluence score 0 (…blend…) — signed 0 because Neutral bias zeroes the directional blend (unsigned ≈ 63)`. The L3 grace band (02-02 §3.1, v6.10.16) rescues coherent TF votes from that zeroing so a 4:0-vote market carries its direction.
+
+> **Signed vs unsigned (v6.10.16).** The blend above is **unsigned** `[0, 100]` — the wire `score` is that blend signed by `Analysis.bias` (`+` Bullish, `−` Bearish, **`0` when bias is Neutral**, see `decision_context.rs`). A Neutral bias therefore zeroes the signed score even when the blend is strong (e.g. ≈63) — the why-line in the Recommendation panel now reports both: `confluence score 0 (…blend…) — signed 0 because Neutral bias zeroes the directional blend (unsigned ≈ 63)`. The L3 grace band (02-02 §3.1, v6.10.16) rescues coherent TF votes from the Neutral zeroing so a 4:0-vote market carries its direction.
+
 where `alignment.tradability_dim` is dimension 9 of the [Alignment Matrix](../matrices/02-01-alignment-matrix.md) (renamed from "Opportunity" in the institutional redesign because L4 owns opportunity concepts; this dimension measures cross-TF agreement on tradability), `analysis.market_quality_score` is the L3 quality score in `[0, 100]`, and `opportunity.opportunity_score` is the L4 score in `[0, 100]`. Weights sum to 1.00.
 
 The canonical worked example below (§6) recomputes under this formula.
@@ -95,13 +99,23 @@ The three percentage fields (`long_probability`, `short_probability`, `hold_prob
 
 2. **Directional modulation.** The `directional_guidance` (re-derived from `Analysis.bias` × `Risk.overall_risk` using the canonical §3.1 table) amplifies its own side by `1.2×` and attenuates the opposite side by `0.5×`. Neutral guidance has no effect.
 
+> **Lifted-bias override (v6.10.17).** A bias produced by the margin
+> machinery (grace band, hysteresis hold, or the LEAN tier — see
+> 02-02 §3.1, `bias_lifted()`) is **always directional** in this step,
+> bypassing the risk gate of §3.1 rows 5/9 — a minimal 3:1-vote
+> confirmation with composite 2.6 at risk 41.87 produces a graded
+> directional split instead of a 96% HOLD. Plain (non-lifted) biases
+> keep the risk gate exactly as documented. `DecisionContext::compute`
+> and `AdvisoryMatrix::compute_advisory` share the same override so the
+> guidance and the percentages can never contradict each other.
+
 3. **Stance modulation.** `market_stance` (re-derived from `MarketQuality` × `overall_risk` using the canonical §3.2 table):
    - `AGGRESSIVE` or `CONSTRUCTIVE`: amplify the guided side by `1.15×`.
    - `AVOID`: halve both directional sides (`0.5×`) and amplify hold by `1.5×`.
 
-4. **R:R modulation.** When `expected_reward_risk_ratio < 1.0`, the guided side is penalized by `0.6×`.
+4. **R:R modulation.** When `expected_reward_risk_ratio` is a real sub-1.0 value (`0 < rr < 1.0`), the **bias side** is penalized by `0.6×`. **v6.10.17:** a MISSING R:R (0 — no-clear matrices, warmup) is unknown, not bad, and no longer triggers the penalty — only an actual bad R:R does. **v6.10.18 (I-1b):** the penalty keys to the BIAS direction, not the §3.1 guidance — when the risk gate produces Neutral guidance at elevated risk (plain Bullish, risk ≥ 40), the poor bracket must STILL cap the directional conviction (a trader rejects "worse R:R → higher conviction"). The graded-lean floors (step 5) are bias-keyed the same way.
 
-5. **Renormalization & floor.** The three modulated values are renormalized so `long + short + hold = 100`, then a 2% minimum floor is applied before a final renormalization round. This prevents degenerate `100/0/0` distributions and guarantees every side has at least a 2% display presence.
+5. **Renormalization & floor.** The three modulated values are renormalized so `long + short + hold = 100`, then a 2% minimum floor is applied. **Graded-lean floors (v6.10.17):** whenever a directional read exists, HOLD is additionally capped at **60%** and the directional arm is floored at **15%** before the final renormalization — the distribution can never collapse into a 96% HOLD next to a minimal bullish/bearish confirmation. The 2% floor (and thus the 96%-HOLD shape) survives ONLY in the genuinely flat state (Neutral bias, no directional offset). This is the release gate that keeps the panel sensitive: HOLD ≥ 90% is the exception, not the norm.
 
 The computation above is **identical on the backend and the frontend fallback** — the two paths share the same formulas, same inputs, and same modulation tables. The backend version additionally uses the exact `MarketStance`/`DirectionalGuidance` derivation tables from `compute_advisory()` (rather than the advisory wire fields) so the percentages are self-consistent within the `DecisionContext` envelope.
 
@@ -129,25 +143,38 @@ Derived from `bias × overall_risk × market_stance`:
 
 All six `DirectionalGuidance` values are reachable. The `AVOID_DIRECTIONAL_EXPOSURE` guard at priority 1 ensures the L6 output correctly reflects the L6's own `market_stance = AVOID` determination (e.g. when the L6 stance is forced AVOID by a PME veto or a system safety trigger).
 
+> **Lifted-bias override (v6.10.17, unit-corrected v6.10.18).** Rows 5
+> and 9 (`BULLISH/BEARISH + risk ≥ 40 → NEUTRAL`) are bypassed when the
+> bias is **lifted** (grace / hysteresis / LEAN — the wire FRACTION
+> `|market_bias_score| ≤ 0.2`, i.e. a composite ≤ 20, with a directional
+> bias): a lifted read is directional by construction and the risk gate
+> must not silence it (the readiness gate still governs execution).
+> Mirrored in `DecisionContext` and `compute_advisory`. v6.10.18 fixed
+> a unit bug where the fraction was compared against ±20 directly —
+> EVERY directional bias was treated as lifted and the risk gate was
+> silently dead.
+
 > **Reachability and gating.** Priority 1 (`market_stance = AVOID`) is the **only** path to `AVOID_DIRECTIONAL_EXPOSURE`. This is intentional: the L6 `DirectionalGuidance` is conditional on the L6 `MarketStance` (see §3.2 below), and an `AVOID` stance is itself determined by `market_quality` and `overall_risk` (e.g. `market_quality ∈ {POOR}` or `overall_risk ≥ 80`). The derivation table above is therefore only "live" when `market_stance ∈ {AGGRESSIVE, CONSTRUCTIVE, NEUTRAL, CAUTIOUS}`; whenever the L6 `MarketStance` becomes `AVOID`, every bias × risk combination below priority 1 collapses to `AVOID_DIRECTIONAL_EXPOSURE`. `MarketStance` (L6 environmental assessment) and `Stance` (PME per-symbol execution authorization) are independent enums — see the disambiguation note in §4 below.
 
 ### 3.2 MarketStance
 `AGGRESSIVE`, `CONSTRUCTIVE`, `NEUTRAL`, `CAUTIOUS`, `AVOID`.
 
-Derived from `market_quality × overall_risk`:
+Derived from `market_quality × overall_risk` (exact mirror of `compute_advisory`, v6.10.17 — the previous table claimed `POOR` alone → `AVOID`, but the code requires `POOR` **and** `overall_risk ≥ 80`; a poor-quality-but-calm market is `CAUTIOUS`, not `AVOID`):
 ```
 # Priority order (first match wins):
-1. market_quality ∈ {POOR}                  OR overall_risk ≥ 80           → AVOID
-2. market_quality ∈ {POOR, WEAK}            OR overall_risk ≥ 60           → CAUTIOUS
-3. market_quality ∈ {AVERAGE}               AND overall_risk <  40         → NEUTRAL
-4. market_quality ∈ {EXCELLENT}             AND overall_risk <  20         → AGGRESSIVE
-5. market_quality ∈ {GOOD, EXCELLENT}      AND overall_risk <  30         → CONSTRUCTIVE
-6. otherwise                                                              → CAUTIOUS  (default)
+1. market_quality = POOR      AND overall_risk ≥ 80                       → AVOID
+2. market_quality = EXCELLENT AND overall_risk ≥ 80                       → AVOID
+3. market_quality ∈ {POOR, WEAK}                                          → CAUTIOUS
+4. market_quality = AVERAGE   AND overall_risk <  40                      → NEUTRAL
+5. market_quality = GOOD      AND overall_risk <  30                      → CONSTRUCTIVE
+6. market_quality = EXCELLENT AND overall_risk <  20                      → AGGRESSIVE
+7. market_quality = EXCELLENT AND overall_risk <  30                      → CONSTRUCTIVE
+8. otherwise                                                              → CAUTIOUS  (default)
 ```
 
 > **Unit convention.** The `overall_risk` thresholds above are on the canonical `[0, 100]` unipolar scale (matching the [Risk Matrix](../matrices/02-11-risk-matrix.md) `RiskDimension.score` unit). The thresholds `80 / 60 / 40 / 30 / 20` correspond to the documented bands in §3.8; the fractional form (`0.80`, `0.60`, `0.40`, `0.30`, `0.20`) would map `overall_risk = 28.3` to "above the AVOID threshold" and is not used.
 
-All five `MarketStance` values are reachable. The `AVOID` and `CAUTIOUS` guards are "sticky" — they fire on either bad quality or high risk, so the stance correctly reflects "do not engage" when either condition is met. Note the tightened risk thresholds for the higher-quality stances: AGGRESSIVE requires risk < 20, CONSTRUCTIVE requires risk < 30. The previous version had CONSTRUCTIVE at risk < 60 and AGGRESSIVE at risk < 40, which created a counterintuitive situation where a mediocre setup (`AVERAGE` quality) with elevated risk could still yield `CONSTRUCTIVE` (via the default rule). The tightened thresholds eliminate this anti-pattern.
+All five `MarketStance` values are reachable. `AVOID` requires a **combination** — `POOR` or `EXCELLENT` quality AND `overall_risk ≥ 80` (a rich-market blowup, not a mediocre calm market); `CAUTIOUS` is the catch-all for poor/weak quality and everything else. Note the tightened risk thresholds for the higher-quality stances: AGGRESSIVE requires risk < 20, CONSTRUCTIVE requires risk < 30. The previous version had CONSTRUCTIVE at risk < 60 and AGGRESSIVE at risk < 40, which created a counterintuitive situation where a mediocre setup (`AVERAGE` quality) with elevated risk could still yield `CONSTRUCTIVE` (via the default rule). The tightened thresholds eliminate this anti-pattern.
 
 > **Default-stance rationale.** The default fallback is `CAUTIOUS`, which preserves monotonic escalation: as risk rises, the stance retreats `CONSTRUCTIVE → NEUTRAL → CAUTIOUS → AVOID` without ever advancing again. Choosing `CONSTRUCTIVE` as the default would create the inverse anomaly (higher-risk environments with `POOR` quality receiving a more aggressive stance than lower-risk ones via the same rule, since `CONSTRUCTIVE` would be the unconditional fall-through while `AVOID` requires `POOR`-quality to fire).
 
@@ -278,15 +305,28 @@ Trade readiness is a function of this confidence, the directional guidance, the 
 2. non-neutral guidance AND confidence ≥ 60
    AND market_stance ∈ {AGGRESSIVE, CONSTRUCTIVE}
    AND entry_guidance ≠ WAIT_FOR_CONFIRMATION                            → READY
-3. non-neutral guidance                                                  → FORMING
-4. confidence ∈ [20, 40)  OR  neutral guidance                           → WATCH
-5. otherwise (default)                                                   → WATCH
+3. non-neutral guidance AND ≥1 qualifying profile (preconditions_met > 0,
+   non-NoClear)                                                         → FORMING
+4. otherwise                                                             → WATCH
 ```
 
 > **Tiling proof (no gap, no overlap).** Under first-match ordering the five rules partition the full input space (`market_stance` × `confidence_assessment` × `directional_guidance` × `entry_guidance`):
 > - Rule 1 absorbs every state with `market_stance = AVOID` or `confidence < 20`. The former overlap — `confidence ∈ [40, 60)` with `market_stance = AVOID` matching both `FORMING` and `STAND_ASIDE` — now resolves unambiguously to `STAND_ASIDE`.
 > - Rules 2–3 partition the surviving non-neutral-guidance states: rule 2 takes the confirmed high-conviction subset (`confidence ≥ 60`, stance ∈ {AGGRESSIVE, CONSTRUCTIVE}, entry ≠ `WAIT_FOR_CONFIRMATION`) → `READY`; rule 3 takes every other non-neutral state → `FORMING`. This closes the former gap: `confidence ≥ 60` with stance `CAUTIOUS`/`NEUTRAL` and non-neutral guidance, and `entry_guidance = WAIT_FOR_CONFIRMATION` at any `confidence ≥ 20`, both now land in `FORMING`.
 > - Rule 4 catches the entire remainder: any state reaching it has neutral guidance (non-neutral states were absorbed by rules 2–3) with `confidence ≥ 20` and `market_stance ≠ AVOID`, so the neutral-guidance disjunct alone suffices; the `confidence ∈ [20, 40)` disjunct is an explicit guard keeping the band visible. Rule 5 is a defensive default — unreachable under the current vocabulary — keeping the ruleset total if the guidance enums grow.
+
+> **FORMING gate (v6.10.19 T4).** Rule 3 additionally requires at least one
+> QUALIFYING profile — "FORMING" means a setup is actively coiling, so a
+> dead no-clear market with a directional lean reads WATCH (the lean stays
+> visible via the verdict decoupling; the readiness is honest).
+
+> **Lean-floor transparency (v6.10.19 P6).** `DecisionContext.lean_floor_applied`
+> is `true` whenever the graded-lean floors actually adjusted the split
+> (HOLD capped at 60% and/or the directional arm raised to 15%) — the UI
+> renders a LEAN annotation so the operator always knows a boosted
+> low-confidence read from a deep consensus.
+
+> **Readiness `entry_guidance` mirror (v6.10.17).** The `DecisionContext` `entry_guidance_is_wait` gate that blocks rule 2 now mirrors the FULL §3.4 entry-guidance derivation (advisory.rs) instead of the legacy volatility-only proxy: wait-states are `volatility_risk ≥ 60` (NoEntryContext), `Weak`/`Exhausted` trends (NoEntryContext), and `Developing` trends with `volatility_risk ≥ 20` (WaitForConfirmation). A READY badge can therefore never coexist with "Entry: Wait for confirmation" on the playbook.
 
 > **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID` — environmental aggressiveness assessment). They do **not** reference the per-symbol **execution stance** (`Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID` — PME-managed execution authorization). See the Rust doc comment in `crates/config-models/src/models.rs::Stance` for the canonical disambiguation. The pre-trade gate in [08-02 Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by execution stance before the readiness check.
 

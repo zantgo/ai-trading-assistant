@@ -273,7 +273,8 @@ describe('GeneralDashboard — hero states', () => {
             }),
         });
         render(GeneralDashboard, { props: { wssMap: {} } });
-        expect(screen.getByText('WAIT')).toBeTruthy();
+        // The hero WAIT and the asset-table WAIT cells both render.
+        expect(screen.getAllByText('WAIT').length).toBeGreaterThan(0);
     });
 
     it('renders STAND ASIDE when no qualifying profile exists', () => {

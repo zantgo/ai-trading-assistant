@@ -7,11 +7,12 @@
 //         "all timeframes neutral" (signals exist, no directional lean).
 //   AN-3: a zero-opposing count renders "3:0", never "3:1".
 
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { tick } from 'svelte';
 import AnalysisPanel from './AnalysisPanel.svelte';
 import { useAppStore } from '../state.svelte';
-import type { AnalysisMatrix } from '../types';
+import type { AnalysisMatrix, IndicatorMap } from '../types';
 
 function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     return {
@@ -86,6 +87,8 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
     });
 
     it('all-neutral signals render an honest neutral hero, not "No signals" (AN-2)', () => {
+        // v6.10.18 (I-7): neutral TFs (score 0, |score| ≤ 10) do not vote
+        // — the hero reads "Neutral signals" (no lean) exactly as before.
         seed(makeAnalysis({
             supporting_signals: ['MICRO (neutral): score +0, RANGE regime, 0 signals'],
             contradicting_signals: ['FAST (neutral): score +0, RANGING regime, 0 signals'],
@@ -105,11 +108,12 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
     });
 
     it('zero opposing signals render "3:0", never "3:1" (AN-3)', () => {
+        // v6.10.18 (I-7): the hero vote uses decisive scores (|score| > 10).
         seed(makeAnalysis({
             supporting_signals: [
-                'MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals',
-                'FAST (bullish): score +2, TRENDING_BULL regime, 2 signals',
-                'SLOW (bullish): score +1, TRENDING_BULL regime, 1 signal',
+                'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
+                'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
+                'SLOW (bullish): score +15, TRENDING_BULL regime, 1 signal',
             ],
             contradicting_signals: [],
         }));
@@ -121,12 +125,41 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
     it('renders the doc-example 2.0:1 ratio when both sides have counts (AN-3)', () => {
         seed(makeAnalysis({
             supporting_signals: [
-                'MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals',
-                'FAST (bullish): score +2, TRENDING_BULL regime, 2 signals',
+                'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
+                'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
             ],
-            contradicting_signals: ['SLOW (bearish): score -3, RANGING regime, 1 signal'],
+            contradicting_signals: ['SLOW (bearish): score -30, RANGING regime, 1 signal'],
         }));
         render(AnalysisPanel, { props: {} });
         expect(screen.getByText('2.0:1 signal ratio')).toBeTruthy();
+    });
+
+    it('v6.10.19a (D1): export traceability carries the representative BBWP/ADX raw values', async () => {
+        // Regression: the panel read the transient snapshot map with the
+        // wrong key (`raw` vs the wire `raw_value`) — the representative
+        // fields were null on every live export. The canonical source is
+        // the term-level indicator map, exactly like the Metrics tab.
+        const app = seed(makeAnalysis());
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        tf.indicators = {
+            bbwp: { raw_value: 94.8, normalized: 0.948, state_label: 'NEUTRAL', values: null },
+            adx: { raw_value: 40.06, normalized: 0.6, state_label: 'NEUTRAL', values: null },
+        } as unknown as IndicatorMap;
+
+        const writes: string[] = [];
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: async (t: string) => { writes.push(t); return true; } },
+            writable: true,
+            configurable: true,
+        });
+        render(AnalysisPanel, { props: {} });
+        const exportBtn = screen.getByTitle('Copy all Analysis data as JSON');
+        await fireEvent.click(exportBtn);
+        await tick();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(writes.length).toBe(1);
+        const payload = JSON.parse(writes[0]);
+        expect(payload.representative_bbwp).toBeCloseTo(94.8, 1);
+        expect(payload.representative_adx).toBeCloseTo(40.06, 1);
     });
 });

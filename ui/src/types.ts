@@ -361,6 +361,10 @@ export interface AlignmentMatrix {
     mtf_volatility_alignment: number;
     mtf_overall_score: number;
     mtf_overall_label: string;
+    /** Effective blend weights `[["T", 0.55], …]` applied to the
+     *  composite — mirrors the backend formula (v6.10.16 thin-participation
+     *  reweight; empty/absent on legacy payloads → standard 50/30/10/10). */
+    blend_weights?: Array<[string, number]>;
     timeframe_alignments: TfAlignmentInfo[];
     signal_cross_tf_count: number;
     trend_agreement_pct: number;
@@ -518,6 +522,9 @@ export interface DecisionContext {
     hold_probability?: number;
     /** Net directional bias (long − short) in percentage points, range [-100, +100]. */
     net_bias_pct?: number;
+    /** v6.10.19 (P6): the graded-lean floors adjusted this split — the
+     *  directional read is structurally boosted (LEAN annotation). */
+    lean_floor_applied?: boolean;
 }
 
 // ── Overview Matrix (global market synthesis — 9 components) ──
@@ -1170,6 +1177,9 @@ export interface ConfluentLevel {
     confluence_count: number;
     sources: LevelSource[];
     strength: number;
+    /** v6.10.17 (F23): the trade direction this level serves — LONG below
+     *  close, SHORT above close, null on the close. */
+    side?: 'LONG' | 'SHORT' | null;
 }
 
 export interface PriceRange {
@@ -1199,7 +1209,7 @@ export type DirectionFamily = 'TrendRiding' | 'CounterTrend' | 'Neutral';
  * Wire format is SCREAMING_SNAKE_CASE. Legacy payloads without this
  * field default to `NoClear` (most conservative).
  */
-export type TradeViability = 'Actionable' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
+export type TradeViability = 'Actionable' | 'Qualifying' | 'DirectionalNeutral' | 'GeometryInverted' | 'NoClear';
 
 /**
  * One per-setup-type entry in `OpportunityMatrix.profiles`. Each
@@ -1253,10 +1263,14 @@ export interface OpportunityMatrix {
     short_entry_zone: PriceRange;
     short_target_zone: PriceRange;
     short_invalidation_level: number;
-    /** Per-side LONG R:R. Active side is resolved by `analysis.bias`. */
+    /** Per-side LONG R:R — v6.10.19 (P5): the NET value (gross minus
+     *  estimated fees/slippage/funding). Active side resolved by `analysis.bias`. */
     long_expected_rr_internal: number;
-    /** Per-side SHORT R:R. Active side is resolved by `analysis.bias`. */
+    /** Per-side SHORT R:R — v6.10.19 (P5): the NET value. */
     short_expected_rr_internal: number;
+    /** v6.10.19 (P5): the GROSS geometric R:R (pre-cost) per side. */
+    long_gross_rr_internal?: number | null;
+    short_gross_rr_internal?: number | null;
     time_horizon: string;
     confluent_entry_levels: ConfluentLevel[];
     confluent_target_levels: ConfluentLevel[];

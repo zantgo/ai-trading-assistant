@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.10 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -119,7 +119,7 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 
 ### 3.4 Watchlist Scanner (Market Monitor Overview)
 
-A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is a dashed-divider button labeled **Scan Watchlist** that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, and runs the full Market Monitor pipeline on each pair one at a time. Pairs whose first `decision_context.trade_readiness === 'READY'` AND whose `advisory.directional_guidance ∈ {StrongLong, Long, Short, StrongShort}` are kept; all others are DELETE-removed from the workspace (§3.4.3). Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
+A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is an inline **Scan Watchlist** pill button — grouped with the **SCHEDULE SNAPSHOTS** pill inside the unified bottom toolbar (`.runnerBar`, buttons left, explanatory caption right) — that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, and runs the full Market Monitor pipeline on each pair one at a time. Pairs whose first `decision_context.trade_readiness === 'READY'` AND whose `advisory.directional_guidance ∈ {StrongLong, Long, Short, StrongShort}` are kept; all others are DELETE-removed from the workspace (§3.4.3). Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
 
 The three phases share a single dialog (`phase: 'input' | 'running' | 'done'`):
 

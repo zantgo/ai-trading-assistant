@@ -1,6 +1,6 @@
 # MME Sub-Minute vs Above-Minute Analytical Parity
 
-**Version:** 6.10.7 (2026-08-14) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10.7 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Market Monitoring Engine (MME)
 **Owner:** market-analyzer + portfolio-supervisor + ui

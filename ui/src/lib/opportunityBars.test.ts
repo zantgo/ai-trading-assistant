@@ -87,12 +87,18 @@ describe('resolveEffectiveDirection', () => {
     expect(resolveEffectiveDirection(o, 'StrongBullish')).toBe('LONG');
   });
 
-  it('falls back to argmax R:R when bias is Neutral', () => {
+  it('FIX-1: Neutral bias resolves NEUTRAL even when one bracket has a larger R:R', () => {
+    // The legacy argmax fallback lit the bars/badge directionally on a
+    // directionally-neutral panel (57% "bearish" beside a DirectionalNeutral
+    // card, `Lean: neutral`, and N/A R:R). Under Neutral bias the L4
+    // directional surfaces are neutral by design.
     const o = opp({
       long_expected_rr_internal: 1.0,
       short_expected_rr_internal: 2.5,
     });
-    expect(resolveEffectiveDirection(o, 'Neutral')).toBe('SHORT');
+    expect(resolveEffectiveDirection(o, 'Neutral')).toBe('NEUTRAL');
+    const bars = computeOpportunityBars(o, 'Neutral');
+    expect(bars).toEqual({ bullish: 0, bearish: 0, hold: 100 });
   });
 });
 

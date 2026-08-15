@@ -127,6 +127,34 @@ describe('buildAlignmentTabExport', () => {
     expect(p.hero.mtf_overall_label_display).toMatch(/STRONG|WEAK|NEUTRAL/);
   });
 
+  it('FIX-H2: score_calculation mirrors the wire blend_weights (thin-participation reweight)', () => {
+    const reweighted = {
+      ...makeAlignment(),
+      // Self-consistent with the reweighted blend:
+      // 0.55×0.45 + 0.35×0.3 + 0.05×0.1 + 0.05×0.2 = 0.36 → 36.0
+      mtf_overall_score: 36,
+      blend_weights: [
+        ['T', 0.55],
+        ['M', 0.35],
+        ['Vt', 0.05],
+        ['Vm', 0.05],
+      ] as Array<[string, number]>,
+    } as AlignmentMatrix;
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: reweighted,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const byKey = Object.fromEntries(p.score_calculation.weights.map((w: { key: string; pct: number }) => [w.key, w.pct]));
+    expect(byKey.T).toBe(55);
+    expect(byKey.M).toBe(35);
+    expect(byKey.Vt).toBe(5);
+    expect(byKey.Vm).toBe(5);
+    // The formula must balance the composite it mirrors.
+    expect(p.score_calculation.formula).toBe('(0.55 * (0.45) + 0.35 * (0.30) + 0.05 * (0.10) + 0.05 * (0.20)) × 100 = 36.0');
+  });
+
   it('null state mirrors the screen placeholders (—%, — verdict, +0.00, — weights)', () => {
     const p = JSON.parse(buildAlignmentTabExport({
       alignment: null,

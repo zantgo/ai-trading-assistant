@@ -2,9 +2,9 @@
 //
 // SnapshotSchedulerButton — bottom-left CTA in `GeneralDashboard`.
 // Renders a button that opens the SnapshotSchedulerModal. The button
-// itself owns the polling loop (3s) so the status pill (`ON ·
-// every 60s` / `OFF` / `12s ago` / red `error`) stays fresh even when
-// the modal is closed.
+// itself owns the polling loop (3s) so the status pill (`ON · 12s ago` /
+// `ON · 60s` / `OFF` / red `ERROR`) stays fresh even when the modal is
+// closed.
 
 import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi, afterEach as ae } from 'vitest';
@@ -42,7 +42,7 @@ describe('SnapshotSchedulerButton', () => {
     it('renders the CTA label and OFF status when no status loaded', () => {
         render(SnapshotSchedulerButton);
         expect(screen.getByText('SCHEDULE SNAPSHOTS')).toBeTruthy();
-        // Initial pill text is "OFF · loading…" before any fetch returns.
+        // Initial pill text is "OFF …" before any fetch returns.
         expect(screen.getByText(/OFF/)).toBeTruthy();
     });
 
@@ -57,9 +57,8 @@ describe('SnapshotSchedulerButton', () => {
         const app = useAppStore();
         app.snapshotExportStatus = makeStatus({ enabled: true, interval_secs: 60 });
         render(SnapshotSchedulerButton);
-        // Pill text "ON · every 60s · no snapshots yet" appears.
-        expect(screen.getByText(/ON · every 60s/)).toBeTruthy();
-        expect(screen.getByText(/no snapshots yet/)).toBeTruthy();
+        // Pill text "ON · 60s" appears.
+        expect(screen.getByText(/ON · 60s/)).toBeTruthy();
     });
 
     it('shows ERROR pill when last_error is set', () => {

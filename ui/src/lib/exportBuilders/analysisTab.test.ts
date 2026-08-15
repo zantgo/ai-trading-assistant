@@ -23,11 +23,11 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     market_phase: 'MARK_UP',
     timeframes_considered: 4,
     supporting_signals: [
-      'MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals',
-      'FAST (bullish): score +2, TRENDING_BULL regime, 2 signals',
+      'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
+      'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
     ],
     contradicting_signals: [
-      'SLOW (bearish): score -3, RANGING regime, 1 signal',
+      'SLOW (bearish): score -30, RANGING regime, 1 signal',
     ],
     trend_assessment: 'Trending',
     momentum_assessment: 'Strong Bullish',
@@ -96,8 +96,8 @@ describe('buildAnalysisTabExport', () => {
     }));
     const supporting = p.signals.supporting;
     expect(supporting.length).toBe(2);
-    expect(supporting[0].score).toBe(5);
-    expect(supporting[0].score_display).toBe('+5');
+    expect(supporting[0].score).toBe(35);
+    expect(supporting[0].score_display).toBe('+35');
     expect(supporting[0].timeframe).toBe('MICRO');
     expect(supporting[0].regime).toBe('TRENDING_BULL');
     expect(supporting[0].signals_count).toBe(3);
@@ -135,8 +135,8 @@ describe('buildAnalysisTabExport', () => {
   it('split-tone hero label matches the screen ("Split signals", no parenthetical)', () => {
     const split = {
       ...makeAnalysis(),
-      supporting_signals: ['MICRO (bullish): score +5, TRENDING_BULL regime, 1 signal'],
-      contradicting_signals: ['SLOW (bearish): score -3, RANGING regime, 1 signal'],
+      supporting_signals: ['MICRO (bullish): score +35, TRENDING_BULL regime, 1 signal'],
+      contradicting_signals: ['SLOW (bearish): score -30, RANGING regime, 1 signal'],
     };
     const p = JSON.parse(buildAnalysisTabExport({
       analysis: split,
@@ -148,6 +148,39 @@ describe('buildAnalysisTabExport', () => {
     expect(p.signal_lean_hero.tone).toBe('split');
     expect(p.signal_lean_hero.label_html).toBe('Split signals');
     expect(p.signal_lean_hero.meta_html).toBe('1↑ vs 1↓');
+  });
+
+  it('FIX-O2: a bullish TF vote under a NEUTRAL market bias renders amber with a bias qualifier', () => {
+    // The user's live capture shape: NEUTRAL badge/bias with all 4 TFs
+    // filed under contradicting (raw "(bullish)"). The hero must NOT be a
+    // green "Net bullish (4↑ vs 0↓)" under the NEUTRAL badge.
+    const neutral = {
+      ...makeAnalysis(),
+      bias: 'Neutral' as const,
+      supporting_signals: [] as string[],
+      contradicting_signals: [
+        'MICRO (bullish): score +26, TRENDING regime, 31 signals',
+        'FAST (bullish): score +56, TRENDING regime, 25 signals',
+        'SLOW (bullish): score +43, TRENDING regime, 21 signals',
+        'MACRO (bullish): score +17, COMPRESSION regime, 32 signals',
+      ],
+    };
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: neutral,
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.signal_lean_hero.tone).toBe('split');
+    // v6.10.18 (I-7): the hero vote uses the bias machinery's filter — the
+    // COMPRESSION macro window no longer counts as a bullish vote.
+    expect(p.signal_lean_hero.label_html).toBe('TF votes: Net bullish (3↑ vs 0↓)');
+    expect(p.signal_lean_hero.meta_html).toContain('market bias neutral');
+    expect(p.signal_lean_hero.bullish_pct).toBe(100);
+    // The lean chip carries the same qualifier.
+    expect(p.signals.lean.label).toContain('market bias neutral');
+    expect(p.signals.lean.tone).toBe('split');
   });
 
   it('null analysis still emits the hero placeholders the screen renders', () => {
@@ -240,9 +273,9 @@ describe('buildAnalysisTabExport', () => {
       analysis: {
         ...makeAnalysis(),
         supporting_signals: [
-          'MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals',
-          'FAST (bullish): score +2, TRENDING_BULL regime, 2 signals',
-          'SLOW (bullish): score +1, TRENDING_BULL regime, 1 signal',
+          'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
+          'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
+          'SLOW (bullish): score +15, TRENDING_BULL regime, 1 signal',
         ],
         contradicting_signals: [],
       } as unknown as AnalysisMatrix,

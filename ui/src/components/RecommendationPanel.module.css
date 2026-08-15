@@ -511,3 +511,14 @@
 .rrGood { color: #22c55e; font-weight: 700; }
 .rrFair { color: #f59e0b; font-weight: 700; }
 .rrPoor { color: #ef4444; font-weight: 700; }
+
+/* v6.10.19 (P6): the floor-boosted LEAN annotation under the gauge */
+.leanFloorTag {
+    margin-top: 6px;
+    text-align: center;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #f59e0b;
+    text-transform: uppercase;
+}

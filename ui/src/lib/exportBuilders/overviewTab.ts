@@ -45,6 +45,7 @@ import {
     directionLabel,
 } from '../dashboardColors';
 import { formatRelativeTime } from '../relTime';
+import { resolveActiveRr } from '../decisionRank';
 
 // ── Header chrome (LayerHeader) ───────────────────────────────────────────
 
@@ -212,7 +213,8 @@ export interface AssetRankingRow {
     bias: string;
     signal: 'BUY' | 'SELL' | 'WAIT';
     direction: 'LONG' | 'SHORT' | 'NEUTRAL';
-    rr: number;
+    /** Null when the shared resolver marks R:R unavailable (mirrors the L4/L6 panels). */
+    rr: number | null;
     rr_display: string;
     score: number;
     score_display: string;
@@ -415,7 +417,11 @@ function mtfScoreDisplay(score: number): string {
     return `${score > 0 ? '+' : ''}${score.toFixed(0)}`;
 }
 
-function buildAssetRankingRow(inst: InstanceState, nowMs: number): AssetRankingRow | null {
+function buildAssetRankingRow(
+    inst: InstanceState,
+    nowMs: number,
+    actionableSymbols: Set<string>,
+): AssetRankingRow | null {
     if (!inst.instanceId) return null;
     const opp = inst.opportunity;
     const adv = inst.advisory;
@@ -424,7 +430,12 @@ function buildAssetRankingRow(inst: InstanceState, nowMs: number): AssetRankingR
     const aln = inst.alignment;
     const guidance = adv?.directional_guidance ?? null;
     const direction = directionLabel(guidance);
-    const signal = signalLabel(guidance);
+    // v6.10.16 (FIX-O1): the signal token must agree with the hero's
+    // validity gate — a row can only say BUY/SELL when this instance has
+    // an Actionable + READY setup (the same set the hero counts). A
+    // directional verdict with WATCH/STAND_ASIDE readiness renders WAIT,
+    // so "0 READY trades" and a "BUY" row can never coexist.
+    const signal = actionableSymbols.has(inst.symbol) ? signalLabel(guidance) : 'WAIT';
 
     let score = 0;
     if (opp?.profiles && opp.profiles.length > 0) {
@@ -434,10 +445,12 @@ function buildAssetRankingRow(inst: InstanceState, nowMs: number): AssetRankingR
     }
 
     const bias = analysis?.bias ?? null;
-    const isBearish = bias === 'Bearish' || bias === 'StrongBearish';
-    const rr = isBearish
-        ? (opp?.short_expected_rr_internal ?? 0)
-        : (opp?.long_expected_rr_internal ?? 0);
+    // v6.10.16 (FIX-O1): R:R goes through the shared resolver — the same
+    // chain as the L4/L6 panels — so the row can never show a value the
+    // panels explicitly mark N/A (legacy scalar `long_expected_rr_internal`
+    // was the divergence source).
+    const resolvedRr = resolveActiveRr(opp, inst.decisionContext, analysis);
+    const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
     const confidence = adv?.confidence_assessment ?? 0;
     const riskScore = risk?.overall_risk?.score ?? 0;
     const mtfScore = aln?.mtf_overall_score ?? 0;
@@ -512,6 +525,9 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
     const actionable = setups.filter(
         (s) => s.viability === 'Actionable' && s.readiness === 'READY',
     );
+    // v6.10.16 (FIX-O1): the same gate that counts valid trades must drive
+    // the per-asset signal tokens — one shared definition of "tradable".
+    const actionableSymbols = new Set(actionable.map((a) => a.symbol));
     const best = pickBestOpportunity(instances);
     const overview = args.overviewMatrix;
 
@@ -560,7 +576,7 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
         cards: buildCardsBlock(instances, setups, actionable, best, overview),
         market_health: buildMarketHealthBlock(instances, overview),
         regime_distribution: buildRegimeBlock(overview),
-        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now),
+        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, actionableSymbols),
         overview_matrix: overview,
         instance_count: instances.length,
     };
@@ -750,10 +766,11 @@ function buildAssetRankingsBlock(
     sortKey: SortKey,
     sortDir: SortDir,
     nowMs: number,
+    actionableSymbols: Set<string>,
 ): OverviewAssetRankingsBlock {
     const rows: AssetRankingRow[] = [];
     for (const inst of instances) {
-        const r = buildAssetRankingRow(inst, nowMs);
+        const r = buildAssetRankingRow(inst, nowMs, actionableSymbols);
         if (r) rows.push(r);
     }
     const sorted = sortAssetRankings(rows, sortKey, sortDir);

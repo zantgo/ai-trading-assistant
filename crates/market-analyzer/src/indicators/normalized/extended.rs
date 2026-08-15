@@ -9,22 +9,30 @@ use std::collections::HashMap;
 
 impl NormalizationEngine {
     pub fn normalize_stochastic(k: f64, d: f64) -> NormalizedIndicatorValue {
-        // Map the [0, 100] scale onto the [-1.0, 1.0] unit interval centered at 50.
-        let norm_k = ((k - 50.0) / 50.0).clamp(-1.0, 1.0);
-        let label = if k >= 80.0 {
-            "OVERBOUGHT_DISTRIBUTION"
+        // v6.10.17 (P0-1): sign convention fixed — the normalized value now
+        // matches the RSI convention used by every other oscillator in the
+        // platform: OVERBOUGHT → negative (distribution warning),
+        // OVERSOLD → positive (accumulation opportunity). The previous
+        // `(k − 50)/50` mapping reported k=85 as +0.7 next to the
+        // OVERBOUGHT_DISTRIBUTION label — a sign inversion that fed the
+        // WRONG bullish vote into L4 scoring and the confluence buckets.
+        let (norm, label) = if k >= 80.0 {
+            (-0.7 - ((k - 80.0) / 20.0) * 0.3, "OVERBOUGHT_DISTRIBUTION")
         } else if k <= 20.0 {
-            "OVERSOLD_ACCUMULATION"
+            (0.7 + ((20.0 - k) / 20.0) * 0.3, "OVERSOLD_ACCUMULATION")
         } else if k > d {
-            "BULLISH_MOMENTUM_ALIGNMENT"
+            // Middle band: sign follows the momentum ALIGNMENT (k vs d),
+            // magnitude from the distance to the 50 midpoint (capped at
+            // ±0.7 so the middle band never competes with the extremes).
+            (((k - 50.0).abs() / 50.0).min(0.7), "BULLISH_MOMENTUM_ALIGNMENT")
         } else {
-            "BEARISH_MOMENTUM_ALIGNMENT"
+            (-((k - 50.0).abs() / 50.0).min(0.7), "BEARISH_MOMENTUM_ALIGNMENT")
         };
 
         let mut values = HashMap::new();
         values.insert("k_line".to_string(), k);
         values.insert("d_line".to_string(), d);
-        NormalizedIndicatorValue::with_values(k, norm_k, label.to_string(), values)
+        NormalizedIndicatorValue::with_values(k, norm, label.to_string(), values)
     }
 
     /// Chande Momentum Oscillator: raw momentum ratio, natively `[-100, 100]`.
@@ -158,15 +166,22 @@ impl NormalizationEngine {
     }
 
     /// Money Flow Index: volume-weighted RSI mapping (mean-reversion at extremes).
+    ///
+    /// v6.10.17 (P0-1): the middle-band sign was inverted — `mfi 48.9` (a
+    /// BEARISH_FLOW label) reported +0.03 and `mfi 51.8` (BULLISH_FLOW)
+    /// reported −0.04, feeding wrong votes into L4 scoring. The mapping
+    /// now follows the RSI convention: oversold → positive, overbought →
+    /// negative, flow sign by the 50 line (below → bearish negative,
+    /// above → bullish positive).
     pub fn normalize_mfi(mfi: f64) -> NormalizedIndicatorValue {
         let norm = if mfi <= 20.0 {
             0.7 + ((20.0 - mfi) / 20.0) * 0.3
         } else if mfi >= 80.0 {
             -0.7 - ((mfi - 80.0) / 20.0) * 0.3
         } else if mfi <= 50.0 {
-            ((50.0 - mfi) / 30.0) * 0.7
+            -((50.0 - mfi) / 30.0) * 0.7
         } else {
-            -((mfi - 50.0) / 30.0) * 0.7
+            ((mfi - 50.0) / 30.0) * 0.7
         };
         let label = if mfi >= 80.0 {
             "MFI_OVERBOUGHT_DISTRIBUTION"
@@ -302,18 +317,35 @@ impl NormalizationEngine {
     /// oversold band [−100, −80] ran 0→1 opposite to the (−80, −20) band,
     /// and the midline (−50) scored +0.6 (a spurious strong-bullish vote at
     /// the neutral point). The corrected mapping is a single continuous
-    /// ramp, bullish at the top of the range (wr near 0 = price near the
-    /// period high), bearish at the bottom (wr near −100):
+    /// ramp — v6.10.17 (P0-1): the sign convention now matches RSI/Stochastic/
+    /// MFI (OVERBOUGHT = bearish-warning contribution, negative). Price at
+    /// the period high (wr near 0) is an overbought state, so it contributes
+    /// NEGATIVE (distribution pressure); price at the period low (wr near
+    /// −100) is oversold and contributes POSITIVE (accumulation). The middle
+    /// band keeps the momentum-bias sign (wr > −50 bullish, wr < −50
+    /// bearish):
     ///
     /// ```text
-    /// norm = clamp((−50 − wr) / 50, −1, 1)
+    /// wr >= −20  → −0.6 − ((wr + 20)/20)·0.4     (overbought, bearish)
+    /// wr <= −80  → +0.6 + ((−80 − wr)/20)·0.4    (oversold, bullish)
+    /// else       → (wr + 50)/50                  (bias sign, ±0.6)
     /// ```
     ///
-    /// wr = 0   → +1.0 (strong bullish, price pinned at period high)
-    /// wr = −50 →  0.0 (neutral)
-    /// wr = −100→ −1.0 (strong bearish, price pinned at period low)
+    /// wr = 0    → −1.0 (deeply overbought — distribution warning)
+    /// wr = −50  →  0.0 (neutral)
+    /// wr = −100 → +1.0 (deeply oversold — accumulation opportunity)
+    ///
+    /// The warning boundaries (≥ −20 / ≤ −80) are label semantics — the
+    /// sign flips there by design, while the magnitude stays continuous
+    /// (±0.6 at the edges).
     pub fn normalize_williams_r(wr: f64) -> NormalizedIndicatorValue {
-        let norm = clamp_unit((wr + 50.0) / 50.0);
+        let norm = if wr >= -20.0 {
+            -0.6 - ((wr + 20.0) / 20.0) * 0.4
+        } else if wr <= -80.0 {
+            0.6 + ((-80.0 - wr) / 20.0) * 0.4
+        } else {
+            (wr + 50.0) / 50.0
+        };
         let label = if wr >= -20.0 {
             "WILLIAMS_R_OVERBOUGHT"
         } else if wr <= -80.0 {
@@ -323,7 +355,7 @@ impl NormalizationEngine {
         } else {
             "WILLIAMS_R_BEARISH_BIAS"
         };
-        NormalizedIndicatorValue::scalar(wr, norm, label.to_string())
+        NormalizedIndicatorValue::scalar(wr, clamp_unit(norm), label.to_string())
     }
 
     /// Awesome Oscillator: raw AO value, label from sign + direction.
