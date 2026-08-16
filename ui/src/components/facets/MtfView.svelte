@@ -18,18 +18,35 @@
     //   SIGNALS      — 12 signal kinds × per-TF active-signal counts
     //   DIVERGENCES  — divergence-capable indicators × strongest sub-type per TF
     //   LEVELS       — 9 level kinds × per-TF LevelTest-signal counts
+    //
+    // v6.14 (metrics-panel UX upgrade): no information is ever lost —
+    //   • WARMING entries render '--' (never a misleading +0.00) and are
+    //     excluded from the agreement average; gated (non-Directional)
+    //     indicators render 'N/A' and are excluded too.
+    //   • Section titles (INDICATORS / SIGNALS / DIVERGENCES / LEVELS) are
+    //     standalone headings OUTSIDE the bordered containers, each carrying
+    //     a global lean badge.
+    //   • SIGNALS cells show per-direction badges (▲ bull / ▼ bear / — neutral)
+    //     instead of a summed number; the TOTAL column lights up the
+    //     dominant side.
+    //   • DIVERGENCES keep the sub-type abbreviations per cell; the TOTAL
+    //     column adds a BULL / BEAR / MIXED direction badge.
+    //   • LEVELS cells show chips of the ACTUAL level names (role-colored);
+    //     the TOTAL column adds a directional BULL / BEAR / MIXED badge plus
+    //     a support-vs-resistance split.
 
     import type {
         IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry,
     } from '../../types';
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
-    import { normColor } from '../../lib/scoreStyles';
+    import { normColor, ageLabel } from '../../lib/scoreStyles';
     import {
         classifyDivergence, divergenceLabel, divergenceAccent,
         type DivergenceSubKind,
     } from '../../lib/divergence';
     import {
         LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey,
+        parseLevelLabel, resolveLevelPriceText,
         type LevelKind,
     } from '../../lib/levelKind';
     import styles from './MtfView.module.css';
@@ -62,8 +79,10 @@
     interface IndicatorMtf {
         meta: IndicatorMeta;
         values: number[];      // 4 entries (one per TF)
-        active: boolean[];     // whether the indicator is present on that TF
-        agreement: number;     // -1..+1 (avg of values, gated by presence)
+        active: boolean[];     // whether a real reading exists on that TF
+        warming: boolean[];    // entry is the WARMING placeholder on that TF
+        gated: boolean[];      // normalization mode is not Directional
+        agreement: number;     // -1..+1 (avg of real readings, gated by presence)
         agreementLabel: 'BULL' | 'BEAR' | 'MIXED';
     }
 
@@ -72,9 +91,15 @@
         for (const meta of registry) {
             const values: number[] = [];
             const active: boolean[] = [];
+            const warming: boolean[] = [];
+            const gated: boolean[] = [];
             for (const slot of SLOTS) {
                 const dto = slot.tf.indicators?.[meta.key];
-                if (dto) {
+                const warm = dto?.state_label === 'WARMING';
+                const gate = (meta.normalization_mode ?? 'Directional') !== 'Directional';
+                warming.push(!!warm);
+                gated.push(gate);
+                if (dto && !warm && !gate) {
                     values.push(dto.normalized ?? 0);
                     active.push(true);
                 } else {
@@ -90,7 +115,7 @@
                 agreement > 0.2 ? 'BULL' :
                 agreement < -0.2 ? 'BEAR' :
                 'MIXED';
-            out.push({ meta, values, active, agreement, agreementLabel: label });
+            out.push({ meta, values, active, warming, gated, agreement, agreementLabel: label });
         }
         return out;
     });
@@ -107,7 +132,7 @@
             .filter((g) => g.items.length > 0);
     });
 
-    // ── Stacked cross-timeframe tables (v6.13) ────────────────────────
+    // ── Stacked cross-timeframe tables (v6.13, upgraded v6.14) ─────────
 
     const SIGNAL_KIND_ORDER: SignalKind[] = [
         'Divergence', 'Crossover', 'Threshold', 'Breakout', 'BandTouch',
@@ -122,36 +147,94 @@
         StackChange: 'STK', PatternForming: 'PAT',
     };
 
-    // ── Signals: kind × TF active counts ──
-    interface MtfSignalRow {
-        slotIndex: number;
+    interface DirectionTally {
+        bull: number;
+        bear: number;
+        neutral: number;
+    }
+
+    function emptyTally(): DirectionTally {
+        return { bull: 0, bear: 0, neutral: 0 };
+    }
+
+    /** Dominant directional side; `null` on a tie (or when both are zero). */
+    function litSide(bull: number, bear: number): 'bull' | 'bear' | null {
+        if (bull > bear) return 'bull';
+        if (bear > bull) return 'bear';
+        return null;
+    }
+
+    function tallyTotal(t: DirectionTally): number {
+        return t.bull + t.bear + t.neutral;
+    }
+
+    // ── Signals: kind × TF per-direction badges ──
+    interface MtfSignalEntry {
+        displayName: string;
         signal: IndicatorSignal;
     }
 
-    const signalRows = $derived.by<MtfSignalRow[]>(() => {
-        const out: MtfSignalRow[] = [];
+    interface MtfSignalCell extends DirectionTally {
+        entries: MtfSignalEntry[];
+    }
+
+    const signalCells = $derived.by<Record<SignalKind, MtfSignalCell[]>>(() => {
+        const out = {} as Record<SignalKind, MtfSignalCell[]>;
+        for (const k of SIGNAL_KIND_ORDER) {
+            out[k] = SLOTS.map(() => ({ ...emptyTally(), entries: [] }));
+        }
+        const metaByName = new Map(registry.map((m) => [m.key, m]));
         SLOTS.forEach((slot, slotIndex) => {
-            for (const meta of registry) {
-                const sigs = slot.tf.indicators?.[meta.key]?.signals ?? [];
-                for (const sig of sigs) {
-                    out.push({ slotIndex, signal: sig });
+            for (const [key, dto] of Object.entries(slot.tf.indicators ?? {})) {
+                const meta = metaByName.get(key);
+                if (!meta) continue;
+                for (const sig of dto.signals ?? []) {
+                    const cell = out[sig.kind]?.[slotIndex];
+                    if (!cell) continue;
+                    if (sig.direction === 'Bullish') cell.bull++;
+                    else if (sig.direction === 'Bearish') cell.bear++;
+                    else cell.neutral++;
+                    cell.entries.push({ displayName: meta.display_name, signal: sig });
                 }
             }
         });
         return out;
     });
 
-    const signalCountsByKind = $derived.by<Record<SignalKind, number[]>>(() => {
-        const out = {} as Record<SignalKind, number[]>;
-        for (const k of SIGNAL_KIND_ORDER) out[k] = [0, 0, 0, 0];
-        for (const r of signalRows) {
-            if (!out[r.signal.kind]) continue;
-            out[r.signal.kind][r.slotIndex]++;
+    const signalTotalsByKind = $derived.by<Record<SignalKind, DirectionTally>>(() => {
+        const out = {} as Record<SignalKind, DirectionTally>;
+        for (const k of SIGNAL_KIND_ORDER) {
+            const t = emptyTally();
+            for (const c of signalCells[k]) {
+                t.bull += c.bull;
+                t.bear += c.bear;
+                t.neutral += c.neutral;
+            }
+            out[k] = t;
         }
         return out;
     });
 
-    const totalSignalCount = $derived<number>(signalRows.length);
+    const totalSignalCount = $derived<number>(
+        SIGNAL_KIND_ORDER.reduce((acc, k) => acc + tallyTotal(signalTotalsByKind[k]), 0),
+    );
+
+    const globalSignalLean = $derived.by<DirectionTally>(() => {
+        const t = emptyTally();
+        for (const k of SIGNAL_KIND_ORDER) {
+            t.bull += signalTotalsByKind[k].bull;
+            t.bear += signalTotalsByKind[k].bear;
+            t.neutral += signalTotalsByKind[k].neutral;
+        }
+        return t;
+    });
+
+    function signalCellTooltip(cell: MtfSignalCell): string {
+        const lines = cell.entries.map((e) =>
+            `${e.displayName} — ${e.signal.label} (str ${(e.signal.strength * 100).toFixed(0)} · ${e.signal.status} · age ${ageLabel(e.signal.age_bars)})`,
+        );
+        return lines.length > 0 ? lines.join('\n') : 'no active signals of this kind';
+    }
 
     // ── Divergences: capable indicators × strongest sub-type per TF ──
     const DIVERGENCE_KEYS = new Set([
@@ -167,23 +250,39 @@
     interface MtfDivergenceRow {
         meta: IndicatorMeta;
         cells: MtfDivergenceCell[]; // 4 entries (one per TF)
+        bullCount: number;
+        bearCount: number;
+        unknownCount: number;
+        rowCount: number;
+        directionLabel: 'BULL' | 'BEAR' | 'MIXED';
     }
 
     const divergenceRows = $derived.by<MtfDivergenceRow[]>(() => {
         const out: MtfDivergenceRow[] = [];
         for (const meta of registry) {
             if (!DIVERGENCE_KEYS.has(meta.key) && !meta.supports_divergence) continue;
+            let bull = 0;
+            let bear = 0;
+            let unk = 0;
             const cells: MtfDivergenceCell[] = SLOTS.map((slot) => {
                 const sigs = slot.tf.indicators?.[meta.key]?.signals ?? [];
                 let best: MtfDivergenceCell = { sub: null, strength: -1 };
                 for (const sig of sigs) {
                     if (sig.kind !== 'Divergence') continue;
                     const sub = classifyDivergence(sig.label, sig.points ?? null, sig.direction);
+                    if (sub === 'RegularBull' || sub === 'HiddenBull') bull++;
+                    else if (sub === 'RegularBear' || sub === 'HiddenBear') bear++;
+                    else unk++;
                     if (sig.strength > best.strength) best = { sub, strength: sig.strength };
                 }
                 return best.sub ? best : { sub: null, strength: 0 };
             });
-            out.push({ meta, cells });
+            const rowCount = cells.filter((c) => c.sub).length;
+            const directionLabel: 'BULL' | 'BEAR' | 'MIXED' =
+                bull > bear ? 'BULL' :
+                bear > bull ? 'BEAR' :
+                'MIXED';
+            out.push({ meta, cells, bullCount: bull, bearCount: bear, unknownCount: unk, rowCount, directionLabel });
         }
         return out;
     });
@@ -191,6 +290,16 @@
     const totalDivergenceCount = $derived<number>(
         divergenceRows.reduce((acc, r) => acc + r.cells.filter((c) => c.sub).length, 0),
     );
+
+    const globalDivergenceLean = $derived.by<'BULL' | 'BEAR' | 'MIXED'>(() => {
+        let bull = 0;
+        let bear = 0;
+        for (const r of divergenceRows) {
+            bull += r.bullCount;
+            bear += r.bearCount;
+        }
+        return bull > bear ? 'BULL' : bear > bull ? 'BEAR' : 'MIXED';
+    });
 
     function divShort(sub: DivergenceSubKind | null): string {
         switch (sub) {
@@ -203,27 +312,138 @@
         }
     }
 
-    // ── Levels: level kind × TF LevelTest counts ──
-    const levelCountsByKind = $derived.by<Record<LevelKind, number[]>>(() => {
-        const out = {} as Record<LevelKind, number[]>;
-        for (const k of LEVEL_KIND_ORDER) out[k] = [0, 0, 0, 0];
+    // ── Levels: level kind × TF chips of the ACTUAL levels tested ──
+    interface LevelChip {
+        name: string;
+        role: 'support' | 'resistance' | 'neutral';
+        count: number;
+    }
+
+    interface MtfLevelEntry {
+        displayName: string;
+        levelName: string;
+        role: 'support' | 'resistance' | 'neutral';
+        priceText: string;
+        signal: IndicatorSignal;
+    }
+
+    interface MtfLevelCell {
+        chips: LevelChip[];
+        bull: number;
+        bear: number;
+        neutral: number;
+        support: number;
+        resistance: number;
+        entries: MtfLevelEntry[];
+    }
+
+    function makeFmtPx(tf: TimeframeTelemetry): (n: number) => string {
+        return (n: number | null | undefined): string => {
+            if (n == null || !isFinite(n) || n <= 0) return '—';
+            const px = tf.priceText ? parseFloat(tf.priceText) : 0;
+            if (px >= 1000) return `$${n.toFixed(0)}`;
+            if (px >= 1) return `$${n.toFixed(2)}`;
+            return `$${n.toFixed(4)}`;
+        };
+    }
+
+    const levelCellsByKind = $derived.by<Record<LevelKind, MtfLevelCell[]>>(() => {
+        const out = {} as Record<LevelKind, MtfLevelCell[]>;
+        for (const k of LEVEL_KIND_ORDER) {
+            out[k] = SLOTS.map(() => ({
+                chips: [], bull: 0, bear: 0, neutral: 0,
+                support: 0, resistance: 0, entries: [],
+            }));
+        }
         SLOTS.forEach((slot, slotIndex) => {
+            const fmtPx = makeFmtPx(slot.tf);
             for (const meta of registry) {
-                const sigs = slot.tf.indicators?.[meta.key]?.signals ?? [];
-                for (const sig of sigs) {
+                const cell = out[classifyLevelKey(meta.key)]?.[slotIndex];
+                if (!cell) continue;
+                const dto = slot.tf.indicators?.[meta.key] as
+                    { raw_value?: number | null; values?: Record<string, number> | null } | undefined;
+                for (const sig of slot.tf.indicators?.[meta.key]?.signals ?? []) {
                     if (sig.kind !== 'LevelTest') continue;
-                    const kind = classifyLevelKey(meta.key);
-                    if (!out[kind]) continue;
-                    out[kind][slotIndex]++;
+                    const parsed = parseLevelLabel(meta.key, sig.label);
+                    const role = parsed.role;
+                    const priceText = resolveLevelPriceText(
+                        {
+                            indicatorKey: meta.key,
+                            valueKey: parsed.valueKey,
+                            isRange: !!parsed.isRange,
+                            role,
+                        },
+                        dto,
+                        fmtPx,
+                    );
+                    const chip = cell.chips.find((c) => c.name === parsed.name && c.role === role);
+                    if (chip) chip.count++;
+                    else cell.chips.push({ name: parsed.name, role, count: 1 });
+                    if (sig.direction === 'Bullish') cell.bull++;
+                    else if (sig.direction === 'Bearish') cell.bear++;
+                    else cell.neutral++;
+                    if (role === 'support') cell.support++;
+                    else if (role === 'resistance') cell.resistance++;
+                    cell.entries.push({
+                        displayName: meta.display_name,
+                        levelName: parsed.name,
+                        role,
+                        priceText,
+                        signal: sig,
+                    });
                 }
             }
         });
         return out;
     });
 
+    const levelTotalsByKind = $derived.by<Record<LevelKind, {
+        bull: number; bear: number; neutral: number; support: number; resistance: number;
+    }>>(() => {
+        const out = {} as Record<LevelKind, {
+            bull: number; bear: number; neutral: number; support: number; resistance: number;
+        }>;
+        for (const k of LEVEL_KIND_ORDER) {
+            const t = { bull: 0, bear: 0, neutral: 0, support: 0, resistance: 0 };
+            for (const c of levelCellsByKind[k]) {
+                t.bull += c.bull;
+                t.bear += c.bear;
+                t.neutral += c.neutral;
+                t.support += c.support;
+                t.resistance += c.resistance;
+            }
+            out[k] = t;
+        }
+        return out;
+    });
+
     const totalLevelCount = $derived<number>(
-        LEVEL_KIND_ORDER.reduce((acc, k) => acc + levelCountsByKind[k].reduce((a, b) => a + b, 0), 0),
+        LEVEL_KIND_ORDER.reduce(
+            (acc, k) => acc + levelTotalsByKind[k].bull + levelTotalsByKind[k].bear + levelTotalsByKind[k].neutral,
+            0,
+        ),
     );
+
+    const globalLevelLean = $derived.by(() => {
+        const t = { bull: 0, bear: 0, neutral: 0, support: 0, resistance: 0 };
+        for (const k of LEVEL_KIND_ORDER) {
+            t.bull += levelTotalsByKind[k].bull;
+            t.bear += levelTotalsByKind[k].bear;
+            t.neutral += levelTotalsByKind[k].neutral;
+            t.support += levelTotalsByKind[k].support;
+            t.resistance += levelTotalsByKind[k].resistance;
+        }
+        return t;
+    });
+
+    function levelCellTooltip(cell: MtfLevelCell): string {
+        const lines = cell.entries.map((e) =>
+            `${e.displayName} — ${e.levelName} ${e.priceText} (${e.signal.direction} · str ${(e.signal.strength * 100).toFixed(0)} · ${e.signal.status})`,
+        );
+        return lines.length > 0 ? lines.join('\n') : 'no active level tests of this kind';
+    }
+
+    const MAX_CHIPS_PER_CELL = 3;
 
     function fmtTimeframe(secs: number): string {
         if (!secs || secs <= 0) return '--';
@@ -238,12 +458,41 @@
         if (label === 'BEAR') return styles.agBear ?? '';
         return styles.agMixed ?? '';
     }
+
+    function chipClass(role: 'support' | 'resistance' | 'neutral'): string {
+        if (role === 'support') return styles.chipSupport ?? '';
+        if (role === 'resistance') return styles.chipResistance ?? '';
+        return styles.chipNeutral ?? '';
+    }
+
+    function chipAbbr(name: string): string {
+        // Compact display for common long level names; keep recognizable.
+        if (name === 'Anchored VWAP') return 'aVWAP';
+        if (name === 'Bollinger Middle') return 'BB Mid';
+        if (name === 'Ichimoku Edge') return 'Ichi';
+        if (name === 'Volume Node') return 'VN';
+        if (name === 'SMC Zone') return 'SMC';
+        if (name === 'Support / Resistance') return 'S/R';
+        if (name === 'Fib Level') return 'Fib';
+        if (name === 'Tenkan') return 'Tenkan';
+        if (name === 'Kijun') return 'Kijun';
+        if (name === 'Senkou A') return 'Senk A';
+        if (name === 'Senkou B') return 'Senk B';
+        return name;
+    }
 </script>
 
 <div class={styles.view}>
     {#if rows.length === 0}
         <div class={styles.placeholder}>No indicators in the registry yet. Awaiting indicator registry…</div>
     {:else}
+        <!-- ── INDICATORS heading (outside the containers) ── -->
+        <div class={styles.headingRow}>
+            <h3 class={styles.headingTitle}>Indicators</h3>
+            <span class={styles.headingCount}>{rows.length}</span>
+            <span class={styles.headingHint}>normalized reading per timeframe · · missing · -- warming · N/A gated</span>
+        </div>
+
         <div class={styles.summary}>
             <div class={styles.summarySpacer}></div>
             {#each SLOTS as slot (slot.label)}
@@ -265,22 +514,33 @@
                 </header>
                 <div class={styles.body}>
                     {#each g.items as r (r.meta.key)}
+                        {@const hasAny = r.active.some(Boolean)}
                         <div class={styles.row}>
                             <span class={styles.indicatorName}>
                                 {#if !r.meta.directional}<span class={styles.gateMarker}>◐</span>{/if}
                                 {r.meta.display_name}
                             </span>
                             {#each r.values as v, i (i)}
-                                <span class="{styles.normCell} {r.active[i] ? '' : styles.normEmpty}"
-                                      style="color: {r.active[i] ? normColor(v) : 'rgba(255,255,255,0.2)'}; font-weight: 700;">
-                                    {r.active[i] ? (v >= 0 ? '+' : '') + v.toFixed(2) : '·'}
+                                {@const warm = r.warming[i]}
+                                {@const gate = r.gated[i]}
+                                {@const isVal = r.active[i]}
+                                <span
+                                    class="{styles.normCell} {isVal ? '' : styles.normEmpty} {warm ? styles.normWarming : ''}"
+                                    style="color: {isVal ? normColor(v) : 'rgba(255,255,255,0.2)'}; font-weight: 700;"
+                                    title={warm
+                                        ? 'Warming up — calculator needs more bars'
+                                        : gate
+                                            ? 'Non-directional gate — see raw value / state'
+                                            : undefined}
+                                >
+                                    {isVal ? (v >= 0 ? '+' : '') + v.toFixed(2) : (warm ? '--' : gate ? 'N/A' : '·')}
                                 </span>
                             {/each}
                             <span class="{styles.agreement} {agClass(r.agreementLabel)}">
-                                {r.agreementLabel}
+                                {hasAny ? r.agreementLabel : '·'}
                             </span>
                             <span class={styles.agreementNum}>
-                                {(r.agreement >= 0 ? '+' : '') + r.agreement.toFixed(2)}
+                                {hasAny ? (r.agreement >= 0 ? '+' : '') + r.agreement.toFixed(2) : '·'}
                             </span>
                         </div>
                     {/each}
@@ -288,11 +548,12 @@
             </section>
         {/each}
 
-        <!-- ── Stacked cross-timeframe tables (v6.13) ─────────────────────
+        <!-- ── Stacked cross-timeframe tables (v6.13 / v6.14) ───────────
              Signals / Divergences / Levels each rendered as a 4-TF-column
              table in the same visual language as the indicator grid above:
              a per-table Micro/Fast/Slow/Macro header row, one row per
-             entity, '·' in empty cells. -->
+             entity, '·' in empty cells. Section titles live OUTSIDE the
+             bordered containers as standalone headings. -->
         {#snippet tfHeaderRow(firstLabel: string)}
             <div class={styles.tblSummary}>
                 <span class={styles.tblSummaryFirst}>{firstLabel}</span>
@@ -306,13 +567,30 @@
             </div>
         {/snippet}
 
-        <!-- ── Signals: kind × TF active counts ── -->
+        <!-- ── Signals: kind × TF per-direction badges ── -->
+        <div class={styles.headingRow}>
+            <h3 class={styles.headingTitle}>Signals</h3>
+            <span class={styles.headingCount}>
+                {totalSignalCount} signal{totalSignalCount === 1 ? '' : 's'}
+            </span>
+            {#if tallyTotal(globalSignalLean) > 0}
+                <span class={styles.headingBadges} title={`Bullish ${globalSignalLean.bull} · Bearish ${globalSignalLean.bear} · Neutral ${globalSignalLean.neutral} — across all 4 timeframes`}>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bull' ? styles.dirBadgeLit : ''}"
+                          data-dir="bull" data-lit={litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bull' ? 'true' : 'false'}>
+                        ▲ {globalSignalLean.bull}
+                    </span>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bear' ? styles.dirBadgeLit : ''}"
+                          data-dir="bear" data-lit={litSide(globalSignalLean.bull, globalSignalLean.bear) === 'bear' ? 'true' : 'false'}>
+                        ▼ {globalSignalLean.bear}
+                    </span>
+                    {#if globalSignalLean.neutral > 0}
+                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {globalSignalLean.neutral}</span>
+                    {/if}
+                </span>
+            {/if}
+            <span class={styles.headingHint}>active signals per kind, per timeframe · direction split</span>
+        </div>
         <section class="{styles.tblSection} {styles.tblSignals}">
-            <header class={styles.tblHeader}>
-                <span class={styles.tblTitle}>Signals</span>
-                <span class={styles.tblCount}>{totalSignalCount} signal{totalSignalCount === 1 ? '' : 's'}</span>
-                <span class={styles.tblHint}>active signals per kind, per timeframe</span>
-            </header>
             {@render tfHeaderRow('KIND')}
             {#if totalSignalCount === 0}
                 <div class={styles.tblEmpty}>
@@ -321,19 +599,43 @@
             {:else}
                 <div class={styles.tblBody}>
                     {#each SIGNAL_KIND_ORDER as kind (kind)}
-                        {@const counts = signalCountsByKind[kind]}
-                        {@const kindTotal = counts.reduce((a, b) => a + b, 0)}
-                        <div class={styles.tblRow}>
+                        {@const cells = signalCells[kind]}
+                        {@const totals = signalTotalsByKind[kind]}
+                        {@const lit = litSide(totals.bull, totals.bear)}
+                        <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
                             <span class={styles.tblKind}>
                                 <span class={styles.tblKindName}>{kind}</span>
                                 <span class={styles.tblKindAbbr}>{SIGNAL_ABBR[kind]}</span>
                             </span>
-                            {#each counts as c, i (i)}
-                                <span class="{styles.tblCountCell} {c > 0 ? '' : styles.tblCellEmpty}">
-                                    {c > 0 ? c : '·'}
+                            {#each cells as cell, i (i)}
+                                <span class={styles.dirBadges} title={signalCellTooltip(cell)}>
+                                    {#if cell.bull > 0}
+                                        <span class="{styles.dirBadge} {styles.dirBadgeBull}">▲ {cell.bull}</span>
+                                    {/if}
+                                    {#if cell.bear > 0}
+                                        <span class="{styles.dirBadge} {styles.dirBadgeBear}">▼ {cell.bear}</span>
+                                    {/if}
+                                    {#if cell.neutral > 0}
+                                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {cell.neutral}</span>
+                                    {/if}
+                                    {#if cell.bull + cell.bear + cell.neutral === 0}
+                                        <span class={styles.tblCellEmpty}>·</span>
+                                    {/if}
                                 </span>
                             {/each}
-                            <span class={styles.tblTotal}>{kindTotal}</span>
+                            <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all 4 timeframes`}>
+                                <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
+                                      data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
+                                    ▲ {totals.bull}
+                                </span>
+                                <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
+                                      data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
+                                    ▼ {totals.bear}
+                                </span>
+                                {#if totals.neutral > 0}
+                                    <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {totals.neutral}</span>
+                                {/if}
+                            </span>
                         </div>
                     {/each}
                 </div>
@@ -341,12 +643,19 @@
         </section>
 
         <!-- ── Divergences: capable indicators × strongest sub-type per TF ── -->
+        <div class={styles.headingRow}>
+            <h3 class={styles.headingTitle}>Divergences</h3>
+            <span class={styles.headingCount}>
+                {totalDivergenceCount} divergence{totalDivergenceCount === 1 ? '' : 's'}
+            </span>
+            {#if totalDivergenceCount > 0}
+                <span class="{styles.divTotalBadge} {agClass(globalDivergenceLean)}" title="net direction across all divergence sub-types, all timeframes">
+                    {globalDivergenceLean}
+                </span>
+            {/if}
+            <span class={styles.headingHint}>strongest active divergence per oscillator, per timeframe</span>
+        </div>
         <section class="{styles.tblSection} {styles.tblDivergences}">
-            <header class={styles.tblHeader}>
-                <span class={styles.tblTitle}>Divergences</span>
-                <span class={styles.tblCount}>{totalDivergenceCount} divergence{totalDivergenceCount === 1 ? '' : 's'}</span>
-                <span class={styles.tblHint}>strongest active divergence per oscillator, per timeframe</span>
-            </header>
             {@render tfHeaderRow('INDICATOR')}
             {#if totalDivergenceCount === 0}
                 <div class={styles.tblEmpty}>
@@ -356,7 +665,7 @@
             {:else}
                 <div class={styles.tblBody}>
                     {#each divergenceRows as r (r.meta.key)}
-                        <div class={styles.tblRow}>
+                        <div class="{styles.tblRow} {styles[`tblRowTint_${r.directionLabel.toLowerCase()}`] ?? ''}">
                             <span class={styles.tblKindName}>{r.meta.display_name}</span>
                             {#each r.cells as cell, i (i)}
                                 {@const sub = cell.sub}
@@ -370,20 +679,43 @@
                                     {sub ? divShort(sub) : '·'}
                                 </span>
                             {/each}
-                            <span class={styles.tblTotal}>{r.cells.filter((c) => c.sub).length}</span>
+                            <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 4 timeframes`}>
+                                <span class="{styles.divTotalBadge} {agClass(r.directionLabel)}" data-dir={r.directionLabel.toLowerCase()}>
+                                    {r.directionLabel} · {r.rowCount}
+                                </span>
+                            </span>
                         </div>
                     {/each}
                 </div>
             {/if}
         </section>
 
-        <!-- ── Levels: level kind × TF LevelTest counts ── -->
+        <!-- ── Levels: level kind × TF chips of the ACTUAL levels tested ── -->
+        <div class={styles.headingRow}>
+            <h3 class={styles.headingTitle}>Levels</h3>
+            <span class={styles.headingCount}>
+                {totalLevelCount} level test{totalLevelCount === 1 ? '' : 's'}
+            </span>
+            {#if totalLevelCount > 0}
+                {@const lean = litSide(globalLevelLean.bull, globalLevelLean.bear)}
+                <span class={styles.headingBadges} title={`Bullish ${globalLevelLean.bull} · Bearish ${globalLevelLean.bear} · Support ${globalLevelLean.support} · Resistance ${globalLevelLean.resistance}`}>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {lean === 'bull' ? styles.dirBadgeLit : ''}"
+                          data-dir="bull" data-lit={lean === 'bull' ? 'true' : 'false'}>
+                        ▲ {globalLevelLean.bull}
+                    </span>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {lean === 'bear' ? styles.dirBadgeLit : ''}"
+                          data-dir="bear" data-lit={lean === 'bear' ? 'true' : 'false'}>
+                        ▼ {globalLevelLean.bear}
+                    </span>
+                    <span class={styles.roleSplit}>
+                        <span class="{styles.roleChip} {styles.roleChipSupport}">S {globalLevelLean.support}</span>
+                        <span class="{styles.roleChip} {styles.roleChipResistance}">R {globalLevelLean.resistance}</span>
+                    </span>
+                </span>
+            {/if}
+            <span class={styles.headingHint}>actual levels tested per kind, per timeframe</span>
+        </div>
         <section class="{styles.tblSection} {styles.tblLevels}">
-            <header class={styles.tblHeader}>
-                <span class={styles.tblTitle}>Levels</span>
-                <span class={styles.tblCount}>{totalLevelCount} level test{totalLevelCount === 1 ? '' : 's'}</span>
-                <span class={styles.tblHint}>active LevelTest signals per level kind, per timeframe</span>
-            </header>
             {@render tfHeaderRow('LEVEL KIND')}
             {#if totalLevelCount === 0}
                 <div class={styles.tblEmpty}>
@@ -393,18 +725,43 @@
             {:else}
                 <div class={styles.tblBody}>
                     {#each LEVEL_KIND_ORDER as kind (kind)}
-                        {@const counts = levelCountsByKind[kind]}
-                        {@const kindTotal = counts.reduce((a, b) => a + b, 0)}
-                        <div class={styles.tblRow}>
+                        {@const cells = levelCellsByKind[kind]}
+                        {@const totals = levelTotalsByKind[kind]}
+                        {@const lit = litSide(totals.bull, totals.bear)}
+                        <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
                             <span class={styles.tblKind}>
                                 <span class={styles.tblKindName}>{LEVEL_KIND_META[kind].label}</span>
                             </span>
-                            {#each counts as c, i (i)}
-                                <span class="{styles.tblCountCell} {c > 0 ? '' : styles.tblCellEmpty}">
-                                    {c > 0 ? c : '·'}
+                            {#each cells as cell, i (i)}
+                                <span class={styles.chipWrap} title={levelCellTooltip(cell)}>
+                                    {#if cell.chips.length > 0}
+                                        {#each cell.chips.slice(0, MAX_CHIPS_PER_CELL) as chip (chip.name + chip.role)}
+                                            <span class="{styles.levelChip} {chipClass(chip.role)}">
+                                                {chipAbbr(chip.name)}{chip.count > 1 ? ` ×${chip.count}` : ''}
+                                            </span>
+                                        {/each}
+                                        {#if cell.chips.length > MAX_CHIPS_PER_CELL}
+                                            <span class={styles.chipMore}>+{cell.chips.length - MAX_CHIPS_PER_CELL}</span>
+                                        {/if}
+                                    {:else}
+                                        <span class={styles.tblCellEmpty}>·</span>
+                                    {/if}
                                 </span>
                             {/each}
-                            <span class={styles.tblTotal}>{kindTotal}</span>
+                            <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Support ${totals.support} · Resistance ${totals.resistance}`}>
+                                <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
+                                      data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
+                                    ▲ {totals.bull}
+                                </span>
+                                <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
+                                      data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
+                                    ▼ {totals.bear}
+                                </span>
+                                <span class={styles.roleSplit}>
+                                    <span class="{styles.roleChip} {styles.roleChipSupport}">S {totals.support}</span>
+                                    <span class="{styles.roleChip} {styles.roleChipResistance}">R {totals.resistance}</span>
+                                </span>
+                            </span>
                         </div>
                     {/each}
                 </div>

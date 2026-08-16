@@ -12,6 +12,215 @@
     font-size: 12px;
 }
 
+/* ── Standalone section headings (v6.14 — OUTSIDE the containers) ── */
+
+.headingRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 0 2px;
+}
+
+.headingRow:first-child {
+    margin-top: 0;
+}
+
+.headingTitle {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.headingCount {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--mono, monospace);
+}
+
+.headingBadges {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.headingHint {
+    margin-left: auto;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ── Directional badges (signals / levels — ▲ bull · ▼ bear · — neutral) ── */
+
+.dirBadges {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    flex-wrap: wrap;
+}
+
+.dirBadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    font-size: 9px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    line-height: 1.4;
+}
+
+.dirBadgeBull {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.1);
+    border-color: rgba(74, 222, 128, 0.35);
+}
+
+.dirBadgeBear {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.1);
+    border-color: rgba(248, 113, 113, 0.35);
+}
+
+.dirBadgeNeutral {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* The dominant side "lights up": filled bg + glow. */
+.dirBadgeLit {
+    background: rgba(74, 222, 128, 0.25);
+    border-color: rgba(74, 222, 128, 0.8);
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.35);
+}
+
+.dirBadgeBear.dirBadgeLit {
+    background: rgba(248, 113, 113, 0.25);
+    border-color: rgba(248, 113, 113, 0.8);
+    box-shadow: 0 0 8px rgba(248, 113, 113, 0.35);
+}
+
+/* ── Divergence / agreement direction badges ── */
+
+.divTotalBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.agBull    { color: #4ade80; background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.4); }
+.agBear    { color: #f87171; background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.4); }
+.agMixed   { color: rgba(255, 255, 255, 0.55); background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15); }
+
+/* ── Level chips (actual level names, role-colored) ── */
+
+.chipWrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    flex-wrap: wrap;
+}
+
+.levelChip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--mono, monospace);
+    border: 1px solid;
+    white-space: nowrap;
+}
+
+.chipSupport {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.08);
+    border-color: rgba(74, 222, 128, 0.35);
+}
+
+.chipResistance {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(248, 113, 113, 0.35);
+}
+
+.chipNeutral {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.chipMore {
+    font-size: 9px;
+    font-family: var(--mono, monospace);
+    color: rgba(255, 255, 255, 0.45);
+}
+
+/* ── Support / Resistance split (levels totals) ── */
+
+.roleSplit {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.roleChip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 8px;
+    font-weight: 700;
+    font-family: var(--mono, monospace);
+    border: 1px solid;
+}
+
+.roleChipSupport {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.08);
+    border-color: rgba(52, 211, 153, 0.3);
+}
+
+.roleChipResistance {
+    color: #fb923c;
+    background: rgba(251, 146, 60, 0.08);
+    border-color: rgba(251, 146, 60, 0.3);
+}
+
+/* ── Row directional tint (dominant side of the row) ── */
+
+.tblRowTint_bull {
+    background: linear-gradient(90deg, rgba(74, 222, 128, 0.05), rgba(0, 0, 0, 0.15));
+}
+
+.tblRowTint_bear {
+    background: linear-gradient(90deg, rgba(248, 113, 113, 0.05), rgba(0, 0, 0, 0.15));
+}
+
+/* ── Indicator grid ── */
+
 .summary {
     display: grid;
     grid-template-columns: 240px repeat(4, 1fr) 100px 80px;
@@ -131,6 +340,11 @@
     font-weight: 400 !important;
 }
 
+.normWarming {
+    color: #f59e0b !important;
+    font-weight: 700 !important;
+}
+
 .agreement {
     text-align: center;
     font-size: 9px;
@@ -140,10 +354,6 @@
     letter-spacing: 0.05em;
 }
 
-.agBull    { color: #4ade80; background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.4); }
-.agBear    { color: #f87171; background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.4); }
-.agMixed   { color: rgba(255, 255, 255, 0.55); background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15); }
-
 .agreementNum {
     text-align: right;
     font-family: var(--mono, monospace);
@@ -152,10 +362,10 @@
     color: rgba(255, 255, 255, 0.6);
 }
 
-/* ── Stacked cross-timeframe tables (v6.13: signals / divergences / levels) ── */
+/* ── Stacked cross-timeframe tables (v6.13 / v6.14: signals / divergences / levels) ── */
 
 .tblSection {
-    margin-top: 8px;
+    margin-top: 4px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-left: 3px solid #22d3ee;
@@ -214,7 +424,7 @@
 
 .tblSummary {
     display: grid;
-    grid-template-columns: 240px repeat(4, 1fr) 80px;
+    grid-template-columns: 240px repeat(4, 1fr) 130px;
     gap: 0;
     padding: 5px 12px;
     background: rgba(0, 0, 0, 0.2);
@@ -244,7 +454,7 @@
 
 .tblRow {
     display: grid;
-    grid-template-columns: 240px repeat(4, 1fr) 80px;
+    grid-template-columns: 240px repeat(4, 1fr) 130px;
     gap: 0;
     padding: 5px 12px;
     background: rgba(0, 0, 0, 0.15);
@@ -297,6 +507,11 @@
 }
 
 .tblTotal {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+    flex-wrap: wrap;
     text-align: right;
     font-family: var(--mono, monospace);
     font-feature-settings: "tnum" 1;
