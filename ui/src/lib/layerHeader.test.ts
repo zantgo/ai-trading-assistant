@@ -459,6 +459,45 @@ describe('buildL4OpportunityHeader (L4)', () => {
         expect(score.state).toBe('neutral');
         expect(score.value).toBe('0');
     });
+
+    it('environment cluster: Timeframes + Confidence chips ride the meta rail (top badges)', () => {
+        const spec = buildL4OpportunityHeader(
+            opportunityStub({ primary_opportunity: 'Pullback', opportunity_score: 58.87, time_horizon: 'INTRADAY' }),
+            'Bullish',
+            analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
+        );
+        const tfs = spec.meta.find((m) => m.label === 'Timeframes')!;
+        expect(tfs.value).toBe('4/4');
+        const conf = spec.meta.find((m) => m.label === 'Confidence')!;
+        expect(conf.value).toBe('26%');
+        // The pre-existing bracket chips stay side-by-side in the same rail.
+        const score = spec.meta.find((m) => m.label === 'Score')!;
+        expect(score.value).toBe('58.87');
+        const horizon = spec.meta.find((m) => m.label === 'Horizon')!;
+        expect(horizon.value).toBe('INTRADAY');
+    });
+
+    it('environment cluster renders even in the NO CLEAR SETUP branch (always meaningful)', () => {
+        const spec = buildL4OpportunityHeader(
+            opportunityStub({ primary_opportunity: 'NoClearOpportunity', opportunity_score: 0 }),
+            'Neutral',
+            analysisStub({ timeframes_considered: 3, confidence: 0.4 }),
+        );
+        expect(spec.badge.label).toBe('NO CLEAR SETUP');
+        expect(spec.meta.find((m) => m.label === 'Timeframes')!.value).toBe('3/4');
+        expect(spec.meta.find((m) => m.label === 'Confidence')!.value).toBe('40%');
+        // No bracket-derived chips in the no-clear branch.
+        expect(spec.meta.find((m) => m.label === 'Score')).toBeUndefined();
+        expect(spec.meta.find((m) => m.label === 'Horizon')).toBeUndefined();
+    });
+
+    it('environment chips degrade to em-dashes without an analysis payload', () => {
+        const spec = buildL4OpportunityHeader(opportunityStub(), 'Bullish', null);
+        const tfs = spec.meta.find((m) => m.label === 'Timeframes')!;
+        expect(tfs.value).toBe('—');
+        const conf = spec.meta.find((m) => m.label === 'Confidence')!;
+        expect(conf.value).toBe('—');
+    });
 });
 
 // ── L5 — Risk ───────────────────────────────────────────────────────────

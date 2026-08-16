@@ -549,7 +549,7 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
         expect(screen.getByText('no range setups')).toBeTruthy();
     });
 
-    it('shows N/A — no directional bias in R:R (Internal) when verdict is HOLD', () => {
+    it('shows the confluent empty state in Expected R:R when no levels exist (HOLD verdict)', () => {
         const opp = makeOpportunity();
         opp.primary_opportunity = 'NoClearOpportunity';
         opp.opportunity_score = 0;
@@ -598,8 +598,10 @@ describe('OpportunitiesPanel — HOLD scenario', () => {
         };
 
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        // R:R (Internal) shows N/A instead of a misleading 0.00.
-        expect(screen.getAllByText(/N\/A/).length).toBeGreaterThan(0);
+        // Expected R:R degrades to the confluent empty state (the old
+        // "N/A — no directional bias" reading was replaced by the
+        // confluent-level geometry read).
+        expect(screen.getByText('no confluent levels')).toBeTruthy();
     });
 });
 
@@ -890,5 +892,126 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
         expect(headers[2]).toContain('BULLISH');
         // The lone bearish card lives in the first (BEARISH) folder.
         expect(screen.getAllByText(/Breakout · SHORT/).length).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layout', () => {
+    it('moves the environment badges into the header chip rail (Timeframes + Confidence)', () => {
+        seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // The L4 header now carries the full top cluster: the bracket
+        // chips (Score / Reward-to-Risk Ratio / Horizon) plus the two
+        // environment pills that used to live at the bottom.
+        expect(screen.getByText('Timeframes:')).toBeTruthy();
+        expect(screen.getByText('4/4')).toBeTruthy();
+        expect(screen.getByText('Confidence:')).toBeTruthy();
+        expect(screen.getByText('60%')).toBeTruthy();
+        expect(screen.getByText('Score:')).toBeTruthy();
+        expect(screen.getByText('Reward-to-Risk Ratio:')).toBeTruthy();
+        expect(screen.getByText('Horizon:')).toBeTruthy();
+        // The bottom Environment section and the standalone Horizon zone
+        // card are erased.
+        expect(screen.queryByText('Environment')).toBeNull();
+        expect(screen.queryByText(/Timeframes considered/)).toBeNull();
+    });
+
+    it('renders the confluent-level Expected R:R with a LONG badge and 1:X.XX value', () => {
+        const opp = makeOpportunity() as any;
+        opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_target_levels = [{ price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_invalidation_levels = [{ price: 62400, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // reward 3000 / risk 700 → 4.29 in the shared 1:X.XX chip format.
+        expect(screen.getAllByText('1:4.29').length).toBeGreaterThanOrEqual(1);
+        // The header bracket R:R (top profile wire 2.5) stays on its own
+        // chip — the two surfaces never merge.
+        expect(screen.getByText('1:2.50')).toBeTruthy();
+    });
+
+    it('shows BOTH LONG and SHORT badges with their own R:R when both sides exist', () => {
+        const opp = makeOpportunity() as any;
+        opp.confluent_entry_levels = [
+            { price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' },
+            { price: 64900, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'SHORT' },
+        ];
+        opp.confluent_target_levels = [
+            { price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' },
+            { price: 61900, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'SHORT' },
+        ];
+        opp.confluent_invalidation_levels = [
+            { price: 62400, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' },
+            { price: 65600, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'SHORT' },
+        ];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // Both sides compute the same 4.29 — two cards, two badges.
+        expect(screen.getAllByText('1:4.29').length).toBe(2);
+        // LONG / SHORT badges exist (abundant elsewhere too — the two
+        // zone-card badges are what matter; the value count pins them).
+        expect(screen.getAllByText('LONG').length).toBeGreaterThanOrEqual(3);
+        expect(screen.getAllByText('SHORT').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('falls back to market-distance risk and labels it when a side has no invalidation levels', () => {
+        const opp = makeOpportunity() as any;
+        opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_target_levels = [{ price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_invalidation_levels = [];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // reward 3000 / risk |63100 − 64000| = 900 → 3.33
+        expect(screen.getAllByText('1:3.33').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('risk = distance to market — no confluent invalidation levels')).toBeTruthy();
+    });
+
+    it('places the Invalidation Note directly under the Confluent Levels section', () => {
+        seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        const titles = Array.from(document.querySelectorAll('[class*="sectionTitle"]'))
+            .map((el) => el.textContent ?? '');
+        const idx = (t: string) => titles.findIndex((x) => x.includes(t));
+        expect(idx('Confluent Levels')).toBeGreaterThan(-1);
+        expect(idx('Invalidation Note')).toBeGreaterThan(idx('Confluent Levels'));
+        expect(idx('Invalidation Note')).toBeLessThan(idx('Expected Reward-to-Risk Ratio'));
+        expect(idx('Expected Reward-to-Risk Ratio')).toBeLessThan(idx('Market Position'));
+        expect(idx('Market Position')).toBeLessThan(idx('Evaluated Setups'));
+    });
+
+    it('dynamically ranks Evaluated Setups by score desc regardless of wire order', () => {
+        const opp = makeOpportunity() as any;
+        const mk = (type: string, score: number, met: number, total: number) => ({
+            opportunity_type: type,
+            score,
+            preconditions_met: met,
+            preconditions_total: total,
+            notes: '',
+            direction_family: 'TrendRiding',
+            long_entry_zone: { low: 63000, high: 63200 },
+            long_target_zone: { low: 66000, high: 66500 },
+            long_invalidation_level: 62400,
+            long_expected_rr_internal: 1.5,
+            short_entry_zone: null,
+            short_target_zone: null,
+            short_invalidation_level: null,
+            short_expected_rr_internal: null,
+            trade_viability: 'Actionable',
+        });
+        // Wire order is deliberately NOT sorted: the panel must rank them.
+        opp.profiles = [
+            mk('Breakout', 43, 3, 5),
+            mk('TrendContinuation', 78, 3, 3),
+            mk('Pullback', 50, 2, 3),
+        ];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        const cards = Array.from(document.querySelectorAll('[class*="profileCard"]'));
+        expect(cards.length).toBe(3);
+        const first = cards[0].textContent ?? '';
+        expect(first).toContain('Trend Continuation'); // 78 first
+        expect(first).not.toContain('Breakout');
+        const second = cards[1].textContent ?? '';
+        expect(second).toContain('Pullback'); // 50 second
+        expect(cards[2].textContent).toContain('Breakout'); // 43 last
     });
 });

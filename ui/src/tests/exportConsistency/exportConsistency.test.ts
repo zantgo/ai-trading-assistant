@@ -299,7 +299,11 @@ describe('export consistency — Opportunities tab', () => {
     expectInDomAndJson(c, 'Bullish');
     expect(p.market_position.regime).toBe('TRENDING_BULL');
     expect(p.environment.timeframes_considered_display).toBe('4/4 Timeframes considered');
-    expectInDomAndJson(c, '4/4 Timeframes considered');
+    // The environment pills moved into the L4 header chip rail — the chip
+    // renders label + value ('Timeframes: 4/4') instead of the old
+    // bottom-section sentence.
+    expect(c.dom).toContain('Timeframes:');
+    expect(c.dom).toContain('4/4');
     expect(p.environment.confidence_pct).toBe(72);
     expect(c.dom).toContain('Confidence: 72%');
   });
@@ -355,7 +359,11 @@ describe('export consistency — Opportunities tab', () => {
     // card (score 78) puts BULL first ahead of the NEUTRAL MeanReversion.
     expect(p.trade_setup_sections[0].section).toBe('BULL');
     expect(p.rr_internal.expected_rr_available).toBe(false);
-    expect(c.dom).toContain('N/A');
+    // The Expected R:R section reads the confluent level sets — the
+    // fixture's untagged levels carry no side, so the section degrades to
+    // the incomplete-levels note while the bracket N/A stays in
+    // `rr_internal`.
+    expect(c.dom).toContain('incomplete confluent levels');
   });
 
   it('badge_text matches the panel even when trade_viability arrives SCREAMING_SNAKE_CASE', async () => {

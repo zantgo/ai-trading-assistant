@@ -7,8 +7,9 @@
     import LayerHeader from './LayerHeader.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, resolveActiveRr, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
+    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
     import { computeOpportunityBars, rankSectionsByCount, type DirectionalBars } from '../lib/opportunityBars';
+    import { computeConfluentRr, fmtConfluentRr, riskBasisLabel } from '../lib/confluentRr';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -257,24 +258,15 @@
     // RANGE/BULLISH/BEARISH sections are the container for the empty
     // state ("no range setups", etc.).
 
-    // Active-side R:R (per-side, gated on the panel's own effective
-    // direction). RR-002 (v6.10.12): the value flows through the shared
-    // `resolveActiveRr` chain (profile wire → matrix wire → aligned zones
-    // fallback) — the same value the header chip, the setup cards, and
-    // the export show. The legacy matrix-level `expected_rr_internal` was
-    // removed in v6.9. When the verdict is HOLD with no active R:R, or
-    // the bracket is degenerate (below the 0.10 floor / geometry
-    // inverted / no directional bias), the cell reads N/A with the reason
-    // rendered beneath it.
-    const rrInternalDisplay = $derived.by((): { value: string; isNA: boolean; reason: string | null } => {
-        const resolved = resolveActiveRr(opportunity, decisionContext, analysis);
-        const showNA = !resolved.available || (rank.top === 'HOLD' && resolved.value === 0);
-        return {
-            value: showNA ? 'N/A' : resolved.value.toFixed(2),
-            isNA: showNA,
-            reason: showNA ? (resolved.reason ?? 'no directional bias') : null,
-        };
-    });
+    // ── Confluent-level Expected R:R ─────────────────────────────────────
+    // Operator rule: average the confluent entry levels and target levels
+    // per side and build a reward-to-risk ratio from those averages
+    // (risk = confluent invalidation average, falling back to market
+    // distance). One row per side present — LONG / SHORT badges when
+    // both sides exist. The L4 header's R:R chip keeps the shared
+    // bracket `resolveActiveRr` chain (Recommendation parity); this
+    // section is the confluent-geometry read.
+    const confluentRr = $derived(computeConfluentRr(opportunity, markPrice));
 
     function buildExport() {
         return buildOpportunityTabExport({
@@ -371,7 +363,7 @@
     // override the per-side RR direction when both sides are valid
     // (`buildL4OpportunityHeader` handles the disambiguation).
     const headerSpec = $derived<LayerHeaderSpec>(
-        buildL4OpportunityHeader(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null)
+        buildL4OpportunityHeader(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null, analysis)
     );
 
     // ── Lean (bullish / bearish / neutral) derived from the rank. The
@@ -696,25 +688,41 @@
             {/if}
         </div>
 
+        <!-- ── Invalidation note — directly under the confluent levels ── -->
         <div class={styles.section}>
-            <div class={styles.sectionTitle}>Expected Reward-to-Risk Ratio</div>
-            <div class={styles.zoneGrid}>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Expected Reward-to-Risk Ratio</span>
-                    <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}
-                          title={rrInternalDisplay.reason ?? undefined}>
-                        {rrInternalDisplay.value}
-                    </span>
-                    {#if rrInternalDisplay.isNA && rrInternalDisplay.reason}
-                        <span class={styles.rrReason}>{rrInternalDisplay.reason}</span>
-                    {/if}
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Horizon</span>
-                    <span class={styles.zoneValue}>{opportunity?.time_horizon ?? '—'}</span>
-                </div>
+            <div class={styles.sectionTitle}>Invalidation Note</div>
+            <div class={styles.noteBox}>
+                {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
             </div>
         </div>
+
+        <!-- ── Expected Reward-to-Risk Ratio — averaged from the confluent
+             level sets per side (LONG / SHORT badges when both exist).
+             Risk = confluent invalidation average, market-distance fallback. -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Expected Reward-to-Risk Ratio</div>
+            {#if confluentRr.sides.length > 0}
+                <div class={styles.zoneGrid}>
+                    {#each confluentRr.sides as side (side.side)}
+                        <div class={styles.zoneCard}>
+                            <span class="{styles.confluenceSide} {side.side === 'LONG' ? styles.confluenceSideLong : styles.confluenceSideShort}">{side.side}</span>
+                            {#if side.rr != null}
+                                <span class={styles.rrValue}>{fmtConfluentRr(side.rr)}</span>
+                                <span class={styles.rrReason} title={riskBasisLabel(side.riskBasis)}>
+                                    {riskBasisLabel(side.riskBasis)}
+                                </span>
+                            {:else}
+                                <span class={styles.rrValueNA}>N/A</span>
+                                <span class={styles.rrReason}>{side.reason}</span>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            {:else}
+                <div class={styles.noConfluence}>{confluentRr.reason ?? 'no confluent levels'}</div>
+            {/if}
+        </div>
+
         <div class={styles.section}>
             <div class={styles.sectionTitle}>Market Position</div>
             <div class={styles.zoneGrid}>
@@ -737,12 +745,21 @@
             </div>
         </div>
 
-        <!-- ── Evaluated profiles ── -->
+        <!-- ── Evaluated profiles — dynamically ranked by score desc (like
+             the Trade Setup cards), ties broken by precondition ratio. ── -->
         <div class={styles.section}>
             <div class={styles.sectionTitle}>Evaluated Setups</div>
             {#if opportunity?.profiles && opportunity.profiles.length > 0}
                 <div class={styles.profileList}>
-                    {#each (opportunity?.profiles ?? []).filter((p) => p.opportunity_type !== 'NoClearOpportunity') as profile (profile.opportunity_type)}
+                    {#each (opportunity?.profiles ?? [])
+                        .filter((p) => p.opportunity_type !== 'NoClearOpportunity')
+                        .slice()
+                        .sort((a, b) => {
+                            if (b.score !== a.score) return b.score - a.score;
+                            const ar = a.preconditions_total > 0 ? a.preconditions_met / a.preconditions_total : 0;
+                            const br = b.preconditions_total > 0 ? b.preconditions_met / b.preconditions_total : 0;
+                            return br - ar;
+                        }) as profile (profile.opportunity_type)}
                         <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
                             <div class={styles.profileHeader}>
                                 <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
@@ -768,21 +785,5 @@
             {:else}
                 <div class={styles.noProfiles}>No setup profiles evaluated yet</div>
             {/if}
-        </div>
-
-        <!-- ── Invalidation note ── -->
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Invalidation Note</div>
-            <div class={styles.noteBox}>
-                {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
-            </div>
-        </div>
-
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Environment</div>
-            <div class={styles.infoRow}>
-                <span class={styles.infoBadge}>{analysis?.timeframes_considered ?? 0}/4 Timeframes considered</span>
-                <span class={styles.infoBadge}>Confidence: {analysis ? (analysis.confidence * 100).toFixed(0) : '—'}%</span>
-            </div>
         </div>
 </div>

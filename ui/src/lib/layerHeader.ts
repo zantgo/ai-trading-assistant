@@ -422,15 +422,33 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
 // L4 — Opportunity (L4 only — never bleeds L3 bias or L5 risk).
 // When no qualifying setup exists we surface `NO CLEAR SETUP` in amber
 // (operator rule: zero opportunity is neutral, not good).
+//
+// The meta rail is the panel's top badge cluster: Score / Reward-to-Risk
+// Ratio / Horizon (bracket-derived) plus the Timeframes-considered and
+// Confidence pills that previously lived in the panel's bottom
+// Environment section. All five always read the same matrices the body
+// renders, so the top cluster and the panel can never disagree.
 export function buildL4OpportunityHeader(
     o: OpportunityMatrix | null | undefined,
     bias: MarketBias | null | undefined = null,
+    analysis?: AnalysisMatrix | null,
 ): LayerHeaderSpec {
     const type = o?.primary_opportunity ?? null;
     const score = o?.opportunity_score ?? null;
     const quality = o?.setup_quality ?? null;
     const horizon = o?.time_horizon ?? null;
     const noClear = !type || type === 'NoClearOpportunity';
+
+    // Environment cluster (previously the bottom Environment section):
+    // timeframes considered + analysis confidence are meaningful even
+    // while the setup is still forming, so they render in both branches.
+    const tfs = analysis?.timeframes_considered ?? null;
+    const confidencePct =
+        analysis?.confidence != null ? Math.round(analysis.confidence * 100) : null;
+    const environmentMeta: MetaChipSpec[] = [
+        chip('Timeframes', tfs != null ? `${tfs}/4` : null, tfs, null, true),
+        chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
+    ];
 
     if (noClear) {
         return {
@@ -442,7 +460,7 @@ export function buildL4OpportunityHeader(
                 background: hexToRgba(COLORS.neutral, 0.08),
                 state: 'neutral',
             },
-            meta: [],
+            meta: environmentMeta,
             status: 'live',
         };
     }
@@ -476,6 +494,7 @@ export function buildL4OpportunityHeader(
             chip('Score', score, score, scoreColor),
             chip('Reward-to-Risk Ratio', activeRr > 0 ? `1:${activeRr.toFixed(2)}` : null, activeRr, rrColor),
             chip('Horizon', horizon ? prettifyEnum(horizon) : null, null, () => COLORS.textMuted),
+            ...environmentMeta,
         ],
         status: 'live',
     };

@@ -20,8 +20,6 @@
 .zoneGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .bullish { color: #22c55e; }
 .bearish { color: #ef4444; }
-.infoRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.infoBadge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); color: #94a3b8; font-weight: 600; }
 .rrValue { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
 .confluenceRow { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.015); margin-bottom: 3px; }
@@ -186,11 +184,11 @@
     align-self: flex-start;
 }
 
-/* ── State D red-flagged coordinate values ── */
+/* ── State D red-flagged coordinate values ──
+   The red colour stays as the flagging signal; the wavy underline was
+   removed at operator request (distracting on every flagged price). */
 .setupRowFlagged {
     color: #ef4444;
-    text-decoration: underline wavy rgba(239, 68, 68, 0.55) 1px;
-    text-underline-offset: 3px;
 }
 
 /* ── State C: desaturated grey coordinate text on reference cards ── */
