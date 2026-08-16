@@ -59,7 +59,7 @@ cd ../..             # back to workspace root
 cargo run --bin execution-daemon -- --web
 ```
 
-The execution-daemon binary reads `config.toml` (legacy: `config.json`) from CWD at runtime. Run from the workspace root.
+The execution-daemon binary reads `config.toml` from CWD at runtime. Run from the workspace root.
 
 ### Launch modes
 
@@ -81,7 +81,7 @@ bun run check        # svelte-check + tsc typecheck
 
 - Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
-- Config API: `GET /api/config` (returns parsed `config.toml` (with `config.json` legacy fallback))
+- Config API: `GET /api/config` (returns parsed `config.toml`)
 - History API: `GET /api/history?symbol=&timeframe_secs=&limit=` (default `100`, max `1000`; returns `{ symbol, prices[], candles[], indicator_histories }`)
 - Connection Quality API: `GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100; when both `instance_id` and `timeframe_secs` are supplied returns per-scope; absent params return process-wide aggregate)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
@@ -157,7 +157,7 @@ Start at `docs/README.md` for a guided reading order.
 ## Architecture notes
 
 - The engine uses a multi-stage pipeline: WebSocket → channel → indicator analysis → broadcast → WebSocket to frontend
-- `config.toml` is the single source of truth for all platform parameters — both engine and frontend read it (frontend via `/api/config`; legacy `config.json` is still recognized by `load_config()` as a fallback)
+- `config.toml` is the single source of truth for all platform parameters — both engine and frontend read it (frontend via `/api/config`)
 - The Svelte frontend uses Svelte 5 runes (`$state`, `$effect`) — not Svelte 4 syntax
 - Candle aggregation happens server-side; the broadcast includes both completed candle snapshots and "shadow" (real-time flickering) values
 - The local variable holding `getState()` must NOT be named `state` — it conflicts with the `$state` rune. Use `app` or `store` instead.

@@ -36,8 +36,6 @@ bun-debug.log*
 !.env.example
 
 # The platform's single source of configuration truth is `config.toml`.
-# (Legacy `config.json` is still recognized by config-models::load_config()
-# as a fallback for backward compatibility; see 01-02-global-architecture.md.)
 # Only `config.default.toml` is the template (tracked); runtime `config.toml` is local-only.
 config.toml
 

@@ -126,7 +126,6 @@ async fn shadow_candles_never_completed() {
             cancel,
             None,
             None,
-            None,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

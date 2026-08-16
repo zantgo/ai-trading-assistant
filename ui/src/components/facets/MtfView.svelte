@@ -11,13 +11,27 @@
     // registered indicator, and a dedicated CROSS-TIMEFRAME SIGNALS section
     // below the grid shows EVERY signal from EVERY timeframe, unfiltered,
     // tagged with its producing timeframe.
+    //
+    // v6.13: the freeform cross-TF signals list is replaced by three stacked
+    // 4-TF-column tables in the same visual language as the indicator grid
+    // (each with its own Micro / Fast / Slow / Macro header row):
+    //   SIGNALS      — 12 signal kinds × per-TF active-signal counts
+    //   DIVERGENCES  — divergence-capable indicators × strongest sub-type per TF
+    //   LEVELS       — 9 level kinds × per-TF LevelTest-signal counts
 
     import type {
         IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry,
     } from '../../types';
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
     import { normColor } from '../../lib/scoreStyles';
-    import { dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
+    import {
+        classifyDivergence, divergenceLabel, divergenceAccent,
+        type DivergenceSubKind,
+    } from '../../lib/divergence';
+    import {
+        LEVEL_KIND_ORDER, LEVEL_KIND_META, classifyLevelKey,
+        type LevelKind,
+    } from '../../lib/levelKind';
     import styles from './MtfView.module.css';
 
     interface Props {
@@ -93,7 +107,8 @@
             .filter((g) => g.items.length > 0);
     });
 
-    // ── Cross-Timeframe signals (v6.11: ALL signals from ALL 4 TFs) ──
+    // ── Stacked cross-timeframe tables (v6.13) ────────────────────────
+
     const SIGNAL_KIND_ORDER: SignalKind[] = [
         'Divergence', 'Crossover', 'Threshold', 'Breakout', 'BandTouch',
         'ZeroLineCross', 'CompressionRelease', 'LevelTest', 'TrendFlip',
@@ -107,37 +122,108 @@
         StackChange: 'STK', PatternForming: 'PAT',
     };
 
+    // ── Signals: kind × TF active counts ──
     interface MtfSignalRow {
-        slotLabel: string;
-        displayName: string;
+        slotIndex: number;
         signal: IndicatorSignal;
     }
 
     const signalRows = $derived.by<MtfSignalRow[]>(() => {
         const out: MtfSignalRow[] = [];
-        for (const slot of SLOTS) {
+        SLOTS.forEach((slot, slotIndex) => {
             for (const meta of registry) {
                 const sigs = slot.tf.indicators?.[meta.key]?.signals ?? [];
                 for (const sig of sigs) {
-                    out.push({ slotLabel: slot.label, displayName: meta.display_name, signal: sig });
+                    out.push({ slotIndex, signal: sig });
                 }
             }
+        });
+        return out;
+    });
+
+    const signalCountsByKind = $derived.by<Record<SignalKind, number[]>>(() => {
+        const out = {} as Record<SignalKind, number[]>;
+        for (const k of SIGNAL_KIND_ORDER) out[k] = [0, 0, 0, 0];
+        for (const r of signalRows) {
+            if (!out[r.signal.kind]) continue;
+            out[r.signal.kind][r.slotIndex]++;
         }
         return out;
     });
 
-    const signalsByKind = $derived.by<Record<SignalKind, MtfSignalRow[]>>(() => {
-        const out = {} as Record<SignalKind, MtfSignalRow[]>;
-        for (const k of SIGNAL_KIND_ORDER) out[k] = [];
-        for (const r of signalRows) {
-            if (!out[r.signal.kind]) out[r.signal.kind] = [];
-            out[r.signal.kind].push(r);
-        }
-        for (const k of SIGNAL_KIND_ORDER) {
-            out[k].sort((a, b) => b.signal.strength - a.signal.strength);
+    const totalSignalCount = $derived<number>(signalRows.length);
+
+    // ── Divergences: capable indicators × strongest sub-type per TF ──
+    const DIVERGENCE_KEYS = new Set([
+        'rsi', 'macd', 'stochastic', 'chandemo',
+        'obv', 'cmf', 'mfi', 'squeeze', 'oi_price_divergence',
+    ]);
+
+    interface MtfDivergenceCell {
+        sub: DivergenceSubKind | null;
+        strength: number;
+    }
+
+    interface MtfDivergenceRow {
+        meta: IndicatorMeta;
+        cells: MtfDivergenceCell[]; // 4 entries (one per TF)
+    }
+
+    const divergenceRows = $derived.by<MtfDivergenceRow[]>(() => {
+        const out: MtfDivergenceRow[] = [];
+        for (const meta of registry) {
+            if (!DIVERGENCE_KEYS.has(meta.key) && !meta.supports_divergence) continue;
+            const cells: MtfDivergenceCell[] = SLOTS.map((slot) => {
+                const sigs = slot.tf.indicators?.[meta.key]?.signals ?? [];
+                let best: MtfDivergenceCell = { sub: null, strength: -1 };
+                for (const sig of sigs) {
+                    if (sig.kind !== 'Divergence') continue;
+                    const sub = classifyDivergence(sig.label, sig.points ?? null, sig.direction);
+                    if (sig.strength > best.strength) best = { sub, strength: sig.strength };
+                }
+                return best.sub ? best : { sub: null, strength: 0 };
+            });
+            out.push({ meta, cells });
         }
         return out;
     });
+
+    const totalDivergenceCount = $derived<number>(
+        divergenceRows.reduce((acc, r) => acc + r.cells.filter((c) => c.sub).length, 0),
+    );
+
+    function divShort(sub: DivergenceSubKind | null): string {
+        switch (sub) {
+            case 'RegularBull': return 'BULL';
+            case 'RegularBear': return 'BEAR';
+            case 'HiddenBull':  return 'H-BULL';
+            case 'HiddenBear':  return 'H-BEAR';
+            case 'Unknown':     return 'UNK';
+            default:            return '·';
+        }
+    }
+
+    // ── Levels: level kind × TF LevelTest counts ──
+    const levelCountsByKind = $derived.by<Record<LevelKind, number[]>>(() => {
+        const out = {} as Record<LevelKind, number[]>;
+        for (const k of LEVEL_KIND_ORDER) out[k] = [0, 0, 0, 0];
+        SLOTS.forEach((slot, slotIndex) => {
+            for (const meta of registry) {
+                const sigs = slot.tf.indicators?.[meta.key]?.signals ?? [];
+                for (const sig of sigs) {
+                    if (sig.kind !== 'LevelTest') continue;
+                    const kind = classifyLevelKey(meta.key);
+                    if (!out[kind]) continue;
+                    out[kind][slotIndex]++;
+                }
+            }
+        });
+        return out;
+    });
+
+    const totalLevelCount = $derived<number>(
+        LEVEL_KIND_ORDER.reduce((acc, k) => acc + levelCountsByKind[k].reduce((a, b) => a + b, 0), 0),
+    );
 
     function fmtTimeframe(secs: number): string {
         if (!secs || secs <= 0) return '--';
@@ -151,12 +237,6 @@
         if (label === 'BULL') return styles.agBull ?? '';
         if (label === 'BEAR') return styles.agBear ?? '';
         return styles.agMixed ?? '';
-    }
-
-    function sigRowClass(status: string): string {
-        if (status === 'Confirmed') return styles.sigConfirmed ?? '';
-        if (status === 'Active') return styles.sigActive ?? '';
-        return '';
     }
 </script>
 
@@ -208,48 +288,126 @@
             </section>
         {/each}
 
-        <!-- ── Cross-Timeframe Signals (v6.11: every signal, every TF, unfiltered) ── -->
-        <section class={styles.sigSection}>
-            <header class={styles.sigHeader}>
-                <span class={styles.sigTitle}>Cross-Timeframe Signals</span>
-                <span class={styles.sigCount}>{signalRows.length} signal{signalRows.length === 1 ? '' : 's'}</span>
-                <span class={styles.sigHint}>all signals across all timeframes — unfiltered</span>
+        <!-- ── Stacked cross-timeframe tables (v6.13) ─────────────────────
+             Signals / Divergences / Levels each rendered as a 4-TF-column
+             table in the same visual language as the indicator grid above:
+             a per-table Micro/Fast/Slow/Macro header row, one row per
+             entity, '·' in empty cells. -->
+        {#snippet tfHeaderRow(firstLabel: string)}
+            <div class={styles.tblSummary}>
+                <span class={styles.tblSummaryFirst}>{firstLabel}</span>
+                {#each SLOTS as slot (slot.label)}
+                    <div class={styles.summarySlot}>
+                        <div class={styles.summaryLabel}>{slot.label}</div>
+                        <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
+                    </div>
+                {/each}
+                <span class={styles.tblSummaryTotal}>TOTAL</span>
+            </div>
+        {/snippet}
+
+        <!-- ── Signals: kind × TF active counts ── -->
+        <section class="{styles.tblSection} {styles.tblSignals}">
+            <header class={styles.tblHeader}>
+                <span class={styles.tblTitle}>Signals</span>
+                <span class={styles.tblCount}>{totalSignalCount} signal{totalSignalCount === 1 ? '' : 's'}</span>
+                <span class={styles.tblHint}>active signals per kind, per timeframe</span>
             </header>
-            {#if signalRows.length === 0}
-                <div class={styles.sigEmpty}>
+            {@render tfHeaderRow('KIND')}
+            {#if totalSignalCount === 0}
+                <div class={styles.tblEmpty}>
                     No signals active. Signals are published on each completed candle.
                 </div>
             {:else}
-                {#each SIGNAL_KIND_ORDER as kind}
-                    {@const sigs = signalsByKind[kind]}
-                    {#if sigs.length > 0}
-                        <div class={styles.sigKindBlock}>
-                            <div class={styles.sigKindHeader}>
-                                <span class={styles.sigKindName}>{kind}</span>
-                                <span class={styles.sigKindAbbr}>{SIGNAL_ABBR[kind]}</span>
-                                <span class={styles.sigKindCount}>{sigs.length}</span>
-                            </div>
-                            <div class={styles.sigRows}>
-                                {#each sigs as row (row.slotLabel + row.displayName + row.signal.label + row.signal.kind)}
-                                    <div class="{styles.sigRow} {sigRowClass(row.signal.status)}">
-                                        <span class={styles.sigSlot}>{row.slotLabel}</span>
-                                        <span class={styles.sigIndicator}>{row.displayName}</span>
-                                        <span class="{styles.sigDir} {styles[dirClass(row.signal.direction)]}"
-                                              style="color: {dirColor(row.signal.direction)}">
-                                            {row.signal.direction}
-                                        </span>
-                                        <span class={styles.sigStatus}>{row.signal.status}</span>
-                                        <span class={styles.sigLabel}>{row.signal.label}</span>
-                                        <span class={styles.sigMeta}>
-                                            <span class={styles.sigMetaPill}>str {(row.signal.strength * 100).toFixed(0)}</span>
-                                            <span class={styles.sigMetaPill}>age {ageLabel(row.signal.age_bars)}</span>
-                                        </span>
-                                    </div>
-                                {/each}
-                            </div>
+                <div class={styles.tblBody}>
+                    {#each SIGNAL_KIND_ORDER as kind (kind)}
+                        {@const counts = signalCountsByKind[kind]}
+                        {@const kindTotal = counts.reduce((a, b) => a + b, 0)}
+                        <div class={styles.tblRow}>
+                            <span class={styles.tblKind}>
+                                <span class={styles.tblKindName}>{kind}</span>
+                                <span class={styles.tblKindAbbr}>{SIGNAL_ABBR[kind]}</span>
+                            </span>
+                            {#each counts as c, i (i)}
+                                <span class="{styles.tblCountCell} {c > 0 ? '' : styles.tblCellEmpty}">
+                                    {c > 0 ? c : '·'}
+                                </span>
+                            {/each}
+                            <span class={styles.tblTotal}>{kindTotal}</span>
                         </div>
-                    {/if}
-                {/each}
+                    {/each}
+                </div>
+            {/if}
+        </section>
+
+        <!-- ── Divergences: capable indicators × strongest sub-type per TF ── -->
+        <section class="{styles.tblSection} {styles.tblDivergences}">
+            <header class={styles.tblHeader}>
+                <span class={styles.tblTitle}>Divergences</span>
+                <span class={styles.tblCount}>{totalDivergenceCount} divergence{totalDivergenceCount === 1 ? '' : 's'}</span>
+                <span class={styles.tblHint}>strongest active divergence per oscillator, per timeframe</span>
+            </header>
+            {@render tfHeaderRow('INDICATOR')}
+            {#if totalDivergenceCount === 0}
+                <div class={styles.tblEmpty}>
+                    No active divergences. Divergence signals appear when an oscillator
+                    disagrees directionally with price over 20-bar pivots.
+                </div>
+            {:else}
+                <div class={styles.tblBody}>
+                    {#each divergenceRows as r (r.meta.key)}
+                        <div class={styles.tblRow}>
+                            <span class={styles.tblKindName}>{r.meta.display_name}</span>
+                            {#each r.cells as cell, i (i)}
+                                {@const sub = cell.sub}
+                                <span
+                                    class="{styles.tblCountCell} {sub ? '' : styles.tblCellEmpty}"
+                                    style={sub ? `color: ${divergenceAccent(sub)}; font-weight: 700;` : ''}
+                                    title={sub
+                                        ? `${divergenceLabel(sub)} · str ${(cell.strength * 100).toFixed(0)}%`
+                                        : 'no active divergence'}
+                                >
+                                    {sub ? divShort(sub) : '·'}
+                                </span>
+                            {/each}
+                            <span class={styles.tblTotal}>{r.cells.filter((c) => c.sub).length}</span>
+                        </div>
+                    {/each}
+                </div>
+            {/if}
+        </section>
+
+        <!-- ── Levels: level kind × TF LevelTest counts ── -->
+        <section class="{styles.tblSection} {styles.tblLevels}">
+            <header class={styles.tblHeader}>
+                <span class={styles.tblTitle}>Levels</span>
+                <span class={styles.tblCount}>{totalLevelCount} level test{totalLevelCount === 1 ? '' : 's'}</span>
+                <span class={styles.tblHint}>active LevelTest signals per level kind, per timeframe</span>
+            </header>
+            {@render tfHeaderRow('LEVEL KIND')}
+            {#if totalLevelCount === 0}
+                <div class={styles.tblEmpty}>
+                    No active level tests. LevelTest signals fire when price trades
+                    into a structural level's proximity band.
+                </div>
+            {:else}
+                <div class={styles.tblBody}>
+                    {#each LEVEL_KIND_ORDER as kind (kind)}
+                        {@const counts = levelCountsByKind[kind]}
+                        {@const kindTotal = counts.reduce((a, b) => a + b, 0)}
+                        <div class={styles.tblRow}>
+                            <span class={styles.tblKind}>
+                                <span class={styles.tblKindName}>{LEVEL_KIND_META[kind].label}</span>
+                            </span>
+                            {#each counts as c, i (i)}
+                                <span class="{styles.tblCountCell} {c > 0 ? '' : styles.tblCellEmpty}">
+                                    {c > 0 ? c : '·'}
+                                </span>
+                            {/each}
+                            <span class={styles.tblTotal}>{kindTotal}</span>
+                        </div>
+                    {/each}
+                </div>
             {/if}
         </section>
     {/if}

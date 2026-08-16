@@ -175,14 +175,10 @@
     // consensus/interpretation surfaces treat the sentinel as awaiting.
     const hasAlignment = $derived(!!alignment && alignment.timeframes_present > 0);
 
-    const conflictWarning = $derived(
-        hasAlignment && alignment!.trend_agreement_pct < 50
-    );
-
-    // v6.10.20 (C): the consensus hero is a two-container row — a circular
-    // dial (Container 1) next to a CONSENSUS details grid (Container 2).
-    // The "Polarization" term is retired; the word Consensus is unified
-    // across the panel, the dial header, and the export payload.
+    // v7.0.1 (B): the consensus hero is a two-dial row — an AGREEMENT dial
+    // (trend agreement %) and a SCORE dial (composite blend). The old
+    // CONSENSUS 2×2 axis grid is erased; the four axis values still surface
+    // in the Score section's weight chips below.
     const consensusPct = $derived<number | null>(
         hasAlignment ? alignment!.trend_agreement_pct : null
     );
@@ -194,7 +190,7 @@
     );
     // v7.0 (A): the dial renders a flat, vibrant tier color — no gradient,
     // no glow. Mixed (<50%) uses a deeper orange; pure red is retired.
-    const consensusDialColor = $derived(
+    const agreementDialColor = $derived(
         consensusTier === 'strong' ? '#22c55e'
         : consensusTier === 'partial' ? '#f59e0b'
         : consensusTier === 'conflict' ? '#f97316'
@@ -212,28 +208,52 @@
         : consensusTier === 'conflict' ? 'Timeframes are not aligned.'
         : ''
     );
-    function consensusHeaderCls(): string {
-        if (consensusTier === 'strong') return styles.consensusDialHeaderStrong;
-        if (consensusTier === 'partial') return styles.consensusDialHeaderPartial;
-        if (consensusTier === 'conflict') return styles.consensusDialHeaderConflict;
-        return styles.consensusDialHeaderNeutral;
+    function agreementHeaderCls(): string {
+        if (consensusTier === 'strong') return styles.agreementTierStrong;
+        if (consensusTier === 'partial') return styles.agreementTierPartial;
+        if (consensusTier === 'conflict') return styles.agreementTierConflict;
+        return styles.agreementTierNeutral;
     }
-    // Axis value intensity: |v| > 0.2 → high-contrast; 0.05 < |v| ≤ 0.2 →
-    // subtle; |v| ≤ 0.05 → neutral grey.
-    function axisValueCls(v: number): string {
-        if (v > 0.2) return styles.axisStrongBull;
-        if (v < -0.2) return styles.axisStrongBear;
-        if (v > 0.05) return styles.axisSubtleBull;
-        if (v < -0.05) return styles.axisSubtleBear;
-        return styles.axisNeutral;
+    // v7.0.1 (B): the SCORE dial mirrors the agreement dial — the ring
+    // fills |score|% (axes ∈ [−1, 1] → score ∈ [−100, 100]), colored by
+    // sign, with the signed integer centered and the prettified label +
+    // a tone explanation in the copy.
+    const scoreVal = $derived<number | null>(
+        hasAlignment && alignment != null ? alignment!.mtf_overall_score : null
+    );
+    const scoreTone = $derived<'bull' | 'bear' | 'neutral' | null>(
+        scoreVal == null ? null
+        : scoreVal > 5 ? 'bull'
+        : scoreVal < -5 ? 'bear'
+        : 'neutral'
+    );
+    const scoreDialColor = $derived(
+        scoreTone === 'bull' ? '#22c55e'
+        : scoreTone === 'bear' ? '#ef4444'
+        : scoreTone === 'neutral' ? '#f59e0b'
+        : '#94a3b8'
+    );
+    const scoreHeader = $derived(
+        hasAlignment && alignment != null ? mLabel(alignment!.mtf_overall_label) : '\u2014'
+    );
+    const scoreSub = $derived(
+        scoreTone === 'bull' ? 'The weighted composite is bullish.'
+        : scoreTone === 'bear' ? 'The weighted composite is bearish.'
+        : scoreTone === 'neutral' ? 'The weighted composite is neutral.'
+        : ''
+    );
+    const scoreCenter = $derived(
+        scoreVal == null ? '\u2014'
+        : (scoreVal >= 0 ? '+' : '') + scoreVal.toFixed(0)
+    );
+    function scoreHeaderCls(): string {
+        if (scoreTone === 'bull') return styles.scoreDialHeaderBull;
+        if (scoreTone === 'bear') return styles.scoreDialHeaderBear;
+        return styles.scoreDialHeaderNeutral;
     }
-    const consensusAxes = $derived([
-        { key: 'Trend', v: alignment?.mtf_trend_alignment ?? 0 },
-        { key: 'Momentum', v: alignment?.mtf_momentum_alignment ?? 0 },
-        { key: 'Volume', v: alignment?.mtf_volume_alignment ?? 0 },
-        { key: 'Volatility', v: alignment?.mtf_volatility_alignment ?? 0 },
-    ]);
-
+    const conflictWarning = $derived(
+        hasAlignment && alignment!.trend_agreement_pct < 50
+    );
     const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment));
 </script>
 
@@ -248,91 +268,96 @@
         {/snippet}
     </LayerHeader>
 
-    <!-- ── v6.10.20 (C): the consensus hero lives in the header container
-         as two side-by-side containers — a circular consensus dial (left)
-         and a CONSENSUS 2×2 axis grid (right). The "Polarization" term is
-         retired; the agreement meter + verdict + axis values all speak
-         the single word Consensus. -->
-    <div class={styles.consensusHero}>
-        <div class={styles.consensusGaugeCard}>
-            <div class={styles.consensusDialRow}>
-                <div class={styles.consensusDial}>
-                    <svg viewBox="0 0 24 24" class={styles.consensusDialSvg}>
-                        <circle cx="12" cy="12" r="10" class={styles.consensusDialTrack} />
+    <!-- ── v7.0.1 (B): the header hero is two circular dials side by side
+         — an AGREEMENT dial (trend agreement %) and a SCORE dial (the
+         composite blend). Both use the plain card look. The old CONSENSUS
+         2×2 axis grid is gone — the four axis values still surface in the
+         Score section's weight chips below. -->
+    <div class={styles.alignmentHero}>
+        <div class={styles.dialCard}>
+            <div class={styles.dialRow}>
+                <div class={styles.dial}>
+                    <svg viewBox="0 0 24 24" class={styles.dialSvg}>
+                        <circle cx="12" cy="12" r="10" class={styles.dialTrack} />
                         <circle
                             cx="12"
                             cy="12"
                             r="10"
-                            class={styles.consensusDialFill}
-                            stroke={consensusDialColor}
+                            class={styles.dialFill}
+                            stroke={agreementDialColor}
                             stroke-dasharray="62.83"
                             stroke-dashoffset={62.83 * (1 - (consensusPct ?? 0) / 100)}
                             transform="rotate(-90 12 12)"
                         />
                     </svg>
-                    <span class={styles.consensusDialPct}>
+                    <span class={styles.dialPct}>
                         {consensusPct != null ? consensusPct.toFixed(0) : '\u2014'}%
                     </span>
                 </div>
-                <div class={styles.consensusDialCopy}>
-                    <span class={styles.consensusDialLabel}>Agreement</span>
-                    <span class="{styles.consensusDialHeader} {consensusHeaderCls()}">
+                <div class={styles.dialCopy}>
+                    <span class={styles.dialLabel}>Agreement</span>
+                    <span class="{styles.dialHeader} {agreementHeaderCls()}">
                         {consensusHeader}
                     </span>
-                    <span class={styles.consensusDialSub}>{consensusSub}</span>
+                    <span class={styles.dialSub}>{consensusSub}</span>
                 </div>
             </div>
         </div>
-        <div class={styles.consensusDetails}>
-            <span class={styles.consensusDetailsLabel}>Consensus</span>
-            <div class={styles.axisGrid}>
-                {#each consensusAxes as axis (axis.key)}
-                    <div class={styles.axisCard}>
-                        <span class={styles.axisName}>{axis.key}</span>
-                        <span class="{styles.axisValue} {axisValueCls(axis.v)}">
-                            {(axis.v >= 0 ? '+' : '') + axis.v.toFixed(2)}
-                        </span>
-                    </div>
-                {/each}
+        <div class={styles.dialCard}>
+            <div class={styles.dialRow}>
+                <div class={styles.dial}>
+                    <svg viewBox="0 0 24 24" class={styles.dialSvg}>
+                        <circle cx="12" cy="12" r="10" class={styles.dialTrack} />
+                        <circle
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            class={styles.dialFill}
+                            stroke={scoreDialColor}
+                            stroke-dasharray="62.83"
+                            stroke-dashoffset={62.83 * (1 - Math.min(Math.abs(scoreVal ?? 0), 100) / 100)}
+                            transform="rotate(-90 12 12)"
+                        />
+                    </svg>
+                    <span class={styles.dialPct}>{scoreCenter}</span>
+                </div>
+                <div class={styles.dialCopy}>
+                    <span class={styles.dialLabel}>Score</span>
+                    <span class="{styles.dialHeader} {scoreHeaderCls()}">
+                        {scoreHeader}
+                    </span>
+                    <span class={styles.dialSub}>{scoreSub}</span>
+                </div>
             </div>
-            {#if conflictWarning}
-                <span class={styles.conflictBadge}>TIMEFRAME MISALIGNMENT — time horizons are not working together</span>
-            {/if}
         </div>
     </div>
-
-    <!-- ── Alignment Breakdown — card grid ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>
-            Alignment Breakdown
+    {#if conflictWarning}
+        <div class={styles.conflictBanner}>
+            TIMEFRAME MISALIGNMENT — time horizons are not working together
         </div>
-        {#if alignment?.dimensions?.length}
-            <div class={styles.dimGrid}>
-                {#each alignment.dimensions as dim, i}
-                    {@const name = dimNames[i] ?? `Dim ${i}`}
-                    <div class={styles.dimCard}>
-                        <div class={styles.dimCardHead}>
-                            <span class={styles.dimCardName}>{name}</span>
-                            <span class="{styles.dimCardState} {stateClass(dim.state)}">
-                                {shortStateLabel(dim.state)}
-                            </span>
-                        </div>
-                        <div class={styles.dimCardBarRow}>
-                            <div class={styles.dimCardBar}>
-                                <div class="{styles.dimCardFill} {dimFillClass(dim.score, dim.state)}"
-                                     style="width: {Math.min(Math.abs(dim.score), 100).toFixed(1)}%"></div>
-                            </div>
-                            <span class={styles.dimCardScore}>{dim.score.toFixed(0)}</span>
-                        </div>
-                        <div class={styles.dimCardConf}>
-                            confidence {dim.confidence.toFixed(0)}%
-                        </div>
-                    </div>
-                {/each}
-            </div>
-        {:else}
-            <div class={styles.emptyGridNote}>Dimension scores computing — each axis will show a color-coded card with trend, momentum, volume, volatility, structure, signal, regime, confidence, liquidity, and tradability readings.</div>
-        {/if}
+    {/if}
+
+    <!-- ── Score (weight chips) ── -->
+    <div class={styles.section}>
+        <div class={styles.sectionTitle}>Score</div>
+        <div class={styles.weightGrid}>
+            {#each weights as w}
+                {@const val = getRawValue(w.key)}
+                {@const contrib = val * (w.pct / 100)}
+                <div class={styles.weightChip}>
+                    <span class={styles.weightChipKey}>{w.label}</span>
+                    <span class={styles.weightChipLabel}>
+                        <span style="color: var(--text-dim); font-size: 8px;">({w.pct}%)</span>
+                    </span>
+                    <span class={styles.weightChipPct} style="color: {w.color}">
+                        {alignment ? (val >= 0 ? '+' : '') + val.toFixed(2) : '—'}
+                    </span>
+                    <span style="font-size: 9px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px;">
+                        contrib: {alignment ? (contrib >= 0 ? '+' : '') + contrib.toFixed(2) : '—'}
+                    </span>
+                </div>
+            {/each}
+        </div>
     </div>
 
     <!-- ── Per-Timeframe cards ── -->
@@ -368,27 +393,38 @@
         {/if}
     </div>
 
-    <!-- ── Weight formula ── -->
+    <!-- ── Alignment Breakdown — card grid ── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Score Calculation</div>
-        <div class={styles.weightGrid}>
-            {#each weights as w}
-                {@const val = getRawValue(w.key)}
-                {@const contrib = val * (w.pct / 100)}
-                <div class={styles.weightChip}>
-                    <span class={styles.weightChipKey}>{w.label}</span>
-                    <span class={styles.weightChipLabel}>
-                        <span style="color: var(--text-dim); font-size: 8px;">({w.pct}%)</span>
-                    </span>
-                    <span class={styles.weightChipPct} style="color: {w.color}">
-                        {alignment ? (val >= 0 ? '+' : '') + val.toFixed(2) : '—'}
-                    </span>
-                    <span style="font-size: 9px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px;">
-                        contrib: {alignment ? (contrib >= 0 ? '+' : '') + contrib.toFixed(2) : '—'}
-                    </span>
-                </div>
-            {/each}
+        <div class={styles.sectionTitle}>
+            Alignment Breakdown
         </div>
+        {#if alignment?.dimensions?.length}
+            <div class={styles.dimGrid}>
+                {#each alignment.dimensions as dim, i}
+                    {@const name = dimNames[i] ?? `Dim ${i}`}
+                    <div class={styles.dimCard}>
+                        <div class={styles.dimCardHead}>
+                            <span class={styles.dimCardName}>{name}</span>
+                            <span class="{styles.dimCardState} {stateClass(dim.state)}">
+                                {shortStateLabel(dim.state)}
+                            </span>
+                        </div>
+                        <div class={styles.dimCardBarRow}>
+                            <div class={styles.dimCardBar}>
+                                <div class="{styles.dimCardFill} {dimFillClass(dim.score, dim.state)}"
+                                     style="width: {Math.min(Math.abs(dim.score), 100).toFixed(1)}%"></div>
+                            </div>
+                            <span class={styles.dimCardScore}>{dim.score.toFixed(0)}</span>
+                        </div>
+                        <div class={styles.dimCardConf}>
+                            confidence {dim.confidence.toFixed(0)}%
+                        </div>
+                    </div>
+                {/each}
+            </div>
+        {:else}
+            <div class={styles.emptyGridNote}>Dimension scores computing — each axis will show a color-coded card with trend, momentum, volume, volatility, structure, signal, regime, confidence, liquidity, and tradability readings.</div>
+        {/if}
     </div>
 
     <!-- ── Interpretation ── -->

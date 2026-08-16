@@ -600,7 +600,6 @@ async fn spawn_tasks(
         let a_telemetry = state.telemetry_tx.clone();
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
-        let a_pool = state.pool.clone();
         let a_latest_oi = active_pair.latest_oi.clone();
         let a_latest_funding = active_pair.latest_funding.clone();
         let a_latest_mark = active_pair.latest_mark_px.clone();
@@ -720,7 +719,6 @@ async fn spawn_tasks(
                 a_cancel,
                 candle_fwd,
                 warmed,
-                Some(a_pool),
                 a_latest_oi,
                 a_latest_funding,
                 a_latest_mark,

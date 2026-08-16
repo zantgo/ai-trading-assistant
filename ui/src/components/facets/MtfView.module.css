@@ -152,9 +152,9 @@
     color: rgba(255, 255, 255, 0.6);
 }
 
-/* ── Cross-Timeframe Signals (v6.11: every signal from every TF) ── */
+/* ── Stacked cross-timeframe tables (v6.13: signals / divergences / levels) ── */
 
-.sigSection {
+.tblSection {
     margin-top: 8px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -163,7 +163,11 @@
     overflow: hidden;
 }
 
-.sigHeader {
+.tblSignals    { border-left-color: #22d3ee; }
+.tblDivergences { border-left-color: #f472b6; }
+.tblLevels     { border-left-color: #a78bfa; }
+
+.tblHeader {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -172,15 +176,18 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.sigTitle {
+.tblTitle {
     font-size: 10px;
     font-weight: 700;
-    color: #22d3ee;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
 
-.sigCount {
+.tblSignals .tblTitle    { color: #22d3ee; }
+.tblDivergences .tblTitle { color: #f472b6; }
+.tblLevels .tblTitle     { color: #a78bfa; }
+
+.tblCount {
     font-size: 10px;
     color: rgba(255, 255, 255, 0.5);
     background: rgba(255, 255, 255, 0.05);
@@ -189,7 +196,7 @@
     font-family: var(--mono, monospace);
 }
 
-.sigHint {
+.tblHint {
     margin-left: auto;
     font-size: 9px;
     color: rgba(255, 255, 255, 0.35);
@@ -197,7 +204,7 @@
     letter-spacing: 0.04em;
 }
 
-.sigEmpty {
+.tblEmpty {
     padding: 14px 12px;
     text-align: center;
     color: rgba(255, 255, 255, 0.4);
@@ -205,29 +212,67 @@
     font-size: 11px;
 }
 
-.sigKindBlock {
+.tblSummary {
+    display: grid;
+    grid-template-columns: 240px repeat(4, 1fr) 80px;
+    gap: 0;
+    padding: 5px 12px;
+    background: rgba(0, 0, 0, 0.2);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    align-items: center;
 }
 
-.sigKindBlock:last-child {
-    border-bottom: none;
+.tblSummaryFirst,
+.tblSummaryTotal {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.4);
 }
 
-.sigKindHeader {
+.tblSummaryTotal {
+    text-align: right;
+}
+
+.tblBody {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.tblRow {
+    display: grid;
+    grid-template-columns: 240px repeat(4, 1fr) 80px;
+    gap: 0;
+    padding: 5px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    align-items: center;
+    transition: background 0.12s ease;
+}
+
+.tblRow:hover {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.tblKind {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
-    background: rgba(0, 0, 0, 0.1);
+    gap: 6px;
+    min-width: 0;
 }
 
-.sigKindName {
-    font-size: 10px;
-    font-weight: 700;
+.tblKindName {
+    font-size: 11px;
+    font-weight: 600;
     color: rgba(255, 255, 255, 0.85);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.sigKindAbbr {
+.tblKindAbbr {
     font-size: 9px;
     font-weight: 700;
     color: #22d3ee;
@@ -235,89 +280,26 @@
     padding: 1px 5px;
     border-radius: 3px;
     font-family: var(--mono, monospace);
+    flex-shrink: 0;
 }
 
-.sigKindCount {
-    margin-left: auto;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
+.tblCountCell {
+    text-align: center;
     font-family: var(--mono, monospace);
-}
-
-.sigRows {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 4px 0;
-}
-
-.sigRow {
-    display: grid;
-    grid-template-columns: 64px 140px 60px 84px 1fr 150px;
-    gap: 0;
-    align-items: center;
-    padding: 4px 12px;
-    background: rgba(0, 0, 0, 0.15);
+    font-feature-settings: "tnum" 1;
     font-size: 11px;
-}
-
-.sigRow:hover {
-    background: rgba(0, 0, 0, 0.25);
-}
-
-.sigConfirmed {
-    border-left: 2px solid rgba(34, 211, 238, 0.6);
-}
-
-.sigActive {
-    border-left: 2px solid rgba(74, 222, 128, 0.5);
-}
-
-.sigSlot {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #22d3ee;
-    font-family: var(--mono, monospace);
-}
-
-.sigIndicator {
-    font-weight: 600;
     color: rgba(255, 255, 255, 0.85);
 }
 
-.sigDir {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+.tblCellEmpty {
+    color: rgba(255, 255, 255, 0.2) !important;
+    font-weight: 400 !important;
 }
 
-.sigStatus {
+.tblTotal {
+    text-align: right;
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
     font-size: 10px;
     color: rgba(255, 255, 255, 0.6);
-}
-
-.sigLabel {
-    color: rgba(255, 255, 255, 0.9);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.sigMeta {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-}
-
-.sigMetaPill {
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.55);
-    background: rgba(255, 255, 255, 0.05);
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-family: var(--mono, monospace);
-    white-space: nowrap;
 }

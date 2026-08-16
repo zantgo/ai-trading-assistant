@@ -27,7 +27,7 @@ pub async fn insert_trade_journal(
     asset: &str,
     direction: &str,
     entry_reason: &str,
-    roe_percentage: f64,
+    roi_pct: f64,
     final_analysis: &str,
     execution_score: f64,
 ) -> i64 {
@@ -37,7 +37,7 @@ pub async fn insert_trade_journal(
     )
     .bind(trade_id).bind(entry_date).bind(exit_date)
     .bind(asset).bind(direction).bind(entry_reason)
-    .bind(roe_percentage).bind(final_analysis).bind(execution_score)
+    .bind(roi_pct).bind(final_analysis).bind(execution_score)
     .execute(pool)
     .await
     {

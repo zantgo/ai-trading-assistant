@@ -106,9 +106,9 @@ This is the **canonical pattern**: network-adjacent features that need both live
 
 **Cycle we avoided:** `analyzer::run_single` had a deterministic-close-invalidation branch that called `portfolio_supervisor::paper_trading::invalidate_position`. This was the **only** call site creating a `market-analyzer → portfolio-supervisor` edge.
 
-**Decision:** `invalidate_position` was a **no-op stub** (`Ok(())` regardless of inputs). The decision was to delete the call site in `analyzer::run_single`, leaving the stub function in `portfolio-supervisor` for future re-implementation when a non-stub real implementation exists.
+**Decision:** `invalidate_position` was a **no-op stub** (`Ok(())` regardless of inputs). The decision was to delete the call site in `analyzer::run_single`, leaving the stub function in `portfolio-supervisor` for future re-implementation when a non-stub real implementation exists. **v6.10.27 (completed):** the `database-storage::paper` stub module and the threaded `paper_pool` plumbing were removed entirely (the dead query always returned `None`), so the edge is structurally gone — no hook remains. Reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
 
-> **Tradeoff.** Lost functionality: when a 1-minute candle closes decisively through a paper-trading position's invalidation level, no automated position-invalidation fires. Since the function was a no-op, this restores behavior to "what the stub did" — i.e. nothing. The paper trading engine **is** implemented today (`crates/portfolio-supervisor/src/paper_trading.rs`, 744 lines, 10 unit tests, with `submit_order` and `evaluate_order_fills`), but it lives in `portfolio-supervisor` rather than a separate crate. Therefore the `market-analyzer → portfolio-supervisor` edge is still avoided by the same call-site removal; reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
+> **Tradeoff.** Lost functionality: when a 1-minute candle closes decisively through a paper-trading position's invalidation level, no automated position-invalidation fires. Since the function was a no-op, this restores behavior to "what the stub did" — i.e. nothing. The paper trading engine **is** implemented today (`crates/portfolio-supervisor/src/paper_trading.rs`, 744 lines, 10 unit tests, with `submit_order` and `evaluate_order_fills`), but it lives in `portfolio-supervisor` rather than a separate crate. Therefore the `market-analyzer → portfolio-supervisor` edge is still avoided; reintroducing the hook at a future point would require a `callback` interface, not a direct crate import.
 
 ### 3.5 Summary table
 
@@ -117,7 +117,7 @@ This is the **canonical pattern**: network-adjacent features that need both live
 | MarketSnapshot.context synthesis | `core-domain` | `market-analyzer::indicators::registry` | Split struct (`MarketContext` in core-domain) vs. synthesis function (`synthesize_market_context` in market-analyzer) |
 | HTTP routes calling registry functions | `api-gateway` | `portfolio-supervisor` | Adapter: `AppState::registry_context(&self) -> RegistryContext` in `portfolio-supervisor` |
 | Network-quality state + DB persistence | `network-adapters` | `database-storage` | Tracker owns both state and its own 60s persistence loop; `database-storage` exposes only the query layer |
-| Stub invalidate call in analyzer | `market-analyzer` | `portfolio-supervisor` | Removed the call site; stub kept for future real re-implementation via callback interface (the paper trading engine exists in `portfolio-supervisor` but the call site is still removed to avoid the cycle) |
+| Stub invalidate call in analyzer | `market-analyzer` | `portfolio-supervisor` | Removed the call site; stub + `paper_pool` plumbing fully removed in v6.10.27 — the edge is structurally gone (reintroduce via a callback interface) |
 
 ## 4. Auxiliary Architectural Rules
 

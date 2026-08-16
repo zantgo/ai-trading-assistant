@@ -441,15 +441,18 @@
                             {/if}
                         </span>
                     {/if}
-                    {#if analysis?.trend_stability_sharpe != null}
+                </div>
+                {#if analysis?.trend_stability_sharpe != null}
+                    <div class={styles.sharpeBox}>
+                        <span class={styles.sharpeLabel}>Trend Stability (Sharpe)</span>
                         <span
                             class="{styles.sharpeBadge} {sharpeBand(analysis.trend_stability_sharpe)}"
                             title="Trend stability Sharpe — annualized Sharpe of EMA-50 log returns over a 300-bar window"
                         >
                             {formatSharpeValue(analysis.trend_stability_sharpe)}
                         </span>
-                    {/if}
-                </div>
+                    </div>
+                {/if}
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Momentum</span>

@@ -7,8 +7,7 @@
 # Workspace architecture: see docs/conceptual-foundations/01-06-crate-layout-
 # and-cycles.md for the canonical crate inventory, dependency graph, and
 # cycle-breaking design rationale (single source of truth).
-# Configuration: `config.toml` (canonical; legacy `config.json` accepted by
-# config-models::load_config() as a fallback).
+# Configuration: `config.toml` (canonical; read by config-models::load_config()).
 # Binary: `cargo run --bin execution-daemon -- --web`
 # ==============================================================================
 

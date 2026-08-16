@@ -588,13 +588,15 @@ pub(crate) async fn populate_single(
 #[cfg(test)]
 mod cold_start_sub_minute_tests {
     //! Regression: the v6.9 "line of about 1 minute" chart render bug was
-    //! caused by `collect_candles` calling `derive_sub_minute_candles` for
-    //! sub-minute TFs during bootstrap. That helper synthesised flat
-    //! `O=H=L=C=minute_close` candles from the next-larger TF, which then
-    //! populated `pipeline.snapshot_history` and rendered as a continuous
-    //! horizontal line on the chart. The fix is to skip the warmup for
-    //! sub-minute TFs entirely (REST endpoint is bypassed per HFP-03 and
-    //! there's no legitimate historical source for 1s/3s/5s/15s bars).
+    //! caused by `collect_candles` synthesising flat
+    //! `O=H=L=C=minute_close` candles from the next-larger TF for
+    //! sub-minute TFs during bootstrap, which then populated
+    //! `pipeline.snapshot_history` and rendered as a continuous
+    //! horizontal line on the chart (the old
+    //! `derive_sub_minute_candles` helper was removed in v6.10.27). The
+    //! fix is to skip the warmup for sub-minute TFs entirely (REST
+    //! endpoint is bypassed per HFP-03 and there's no legitimate
+    //! historical source for 1s/3s/5s/15s bars).
     //!
     //! These tests pin down the new behaviour: the sub-minute branch of
     //! `collect_candles` must return an empty `Vec<NormalizedCandle>`
@@ -643,7 +645,7 @@ mod cold_start_sub_minute_tests {
         assert_eq!(
             candles.len(),
             0,
-            "sub-minute warmup must return empty Vec (no derive_sub_minute_candles fallback)"
+            "sub-minute warmup must return empty Vec (no synthetic-candle fallback)"
         );
         assert_eq!(db_count, 0, "no DB rows on a fresh DB");
         assert_eq!(rest_count, 0, "REST is bypassed for sub-minute so the rest slice is empty too");
@@ -656,7 +658,7 @@ mod cold_start_sub_minute_tests {
     async fn collect_candles_sub_minute_returns_empty_even_with_db_rows() {
         let pool = empty_pool().await;
         // Pre-insert one 60s candle so the DB path has real data to
-        // hand back if `derive_sub_minute_candles` were still wired up.
+        // hand back if the removed flat-candle synthesis were still wired up.
         sqlx::query(
             "INSERT INTO market_snapshots
                 (exchange, symbol, timeframe_secs, timestamp,

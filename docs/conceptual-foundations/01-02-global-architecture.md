@@ -297,10 +297,8 @@ The platform enforces absolute system portability and reproducibility. Any strat
 To ensure that an execution profile developed on a local setup runs identically in a remote headless environment, all system configurations are serializable. The platform surfaces configuration through three distinct contracts:
 
 * **Runtime TOML** — `config.toml` at the workspace root, read by `config-models::load_config()`. This is the operator-facing configuration file: all engine knobs, indicator periods, liquidity thresholds, and execution policies live here. Served to the frontend via `GET /api/config`.
-* **Export JSON** — The legacy wire format for configuration portability between engine instances. Superseded by TOML at v5.0; the `load_config()` function still recognizes `config.json` as a fallback for backward compatibility, **scheduled for removal at v7.0**.
+* **Export JSON** — The legacy wire format for configuration portability between engine instances. Superseded by TOML at v5.0 and **removed** — `load_config()` reads `config.toml` only.
 * **DB-stored profiles** — Named decision/risk profiles stored in the `decision_profiles` table, applied per-instance via the `[instances.*.profile]` key. These are the operational overrides that sit on top of the global config.
-
-The legacy `config.json` reader path in `config-models/src/lib.rs::load_config()` is preserved for backward compatibility with existing user installations but is **not documented for new deploys**. New installations must use `config.toml`. The legacy reader will emit a deprecation warning on every read starting at v6.3 and will be removed entirely at v7.0.
 
 ### 4.2 GUI Mode (Exploration and Research)
 *   **Purpose:** The main interface for interactive development, validation, and optimization of trading setups.

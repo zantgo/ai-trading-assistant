@@ -132,7 +132,7 @@ from this field.
 
 ## 6. Configuration Surface
 
-The Liquidity Intelligence configuration is set in `config.toml` under the `[liquidity]` table. The canonical configuration surface is defined by `crates/config-models/src/models.rs::LiquidityConfig`; the TOML below mirrors that struct exactly. The legacy `config.json` reader path in `load_config()` is preserved for backward compatibility but is **scheduled for removal at v7.0**; new deploys must use `config.toml`.
+The Liquidity Intelligence configuration is set in `config.toml` under the `[liquidity]` table. The canonical configuration surface is defined by `crates/config-models/src/models.rs::LiquidityConfig`; the TOML below mirrors that struct exactly.
 
 ```toml
 [liquidity]

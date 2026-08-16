@@ -205,7 +205,19 @@ export function tfAgeBars(tf: TimeframeTelemetry | null | undefined): number | n
     return Math.floor(ageSec / tf.barDurationSec);
 }
 
-/** Infer a LayerHeader `status` from a TimeframeTelemetry + WS state. */
+/**
+ * Infer a LayerHeader `status` from a TimeframeTelemetry + WS state.
+ *
+ * v6.13: `pipeline_state` is authoritative — the backend stamps it on
+ * EVERY frame (completed AND shadow) and promotes it to `LIVE` once the
+ * candle buffer passes `max(buffer_size/10, 50)` bars. The previous
+ * `!tf.isCompleted → loading` rule flipped the pill back to "loading"
+ * on every shadow tick (the ~4 Hz majority of frames between candle
+ * closes), so a healthy per-TF stream showed "loading" nearly all the
+ * time while the MTF header (keyed off the persistent `timeframes_present`)
+ * stayed "live". `tf.isCompleted` is now consulted only as a boot
+ * fallback when no frame has ever arrived.
+ */
 export function tfStatusFrom(
     tf: TimeframeTelemetry | null | undefined,
     wss: { wsMicro: WebSocket | null } | null | undefined,
@@ -213,9 +225,13 @@ export function tfStatusFrom(
     if (wss?.wsMicro && wss.wsMicro.readyState === WebSocket.OPEN && !tf) return 'loading';
     if (wss?.wsMicro && wss.wsMicro.readyState === WebSocket.CLOSED) return 'error';
     if (!tf) return 'loading';
-    if (!tf.isCompleted) return 'loading';
     if (tf.pipelineState === 'FAILED') return 'error';
     if (tf.pipelineState === 'STALE') return 'stale';
+    if (tf.pipelineState === 'LIVE') return 'live';
+    if (tf.pipelineState === 'LOADING' || tf.pipelineState === 'INITIALIZING') return 'loading';
+    // Fallback for payloads without `pipeline_state` (boot interstice /
+    // legacy snapshots): only treat as loading before the first frame.
+    if (!tf.latestSnapshot) return 'loading';
     return 'live';
 }
 
@@ -331,7 +347,6 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
 // — two headers reading the same alignment can no longer disagree.
 export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): LayerHeaderSpec {
     const label = a?.mtf_overall_label ?? null;
-    const score = a?.mtf_overall_score ?? null;
     const tfs = a?.timeframes_present ?? null;
 
     if (!a || !label) {
@@ -347,10 +362,11 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
             state: 'valid',
         },
         meta: [
-            chip('Score', score, score, scoreColor),
             // v6.10.19d (A): the Agreement chip was removed — the
-            // consensus hero lives in the panel's header container
-            // (v6.10.20 C: circular dial + CONSENSUS axes grid).
+            // consensus hero lives in the panel's header container.
+            // v7.0.1: the Score chip is gone too — the panel hero now
+            // carries two circular dials (Agreement + Score); the header
+            // chrome keeps only the badge and the TF-count chip.
             chip('TFs', tfs != null ? `${tfs}/4` : null, tfs, null, true),
         ],
         status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
@@ -487,6 +503,7 @@ export function buildL5RiskHeader(r: RiskMatrix | null | undefined): LayerHeader
     const score = overall?.score ?? null;
     const level = overall?.level ?? null;
     const state = overall?.state ?? null;
+    const confidence = overall?.confidence ?? null;
     const activeDimCount = countActiveRiskDimensions(r);
     if (!overall) {
         return { layerNumber: 5, layerName: 'Risk', badge: emptyBadge(), meta: [], status: 'loading' };
@@ -505,6 +522,7 @@ export function buildL5RiskHeader(r: RiskMatrix | null | undefined): LayerHeader
         },
         meta: [
             chip('Score', score, score, riskDangerColor, false, { zeroIsGood: true }),
+            chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
             chip('Dimensions', `${activeDimCount}/8`, activeDimCount, null, true),
         ],
         status: 'live',
@@ -540,7 +558,6 @@ export function buildL6DecisionHeader(input: {
     opportunity?: OpportunityMatrix | null | undefined;
 }): LayerHeaderSpec {
     const { rank, decisionContext, advisory } = input;
-    const confidence = advisory?.confidence_assessment ?? null;
     const stance = advisory?.market_stance ?? null;
     const readiness = decisionContext?.trade_readiness ?? null;
 
@@ -565,11 +582,11 @@ export function buildL6DecisionHeader(input: {
     }
 
     // v6.10.19d (D): the "Risk-Adj R:R" header chip was removed — the
-    // Risk-Adjusted R:R lives solely in the Safety Flags KPI row (the
-    // header keeps Confidence + Stance).
-    const meta: MetaChipSpec[] = [
-        chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
-    ];
+    // Risk-Adjusted R:R lives solely in the Safety Flags KPI row.
+    // v6.10.28: the Confidence chip is gone too — the Safety Flags
+    // "Confidence" KPI is the single surface; the header keeps only
+    // Stance (when it is informative).
+    const meta: MetaChipSpec[] = [];
     if (stance && stance !== 'Neutral' && stance !== 'Avoid') {
         meta.push(chip('Stance', prettifyEnum(stance), null, () => COLORS.textMuted));
     }

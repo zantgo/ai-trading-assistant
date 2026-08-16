@@ -121,6 +121,16 @@
         opportunity,
     }));
 
+    // ── Final Verdict accent — the quote's left line mirrors the verdict:
+    //    green LONG, red SHORT, amber HOLD (v6.10.28).
+    const verdictAccent = $derived(
+        rank.top === 'SHORT'
+            ? styles.verdictQuoteShort
+            : rank.top === 'LONG'
+                ? styles.verdictQuoteLong
+                : '',
+    );
+
     function buildExport() {
         return buildRecommendationTabExport({
             advisory,
@@ -375,7 +385,7 @@
                         </span>
                     </div>
                     <div class={styles.profileRecZone}>
-                        <span class={styles.profileRecZoneLabel}>TARGET</span>
+                        <span class={styles.profileRecZoneLabel}>Take-Profit</span>
                         <span class={styles.profileRecZoneValue}>
                             {topSetup.zones
                                 ? (topSetup.zones.target.low > 0
@@ -481,12 +491,9 @@
     <!-- ── Strategy (environment guidance — never a trade call) ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Environment Guidance</div>
-        {#if rank.top === 'HOLD'}
-            <div class={styles.whyNote}>For reference — no active directional call. The guidance below describes the environment, not a trade trigger.</div>
-        {/if}
         <div class={styles.grid2}>
             <div class={styles.card}>
-                <span class={styles.cardLabel}>Entry</span>
+                <span class={styles.cardLabel}>Trigger Tactic</span>
                 <!-- v6.10.16 (FIX-O5) + v6.10.17: the playbook values are
                      non-actionable ONLY under a genuine HOLD verdict (the
                      directional-but-gated state carries a real lean, so its
@@ -494,7 +501,7 @@
                 <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : sanitizeLabel(advisory?.entry_guidance ?? '')}</span>
             </div>
             <div class={styles.card}>
-                <span class={styles.cardLabel}>Exit</span>
+                <span class={styles.cardLabel}>Exit Condition</span>
                 <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : sanitizeLabel(advisory?.exit_guidance ?? '')}</span>
             </div>
             <div class={styles.card}>
@@ -519,7 +526,7 @@
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Final Verdict</div>
         {#if rank.top === 'HOLD'}
-            <blockquote class={styles.verdictQuote}>
+            <blockquote class="{styles.verdictQuote} {verdictAccent}">
                 HOLD — no directional call (readiness: {rank.headline.state}).
             </blockquote>
             {#if verdictAwareGuidance(advisory, rank.top)}
@@ -533,7 +540,7 @@
                     : rank.headline.state === 'READY'
                         ? `${rank.top} ${verdictPct}% — READY (readiness: READY).`
                         : `${rank.top} lean ${verdictPct}% — awaiting confirmation (readiness: ${rank.headline.state}).`}
-            <blockquote class={styles.verdictQuote}>{verdictSentence}</blockquote>
+            <blockquote class="{styles.verdictQuote} {verdictAccent}">{verdictSentence}</blockquote>
             {#if verdictAwareGuidance(advisory, rank.top)}
                 <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top)}</div>
             {/if}

@@ -169,8 +169,6 @@ export interface RecommendationPayload {
     exit: string;
     protection: string;
     target: string;
-    /** Panel caption shown under a HOLD verdict — null otherwise. */
-    hold_caption: string | null;
   };
   /** Verdict-consistent final verdict (HOLD verdict → verdict sentence). */
   final_verdict: string;
@@ -506,19 +504,15 @@ function buildStrategyBlock(
   // Entry/Exit use the sanitizeLabel title-casing the screen renders;
   // Protection/Target use prettifyEnum with the -Based / ATR / S-R /
   // R:R / SL overrides. Under a genuine HOLD verdict (no active directional
-  // call) the screen renders a muted caption ("environment playbook, not a
-  // trade trigger") — FIX-5 (v6.10.15) — and the actionable-sounding values
-  // are replaced with "—" (FIX-O5 v6.10.16). v6.10.17: a directional lean
-  // gated by STAND ASIDE is a REAL lean — its playbook values render real.
-  // The advisory text survives in `final_verdict_guidance`.
+  // call) the actionable-sounding values are replaced with "—"
+  // (FIX-O5 v6.10.16). v6.10.17: a directional lean gated by STAND ASIDE is
+  // a REAL lean — its playbook values render real. The advisory text
+  // survives in `final_verdict_guidance`.
   return {
     entry: noActiveCall ? '\u2014' : sanitizeLabel(advisory?.entry_guidance ?? ''),
     exit: noActiveCall ? '\u2014' : sanitizeLabel(advisory?.exit_guidance ?? ''),
     protection: noActiveCall ? '\u2014' : prettifyEnum(advisory?.protection_strategy ?? ''),
     target: noActiveCall ? '\u2014' : prettifyEnum(advisory?.target_strategy ?? ''),
-    hold_caption: noActiveCall
-      ? 'For reference — no active directional call. The guidance below describes the environment, not a trade trigger.'
-      : null,
   };
 }
 

@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 //
-// v6.11 — MtfView unfiltered-signals contract.
+// v6.13 — MtfView stacked-tables contract.
 //
 // 1. The grid always lists every registered indicator (no filter state can
 //    remove rows — the component takes no `filters` prop at all).
-// 2. The CROSS-TIMEFRAME SIGNALS section renders EVERY signal from EVERY
-//    timeframe, tagged with its producing slot (Micro/Fast/Slow/Macro).
-//    Signals firing on multiple timeframes appear once per timeframe.
-// 3. When no signals exist, the section shows the "awaiting completed
-//    candle" note instead of hiding.
+// 2. Below the grid sit three stacked cross-timeframe tables in the same
+//    4-TF-column layout as the indicator grid: SIGNALS (12 signal kinds ×
+//    per-TF active counts), DIVERGENCES (capable indicators × strongest
+//    sub-type per TF), LEVELS (9 level kinds × per-TF LevelTest counts).
+// 3. When no signals exist, each table shows its awaiting-data note
+//    instead of hiding.
 
 import { describe, it, expect } from 'vitest';
 import { cleanup, render } from '@testing-library/svelte';
@@ -141,8 +142,8 @@ describe('MtfView — grid is always unfiltered (v6.11)', () => {
     });
 });
 
-describe('MtfView — cross-timeframe signals show EVERY signal (v6.11)', () => {
-    it('renders signals from different timeframes, each tagged with its slot', () => {
+describe('MtfView — stacked cross-timeframe tables (v6.13)', () => {
+    it('renders the three stacked tables — Signals / Divergences / Levels — each with the 4-TF header', () => {
         const pair = makePair({
             micro: {
                 indicators: {
@@ -157,16 +158,22 @@ describe('MtfView — cross-timeframe signals show EVERY signal (v6.11)', () => 
         });
         const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
         const text = container.textContent ?? '';
-        expect(text).toContain('Cross-Timeframe Signals');
-        expect(text).toContain('RSI bullish crossover');
-        expect(text).toContain('MACD zero-line cross');
-        expect(text).toContain('Micro');
-        expect(text).toContain('Slow');
+        // Section titles for all three stacked tables.
+        expect(text).toContain('Signals');
+        expect(text).toContain('Divergences');
+        expect(text).toContain('Levels');
+        // The Signals table aggregates by kind — kind name + abbr badge.
+        expect(text).toContain('Crossover');
         expect(text).toContain('CRO');
+        expect(text).toContain('ZeroLineCross');
         expect(text).toContain('0X');
+        // Header count sums the two active signals.
+        expect(text).toContain('2 signals');
+        // Per-TF headers render inside every table (Micro/Fast/Slow/Macro).
+        expect(text).toContain('TOTAL');
     });
 
-    it('renders the same indicator firing on multiple timeframes once per timeframe', () => {
+    it('Signals table counts the same indicator firing on multiple timeframes per timeframe', () => {
         const mkSignal = (label: string) =>
             makeSignal('Threshold', label, 'Active', 0.8);
         const pair = makePair({
@@ -183,17 +190,57 @@ describe('MtfView — cross-timeframe signals show EVERY signal (v6.11)', () => 
         });
         const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
         const text = container.textContent ?? '';
-        expect(text).toContain('Micro RSI overbought');
-        expect(text).toContain('Fast RSI overbought');
         expect(text).toContain('2 signals');
+        expect(text).toContain('Threshold');
+        expect(text).toContain('TH');
+    });
+
+    it('Divergences table shows the strongest divergence sub-type per oscillator per timeframe', () => {
+        const pair = makePair({
+            macro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 30, normalized: -0.6, state_label: 'NEGATIVE', values: null,
+                        signals: [makeSignal('Divergence', 'BULLISH_DIVERGENCE', 'Active', 0.8)],
+                        confidence: 0.7,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const text = container.textContent ?? '';
+        expect(text).toContain('1 divergence');
+        // classifyDivergence('BULLISH_DIVERGENCE') → RegularBull → short 'BULL'.
+        expect(text).toContain('BULL');
+    });
+
+    it('Levels table counts LevelTest signals per level kind per timeframe', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 50, normalized: 0, state_label: 'NEUTRAL', values: null,
+                        signals: [makeSignal('LevelTest', 'RSI_LEVEL_TEST', 'Active', 0.7)],
+                        confidence: 0.5,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const text = container.textContent ?? '';
+        expect(text).toContain('1 level test');
+        // classifyLevelKey('rsi') → Other — the "Other" kind row carries the count.
+        expect(text).toContain('Other');
     });
 
     it('shows the awaiting-completed-candle note when no signals exist', () => {
         const pair = makePair();
         const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
         const text = container.textContent ?? '';
-        expect(text).toContain('Cross-Timeframe Signals');
+        expect(text).toContain('Signals');
         expect(text).toContain('0 signals');
         expect(text).toContain('No signals active');
+        expect(text).toContain('No active divergences');
+        expect(text).toContain('No active level tests');
     });
 });

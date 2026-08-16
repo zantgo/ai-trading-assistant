@@ -59,10 +59,6 @@ struct TradePayload {
     liquidation: Option<String>,
 }
 
-fn to_internal_symbol(raw: &str) -> String {
-    format!("{}-USD", raw)
-}
-
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct ActiveAssetCtxEnvelope {

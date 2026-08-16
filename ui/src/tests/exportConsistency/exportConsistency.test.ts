@@ -150,8 +150,9 @@ describe('export consistency — Risks tab', () => {
     expect(c.dom).toContain('48 / 100');
     expect(p.hero.overall_score).toBe(48);
     expect(p.hero.overall_confidence).toBe(74);
-    // Confidence is a badge next to the score — full words, no caption.
-    expect(c.dom).toContain('Confidence 74%');
+    // Confidence is the L5 header chip between Score and Dimensions —
+    // full words, no caption (v6.10.27: moved out of the hero).
+    expect(c.dom).toContain('Confidence: 74%');
     expect('hint' in p.hero).toBe(false);
     // Peak chip renamed "Top risk:" (High ≠ overall Moderate → visible).
     expect(c.dom).toContain('Top risk:');
@@ -579,7 +580,7 @@ describe('export consistency — Recommendation tab', () => {
     expect(p.final_verdict).toBe('LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH).');
     expectInDomAndJson(c, 'LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH)');
     // The playbook is REAL under a directional-gated verdict (no caption).
-    expect(p.strategy.hold_caption).toBeNull();
+    expect(p.strategy).not.toHaveProperty('hold_caption');
     expect(p.strategy.entry).not.toBe('—');
     expectInDomAndJson(c, p.strategy.entry);
     // Price levels resolve to the LONG side.

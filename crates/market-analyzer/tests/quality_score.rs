@@ -128,7 +128,6 @@ async fn pristine_candle_scores_100() {
             cancel,
             None,
             None,
-            None,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

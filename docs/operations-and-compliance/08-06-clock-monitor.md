@@ -68,7 +68,7 @@ warn_on_breach = true
 
 All fields are exposed via `config.toml`; keys omitted from the `[clock_monitor]` section fall back to the runtime defaults applied by `ClockMonitorConfig::default()` — see `crates/network-adapters/src/clock_monitor.rs`.
 
-> **Single source of truth.** All clock-monitor fields live in `[clock_monitor]` in `config.toml` and can be edited via `POST /api/config` or directly in the file at the workspace root. `config.json` is still recognized by `config-models::load_config()` as a legacy fallback (the JSON reader path is preserved for backward compatibility with existing user installations but is not documented for new deploys).
+> **Single source of truth.** All clock-monitor fields live in `[clock_monitor]` in `config.toml` and can be edited via `POST /api/config` or directly in the file at the workspace root.
 
 ## NTP Measurement
 

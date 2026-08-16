@@ -26,7 +26,7 @@ Pick the surface that matches your use case. WebSocket for live UI; REST for con
 curl -s http://127.0.0.1:3000/api/config | jq .
 ```
 
-Returns the parsed `config.toml` (or `config.json` legacy fallback) — symbols, timeframes, indicators, instances.
+Returns the parsed `config.toml` — symbols, timeframes, indicators, instances.
 
 ### 2.2 Open the WebSocket
 

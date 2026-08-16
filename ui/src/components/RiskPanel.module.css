@@ -14,7 +14,8 @@
 /* ─────────── Hero ─────────── */
 .hero { display: flex; gap: 18px; align-items: stretch; padding: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; margin-bottom: 14px; }
 /* v6.10.19d (C): the ring is gone — the hero leads with the RISK
-   progress bar; Confidence is a badge next to the score. */
+   progress bar; Confidence lives in the L5 header between Score and
+   Dimensions. */
 .heroRiskRow { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .heroRiskLabel { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
 .heroRiskBar { flex: 1; height: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; overflow: hidden; }
@@ -23,7 +24,6 @@
 .heroBadges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .heroPeak { font-size: 10px; color: #64748b; }
 .heroPeakVal { font-weight: 700; padding: 1px 6px; border-radius: 3px; }
-.confBadge { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); white-space: nowrap; }
 
 /* Risk color tokens — shared across fill bars, tiles, pills */
 .riskVeryLow { --risk-stroke: #22c55e; --risk-bg: rgba(34,197,94,0.15); --risk-fg: #22c55e; --risk-fill: #22c55e; border-color: var(--risk-stroke); }

@@ -252,6 +252,8 @@
     border-radius: 6px;
     border-left: 4px solid #f59e0b;
 }
+.verdictQuoteLong { border-left-color: #22c55e; }
+.verdictQuoteShort { border-left-color: #ef4444; }
 .verdictGuidance {
     margin-top: 6px;
     font-size: 10px;

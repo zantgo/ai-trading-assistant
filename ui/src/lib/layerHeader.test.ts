@@ -305,7 +305,7 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         expect(scoreChip.color).toBe(COLORS.neutral);
     });
 
-    it('M-4: status flows through tfStatusFrom — ws closed → error, pipeline STALE → stale, shadow tick → loading', () => {
+    it('M-4: status flows through tfStatusFrom — ws closed → error, pipeline STALE → stale, shadow tick → live, pipeline LOADING → loading', () => {
         // The node test env has no global WebSocket — polyfill the two
         // constants tfStatusFrom reads.
         (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
@@ -314,9 +314,19 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         const stale = tfStub(ctx({ overall_label: 'BULLISH' }));
         stale.pipelineState = 'STALE';
         expect(buildL1MetricsHeader(stale).status).toBe('stale');
+        // v6.13: a shadow tick (isCompleted=false) with a LIVE pipeline
+        // stays live — `pipeline_state` is authoritative and the old
+        // `!tf.isCompleted → loading` rule flashed "loading" between
+        // candle closes on every healthy stream.
         const shadow = tfStub(ctx({ overall_label: 'BULLISH' }));
         shadow.isCompleted = false;
-        expect(buildL1MetricsHeader(shadow).status).toBe('loading');
+        expect(buildL1MetricsHeader(shadow).status).toBe('live');
+        const failed = tfStub(ctx({ overall_label: 'BULLISH' }));
+        failed.pipelineState = 'FAILED';
+        expect(buildL1MetricsHeader(failed).status).toBe('error');
+        const loading = tfStub(ctx({ overall_label: 'BULLISH' }));
+        loading.pipelineState = 'LOADING';
+        expect(buildL1MetricsHeader(loading).status).toBe('loading');
         // Healthy completed tick stays live.
         expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH' }))).status).toBe('live');
     });
@@ -351,7 +361,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expectEmpty(buildL2AlignmentHeader(null));
     });
 
-    it('badge label = prettified mtf_overall_label; chips show Score / Agreement / TFs', () => {
+    it('badge label = prettified mtf_overall_label; TFs chip remains; Score chip erased (v7.0.1 B: moved into the panel hero Score dial)', () => {
         const spec = buildL2AlignmentHeader(alignmentStub({
             mtf_overall_label: 'WEAK_BULL',
             mtf_overall_score: 21.2,
@@ -360,7 +370,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
         }));
         expect(spec.badge.label).toBe('WEAK BULL');
         expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
-        expect(spec.meta.find((c) => c.label === 'Score')!.value).toBe('21.20');
+        expect(spec.meta.find((c) => c.label === 'Score')).toBeUndefined();
         expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4/4');
     });
 
@@ -497,6 +507,16 @@ describe('buildL5RiskHeader (L5)', () => {
         const dims = spec.meta.find((m) => m.label === 'Dimensions')!;
         expect(dims.value).toBe('8/8');
     });
+
+    it('Confidence chip sits between Score and Dimensions, styled as a meta chip', () => {
+        const r = riskMatrixStub(riskStub({ score: 42, confidence: 78 }));
+        const spec = buildL5RiskHeader(r);
+        expect(spec.meta.map((m) => m.label)).toEqual(['Score', 'Confidence', 'Dimensions']);
+        const conf = spec.meta[1];
+        expect(conf.value).toBe('78%');
+        expect(conf.state).toBe('valid');
+        expect(conf.color).toBe(scoreColor(78));
+    });
 });
 
 // ── L6 — Decision (HIGH-priority regression guard) ──────────────────────
@@ -548,13 +568,14 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         expect(spec.badge.color).toBe(COLORS.neutral);
     });
 
-    it('v6.10.19d (D): the Risk-Adj R:R header chip is removed — the header keeps Confidence (+Stance), the KPI row owns the ratio', () => {
+    it('v6.10.19d (D) + v6.10.28: Risk-Adj R:R and Confidence header chips are removed — the Safety Flags KPI row owns both', () => {
         // The N/A sentinel case: no chip at all now.
         const decisionNA = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 0 });
         const advisoryNA = advisoryStub({ directional_guidance: 'Neutral' });
         const rankNA = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
         const specNA = buildL6DecisionHeader({ rank: rankNA, decisionContext: decisionNA, advisory: advisoryNA });
         expect(specNA.meta.find((m) => m.label === 'Risk-Adj R:R')).toBeUndefined();
+        expect(specNA.meta.find((m) => m.label === 'Confidence')).toBeUndefined();
 
         // The non-zero case: also gone from the header — the Safety
         // Flags KPI is the single Risk-Adj R:R surface.
@@ -563,6 +584,7 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
         expect(spec.meta.find((m) => m.label === 'Risk-Adj R:R')).toBeUndefined();
+        expect(spec.meta.find((m) => m.label === 'Confidence')).toBeUndefined();
     });
 });
 

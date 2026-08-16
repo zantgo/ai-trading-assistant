@@ -155,7 +155,6 @@ async fn observation_loop_latency_p95_below_threshold() {
             cancel,
             None,
             None,
-            None,
             // latest_oi, latest_funding, latest_mark_px, latest_index_px
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

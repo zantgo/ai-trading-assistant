@@ -347,7 +347,7 @@ describe('buildRecommendationTabExport', () => {
     }));
     expect(p.strategy.protection).toBe('ATR-Based');
     expect(p.strategy.entry).toBe('Breakout');
-    expect(p.strategy.hold_caption).toBeNull();
+    expect(p.strategy).not.toHaveProperty('hold_caption');
   });
 
   it('FIX-O5: strategy values are "—" under a HOLD verdict (never "Entry: Immediate")', () => {
@@ -364,7 +364,7 @@ describe('buildRecommendationTabExport', () => {
     expect(p.strategy.exit).toBe('—');
     expect(p.strategy.protection).toBe('—');
     expect(p.strategy.target).toBe('—');
-    expect(p.strategy.hold_caption).toContain('no active directional call');
+    expect(p.strategy).not.toHaveProperty('hold_caption');
     // The advisory text still survives as environment guidance.
     expect(p.final_verdict_guidance).toContain('Environment guidance:');
   });
@@ -504,7 +504,7 @@ describe('buildRecommendationTabExport', () => {
     expect(p.final_verdict).toContain('LONG lean 60% — awaiting confirmation (readiness: FORMING)');
     expect(p.final_verdict).not.toContain('Strong long bias');
     expect(p.final_verdict_guidance).toContain('Environment guidance:');
-    expect(p.strategy.hold_caption).toBeNull();
+    expect(p.strategy).not.toHaveProperty('hold_caption');
   });
 
   it('FIX-4 (v6.10.17): directional verdict gated by STAND ASIDE reports lean + gate', () => {
@@ -525,7 +525,7 @@ describe('buildRecommendationTabExport', () => {
     expect(p.final_verdict_guidance).toContain('Environment guidance:');
     expect(p.final_verdict_guidance).toContain('immediate');
     // v6.10.17: a directional lean carries a REAL playbook — no caption.
-    expect(p.strategy.hold_caption).toBeNull();
+    expect(p.strategy).not.toHaveProperty('hold_caption');
     expect(p.strategy.entry).not.toBe('—');
   });
 
@@ -603,7 +603,7 @@ describe('buildRecommendationTabExport', () => {
     // v6.10.19d (D): the "fields are placeholders" / "Qualifying setups…"
     // copy is gone — the placeholder is the single clean sentence.
     expect(p.price_levels.hold_placeholder).toBe('No active setup.');
-    expect(p.strategy.hold_caption).toContain('For reference — no active directional call');
+    expect(p.strategy).not.toHaveProperty('hold_caption');
   });
 
   it('RR-008: risk_adj_rr_explanation mirrors the header tooltip sentence', () => {

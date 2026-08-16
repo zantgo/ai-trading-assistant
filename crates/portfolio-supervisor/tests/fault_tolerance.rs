@@ -87,7 +87,6 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_cancel,
                 None,
                 None,
-                None,
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),

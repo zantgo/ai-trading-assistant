@@ -44,11 +44,11 @@
 .dimCardConf { font-size: 9px; color: #64748b; }
 .emptyGridNote { font-size: 11px; color: #64748b; font-style: italic; padding: 8px 10px; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; line-height: 1.55; }
 
-/* ── Consensus hero ── */
-/* v6.10.20 (C): the header-container hero row is two side-by-side
-   containers — a circular consensus dial (left) and a CONSENSUS 2×2
-   axis grid (right). The flat bar + "Polarization" chip row are gone. */
-.consensusHero {
+/* ── Alignment hero (v7.0.1 B): two circular dials ── */
+/* The header hero row is two side-by-side dial cards — AGREEMENT (trend
+   agreement %) and SCORE (composite blend). Both use the plain card look;
+   the old CONSENSUS 2×2 axis grid is gone. */
+.alignmentHero {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
@@ -56,7 +56,7 @@
     border-bottom: 1px solid rgba(255,255,255,0.05);
     background: rgba(255,255,255,0.015);
 }
-.consensusGaugeCard {
+.dialCard {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -64,46 +64,46 @@
     padding: 16px 18px;
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 8px;
-    background: #10141a;
+    background: rgba(255,255,255,0.02);
     min-width: 0;
 }
-.consensusDialLabel {
+.dialLabel {
     font-size: 9px;
     font-weight: 700;
-    color: #6f9f80;
+    color: #94a3b8;
     text-transform: uppercase;
     letter-spacing: 0.2em;
 }
-.consensusDialRow {
+.dialRow {
     display: flex;
     align-items: center;
     gap: 18px;
     min-width: 0;
 }
-.consensusDial {
+.dial {
     position: relative;
     width: 96px;
     height: 96px;
     flex-shrink: 0;
 }
-.consensusDialSvg {
+.dialSvg {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
 }
-.consensusDialTrack {
+.dialTrack {
     fill: none;
     stroke: rgba(148,163,184,0.14);
     stroke-width: 4;
 }
-.consensusDialFill {
+.dialFill {
     fill: none;
     stroke-width: 4;
     stroke-linecap: butt;
     transition: stroke-dashoffset 0.4s ease;
 }
-.consensusDialPct {
+.dialPct {
     position: absolute;
     inset: 0;
     display: grid;
@@ -115,80 +115,43 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
 }
-.consensusDialCopy {
+.dialCopy {
     display: flex;
     flex-direction: column;
     gap: 4px;
     min-width: 0;
 }
-.consensusDialHeader {
+.dialHeader {
     font-size: 16px;
     font-weight: 800;
     letter-spacing: 0.02em;
     line-height: 1.2;
 }
-.consensusDialHeaderStrong { color: #22c55e; }
-.consensusDialHeaderPartial { color: #f59e0b; }
-.consensusDialHeaderConflict { color: #f97316; }
-.consensusDialHeaderNeutral { color: #94a3b8; }
-.consensusDialSub {
+.agreementTierStrong { color: #22c55e; }
+.agreementTierPartial { color: #f59e0b; }
+.agreementTierConflict { color: #f97316; }
+.agreementTierNeutral { color: #94a3b8; }
+.scoreDialHeaderBull { color: #22c55e; }
+.scoreDialHeaderBear { color: #ef4444; }
+.scoreDialHeaderNeutral { color: #f59e0b; }
+.dialSub {
     font-size: 11px;
     color: #94a3b8;
     line-height: 1.35;
 }
-.consensusDetails {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.02);
-    min-width: 0;
-}
-.consensusDetailsLabel {
-    font-size: 9px;
+.conflictBanner {
+    font-size: 11px;
     font-weight: 700;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
+    color: #f97316;
+    background: rgba(249,115,22,0.12);
+    border: 1px solid rgba(249,115,22,0.25);
+    padding: 6px 10px;
+    border-radius: 5px;
+    margin: 0 14px 12px;
 }
-.axisGrid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-}
-.axisCard {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 7px 10px;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 6px;
-}
-.axisName {
-    font-size: 9px;
-    font-weight: 600;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.axisValue {
-    font-size: 13px;
-    font-weight: 800;
-    font-family: var(--mono, monospace);
-    font-variant-numeric: tabular-nums;
-}
-.axisStrongBull { color: #22c55e; }
-.axisStrongBear { color: #ef4444; }
-.axisSubtleBull { color: #4ade80; opacity: 0.8; }
-.axisSubtleBear { color: #f87171; opacity: 0.8; }
-.axisNeutral { color: #94a3b8; }
-.conflictBadge { font-size: 11px; font-weight: 700; color: #f97316; background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.25); padding: 6px 10px; border-radius: 5px; }
 
 @media (max-width: 720px) {
-    .consensusHero { grid-template-columns: 1fr; }
+    .alignmentHero { grid-template-columns: 1fr; }
 }
 
 /* ── Per-TF cards ── */

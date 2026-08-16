@@ -92,7 +92,6 @@ async fn spawn_analyzer(
             cancel,
             None,
             None,
-            None,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

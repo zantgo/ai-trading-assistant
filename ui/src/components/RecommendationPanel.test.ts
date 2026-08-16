@@ -253,8 +253,8 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         // SAFETY FLAGS section title is unique to this row.
         expect(screen.getByText('Safety Flags')).toBeTruthy();
-        // `getAllByText` because "Readiness" / "Confidence" labels also
-        // appear in the L6 header.
+        // `getAllByText` because "Readiness" labels also appear in the
+        // L6 header (badge sublabel) and the verdict sentence.
         expect(screen.getAllByText(/Readiness/i).length).toBeGreaterThanOrEqual(2);
         // The legacy "Internal R:R" KPI was removed in v6.9 along with
         // the matrix-level `expected_rr_internal` field; the active-side
@@ -267,7 +267,11 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         // R7: the KPI is the advisory's ATR-derived stop-distance guide —
         // relabelled to not collide with the Top Setup card's geometric SL.
         expect(screen.getByText('ATR Stop Guide')).toBeTruthy();
-        expect(screen.getAllByText(/Confidence/i).length).toBeGreaterThanOrEqual(2);
+        // v6.10.28: the L6 header Confidence chip was removed — the chip
+        // label renders with a colon ("Confidence:"), so its absence proves
+        // the header no longer duplicates the Safety Flags KPI.
+        expect(screen.queryByText('Confidence:')).toBeNull();
+        expect(screen.getByText('Confidence')).toBeTruthy();
         // v7.0-prod: Entry Danger moves into the safety-flags row so
         // the mirror bind contract is observable from the panel chrome.
         expect(screen.getByText('Entry Danger')).toBeTruthy();
@@ -453,7 +457,7 @@ describe('RecommendationPanel — Top Setup card', () => {
         expect(screen.queryByText('No active setup — verdict is HOLD.')).toBeNull();
         // The four empty fields are present.
         expect(screen.getByText('ENTRY')).toBeTruthy();
-        expect(screen.getByText('TARGET')).toBeTruthy();
+        expect(screen.getByText('Take-Profit')).toBeTruthy();
         expect(screen.getByText('Stop-Loss')).toBeTruthy();
         expect(screen.getByText('Reward-to-Risk')).toBeTruthy();
     });
@@ -776,12 +780,53 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
         expect(screen.getByText(/Neutral — no directional edge:/)).toBeTruthy();
     });
 
-    it('renders the guidance reference caption under HOLD (v6.10.19d D)', () => {
+    it('renders the guidance cards with tactic labels and no reference caption under HOLD (v6.10.28)', () => {
         const entry = seedPair('BTC-USDT');
         zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         expect(screen.getByText('Environment Guidance')).toBeTruthy();
-        expect(screen.getByText(/For reference — no active directional call/)).toBeTruthy();
+        expect(screen.getByText('Trigger Tactic')).toBeTruthy();
+        expect(screen.getByText('Exit Condition')).toBeTruthy();
+        expect(screen.getByText('Protection')).toBeTruthy();
+        expect(screen.getByText('Target')).toBeTruthy();
+        expect(screen.queryByText(/For reference — no active directional call/)).toBeNull();
+    });
+
+    it('v6.10.28: the Final Verdict accent line is amber under a HOLD verdict', () => {
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        const cls = document.querySelector('blockquote')!.className;
+        expect(cls).toMatch(/verdictQuote/);
+        expect(cls).not.toMatch(/verdictQuoteLong|verdictQuoteShort/);
+    });
+
+    it('v6.10.28: the Final Verdict accent line is green under a LONG verdict', () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        const cls = document.querySelector('blockquote')!.className;
+        expect(cls).toMatch(/verdictQuoteLong/);
+        expect(cls).not.toMatch(/verdictQuoteShort/);
+    });
+
+    it('v6.10.28: the Final Verdict accent line is red under a SHORT verdict', () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 10,
+            short_probability: 60,
+            hold_probability: 30,
+            net_bias_pct: -50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        const cls = document.querySelector('blockquote')!.className;
+        expect(cls).toMatch(/verdictQuoteShort/);
+        expect(cls).not.toMatch(/verdictQuoteLong/);
     });
 });
 

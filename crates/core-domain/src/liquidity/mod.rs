@@ -2082,7 +2082,6 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
 mod signal_tests {
     use super::*;
     use crate::liquidity::CascadeState;
-    use rust_decimal_macros::dec;
 
     fn empty_flow(state: CascadeState) -> LiquidityFlow {
         LiquidityFlow {

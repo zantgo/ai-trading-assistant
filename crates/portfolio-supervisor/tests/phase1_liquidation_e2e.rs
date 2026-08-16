@@ -126,7 +126,6 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             cancel,
             Some(candle_tx),
             None,
-            None, // no DB pool — this test exercises the in-memory accumulator
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

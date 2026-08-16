@@ -113,7 +113,7 @@ without the new fields deserialize cleanly. The legacy
 
 ## Configuration
 
-The platform uses **`config.toml`** as the single source of configuration truth (the legacy `config.json` form is still recognized by `load_config()` as a fallback; see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md) for the operator-facing install path). The Liquidity Intelligence extension contributes a `[liquidity]` table inside `config.toml`:
+The platform uses **`config.toml`** as the single source of configuration truth (see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md) for the operator-facing install path). The Liquidity Intelligence extension contributes a `[liquidity]` table inside `config.toml`:
 
 ```toml
 [liquidity]
@@ -134,7 +134,7 @@ liquidity_vacuum_threshold = 0.3
 oi_funding_divergence_pct = 2.0
 ```
 
-> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.toml` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform previously used `config.json`; the TOML form became canonical at v5.0 with the workspace restructure (see `docs/CHANGELOG.md`). `config.json` is still recognized as a legacy alias by `load_config()` for backward compatibility. **Config format note (v5.0).** The canonical config format is `config.toml`. `config.json` is still recognized by `config-models/src/lib.rs::load_config()` as a legacy fallback (the legacy reader code path is preserved for backward compatibility with existing user installations but is not documented for new deploys).
+> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.toml` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform previously used `config.json`; the TOML form became canonical at v5.0 with the workspace restructure (see `docs/CHANGELOG.md`).
 
 ## Performance
 

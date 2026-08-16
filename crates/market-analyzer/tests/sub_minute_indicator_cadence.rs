@@ -118,7 +118,6 @@ fn spawn_analyzer_with_warm(
             None,
             // PRI-03: warmed state handover (None = cold start).
             warmed,
-            None,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

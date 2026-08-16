@@ -33,7 +33,7 @@ cd ../..
 cargo run --bin execution-daemon -- --web
 ```
 
-The engine reads `config.toml` from the workspace root on startup. **If `config.toml` is missing entirely**, the `manage.sh` first-run flow scaffolds a default from the documented schema before the binary launches (one-shot bootstrap — repeat invocations leave an existing `config.toml` untouched). **If `config.toml` exists but is malformed**, the binary panics with a descriptive error and the operator must fix the file before the next start — there is no automatic re-scaffolding on parse failure (a corrupt-but-existing file might contain deliberate operator edits, so re-scaffolding would risk silently overwriting them). Legacy `config.json` is still recognized by `load_config()` as a fallback for existing installations; new deploys should use `config.toml`.
+The engine reads `config.toml` from the workspace root on startup. **If `config.toml` is missing entirely**, the `manage.sh` first-run flow scaffolds a default from the documented schema before the binary launches (one-shot bootstrap — repeat invocations leave an existing `config.toml` untouched). **If `config.toml` exists but is malformed**, the binary panics with a descriptive error and the operator must fix the file before the next start — there is no automatic re-scaffolding on parse failure (a corrupt-but-existing file might contain deliberate operator edits, so re-scaffolding would risk silently overwriting them).
 
 ---
 
@@ -70,7 +70,7 @@ For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) 
 
 ## 5. Configuring Engines & Timeframes
 
-The single source of configuration truth is `config.toml` at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()` for existing installations). It controls:
+The single source of configuration truth is `config.toml` at the workspace root. It controls:
 
 - `candles.duration_seconds` — base (micro) timeframe
 - `fast_timeframe`, `slow_timeframe`, `macro_timeframe` — additional timeframe tiers, each with `enabled` and `duration_seconds`
@@ -141,7 +141,7 @@ A value of `0` disables the cleanup loop for that table (rows accumulate indefin
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Engine panics on startup with "config not found" | No `config.toml` (and no legacy `config.json` fallback) at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.toml`. |
+| Engine panics on startup with "config not found" | No `config.toml` at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.toml`. |
 | WebSocket frames never arrive | `ui/dist/` is missing or empty | Rebuild frontend (`cd ui && bun run build`). |
 | All values `null` in dashboard | Initial warm-up not finished | Wait `[candle_buffer] size × duration_seconds` (default 500 × 60 s ≈ 8 h 20 m on micro); reduce `[candle_buffer] size` for faster warm-up at the cost of less history. |
 | `margin_usage_ratio > 95%` warning | Position size too large for current equity | Reduce `max_position_size_usd` in policy or close a position. |

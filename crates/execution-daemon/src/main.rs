@@ -762,6 +762,19 @@ async fn main() {
 
     println!("⚙️  Trading Platform: Loading Master Configuration...");
 
+    // AUDIT-V7-300 (08-08 §CB-01): one-shot startup warning for stale
+    // legacy `analysis_limit` keys — the canonical number is
+    // `candle_buffer.size` and stale keys are silently ignored.
+    if let Ok(raw_toml) = std::fs::read_to_string("config.toml") {
+        if config_models::detect_legacy_analysis_limit_keys(&raw_toml) {
+            eprintln!(
+                "⚠️  config.toml contains legacy `analysis_limit` key(s) — \
+                 ignored; the canonical candle-buffer number is `[candle_buffer] size` \
+                 (see docs/operations-and-compliance/08-08-candle-buffer-spec.md)"
+            );
+        }
+    }
+
     let platform = load_platform().expect(
         "❌ Configuration Error: failed to parse platform config from config.toml",
     );

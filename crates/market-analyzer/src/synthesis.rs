@@ -2945,65 +2945,6 @@ mod tests {
         );
     }
 
-    fn invalidation_note_is_side_aware() {
-        // Regression (D3): the note must reference the ACTIVE side's
-        // invalidation with side-correct wording. Legacy behavior always
-        // formatted the note from the legacy scalar `invalidation_level`,
-        // which under a Neutral bias resolves to the SHORT side (a level
-        // ABOVE price) — producing "Close below 1907.6" notes that
-        // contradicted the frontend bracket.
-        use core_domain::alignment::AlignmentMatrix;
-        use core_domain::analysis::{AnalysisMatrix, MarketBias};
-        use std::collections::HashMap;
-
-        let indicators: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
-        let alignment = AlignmentMatrix::empty("BTC-USD");
-
-        let mut analysis = AnalysisMatrix::empty("BTC-USD");
-        analysis.timeframes_considered = 1;
-
-        // ATR fallback geometry with close = 100, atr = 1% (1.0):
-        //   long:  entry [99.5, 100], invalidation 99.0  (below)
-        //   short: entry [100, 100.5], invalidation 101.0 (above)
-        let close = 100.0;
-
-        // Neutral bias → long geometry is consistent → "Close below {99.0}".
-        analysis.bias = MarketBias::Neutral;
-        let opp_neutral =
-            compute_opportunity(&analysis, &alignment, &indicators, None, None, close)
-                .expect("neutral opportunity");
-        assert!(
-            opp_neutral
-                .invalidation_note
-                .starts_with("Close below 99.0 invalidates the "),
-            "neutral note was: {}",
-            opp_neutral.invalidation_note
-        );
-
-        // Bearish bias → short side → "Close above {101.0}".
-        analysis.bias = MarketBias::Bearish;
-        let opp_bear = compute_opportunity(&analysis, &alignment, &indicators, None, None, close)
-            .expect("bearish opportunity");
-        assert!(
-            opp_bear
-                .invalidation_note
-                .starts_with("Close above 101.0 invalidates the "),
-            "bearish note was: {}",
-            opp_bear.invalidation_note
-        );
-
-        // Bullish bias → long side → "Close below {99.0}".
-        analysis.bias = MarketBias::Bullish;
-        let opp_bull = compute_opportunity(&analysis, &alignment, &indicators, None, None, close)
-            .expect("bullish opportunity");
-        assert!(
-            opp_bull
-                .invalidation_note
-                .starts_with("Close below 99.0 invalidates the "),
-            "bullish note was: {}",
-            opp_bull.invalidation_note
-        );
-    }
 
     #[test]
 

@@ -253,9 +253,9 @@
     </LayerHeader>
 
     <!-- v6.10.19d (C): the hero is a RISK PROGRESS BAR (the ring is
-         gone) + a Confidence badge next to the score. The bar carries the
-         "lower is safer" tooltip; the Confidence badge explains itself.
-         No caption text below the hero. -->
+         gone). Confidence moved into the L5 header as a chip between
+         Score and Dimensions. The bar carries the "lower is safer"
+         tooltip. No caption text below the hero. -->
     <section class={styles.hero}>
         <div class={styles.heroRiskRow}
              title="Overall risk \u2014 lower is safer">
@@ -266,18 +266,14 @@
             </div>
             <span class={styles.heroRiskVal}>{risk ? risk.overall_risk.score.toFixed(0) : '\u2014'} / 100</span>
         </div>
-        <div class={styles.heroBadges}>
-            {#if topSeverity && risk && topSeverity !== risk.overall_risk.level}
+        {#if topSeverity && risk && topSeverity !== risk.overall_risk.level}
+            <div class={styles.heroBadges}>
                 <span class={styles.heroPeakRow}>
                     <span class={styles.heroPeak}>Top risk:</span>
                     <span class="{styles.heroPeakVal} {labelClass(topSeverity)}">{topSeverity}</span>
                 </span>
-            {/if}
-            <span class={styles.confBadge}
-                  title="Confidence of the risk assessment \u2014 higher is more trustworthy">
-                Confidence {risk ? risk.overall_risk.confidence.toFixed(0) : '\u2014'}%
-            </span>
-        </div>
+            </div>
+        {/if}
     </section>
 
     <!-- ── Summary tiles ── -->
