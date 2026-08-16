@@ -151,7 +151,8 @@ describe('buildRecommendationTabExport', () => {
     }));
     expect(p.safety_flags.rr_available).toBe(false);
     expect(p.safety_flags.rr_value).toBeNull();
-    expect(p.safety_flags.rr_reason).toBe('no_directional_bias');
+    // v6.10.19c (D4): the empty container carries no bracket → N/A.
+    expect(p.safety_flags.rr_reason).toBe('no_wire_rr');
   });
 
   it('entry_danger is split into score + level', () => {
@@ -170,7 +171,80 @@ describe('buildRecommendationTabExport', () => {
     expect(p.safety_flags.entry_danger_level).toBe('MODERATE');
   });
 
-  it('no_clear_card surfaces when the primary opportunity is NoClearOpportunity', () => {
+  it('v6.11: quality_to_risk_ratio flows into environment and safety_flags blocks', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ quality_to_risk_ratio: 3.2 }),
+      decisionContext: makeDecisionContext(),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.environment.quality_to_risk_ratio).toBeCloseTo(3.2, 1);
+    expect(p.environment.quality_to_risk_ratio_display).toBe('3.20');
+    expect(p.safety_flags.quality_to_risk_ratio).toBeCloseTo(3.2, 1);
+    expect(p.safety_flags.quality_to_risk_ratio_display).toBe('3.20');
+  });
+
+  it('v6.11: missing quality_to_risk_ratio renders em-dash displays', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ quality_to_risk_ratio: null }),
+      decisionContext: makeDecisionContext(),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.environment.quality_to_risk_ratio).toBeNull();
+    expect(p.environment.quality_to_risk_ratio_display).toBe('\u2014');
+    expect(p.safety_flags.quality_to_risk_ratio).toBeNull();
+    expect(p.safety_flags.quality_to_risk_ratio_display).toBe('\u2014');
+  });
+
+  it('v6.14: top_setup.score_display mirrors the backend display_score (raw score preserved)', () => {
+    // A 1/3-precondition top profile: the wire carries display_score 33 —
+    // the export's `score_display` must prefer it (screen parity), while
+    // the raw `score` stays 65 for data-science consumers.
+    const opp = makeOpportunity();
+    opp.opportunity_score = 65;
+    opp.profiles = [
+      {
+        opportunity_type: 'Breakout',
+        score: 65,
+        preconditions_met: 1,
+        preconditions_total: 3,
+        display_score: 33,
+        notes: 'Breakout',
+        direction_family: 'TrendRiding',
+        long_entry_zone: { low: 63320, high: 63340 },
+        long_target_zone: { low: 63681, high: 64380 },
+        long_invalidation_level: 63327,
+        long_expected_rr_internal: 2.5,
+        long_geometry_consistent: true,
+        short_entry_zone: null,
+        short_target_zone: null,
+        short_invalidation_level: null,
+        short_expected_rr_internal: null,
+        short_geometry_consistent: false,
+        trade_viability: 'Actionable',
+      },
+    ] as any;
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(),
+      opportunity: opp,
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.top_setup.score).toBe(65);
+    expect(p.top_setup.score_display).toBe(33);
+  });
+
+  it('v6.14: legacy top_setup without display_score falls back to the raw score', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
@@ -180,8 +254,76 @@ describe('buildRecommendationTabExport', () => {
       markPrice: 75.55,
       headerSpec,
     }));
-    expect(p.no_clear_card).not.toBeNull();
-    expect(p.no_clear_card.title).toBe('No Clear Setup');
+    expect(p.top_setup.score_display).toBe(p.top_setup.score);
+  });
+
+  it('D4 (v6.10.19c): Risk-Adj R:R is bracket-aware — a HOLD + qualifying setup shows the discounted ratio, not N/A', () => {
+    // The 20:46 shape: hold-dominant with a qualifying NEUTRAL-side
+    // MeanReversion whose LONG-populated zones carry an R:R. The chip
+    // must compute bracket R:R × (1 − overall_risk/100) instead of N/A.
+    const opp = makeOpportunity();
+    opp.primary_opportunity = 'MeanReversion';
+    opp.opportunity_score = 55;
+    opp.profiles = [
+      {
+        opportunity_type: 'MeanReversion',
+        score: 55,
+        preconditions_met: 2,
+        preconditions_total: 2,
+        notes: 'MeanReversion',
+        direction_family: 'CounterTrend',
+        long_entry_zone: { low: 63058.7, high: 63059.6 },
+        long_target_zone: { low: 63104.07, high: 63207.26 },
+        long_invalidation_level: 63055.67,
+        long_expected_rr_internal: 4.5,
+        long_geometry_consistent: true,
+        short_entry_zone: null,
+        short_target_zone: null,
+        short_invalidation_level: null,
+        short_expected_rr_internal: null,
+        short_geometry_consistent: false,
+        trade_viability: 'DirectionalNeutral',
+      },
+    ] as any;
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext({ bias: 'Neutral', long_probability: 12, short_probability: 2, hold_probability: 86, net_bias_pct: 10, expected_reward_risk_ratio: 0 }),
+      opportunity: opp,
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      overallRisk: 40,
+      headerSpec,
+    }));
+    // The headline setup rides in the container with its bracket R:R.
+    expect(p.top_setup!.opportunity_type).toBe('Mean Reversion');
+    expect(p.top_setup!.rr_value).toBeCloseTo(4.5, 1);
+    // The Risk-Adj chip computes 4.5 × (1 − 0.40) = 2.7 — not N/A.
+    expect(p.safety_flags.rr_available).toBe(true);
+    expect(p.safety_flags.rr_value).toBeCloseTo(2.7, 1);
+    expect(p.safety_flags.risk_adj_rr_explanation).toContain('2.70');
+  });
+
+  it('D3 (v6.10.19c): no qualifying setup → the clean "No Active Setup" container (no badges, no no-clear card)', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.top_setup).not.toBeNull();
+    expect(p.top_setup!.opportunity_type).toBe('No Active Setup');
+    expect(p.top_setup!.viability).toBe('NoClear');
+    expect(p.top_setup!.badge_text).toBe('');
+    expect(p.top_setup!.entry_zone).toBeNull();
+    expect(p.top_setup!.target_zone).toBeNull();
+    expect(p.top_setup!.invalidation).toBeNull();
+    expect(p.top_setup!.rr_value).toBeNull();
+    expect(p.top_setup!.hold_placeholder).toBe('No active setup.');
+    expect(p.no_clear_card).toBeUndefined();
     expect(p.why_note).toContain('No directional edge');
   });
 
@@ -272,11 +414,9 @@ describe('buildRecommendationTabExport', () => {
     expect(p.top_setup!.viability).toBeDefined();
   });
 
-  it('no qualifying setup → the aggregated bracket is published (v6.10.17 A3)', () => {
-    // v6.10.17: with zero qualifying profiles the top setup block now
-    // carries the aggregated bracket on the bias side (marked NoClear,
-    // informational) — never a bare null. The "no qualifying setup yet"
-    // caption only appears when the opportunity matrix is absent.
+  it('D3 (v6.10.19c): no qualifying setup → "No Active Setup" under HOLD; the verdict-side reference bracket under a directional verdict', () => {
+    // HOLD + no qualifying → the clean empty container (never a bare
+    // null; never a NO CLEAR SETUP badge).
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(),
@@ -287,12 +427,24 @@ describe('buildRecommendationTabExport', () => {
       headerSpec,
     }));
     expect(p.top_setup).not.toBeNull();
+    expect(p.top_setup!.opportunity_type).toBe('No Active Setup');
     expect(p.top_setup!.viability).toBe('NoClear');
-    expect(p.top_setup!.badge_text).toBe('NO CLEAR SETUP');
+    expect(p.top_setup!.badge_text).toBe('');
     expect(p.top_setup_empty_text).toBeNull();
-    // The No Clear explanation card coexists with the informational bracket.
-    expect(p.no_clear_card).not.toBeNull();
-    expect(p.no_clear_card!.title).toBe('No Clear Setup');
+    // Directional verdict + no qualifying on that side → the verdict-side
+    // aggregated reference bracket is still published (T3/B1).
+    const pd = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext({ bias: 'Bullish', long_probability: 60, short_probability: 5, hold_probability: 35, net_bias_pct: 55 }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(pd.top_setup!.opportunity_type).toBe('Aggregated Bracket');
+    expect(pd.top_setup!.badge_text).toBe('NO CLEAR SETUP');
+    expect(pd.no_clear_card).toBeUndefined();
   });
 
   it('strategy fields render "—" when the advisory is absent (screen parity)', () => {
@@ -415,7 +567,9 @@ describe('buildRecommendationTabExport', () => {
   it('T3 (v6.10.19): a sub-1.0 aggregated bracket exports as R:R BELOW ACTIONABLE FLOOR with levels intact', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
-      decisionContext: makeDecisionContext({ bias: 'Bullish' }),
+      // v6.10.19b (B1): the demotion only renders under a DIRECTIONAL
+      // verdict with no qualifying profile on that side — force LONG.
+      decisionContext: makeDecisionContext({ bias: 'Bullish', long_probability: 60, short_probability: 5, hold_probability: 35, net_bias_pct: 55 }),
       opportunity: {
         ...makeOpportunity(),
         profiles: [],
@@ -429,13 +583,13 @@ describe('buildRecommendationTabExport', () => {
     }));
     expect(p.top_setup).not.toBeNull();
     expect(p.top_setup!.badge_text).toBe('R:R BELOW ACTIONABLE FLOOR');
-    expect(p.top_setup!.rr_display).toBe('R:R 1 : 0.40');
+    expect(p.top_setup!.rr_display).toBe('0.40');
     // Levels stay visible for manual analysis.
     expect(p.top_setup!.entry_zone).not.toBeNull();
     expect(p.top_setup!.invalidation).not.toBeNull();
   });
 
-  it('R5: hold placeholder describes the aggregated bracket (not the close-pinned sentinel)', () => {
+  it('R5: hold placeholder describes the unified HOLD state', () => {
     const p = JSON.parse(buildRecommendationTabExport({
       advisory: makeAdvisory(),
       decisionContext: makeDecisionContext(), // HOLD verdict
@@ -446,8 +600,9 @@ describe('buildRecommendationTabExport', () => {
       headerSpec,
     }));
     expect(p.price_levels.side).toBe('hold');
-    expect(p.price_levels.hold_placeholder).toContain('aggregated bracket on the net-bias side');
-    expect(p.price_levels.hold_placeholder).not.toContain('entry = target = invalidation = close');
+    // v6.10.19d (D): the "fields are placeholders" / "Qualifying setups…"
+    // copy is gone — the placeholder is the single clean sentence.
+    expect(p.price_levels.hold_placeholder).toBe('No active setup.');
     expect(p.strategy.hold_caption).toContain('For reference — no active directional call');
   });
 

@@ -1,6 +1,6 @@
 # TAE — Paper Trading Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; the paper trading engine (`crates/portfolio-supervisor/src/paper_trading.rs`) is the **default and only execution path** today. Dashboard surface is a placeholder. See [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the internal paper trading engine — a simulated matching engine that mirrors live exchange order lifecycles for strategy development, backtesting, and zero-risk validation without external API dependencies.

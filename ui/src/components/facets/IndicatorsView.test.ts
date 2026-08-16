@@ -14,7 +14,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { cleanup, render } from '@testing-library/svelte';
 import IndicatorsView from './IndicatorsView.svelte';
-import { defaultFilters } from '../../lib/filtering';
 import type {
     IndicatorDto,
     IndicatorMeta,
@@ -142,7 +141,7 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const raws = rowCells(container, 'colRaw');
@@ -172,7 +171,7 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const raws = rowCells(container, 'colRaw');
@@ -195,7 +194,7 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         const registry = [meta('rsi', { group: 'Momentum', value_format: 'decimals2' })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const raws = rowCells(container, 'colRaw');
@@ -222,7 +221,7 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const raws = rowCells(container, 'colRaw');
@@ -247,7 +246,7 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const states = rowCells(container, 'colState');
@@ -283,7 +282,7 @@ describe('IndicatorsView WARMING placeholder rendering', () => {
         ];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const states = rowCells(container, 'colState');
@@ -344,7 +343,7 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
         })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const ribbon = container.querySelector('[class*="emaRibbon"]');
@@ -393,7 +392,7 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
         })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         const ribbon = container.querySelector('[class*="emaRibbon"]');
@@ -416,7 +415,7 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
         const registry = [meta('rsi_14', { group: 'Momentum', value_format: 'decimals2' })];
 
         const { container } = render(IndicatorsView, {
-            props: { tf, registry, filters: defaultFilters() },
+            props: { tf, registry },
         });
 
         // No `emaRibbon` element should appear when the only row is RSI.
@@ -427,5 +426,66 @@ describe('IndicatorsView EMA Ribbon micro-grid', () => {
         const raws = rowCells(container, 'colRaw');
         expect(raws.length).toBe(1);
         expect(raws[0]).toBe('62.40');
+    });
+
+    it('v6.10.21: price_trend_sharpe Raw cell is tinted by the normalized sign', () => {
+        // Friction fix: the unbounded annualized raw (e.g. -6.45) is now
+        // color-coded via `normColor(normalized)` so an operator reads the
+        // direction without cross-referencing the Norm/State columns.
+        // Band mapping: |n| ≥ 0.9 → extreme (#c084fc), > 0.1 → bullish
+        // (#4ade80), < -0.1 → bearish (#f87171).
+        const tf = makeTf({
+            indicators: {
+                price_trend_sharpe: realReading(-6.45, -0.5, 'STRONG_NEGATIVE_SHARPE'),
+            },
+        });
+        const registry = [meta('price_trend_sharpe', {
+            group: 'Regime',
+            class: 'Lagging',
+            value_format: 'ratio2',
+        })];
+
+        const { container } = render(IndicatorsView, {
+            props: { tf, registry },
+        });
+
+        const rawCell = container.querySelector('[class*="rowWrap"] [class*="colRaw"]') as HTMLElement | null;
+        expect(rawCell?.textContent?.trim()).toBe('-6.45');
+        expect(rawCell?.getAttribute('style')).toContain('rgb(248, 113, 113)'); // bearish #f87171
+
+        // Positive reading tints bullish.
+        const tfBull = makeTf({
+            indicators: {
+                price_trend_sharpe: realReading(2.4, 0.5, 'STRONG_POSITIVE_SHARPE'),
+            },
+        });
+        const { container: c2 } = render(IndicatorsView, {
+            props: { tf: tfBull, registry },
+        });
+        const rawCell2 = c2.querySelector('[class*="rowWrap"] [class*="colRaw"]') as HTMLElement | null;
+        expect(rawCell2?.getAttribute('style')).toContain('rgb(74, 222, 128)'); // bullish #4ade80
+
+        // Clamped-to-band normalized (-1.0 / +1.0) tints the extreme color.
+        const tfExtreme = makeTf({
+            indicators: {
+                price_trend_sharpe: realReading(-10.42, -1, 'STRONG_NEGATIVE_SHARPE'),
+            },
+        });
+        const { container: c4 } = render(IndicatorsView, {
+            props: { tf: tfExtreme, registry },
+        });
+        const rawCell4 = c4.querySelector('[class*="rowWrap"] [class*="colRaw"]') as HTMLElement | null;
+        expect(rawCell4?.getAttribute('style')).toContain('rgb(192, 132, 252)'); // extreme #c084fc
+
+        // Non-sharpe rows stay untinted.
+        const tfRsi = makeTf({
+            indicators: { rsi_14: realReading(62.4, 0.24, 'BULLISH') },
+        });
+        const registryRsi = [meta('rsi_14', { group: 'Momentum', value_format: 'decimals2' })];
+        const { container: c3 } = render(IndicatorsView, {
+            props: { tf: tfRsi, registry: registryRsi },
+        });
+        const rsiCell = c3.querySelector('[class*="rowWrap"] [class*="colRaw"]') as HTMLElement | null;
+        expect(rsiCell?.getAttribute('style') ?? '').not.toContain('color:');
     });
 });

@@ -1,6 +1,6 @@
 # MME Indicators Guide — Readable Technical Rulebook
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
@@ -31,7 +31,7 @@ In addition to the four semantic axes above, every indicator carries an **operat
 | `Stale` | amber dot + `Stale (Xs)` | decays linearly from 1.0 to 0.0 across `2 × stale_threshold_secs` | `now - last_updated_at > stale_threshold_secs` |
 | `Failed` | grey icon + tooltip with `last_error` | 0.0 | calculator panic OR double-stale escalation |
 
-The lifecycle is **uniform across all 51 indicators** — there is one state machine, applied via the registry metadata (`bars_required`) and the analyzer's `run_single` orchestrator. The dashboard's `IndicatorsView.svelte` renders a badge for every row so users can distinguish "missing data" from "neutral data" from "loading data" — the previous neutral-default workaround (rendering `--` / `UNKNOWN` / `tangled` / `equilibrium` / `OFF` for missing values) is **removed** in v6.5.
+The lifecycle is **uniform across all 52 indicators** — there is one state machine, applied via the registry metadata (`bars_required`) and the analyzer's `run_single` orchestrator. The dashboard's `IndicatorsView.svelte` renders a badge for every row so users can distinguish "missing data" from "neutral data" from "loading data" — the previous neutral-default workaround (rendering `--` / `UNKNOWN` / `tangled` / `equilibrium` / `OFF` for missing values) is **removed** in v6.5.
 
 ---
 

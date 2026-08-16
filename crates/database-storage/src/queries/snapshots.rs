@@ -194,60 +194,6 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     }
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct IndicatorSnapshotRow {
-    pub timestamp: i64,
-    pub rsi_14: Option<String>,
-    pub squeeze_on: Option<bool>,
-    pub squeeze_momentum: Option<String>,
-    pub macd_line: Option<String>,
-    pub macd_signal: Option<String>,
-    pub macd_hist: Option<String>,
-    pub adx_14: Option<String>,
-    pub adx_plus_di: Option<String>,
-    pub adx_minus_di: Option<String>,
-    pub atr_14: Option<String>,
-    pub bb_upper: Option<String>,
-    pub bb_middle: Option<String>,
-    pub bb_lower: Option<String>,
-    pub ema_fast: Option<String>,
-    pub ema_medium: Option<String>,
-    pub ema_slow: Option<String>,
-    pub ema_long: Option<String>,
-    pub average_volume: Option<String>,
-}
-
-pub async fn query_indicator_snapshots(
-    pool: &SqlitePool,
-    symbol: &str,
-    timeframe_secs: u64,
-    limit: u32,
-) -> Vec<IndicatorSnapshotRow> {
-    sqlx::query_as::<_, IndicatorSnapshotRow>(
-        "SELECT timestamp, rsi_14, squeeze_on, squeeze_momentum,
-                macd_line, macd_signal, macd_hist,
-                adx_14, adx_plus, adx_minus,
-                atr_14, bb_upper, bb_middle, bb_lower,
-                ema_fast, ema_medium, ema_slow, ema_long,
-                average_volume
-         FROM market_snapshots
-         WHERE symbol = ?1
-           AND timeframe_secs = ?2
-           AND close IS NOT NULL
-         ORDER BY timestamp ASC
-         LIMIT ?3",
-    )
-    .bind(symbol)
-    .bind(timeframe_secs as i64)
-    .bind(limit as i64)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_else(|e| {
-        eprintln!("Database Error: Failed to query indicator snapshots: {}", e);
-        vec![]
-    })
-}
-
 /// Reconstruct recent completed OHLCV candles for a pair + timeframe from the
 /// persisted `market_snapshots` table. Returns candles in ascending timestamp
 /// order (oldest first). Used to pre-warm indicator pipelines from local data
@@ -321,31 +267,6 @@ pub async fn query_recent_candles(
     // Query returned newest-first; reverse to ascending (oldest-first).
     candles.reverse();
     candles
-}
-
-pub async fn query_atr_snapshots(
-    pool: &SqlitePool,
-    timeframe_secs: u64,
-    limit: u32,
-) -> Vec<Option<String>> {
-    let rows = sqlx::query_as::<_, (Option<String>,)>(
-        "SELECT atr_14 FROM market_snapshots
-         WHERE atr_14 IS NOT NULL AND timeframe_secs = ?1
-         ORDER BY id DESC
-         LIMIT ?2",
-    )
-    .bind(timeframe_secs as i64)
-    .bind(limit as i64)
-    .fetch_all(pool)
-    .await;
-
-    match rows {
-        Ok(rows) => rows.into_iter().map(|(atr,)| atr).collect(),
-        Err(e) => {
-            eprintln!("Database Error: Failed to query ATR snapshots: {}", e);
-            vec![]
-        }
-    }
 }
 
 pub async fn query_latest_snapshot(
@@ -537,72 +458,4 @@ pub async fn query_closest_close_price(
             })
         }
     }
-}
-
-/// Synthesise flat-close sub-minute candles from the next-larger TF's
-/// persisted rows. **Deprecated**: as of v6.10 the bootstrap warmup no
-/// longer calls this helper (see `bootstrap.rs::collect_candles`) because
-/// the resulting flat `O=H=L=C=minute_close` candles populated
-/// `pipeline.snapshot_history` and rendered on the chart as a continuous
-/// horizontal line spanning each minute bucket — the v6.9 "line of about
-/// 1 minute" regression. Sub-minute TFs now start cold and accumulate
-/// real OHLCV from live WS frames. The function is kept for any future
-/// offline backfill / replay use that explicitly wants interpolated
-/// scaffolding; suppress the dead-code lint until a caller wires it up.
-#[deprecated(
-    since = "6.10.0",
-    note = "sub-minute bootstrap now skips warmup entirely; flat synthetic candles were \
-            causing the 'line of about 1 minute' chart render artefact. \
-            Use live WS frames or a different interpolation strategy if you need seed data."
-)]
-#[allow(dead_code)]
-pub async fn derive_sub_minute_candles(
-    pool: &SqlitePool,
-    symbol: &str,
-    target_timeframe_secs: u64,
-    limit: u32,
-) -> Vec<NormalizedCandle> {
-    let source_timeframe_secs: u64 = 60;
-    if target_timeframe_secs >= source_timeframe_secs || target_timeframe_secs == 0 {
-        return Vec::new();
-    }
-
-    let factor = source_timeframe_secs / target_timeframe_secs;
-    if factor == 0 {
-        return Vec::new();
-    }
-
-    let source_limit = std::cmp::max((limit as u64 / factor).max(1) as u32, 1);
-    let source_candles = query_recent_candles(pool, symbol, source_timeframe_secs, source_limit).await;
-    if source_candles.is_empty() {
-        return Vec::new();
-    }
-
-    let mut derived: Vec<NormalizedCandle> = Vec::with_capacity(source_candles.len() * factor as usize);
-    let vol_divisor = rust_decimal::Decimal::from(factor);
-
-    for source in &source_candles {
-        for i in 0..factor {
-            let start_ms = source.start_time_ms + (i as u64 * target_timeframe_secs * 1000);
-            derived.push(NormalizedCandle {
-                exchange: source.exchange,
-                symbol: symbol.to_string(),
-                start_time_ms: start_ms,
-                duration_ms: target_timeframe_secs * 1000,
-                open: source.close,
-                high: source.close,
-                low: source.close,
-                close: source.close,
-                volume: source.volume / vol_divisor,
-                trades_count: 1,
-                reconstructed: Some(core_domain::normalized::ReconstructionMethod::Synthetic),
-            });
-        }
-    }
-
-    if derived.len() > limit as usize {
-        derived = derived.split_off(derived.len() - limit as usize);
-    }
-
-    derived
 }

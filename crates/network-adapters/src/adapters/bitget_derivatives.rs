@@ -66,15 +66,6 @@ pub struct BitgetTickerData {
     pub next_funding_time: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(non_snake_case)]
-pub struct BitgetFundingData {
-    #[serde(default, rename = "fundingRate")]
-    pub fundingRate: Option<String>,
-    #[serde(default, rename = "nextUpdate")]
-    pub nextUpdate: Option<u64>,
-}
-
 /// Bitget public `liquidation` channel payload — one record per side per
 /// symbol per second, carrying the **highest-quantity** forced close in
 /// that window (per the docs: "only the record with the highest
@@ -192,28 +183,6 @@ pub fn ticker_to_derivatives_events(
     out
 }
 
-/// Convert a parsed Bitget funding payload to a `FundingRateEvent`.
-/// Returns `None` if no rate is present.
-///
-/// This helper is retained for the **legacy** `BitgetFundingData`
-/// struct, which is used by tests that pin the old `funding-rate`
-/// channel payload schema. In production the V2 `ticker` payload is the
-/// source of truth (see `ticker_to_derivatives_events`); the dedicated
-/// `funding-rate` channel was removed in V2.
-pub fn funding_to_event(
-    internal_symbol: &str,
-    data: &BitgetFundingData,
-) -> Option<NormalizedEvent> {
-    let rate = data
-        .fundingRate
-        .as_deref()
-        .and_then(|s| s.parse::<Decimal>().ok())?;
-    Some(NormalizedEvent::FundingRate(FundingRateEvent {
-        symbol: internal_symbol.to_string(),
-        rate,
-    }))
-}
-
 /// Convert a parsed Bitget public `liquidation` payload to a
 /// `NormalizedEvent::Liquidation`.
 ///
@@ -305,19 +274,25 @@ mod tests {
     }
 
     #[test]
-    fn funding_to_event_extracts_rate() {
-        let d = BitgetFundingData {
-            fundingRate: Some("0.0001".into()),
-            nextUpdate: Some(1700000000000),
+    fn ticker_funding_emits_funding_rate() {
+        let d = BitgetTickerData {
+            mark_price: Some("50100.5".into()),
+            index_price: None,
+            open_24h: None,
+            holding_amount: None,
+            funding_rate: Some("0.0001".into()),
+            next_funding_time: None,
         };
-        let ev = funding_to_event("BTC-USDT", &d).unwrap();
-        match ev {
-            NormalizedEvent::FundingRate(f) => {
-                assert_eq!(f.symbol, "BTC-USDT");
-                assert_eq!(f.rate.to_string(), "0.0001");
-            }
-            _ => panic!("expected FundingRate event"),
-        }
+        let events = ticker_to_derivatives_events("BTC-USDT", &d, None);
+        let fr = events
+            .iter()
+            .find_map(|e| match e {
+                NormalizedEvent::FundingRate(f) => Some(f),
+                _ => None,
+            })
+            .expect("ticker funding must emit a FundingRate event");
+        assert_eq!(fr.symbol, "BTC-USDT");
+        assert_eq!(fr.rate.to_string(), "0.0001");
     }
 
     /// V2 ticker: only mark_price present — emit MarkPrice only.

@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 6.10.3 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -84,7 +84,7 @@ Owns: foundational indicator telemetry for a single Market Instance (Symbol × T
 | `funding_rate` | L1 | From DIE FundingRate event |
 | OHLC + `volume`, `average_volume` | L1 (candle aggregation) | |
 | `open_interest`, `oi_delta_1h`, `prev_day_px` | L1 | From DIE OpenInterest / AssetContext |
-| `indicators` (map of `IndicatorEvaluation`) | L1 (indicator calculators) | 51 indicators with normalized scores, state_labels, signals |
+| `indicators` (map of `IndicatorEvaluation`) | L1 (indicator calculators) | 52 indicators with normalized scores, state_labels, signals |
 | `context` (`MarketContext`) | L1 (`MarketContext::synthesize()`) | Per-TF context dimensions |
 | `metrics_config` | L1 (config-driven Active Set) | **Configurable Data Activation** (added v6.2 per [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)). Records the active indicator/signal set actually present in this snapshot. Omitted entirely when the active set equals the registry default. Carries `config_version` for PAE attribution. |
 | `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context` | **Attached matrices** | Composite envelope — L1 owns the envelope; the attached fields are *sourced* from L2–L6 for WebSocket delivery convenience (single frame carries the full cascade). The canonical sources of these fields are their respective layer matrices, NOT the Metrics Matrix. |
@@ -116,8 +116,12 @@ Owns: pure state interpretation. **No forecast, no reward, no danger.**
 | `state_confidence` (`f64`, [0,1]) | L3 | Renamed from `confidence` for clarity in the institutional redesign |
 | `market_regime` (`MarketRegime` 8-state) | L3 | |
 | `trend_assessment`, `momentum_assessment`, `structure_assessment`, `volatility_assessment`, `volume_assessment` | L3 | Five qualitative assessments |
+| `trend_score`, `momentum_score`, `structure_score`, `volatility_score`, `volume_score` | L3 | **v6.12 numeric companions.** The exact 0-100 alignment dimension scores each assessment is bucketed from — the disaggregated siblings of `market_quality_score` (allowed `L3 ← L2` derivation, same model; see [02-02-analysis-matrix.md §3.4.1–3.7.1](02-02-analysis-matrix.md)) |
 | `market_quality` (`QualityLevel` 5-state) | L3 | |
 | `market_quality_score` (`f64`, [0,100]) | L3 | Numeric companion to `market_quality`; consumed by L6 `confluence_score` |
+| `trend_stability_sharpe` (`f64?`) | **L1 → L3 traceability stamp** | **v6.11.** L1-computed annualized EMA-50 log-return Sharpe (300-bar window) stamped during cross-TF synthesis as the Trend assessment's statistical proof — an evidence copy, not an L3 computation input (see §5 dependency note) |
+| `representative_bbwp` / `representative_adx` (`f64?`) | **L1 → L3 traceability stamp** | **v6.10.21.** The exact L3 regime-input raw values the `rationale` quotes (representative first-TF-wins map), pinned so exports can trace the derivation |
+| `market_phase` (`MarketPhase` 5-state) | L3 | Wyckoff-style market-cycle phase (§3.9) |
 | `market_interpretation` (string) | L3 | Natural-language summary |
 | `rationale` (string) | L3 | Explainability trace |
 | `supporting_signals`, `contradicting_signals` | L3 | Per-TF evidence |
@@ -145,6 +149,7 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior per-matrix spellings (L4/Decision and Position Matrix) unified to `invalidation_level` in v2.1; retired names recorded in `docs/CHANGELOG.md`.)* |
 | `long_expected_rr_internal` (`f64`) | L4 | Per-direction R:R for a long setup. The active side is resolved by `analysis.bias`; the legacy matrix-level `expected_rr_internal` was removed in v6.9. |
 | `short_expected_rr_internal` (`f64`) | L4 | Per-direction R:R for a short setup. |
+| `display_score` (`f64?`) | L4 | **v6.14.** Precondition-scaled operator-facing score (`round(score × min(1, met/total))`) — additive; the raw `score` stays untouched. Single source of truth for every dashboard surface rendering a setup score. |
 | `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 
 **Ownership rules for L4:**
@@ -303,6 +308,8 @@ TAE_L1 ← {L6, L7}  (Policy Matrix reads Decision + Overview)
 TAE_L2 ← {TAE_L1, PME Capital Matrix, MME L6 stop_loss_distance_pct}  (Execution Matrix reads Policy + sizing inputs)
 ```
 
+> **L1→L3 traceability-evidence exception (v6.10.21 / v6.11).** The Analysis Matrix carries three L1-produced fields — `representative_bbwp`, `representative_adx`, and `trend_stability_sharpe` — as *evidence copies* stamped during cross-TF synthesis. These are provenance/traceability data (the exact L1 inputs behind the L3 regime/trend interpretation), **not** L3 computation dependencies: the qualitative enums derive purely from L2 alignment scores. This mirrors the `L4 ← {L1, L1.5, L2.5}` multi-source exceptions already formalised for the Liquidity Intelligence extension and does not extend L3's computation boundary. L3's *derived state* remains `L3 ← L2`-only; the v6.12 numeric companions (`trend_score` … `volume_score`) follow that pure edge, unlike the traceability stamps.
+
 **Forbidden:**
 - L4 ↔ L5 (no edge in either direction — they are strictly orthogonal; the only cross-coupling is via the shared L3 fan-out plus the L1.5/L2.5 multi-source exceptions above)
 - Anything ← L6 (L6 is terminal within the MME cascade; downstream engines TAE/PME read from L6 but do not write back)
@@ -310,6 +317,11 @@ TAE_L2 ← {TAE_L1, PME Capital Matrix, MME L6 stop_loss_distance_pct}  (Executi
 - TAE → MME / DIE (forward-only from MME to TAE; TAE outputs do not feed back into market analysis)
 
 > **L4↔L1.5 / L4↔L2.5 architecture clarification.** The Opportunity Matrix `LiquiditySqueeze` precondition reads `LiquidityFlow.cascade_state` (L1.5 derivatives telemetry) and `LiquidationClusterMatrix.cascade_asymmetry` (L2.5 cluster matrix). The rule above formalises L4's *forward-only* access to L1.5/L2.5 — the reverse edge (L1.5/L2.5 reading L4) remains forbidden. The earlier restriction (`L4 ↔ L1.5 / L2.5 forbidden` without exception) was incorrect: a forward-only exception for the Liquidity Intelligence extension is required to evaluate the `LiquiditySqueeze` setup preconditions.
+
+> **Panel composition vs matrix production (v6.10.19b; v7.1 L4-only bars).** The ownership/dependency edges above bind **matrix production** — the Rust computation that writes each matrix. The dashboard **panels are composed views** over the wire state and may display L6-derived data on any tab; the canonical precedent is the L4 card direction staying coherent with the L6 market verdict (`02-08`, FIX-1 v6.10.15). **v7.1:** the second precedent (the L4 directional bars mirroring the L6 verdict split, v6.10.18 I-4) was **reversed** — the L4 bars are bracket-derived from the L4 matrix only and never read L6 probabilities. Two v6.10.19b compositions follow the same rule:
+> - **Verdict-consistent Recommendation `top_setup`** — the L6 panel selects its headline from L4 profiles by the L6 verdict (L6 ← L4 is an allowed edge); counter-bias qualifying setups ride in `alternate_qualifying_setups`.
+> - **G3 verdict lean** — the L6 verdict-resolution may be pulled to the side of a qualifying setup with a resolvable side when probabilities are hold-dominant (the backend `DecisionContext` probabilities are untouched; only the UI's `top` labelling changes).
+> - **Opportunities reference bracket (v6.10.19b, per-folder v6.10.23)** — the L4 panel mounts per-direction aggregated reference brackets inside the BULLISH/BEARISH folders (mirroring the Recommendation's aggregated bracket for display parity: the invariant *whatever the Recommendation headlines is always present in the Opportunities panel*) plus the L4-produced `neutral_reference_bracket` range frame in RANGE SETUPS. The Opportunity **Matrix** is never computed from L6 — production stays `L4 ← {L3, L1, L1.5, L2.5}`; `neutral_reference_bracket` is pure L4 (NoClear + range), and the per-folder brackets are panel compositions over the matrix's own per-side zones.
 >
 > **L5↔L1.5 / L5↔L2.5 architecture clarification.** Per [Risk Matrix §4](../matrices/02-11-risk-matrix.md) and [MME Layer 5 §1](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md), `cascade_risk` combines `LiquidityFlow.cascade_intensity` (L1.5) with `cascade_asymmetry` (L2.5). The dependency edges above are `L1.5 → L5` and `L2.5 → L5`. The 7-layer architecture is preserved by treating these as multi-source exceptions for the Liquidity Intelligence extension; the foundational 7-layer model remains the spine for non-liquidity layers.
 

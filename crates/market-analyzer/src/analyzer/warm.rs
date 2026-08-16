@@ -187,6 +187,13 @@ pub struct WarmedPipelineState {
     pub vwap_sum_tp_vol: Decimal,
     pub vwap_sum_vol: Decimal,
     pub volume_history: VecDeque<Decimal>,
+    /// v6.11: rolling ≤300 close window backing the L1 `price_trend_sharpe`.
+    /// Filled during replay so a warm-started pipeline has Sharpe values at
+    /// the first live close.
+    pub close_history: VecDeque<f64>,
+    /// v6.11: rolling ≤300 EMA-50 value window backing the L3
+    /// `trend_stability_sharpe`.
+    pub ema_medium_history: VecDeque<f64>,
     pub history: Vec<NormalizedCandle>,
     pub last_day_index: Option<u64>,
     pub sr_tracker: SrRoleTracker,
@@ -376,6 +383,13 @@ pub fn warm_indicators_for_timeframe(
     let mut last_day_index: Option<u64> = None;
     let mut volume_history: VecDeque<Decimal> =
         VecDeque::with_capacity(active_indicators.volume_average_period);
+    // v6.11: Sharpe windows — replayed real closes only (PRI-06), capped at
+    // the canonical 300-bar window so a warm-started pipeline has values at
+    // the first live close.
+    let mut close_history: VecDeque<f64> =
+        VecDeque::with_capacity(crate::indicators::ratio::SHARPE_WINDOW);
+    let mut ema_medium_history: VecDeque<f64> =
+        VecDeque::with_capacity(crate::indicators::ratio::SHARPE_WINDOW);
     // S/R role-reversal tracker, warmed through the full history so live
     // ingestion inherits accurate flip-state (matches run_single tolerance).
     let mut sr_tracker = SrRoleTracker::new(0.003);
@@ -634,6 +648,16 @@ pub fn warm_indicators_for_timeframe(
             volume_history.pop_front();
         }
 
+        // v6.11: roll the Sharpe windows with this replayed real close.
+        close_history.push_back(close_f);
+        ema_medium_history.push_back(final_ema_medium.to_f64().unwrap_or(close_f));
+        while close_history.len() > crate::indicators::ratio::SHARPE_WINDOW {
+            close_history.pop_front();
+        }
+        while ema_medium_history.len() > crate::indicators::ratio::SHARPE_WINDOW {
+            ema_medium_history.pop_front();
+        }
+
         // Build snapshot using only the history accumulated so far
         let snapshot = build_historical_snapshot(
             &candles,
@@ -679,6 +703,8 @@ pub fn warm_indicators_for_timeframe(
             rsi_divergence,
             macd_divergence,
             &volume_history,
+            &close_history,
+            &ema_medium_history,
             fib_config,
             &mut sr_tracker,
             pivot_levels,
@@ -756,6 +782,8 @@ pub fn warm_indicators_for_timeframe(
         vwap_sum_tp_vol,
         vwap_sum_vol,
         volume_history,
+        close_history,
+        ema_medium_history,
         history,
         last_day_index,
         sr_tracker,
@@ -828,6 +856,10 @@ fn build_historical_snapshot(
     rsi_divergence: crate::indicators::DivergenceState,
     macd_divergence: crate::indicators::DivergenceState,
     volume_history: &VecDeque<Decimal>,
+    // v6.11: replayed Sharpe windows — used to derive the L1/L3 ratios
+    // for the pre-warm snapshot (same math as the live path).
+    close_history: &VecDeque<f64>,
+    ema_medium_history: &VecDeque<f64>,
     fib_config: &FibonacciConfig,
     sr_tracker: &mut SrRoleTracker,
     pivot_levels: Option<crate::indicators::PivotLevels>,
@@ -954,6 +986,15 @@ fn build_historical_snapshot(
             // historical-snapshot builder carries no tf_config).
             rvol_institutional_threshold: 1.5,
             rvol_climax_threshold: 3.0,
+            // v6.11: derive the L1/L3 ratios from the replayed windows.
+            price_trend_sharpe: {
+                let closes: Vec<f64> = close_history.iter().copied().collect();
+                crate::indicators::sharpe_ratio_annualized(&closes, timeframe_secs)
+            },
+            trend_stability_sharpe: {
+                let ema_mediums: Vec<f64> = ema_medium_history.iter().copied().collect();
+                crate::indicators::sharpe_ratio_annualized(&ema_mediums, timeframe_secs)
+            },
         },
         all_candles.len() as u32,
         false,

@@ -76,7 +76,7 @@ function makeTf(): TimeframeTelemetry {
 }
 
 describe('buildMetricsTabExport', () => {
-  it('meta identity present; filter_state is top-level (not in meta)', () => {
+  it('meta identity present; filter_state removed (v6.10.19d B)', () => {
     const p = JSON.parse(buildMetricsTabExport({
       tf: makeTf(),
       registry,
@@ -97,17 +97,13 @@ describe('buildMetricsTabExport', () => {
     expect(p.meta.current_price).toBeCloseTo(63390, 0);
     expect(p.meta.price_change_direction).toBe('down');
     expect('filter_state' in p.meta).toBe(false);
-    expect(p.filter_state).toEqual({
-      active_only: false,
-      confirmed_plus_only: false,
-      hide_gates: false,
-      hide_overlays: false,
-      query: '',
-    });
+    // v6.10.19d B: the filter pills were removed — no top-level
+    // `filter_state` block either.
+    expect('filter_state' in p).toBe(false);
     expect(p.header.layer_name).toBe('Metrics');
   });
 
-  it('filter_state mirrors the pill state when filters are passed', () => {
+  it('no filter_state block (v6.10.19d B: pills removed; v6.11: filter plumbing removed)', () => {
     const p = JSON.parse(buildMetricsTabExport({
       tf: makeTf(),
       registry,
@@ -117,22 +113,8 @@ describe('buildMetricsTabExport', () => {
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
-      filters: {
-        activeOnly: true,
-        confirmedPlusOnly: true,
-        hideGates: false,
-        hideOverlays: true,
-        query: 'rsi',
-        kinds: [],
-      },
     }));
-    expect(p.filter_state).toEqual({
-      active_only: true,
-      confirmed_plus_only: true,
-      hide_gates: false,
-      hide_overlays: true,
-      query: 'rsi',
-    });
+    expect('filter_state' in p).toBe(false);
   });
 
   it('group labels map raw keys to display labels (SMC, Derivatives)', () => {

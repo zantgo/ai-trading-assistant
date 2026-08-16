@@ -18,7 +18,7 @@ import {
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { prettifyPhase, highlightKeywords } from '../prettifyPhase';
-import { computeAnalysisLean, isVotingTfLine } from '../analysisLean';
+import { computeAnalysisLean } from '../analysisLean';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -65,6 +65,25 @@ export interface QualitativeAssessmentBlock {
   volatility: string;
   volume: string;
   cycle_phase: string;
+  /** v6.11: annualized Sharpe of EMA-50 log returns (trailing 300-bar
+   *  window) — the statistical proof behind the Trend card. `null`
+   *  until the window fills. */
+  trend_stability_sharpe: number | null;
+  trend_stability_sharpe_display: string;
+  /** v6.12: numeric companions — the exact 0-100 alignment dimension
+   *  scores each assessment is bucketed from (the badges on the
+   *  Analysis cards; the disaggregated siblings of `market_quality_score`).
+   *  `null` on the empty sentinel. */
+  trend_score: number | null;
+  trend_score_display: string;
+  momentum_score: number | null;
+  momentum_score_display: string;
+  structure_score: number | null;
+  structure_score_display: string;
+  volatility_score: number | null;
+  volatility_score_display: string;
+  volume_score: number | null;
+  volume_score_display: string;
 }
 
 export interface PerTimeframeAlignmentRow {
@@ -223,7 +242,7 @@ function buildSignalLeanHero(
   // COMPRESSION windows and flat TFs (|score| ≤ 10) do not vote. The
   // placeholder logic keys on the RAW text presence (empty lists → "No
   // signals"; neutral TFs → "Neutral signals · no directional lean").
-  const voteTexts = allTexts.filter(isVotingTfLine);
+  const voteTexts = allTexts;
   const bull = voteTexts.filter((t) => signalDirection(t) === 'bullish').length;
   const bear = voteTexts.filter((t) => signalDirection(t) === 'bearish').length;
   // v6.10.16 (FIX-O2): the shared bias-aware lean — under a Neutral market
@@ -245,9 +264,10 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
   const supporting = analysis?.supporting_signals ?? [];
   const contradicting = analysis?.contradicting_signals ?? [];
   const allTexts = [...supporting, ...contradicting];
-  // v6.10.18 (I-7): the hero vote uses the bias machinery's filter —
-  // COMPRESSION windows and flat TFs (|score| ≤ 10) do not vote.
-  const voteTexts = allTexts.filter(isVotingTfLine);
+  // v6.10.19c (C): the hero counts ALL timeframe lines present — a
+  // display choice over the raw data; the bias engine's LEAN-tier vote
+  // definition is unchanged.
+  const voteTexts = allTexts;
   const bull = voteTexts.filter((t) => signalDirection(t) === 'bullish').length;
   const bear = voteTexts.filter((t) => signalDirection(t) === 'bearish').length;
   let lean: AnalysisSignalsBlock['lean'];
@@ -274,6 +294,18 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
 }
 
 function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAssessmentBlock {
+  const stability = analysis?.trend_stability_sharpe ?? null;
+  // v6.12: per-card numeric companions — mirror the panel badges'
+  // rounded-integer + '%' formatting; '\u2014' when absent (empty sentinel).
+  const scorePairs = (v: number | null | undefined): { score: number | null; display: string } => ({
+    score: v ?? null,
+    display: v != null ? `${Math.round(v)}%` : '\u2014',
+  });
+  const trendScore = scorePairs(analysis?.trend_score);
+  const momentumScore = scorePairs(analysis?.momentum_score);
+  const structureScore = scorePairs(analysis?.structure_score);
+  const volatilityScore = scorePairs(analysis?.volatility_score);
+  const volumeScore = scorePairs(analysis?.volume_score);
   return {
     // Screen renders "—" for missing assessments.
     trend: analysis?.trend_assessment ?? '\u2014',
@@ -283,6 +315,21 @@ function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAsse
     volume: analysis?.volume_assessment ?? '\u2014',
     // Screen renders "—" when the analysis is absent, prettified otherwise.
     cycle_phase: analysis ? prettifyPhase(analysis.market_phase ?? '') : '\u2014',
+    // v6.11: Trend-card numeric badge — same 2-dp format as the screen.
+    trend_stability_sharpe: stability,
+    trend_stability_sharpe_display:
+      stability != null ? `${Math.max(-20, Math.min(20, stability)).toFixed(2)}` : '\u2014',
+    // v6.12: per-card dimension-score badges.
+    trend_score: trendScore.score,
+    trend_score_display: trendScore.display,
+    momentum_score: momentumScore.score,
+    momentum_score_display: momentumScore.display,
+    structure_score: structureScore.score,
+    structure_score_display: structureScore.display,
+    volatility_score: volatilityScore.score,
+    volatility_score_display: volatilityScore.display,
+    volume_score: volumeScore.score,
+    volume_score_display: volumeScore.display,
   };
 }
 

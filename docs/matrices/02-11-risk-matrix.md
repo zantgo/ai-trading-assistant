@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -41,7 +41,7 @@ Implemented as `RiskMatrix` (`crates/core-domain/src/risk.rs`), produced by `com
 | `structure_risk` | `RiskDimension` | Weak or damaged price structure. |
 | `momentum_risk` | `RiskDimension` | Exhausted / diverging momentum. |
 | `signal_risk` | `RiskDimension` | Conflicting or unreliable signals. |
-| `execution_risk` | `RiskDimension` | Practical difficulty (spread, slippage, thin book). |
+| `execution_risk` | `RiskDimension` | Practical difficulty (spread, slippage, thin book). **v6.11:** carries the optional `volatility_to_spread_ratio` field (see §2.2). |
 | `cascade_risk` | `RiskDimension` | Forced liquidation cascade danger. *(Added in Phase 3 — computed from `LiquidityFlow.cascade_intensity`, `cascade_state`, and `LiquidationClusterMatrix.cascade_asymmetry`.)* |
 | `overall_risk` | `RiskDimension` | Weighted aggregate of the eight sub-dimensions above. |
 
@@ -54,6 +54,7 @@ Implemented as `RiskMatrix` (`crates/core-domain/src/risk.rs`), produced by `com
 | `state` | `RiskState` | — | `STABLE` / `INCREASING` / `ELEVATED` / `CRITICAL` / `IMPROVING`. **Functional since v6.10.9** — derived by `derive_risk_state` (level escalation `≥ 80 → CRITICAL`, `≥ 60 → ELEVATED`, else the previous-synthesis delta `> +10 → INCREASING`, `< −10 → IMPROVING`, else `STABLE`). Descriptive only — it never feeds back into the weighted sum. |
 | `confidence` | `f64` | `[0, 100]` | Confidence in the measurement. |
 | `evidence` | `string[]` | — | Human-readable contributing factors. |
+| `volatility_to_spread_ratio` | `f64?` | — | **v6.11.** `ATR(14) ÷ top-of-book bid-ask spread` (raw price units) — execution-friction gauge. Populated **only** on `execution_risk`; absent (`Option::None`, omitted from the wire) on the other eight dimensions. A high ratio (e.g. `> 10`) means the average candle range dwarfs transaction cost (scalp-friendly); a low ratio (e.g. `< 1.5`) means spread friction consumes potential profits. |
 
 ### 2.3 RiskLevel Bands
 
@@ -124,7 +125,14 @@ if ATR present: score = mean(score, relative_atr)
 ```
 +25 spread > 0.15% · +10 spread > 0.08%
 +15 RVOL < 0.7 (low participation)
++15 volatility_to_spread_ratio < 1.5 (spread friction dominates the environment)
++5  volatility_to_spread_ratio < 3.0 (moderate friction)
+−5  volatility_to_spread_ratio > 10.0 (range-to-cost favorable — execution-friendly)
 ```
+
+**v6.11 ratio rule.** `volatility_to_spread_ratio = ATR(14) ÷ (ask − bid)` in raw price units. The ratio tiers are non-cumulative (only the highest satisfied tier applies, per the §4 preamble); the ratio's evidence string always quotes the numeric value (e.g. `"Low volatility-to-spread (1.2)"`, `"Favorable volatility-to-spread (12.4)"`). When ATR or spread is unavailable/zero the ratio is `None` and no ratio tier fires.
+
+> **v6.10.21 unit fix.** The `spread` indicator's `raw_value` is a **percentage** of mid price (`(ask − bid) / mid × 100`). The ratio converts it to raw price units first (`spread / 100 × close`) before dividing ATR — the legacy behavior divided ATR by the percentage scalar directly (e.g. a real BTC-USDC spread of `0.000568 %` produced a meaningless `≈2659` instead of the true `≈4.2`).
 
 ### 4.8 Cascade Risk (baseline 30, Phase 3)
 
@@ -166,19 +174,19 @@ A representative Risk Matrix frame. The example illustrates the JSON shape and t
   "structure_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "momentum_risk":   { "score": 20.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "signal_risk":     { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "execution_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
+  "execution_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0, "volatility_to_spread_ratio": 8.4 },
   "cascade_risk":    { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "overall_risk":    { "score": 28.3, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
 }
 ```
 
-Empty `evidence` arrays are omitted. Enum values serialize as `SCREAMING_SNAKE_CASE`.
+Empty `evidence` arrays are omitted. Enum values serialize as `SCREAMING_SNAKE_CASE`. `volatility_to_spread_ratio` is `Option<f64>` — omitted from the wire when `None` (all dimensions except `execution_risk`).
 
 ---
 
 ## 6. Empty State
 
-When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all **nine fields** (market, volatility, execution_liquidity, structure, momentum, signal, execution, cascade, overall_risk) defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
+When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all **nine fields** (market, volatility, execution_liquidity, structure, momentum, signal, execution, cascade, overall_risk) defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data. `volatility_to_spread_ratio` is `None` in the empty state (absent from the wire).
 
 ---
 
@@ -190,6 +198,7 @@ When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::
 | **Unipolar bounding** | Every score clamps to `[0, 100]`. |
 | **Explainability** | Each dimension exposes an `evidence` list of contributing factors. |
 | **Additive determinism** | Scores are deterministic functions of the Analysis Matrix + indicator map. |
+| **Scheme-A badge mapping (v6.10.19d, display-only)** | The dashboard maps each dimension to one Scheme-A token badge — trend states win (`INCREASING → RISING ↗`, `IMPROVING → IMPROVING ↘`), otherwise the LEVEL maps to its token (`Extreme→CRITICAL ⚠`, `High→ELEVATED ↑`, `Moderate→STEADY →`, `Low→COMPOSED →`, `VeryLow→MINIMAL →`). The level name keeps its wording (Extreme/High/…) tinted by the token color; `state_display` mirrors the `{icon} {TOKEN}` badges. **Display-only:** the mapping lives in the Risk panel + export and never feeds back into the backend (the wire `state` / `level` fields are unchanged). The hero is a risk progress bar (score `/100`, level-colored, tooltip "Overall risk — lower is safer") with the **Assessment Confidence** badge (tooltip "Confidence of the risk assessment — higher is more trustworthy") and the **`Top risk:`** label when the highest-severity dimension outranks the overall level. |
 
 ---
 

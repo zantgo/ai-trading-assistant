@@ -202,6 +202,18 @@ function seedPair(pairKey: string) {
     return entry;
 }
 
+function zeroProfiles(entry: { opportunity: OpportunityMatrix | null }): void {
+    // v6.10.19b (B2): a GENUINE HOLD verdict requires no qualifying
+    // profile — the verdict-lean rule surfaces valid setups instead
+    // ("it should not say HOLD when a valid setup exists"). Zeroing
+    // preconditions keeps these fixtures in the true-HOLD state.
+    if (!entry.opportunity) return;
+    entry.opportunity = {
+        ...entry.opportunity,
+        profiles: (entry.opportunity.profiles ?? []).map((p) => ({ ...p, preconditions_met: 0 })),
+    } as OpportunityMatrix;
+}
+
 beforeEach(() => {
     const app = useAppStore();
     for (const key of Object.keys(app.instancesMap)) delete app.instancesMap[key];
@@ -246,11 +258,12 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         expect(screen.getAllByText(/Readiness/i).length).toBeGreaterThanOrEqual(2);
         // The legacy "Internal R:R" KPI was removed in v6.9 along with
         // the matrix-level `expected_rr_internal` field; the active-side
-        // R:R is now reflected via the per-side fields and the L6
-        // Risk-Adj R:R. We assert that the legacy label is gone.
+        // R:R is now reflected via the per-side fields and the
+        // Risk-Adjusted Reward-to-Risk KPI. We assert the legacy label is gone.
         expect(screen.queryByText(/Internal R:R/i)).toBeNull();
-        // Appears on both the header chip and the Safety Flags KPI.
-        expect(screen.getAllByText(/Risk-Adj R:R/i).length).toBeGreaterThanOrEqual(1);
+        // v6.10.19d D: the header chip is gone — the label now appears
+        // only on the Safety Flags KPI row.
+        expect(screen.getAllByText(/Risk-Adjusted Reward-to-Risk/i).length).toBe(1);
         // R7: the KPI is the advisory's ATR-derived stop-distance guide —
         // relabelled to not collide with the Top Setup card's geometric SL.
         expect(screen.getByText('ATR Stop Guide')).toBeTruthy();
@@ -259,27 +272,82 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         // the mirror bind contract is observable from the panel chrome.
         expect(screen.getByText('Entry Danger')).toBeTruthy();
     });
+
+    it('v6.11: renders the Quality/Risk KPI chip from the advisory ratio', () => {
+        seedPair('BTC-USDT');
+        const entry = useAppStore().instancesMap['BTC-USDT'];
+        entry.advisory = makeAdvisory({ quality_to_risk_ratio: 3.2 });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        expect(screen.getByText('Quality/Risk')).toBeTruthy();
+        expect(screen.getByText('3.20')).toBeTruthy();
+    });
+
+    it('v6.11: Quality/Risk chip renders an em-dash when the ratio is absent', () => {
+        seedPair('BTC-USDT');
+        const entry = useAppStore().instancesMap['BTC-USDT'];
+        entry.advisory = makeAdvisory({ quality_to_risk_ratio: null });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        expect(screen.getByText('Quality/Risk')).toBeTruthy();
+        expect(screen.getByText('—')).toBeTruthy();
+    });
 });
 
 describe('RecommendationPanel — Top Setup card', () => {
-    it('renders only the top-scored qualifying profile (Breakout, score 65)', () => {
+    it('renders only the top-scored qualifying profile as the headline (Breakout, score 65)', () => {
         seedPair('BTC-USDT');
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // Breakout has the highest score (65); it should be the single
-        // top-setup card. The second qualifying profile (LiquiditySqueeze,
-        // score 60) is filtered out — it lives on the Opportunities panel.
-        expect(screen.getByText('Top Setup')).toBeTruthy();
-        // The top-setup card carries the 2/2 preconditions anchor.
+        // v6.10.19b (B1): the unified SETUP section shows ONE verdict-
+        // consistent headline. Breakout (65) is the top LONG-side
+        // qualifying profile; the second (LiquiditySqueeze, 60) rides as
+        // an informational alternate (it always appears on Opportunities).
+        expect(screen.getByText('SETUP')).toBeTruthy();
+        // The headline card carries the 2/2 preconditions anchor.
         expect(screen.getByText('2/2')).toBeTruthy();
-        // The 1/3 anchor for LiquiditySqueeze MUST NOT appear in the
-        // Recommendation panel — it's not the top setup.
-        expect(screen.queryByText('1/3')).toBeNull();
+        // The 1/3 anchor for LiquiditySqueeze appears ONLY in the
+        // alternate note — never as a second setup card.
+        expect(screen.getAllByText(/1\/3/).length).toBeGreaterThanOrEqual(1);
         // Top setup shows per-profile LONG zones (entry low=63520, high=63800).
         expect(screen.getAllByText(/63520/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/63800/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/64500/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/65000/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/63200/).length).toBeGreaterThan(0);
+    });
+
+    it('v6.14: the headline card renders the backend display_score (precondition-scaled)', () => {
+        // A 1/3-precondition top profile: the local legacy rule would
+        // compute round(65 × 1/3) = 22, but the wire carries the
+        // authoritative 33 — the card (and its section-meta caption) must
+        // render the wire value so the Recommendation and Opportunities
+        // panels can never disagree.
+        const entry = seedPair('BTC-USDT');
+        entry.opportunity = makeOpportunity({
+            profiles: [
+                {
+                    opportunity_type: 'Breakout',
+                    score: 65,
+                    preconditions_met: 1,
+                    preconditions_total: 3,
+                    display_score: 33,
+                    notes: 'synthetic-breakout',
+                    direction_family: 'TrendRiding',
+                    trade_viability: 'Actionable',
+                    long_entry_zone: { low: 63520, high: 63800 },
+                    long_target_zone: { low: 64500, high: 65000 },
+                    long_invalidation_level: 63200,
+                    long_expected_rr_internal: 2.0,
+                    short_entry_zone: null,
+                    short_target_zone: null,
+                    short_invalidation_level: null,
+                    short_expected_rr_internal: null,
+                },
+            ],
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        expect(screen.getByText('SETUP')).toBeTruthy();
+        // Card-face score + the section-meta "score 33 · INTRADAY" caption.
+        expect(screen.getAllByText('33').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText(/score 33/)).toBeTruthy();
     });
 
     it('Top Setup label matches the Opportunities panel top profile', () => {
@@ -352,7 +420,7 @@ describe('RecommendationPanel — Top Setup card', () => {
         expect(screen.getAllByText(/62400/).length).toBeGreaterThan(0);
     });
 
-    it('renders the No Clear Setup card when no profile qualifies', () => {
+    it('renders the clean "No Active Setup" container when no profile qualifies', () => {
         const entry = seedPair('BTC-USDT');
         // Zero out profiles so every preconditions_met is 0.
         entry.opportunity = makeOpportunity({
@@ -377,13 +445,17 @@ describe('RecommendationPanel — Top Setup card', () => {
             ],
         } as Partial<OpportunityMatrix>);
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // v6.10.17: the No Clear explanation card renders ALONGSIDE the
-        // informational aggregated bracket (the bracket card carries the
-        // TPs/SLs/R:R; the card explains why no profile qualifies).
-        const noClearMatches = screen.getAllByText(/No Clear Setup/i);
-        expect(noClearMatches.length).toBeGreaterThanOrEqual(2);
-        // The aggregated bracket is published with real price levels.
-        expect(screen.getAllByText(/Aggregated Bracket/i).length).toBeGreaterThan(0);
+        // v6.10.19c (D3): the clean empty container — no badges, no
+        // no-clear card, no banner; the four fields render as placeholders.
+        expect(screen.getByText('No Active Setup')).toBeTruthy();
+        expect(screen.queryByText(/No Clear Setup/i)).toBeNull();
+        expect(screen.queryByText(/NO CLEAR SETUP/i)).toBeNull();
+        expect(screen.queryByText('No active setup — verdict is HOLD.')).toBeNull();
+        // The four empty fields are present.
+        expect(screen.getByText('ENTRY')).toBeTruthy();
+        expect(screen.getByText('TARGET')).toBeTruthy();
+        expect(screen.getByText('Stop-Loss')).toBeTruthy();
+        expect(screen.getByText('Reward-to-Risk')).toBeTruthy();
     });
 });
 
@@ -618,8 +690,9 @@ describe('gauge geometry — active arc is a Dome segment', () => {
 // ─────────────────────────────────────────────────────────────────────────
 // R1 + GAUGE-001: the needle is verdict-consistent — a HOLD verdict (hold
 // probability dominant) neutralizes the needle even when the raw net bias
-// (long − short) is non-zero. The needle IS the single final number: no
-// LONG/HOLD/SHORT percentage split is rendered under the dial (v6.10.12).
+// (long − short) is non-zero. The center-bottom dial label mirrors the
+// needle: it renders the verdict-consistent net % (0 under HOLD), never the
+// raw split. No LONG/HOLD/SHORT percentage split is rendered under the dial.
 // ─────────────────────────────────────────────────────────────────────────
 describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
     function mountHoldVerdictWithNetBias() {
@@ -628,6 +701,7 @@ describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
         // verdict. The raw net bias is +44 but the needle must sit
         // neutral.
         const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry); // no qualifying setup → the verdict stays a genuine HOLD
         entry.decisionContext = makeDecisionContext({
             long_probability: 46,
             short_probability: 2,
@@ -653,15 +727,18 @@ describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
         const paths = gaugeSvg ? gaugeSvg.querySelectorAll('path') : [];
         const activeArc = Array.from(paths).find((p) => (p.getAttribute('d') ?? '').startsWith('M 100 35'));
         expect(activeArc?.getAttribute('opacity')).toBe('0');
-        // The net label reads 0%, not +44%.
+        // The center-bottom dial label mirrors the needle: 0% amber — the
+        // raw +44% bias is verdict-neutralized and must NOT render.
         expect(screen.getByText('0%')).toBeTruthy();
+        expect(screen.queryByText('+44%')).toBeNull();
     });
 
-    it('GAUGE-001: no percentage split is rendered under the dial (needle is the single final number)', () => {
+    it('GAUGE-001: no percentage split is rendered under the dial (the net label is the single final number)', () => {
         mountHoldVerdictWithNetBias();
-        // The dial labels LONG/HOLD/SHORT exist above the needle, but the
-        // probability readout row must NOT appear — the needle is the
-        // final single number (0 under HOLD).
+        // The dial labels LONG/SHORT exist at the flanks, the net % label
+        // sits center-bottom, but the LONG/HOLD/SHORT probability split
+        // must NOT appear — the net label is the single final number
+        // (0 under HOLD).
         expect(screen.getAllByText(/LONG/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText(/HOLD/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText(/SHORT/).length).toBeGreaterThanOrEqual(1);
@@ -676,9 +753,10 @@ describe('gauge verdict consistency — needle neutralizes under HOLD', () => {
 // the verdict sentence (not the advisory's directional "Entry: immediate"),
 // with the advisory text demoted to muted environment guidance.
 // ─────────────────────────────────────────────────────────────────────────
-describe('RecommendationPanel — Final Verdict + Environment Playbook (R6)', () => {
+describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', () => {
     it('renders the verdict sentence + guidance under a HOLD verdict', () => {
-        seedPair('BTC-USDT');
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         // Default fixture resolves to HOLD → verdict sentence.
         expect(screen.getByText(/HOLD — no directional call/)).toBeTruthy();
@@ -698,10 +776,11 @@ describe('RecommendationPanel — Final Verdict + Environment Playbook (R6)', ()
         expect(screen.getByText(/Neutral — no directional edge:/)).toBeTruthy();
     });
 
-    it('renders the playbook reference caption under HOLD', () => {
-        seedPair('BTC-USDT');
+    it('renders the guidance reference caption under HOLD (v6.10.19d D)', () => {
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        expect(screen.getByText('Environment Playbook')).toBeTruthy();
+        expect(screen.getByText('Environment Guidance')).toBeTruthy();
         expect(screen.getByText(/For reference — no active directional call/)).toBeTruthy();
     });
 });
@@ -739,6 +818,7 @@ describe('RecommendationPanel — STAND ASIDE with a directional verdict (v6.10.
         // Directional: the +60% LONG tip points right (x2 > 100), green.
         expect(Number(needle!.getAttribute('x2'))).toBeGreaterThan(100);
         expect(needle!.getAttribute('stroke')).toBe('#22c55e');
+        // The center-bottom dial label mirrors the needle: +60% green.
         expect(screen.getByText('+60%')).toBeTruthy();
     });
 
@@ -757,6 +837,7 @@ describe('RecommendationPanel — STAND ASIDE with a directional verdict (v6.10.
 
     it('flat HOLD + STAND ASIDE keeps the neutral needle and no-directional-call sentence', () => {
         const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry); // no qualifying setup → the verdict stays a genuine flat HOLD
         entry.decisionContext = makeDecisionContext({
             trade_readiness: 'STAND_ASIDE',
             long_probability: 2,
@@ -767,6 +848,7 @@ describe('RecommendationPanel — STAND ASIDE with a directional verdict (v6.10.
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
         expect(screen.getByText(/HOLD — no directional call/)).toBeTruthy();
+        // The center-bottom dial label mirrors the neutral needle: 0%.
         expect(screen.getByText(/0%/)).toBeTruthy();
     });
 });

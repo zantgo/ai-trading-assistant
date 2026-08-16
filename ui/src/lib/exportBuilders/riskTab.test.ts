@@ -91,7 +91,7 @@ describe('buildRiskTabExport', () => {
     expect(p.summary_counts.low).toEqual({ label: 'Low', count: 4 });
   });
 
-  it('dimension scores and confidence are integer-rounded; state_display has arrow', () => {
+  it('dimension scores and confidence are integer-rounded; state_display is the Scheme-A token (v6.10.19d C)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
       flow: null,
@@ -103,7 +103,8 @@ describe('buildRiskTabExport', () => {
     const market = p.dimensions.find((d: { key: string }) => d.key === 'market_risk');
     expect(market.score).toBe(60);
     expect(market.confidence).toBe(78);
-    expect(market.state_display).toBe('→ STABLE');
+    // Moderate level + STABLE state → STEADY token.
+    expect(market.state_display).toBe('→ STEADY');
   });
 
   it('no risk → hero null, awaiting placeholder dims, init interpretation, valid meta identity', () => {
@@ -132,7 +133,7 @@ describe('buildRiskTabExport', () => {
     expect(p.meta.pair).toBe('BTC-USDT');
   });
 
-  it('emits disclosure (8 weight chips + note) and hero hint', () => {
+  it('emits disclosure (8 weight chips + note); hero hint removed (v6.10.19d C)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
       flow: null,
@@ -149,8 +150,9 @@ describe('buildRiskTabExport', () => {
     expect(p.disclosure.note).toContain('state chip describes the risk trend');
     expect(p.disclosure.note).not.toContain('modify each dimension');
     expect(p.hero).toBeDefined();
-    expect(p.hero.hint).toContain('Lower is safer');
-    expect(p.hero.hint).not.toContain('State modifiers');
+    // v6.10.19d C: the "Lower is safer." caption was removed from the
+    // hero — the bar carries the guidance as a tooltip only.
+    expect('hint' in p.hero).toBe(false);
     expect(p.awaiting_dimensions_text).toContain('Awaiting risk assessment');
   });
 
@@ -189,5 +191,36 @@ describe('buildRiskTabExport', () => {
     expect(p.dimensions).toHaveLength(8);
     expect(p.dimensions.every((d: { awaiting: boolean }) => d.awaiting)).toBe(true);
     expect(p.interpretation_full).toContain('Risk synthesis is initializing');
+  });
+
+  it('v6.11: execution_risk carries the volatility-to-spread extras when present', () => {
+    const risk = makeRisk();
+    (risk.execution_risk as RiskDimension).volatility_to_spread_ratio = 12.4;
+    const p = JSON.parse(buildRiskTabExport({
+      risk,
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const exec = p.dimensions.find((d: { key: string }) => d.key === 'execution_risk');
+    expect(exec.execution_extras).toEqual({ volatility_to_spread_ratio: 12.4 });
+    // All other dimensions carry null extras.
+    const market = p.dimensions.find((d: { key: string }) => d.key === 'market_risk');
+    expect(market.execution_extras).toBeNull();
+  });
+
+  it('v6.11: awaiting and ratio-less risk exports carry null execution extras', () => {
+    const p = JSON.parse(buildRiskTabExport({
+      risk: makeRisk(),
+      flow: null,
+      cluster: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const exec = p.dimensions.find((d: { key: string }) => d.key === 'execution_risk');
+    expect(exec.execution_extras).toBeNull();
   });
 });

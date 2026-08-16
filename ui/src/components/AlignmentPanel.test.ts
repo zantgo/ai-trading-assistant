@@ -84,11 +84,13 @@ afterEach(() => {
 });
 
 describe('AlignmentPanel — score formula (AL-1)', () => {
-  it('renders the blend formula with the ×100 factor', () => {
+  it('no longer renders the blend formula line (v6.10.19d A)', () => {
     seed(makeAlignment());
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    // 0.5·0.7 + 0.3·0.6 + 0.1·0.5 + 0.1·0.4 = 0.62 → ×100 = 62.0.
-    expect(screen.getByText('(0.5 * (0.70) + 0.3 * (0.60) + 0.1 * (0.50) + 0.1 * (0.40)) × 100 = 62.0')).toBeTruthy();
+    // 0.5·0.7 + 0.3·0.6 + 0.1·0.5 + 0.1·0.4 = 0.62 → ×100 = 62.0 — the
+    // formula line was erased from the panel; the weight chips remain.
+    expect(screen.queryByText('(0.5 * (0.70) + 0.3 * (0.60) + 0.1 * (0.50) + 0.1 * (0.40)) × 100 = 62.0')).toBeNull();
+    expect(screen.getByText('Score Calculation')).toBeTruthy();
   });
 });
 
@@ -121,11 +123,43 @@ describe('AlignmentPanel — NO_DATA sentinel gate (AL-7)', () => {
     expect(screen.queryByText(/TIMEFRAME CONFLICT/)).toBeNull();
   });
 
-  it('a real alignment renders the consensus verdict and formula', () => {
+  it('a real alignment renders the consensus dial verdict and the axes grid', () => {
     seed(makeAlignment());
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    // "82%" appears in both the header Agreement chip and the meter.
+    // The dial center renders "82%"; the interpretation repeats it.
     expect(screen.getAllByText('82%').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Strong consensus — timeframes aligned')).toBeTruthy();
+    // v6.10.20 (C): the verdict is a dial header + grey sub-label —
+    // "Strong consensus — timeframes aligned" as one string is gone.
+    expect(screen.getByText('Strong Consensus')).toBeTruthy();
+    expect(screen.getByText('Timeframes are aligned.')).toBeTruthy();
+    expect(screen.queryByText('Strong consensus — timeframes aligned')).toBeNull();
+  });
+
+  it('v6.10.20 (C): two-container hero — circular dial + CONSENSUS axes grid', () => {
+    seed(makeAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    // The "Polarization" term is retired; the details container is
+    // labeled with the unified word Consensus.
+    expect(screen.queryByText('Polarization')).toBeNull();
+    expect(screen.getByText('Consensus')).toBeTruthy();
+    // Container 1: the circular gauge (SVG ring) with the centered pct.
+    expect(document.querySelector(`.${styles.consensusDialSvg}`)).toBeTruthy();
+    expect(document.querySelector(`.${styles.consensusDialFill}`)).toBeTruthy();
+    // Container 2: exactly four axis cards in a 2×2 grid, labels on top.
+    const cards = document.querySelectorAll(`.${styles.axisCard}`);
+    expect(cards.length).toBe(4);
+    const names = Array.from(document.querySelectorAll(`.${styles.axisName}`)).map((n) => n.textContent);
+    expect(names).toEqual(['Trend', 'Momentum', 'Volume', 'Volatility']);
+    const values = Array.from(document.querySelectorAll(`.${styles.axisValue}`)).map((n) => n.textContent);
+    expect(values).toEqual(['+0.70', '+0.60', '+0.50', '+0.40']);
+    // Trend +0.70 is a high-contrast bullish value (|v| > 0.2).
+    expect(document.querySelector(`.${styles.axisValue}.${styles.axisStrongBull}`)).toBeTruthy();
+  });
+
+  it('v6.10.20 (C): sentinel dial renders a neutral ring and em-dash verdict', () => {
+    seed(makeSentinelAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.getByText('—%')).toBeTruthy();
+    expect(screen.getByText('—')).toBeTruthy();
   });
 });

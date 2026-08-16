@@ -349,6 +349,18 @@ export function makeAnalysis(): AnalysisMatrix {
     opportunity_analysis: 'TrendContinuation',
     market_quality: 'Good',
     market_quality_score: 72,
+    // v6.11: trend-stability Sharpe (annualized EMA-50 log-return Sharpe).
+    trend_stability_sharpe: 3.85,
+    // v6.12: per-card dimension scores — the exact 0-100 inputs the
+    // qualitative assessments above are bucketed from (badge parity).
+    trend_score: 76.5,
+    momentum_score: 83.2,
+    structure_score: 81.4,
+    volatility_score: 55.0,
+    volume_score: 78.8,
+    // v6.10.21: exact L3 regime inputs the rationale quotes.
+    representative_bbwp: 83.3,
+    representative_adx: 33.0,
     market_phase: 'MARKUP',
     market_interpretation: 'Price is making higher highs and higher lows on strong volume. Momentum is increasing and structure remains intact.',
     rationale: 'The market is in a healthy uptrend with broad participation across timeframes.',
@@ -374,7 +386,7 @@ export function makeRisk(): RiskMatrix {
     structure_risk: rd(58, 'High', 'Increasing', 75, ['Price rejecting into supply']),
     momentum_risk: rd(22, 'Low', 'Stable', 60),
     signal_risk: rd(35, 'Moderate', 'Stable', 55),
-    execution_risk: rd(15, 'Low', 'Stable', 50),
+    execution_risk: { ...rd(15, 'Low', 'Stable', 50), volatility_to_spread_ratio: 9.2 },
     cascade_risk: rd(70, 'High', 'Critical', 85, ['SUSTAINED cascade above price']),
     overall_risk: rd(48, 'Moderate', 'Elevated', 74),
   };
@@ -399,6 +411,7 @@ export function makeOpportunity(): OpportunityMatrix {
     short_expected_rr_internal: null,
     short_geometry_consistent: false,
     trade_viability: 'Actionable',
+    display_score: 78,
   };
   const mr: OpportunityProfile = {
     opportunity_type: 'MeanReversion',
@@ -416,6 +429,7 @@ export function makeOpportunity(): OpportunityMatrix {
     short_invalidation_level: null,
     short_expected_rr_internal: null,
     trade_viability: 'DirectionalNeutral',
+    display_score: 28,
   };
   return {
     symbol: PAIR,
@@ -471,6 +485,8 @@ export function makeAdvisory(): AdvisoryMatrix {
     stop_loss_distance_pct: 1.0,
     cascade_risk_score: 22,
     environment_favorability: { score: 30, level: 'Low', state: 'Stable', confidence: 60, evidence: [] },
+    // v6.11: setup-efficiency ratio (market quality 72 ÷ overall risk 48 = 1.5).
+    quality_to_risk_ratio: 1.5,
     final_recommendation: 'Long on pullback toward the 63200-63400 entry zone with invalidation below 62800.',
   };
 }

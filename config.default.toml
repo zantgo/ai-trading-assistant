@@ -57,7 +57,14 @@ default_exchange = "Hyperliquid"
 
 [workspace.candles]
 duration_seconds = 60
-analysis_limit = 500
+
+# Canonical candle-buffer tiers (CB-01) — three independent numbers:
+#   300 = INDICATORS_MAX_BARS_REQUIRED  (indicator calculation floor)
+#   500 = [candle_buffer] size          (historical warmup fetched from REST)
+#   1000 = HIST_BUFFER_MAX              (absolute in-memory cap, sub-minute
+#                                        and above-minute, same behavior)
+[candle_buffer]
+size = 500
 
 [workspace.fast_timeframe]
 enabled = true
@@ -241,4 +248,4 @@ render_hl_caveat = true
 # status = "running"
 # operational_mode = "advisory"
 # [workspace.instances.micro_term]
-# candles = { duration_seconds = 60, analysis_limit = 500 }
+# candles = { duration_seconds = 60 }

@@ -12,7 +12,8 @@ use core_domain::liquidity::{LiquidationClusterMatrix, LiquidityFlow};
 use core_domain::market_context::MarketContext;
 use core_domain::models::MarketSnapshot;
 use core_domain::models::TimeframeSlot;
-use core_domain::opportunity::{ConfluentLevel, LevelSource, OpportunityMatrix};
+use core_domain::opportunity::{ConfluentLevel, LevelSource, NeutralBracket, OpportunityMatrix};
+use core_domain::analysis::PriceRange;
 use core_domain::risk::{self, RiskMatrix};
 use std::collections::HashMap;
 
@@ -72,7 +73,7 @@ fn compute_candidate_score(
     signals: &HashMap<String, NormalizedIndicatorValue>,
     preconditions_met: u32,
     preconditions_total: u32,
-) -> (f64, String, f64, f64) {
+) -> (f64, String, f64, f64, f64) {
     // v6.10 (Phase 2 / B2): align L4's QualityLevel → f64 mapping with the
     // canonical L6 fallback table at
     // `docs/matrices/02-04-decision-matrix.md §2.3` (POOR=20, WEAK=40,
@@ -145,12 +146,21 @@ fn compute_candidate_score(
         raw.clamp(0.0, 100.0)
     };
 
+    // v6.14: the operator-facing score scales by the precondition ratio
+    // (`0/3 → 0 muted, 2/3 → scaled, 3/3 → full`) — published as an
+    // ADDITIVE `display_score` on the profile so the raw `score` above
+    // stays intact for data-science logging. `round(score × min(1, ratio))`
+    // mirrors the frontend's legacy `displayScore` rule exactly (Rust
+    // `.round()` = JS `Math.round` half-up on non-negative values), so
+    // screen, export, and wire agree without duplicated frontend math.
+    let display_score = (score * ratio.min(1.0)).round();
+
     // User-facing rationale. Precondition count is displayed separately
     // via the structured `preconditions_met` / `preconditions_total`
     // fields on every profile card — keep the `notes` lean.
     let notes = format!("{:?}", opportunity_type);
 
-    (score, notes, raw, ratio)
+    (score, notes, raw, ratio, display_score)
 }
 
 struct LevelCandidate {
@@ -889,6 +899,91 @@ fn derive_side_zones(
     )
 }
 
+/// v6.10.21 (NBR): direction-agnostic range reference frame for the
+/// No-Clear + range regime. The entry band centers on the close
+/// (±0.2×ATR), the target rides the upper range-bound proxy
+/// (close + 1.5..1.7×ATR), the invalidation sits below the lower
+/// range-bound proxy (close − 1.5×ATR) — a symmetric range-fade frame
+/// whose gross geometric R:R ≈ 1.07, net ≈ 1.05 after friction.
+///
+/// Purely informational: the operator sees valid range-fade geometry
+/// instead of an empty Range folder, but the frame is never a trade —
+/// `TradeViability`/preconditions/`profiles` are untouched, and the
+/// caller only emits it when the primary opportunity is
+/// `NoClearOpportunity` AND the regime reads as a range. Returns `None`
+/// when no valid frame can be derived (non-positive bounds, missing ATR).
+fn derive_neutral_bracket(
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    close: f64,
+) -> Option<NeutralBracket> {
+    if !close.is_finite() || close <= 0.0 {
+        return None;
+    }
+    let atr = indicators
+        .get("atr")
+        .and_then(|v| v.values.as_ref())
+        .and_then(|vals| vals.get("atr_14").copied())
+        .unwrap_or(close * 0.01);
+    if atr <= 0.0 {
+        return None;
+    }
+    const ENTRY_HALF_ATR: f64 = 0.2;
+    const TARGET_K_ATR: f64 = 1.5;
+    const TARGET_SPREAD_ATR: f64 = 0.2;
+    const INV_K_ATR: f64 = 1.5;
+    let entry_zone = PriceRange {
+        low: close - ENTRY_HALF_ATR * atr,
+        high: close + ENTRY_HALF_ATR * atr,
+    };
+    let target_zone = PriceRange {
+        low: close + TARGET_K_ATR * atr,
+        high: close + (TARGET_K_ATR + TARGET_SPREAD_ATR) * atr,
+    };
+    let invalidation_level = close - INV_K_ATR * atr;
+    if entry_zone.low <= 0.0 || target_zone.low <= 0.0 || invalidation_level <= 0.0 {
+        return None;
+    }
+    // The same three-state geometry gate the directional sides use —
+    // only a geometrically valid frame is ever published.
+    use core_domain::risk_reward::{compute_side_rr_v2, Side, SideRrStatus};
+    let status = compute_side_rr_v2(
+        entry_zone.low,
+        entry_zone.high,
+        target_zone.low,
+        target_zone.high,
+        invalidation_level,
+        close,
+        Side::Long,
+    );
+    let gross = match &status {
+        SideRrStatus::Value(v) => Some(*v),
+        _ => None,
+    };
+    let (expected_rr_internal, geometry_consistent) = if let Some(_gross) = gross {
+        let cost = core_domain::risk_reward::NetCostModel::default();
+        let net = cost.net_rr(
+            (entry_zone.low + entry_zone.high) / 2.0,
+            (target_zone.low + target_zone.high) / 2.0,
+            invalidation_level,
+            Side::Long,
+        );
+        (net, true)
+    } else {
+        (0.0, false)
+    };
+    if !geometry_consistent {
+        return None;
+    }
+    Some(NeutralBracket {
+        entry_zone,
+        target_zone,
+        invalidation_level,
+        expected_rr_internal,
+        geometry_consistent,
+        rationale: "range reference — no directional setup".to_string(),
+    })
+}
+
 /// Z-Score magnitude at which a MeanReversion opportunity is considered
 /// "extended" enough to resolve its trade side from the deviation
 /// (`|z| ≥ threshold`). Below that, the data is ambiguous and the
@@ -1106,6 +1201,7 @@ fn compute_opportunity(
         String,
         f64,
         f64,
+        f64,
         u32,
         u32,
     )> = Vec::with_capacity(candidates.len());
@@ -1164,7 +1260,7 @@ fn compute_opportunity(
             OpportunityType::NoClearOpportunity => (0, 1),
         };
 
-        let (score, notes, raw_score, precondition_ratio) = compute_candidate_score(
+        let (score, notes, raw_score, precondition_ratio, display_score) = compute_candidate_score(
             *ot,
             analysis,
             alignment,
@@ -1178,6 +1274,7 @@ fn compute_opportunity(
             notes,
             raw_score,
             precondition_ratio,
+            display_score,
             met as u32,
             total as u32,
         ));
@@ -1185,8 +1282,8 @@ fn compute_opportunity(
 
     let primary_score = scored
         .iter()
-        .find(|(ot, _, _, _, _, _, _)| *ot == primary_opportunity)
-        .map(|(_, s, _, _, _, _, _)| *s)
+        .find(|(ot, _, _, _, _, _, _, _)| *ot == primary_opportunity)
+        .map(|(_, s, _, _, _, _, _, _)| *s)
         .unwrap_or(0.0);
 
     let atr = indicators
@@ -1349,7 +1446,7 @@ fn compute_opportunity(
     // hardcoded to 0.0, breaking every per-profile card. We now
     // propagate the geometric R:R from the same zones that drive
     // `entry_zone` / `target_zone` / `invalidation_level`.
-    for (ot, score, notes, raw_score, precondition_ratio, met, total) in &scored {
+    for (ot, score, notes, raw_score, precondition_ratio, display_score, met, total) in &scored {
         let profile_family = analysis::direction_family_for(*ot);
 
         // Resolves the per-profile side based on the family + macro bias.
@@ -1472,6 +1569,7 @@ fn compute_opportunity(
                 raw_score: *raw_score,
                 precondition_ratio: *precondition_ratio,
             }),
+            display_score: Some(*display_score),
         });
     }
 
@@ -1605,6 +1703,18 @@ fn compute_opportunity(
         )
     };
 
+    // v6.10.21 (NBR): the neutral range reference bracket is emitted only
+    // when the primary is NoClearOpportunity AND the regime reads as a
+    // range — a valid non-directional frame so the Range folder never
+    // sits empty, informational only (never Actionable).
+    let neutral_reference_bracket = if primary_opportunity == OpportunityType::NoClearOpportunity
+        && is_range
+    {
+        derive_neutral_bracket(indicators, close)
+    } else {
+        None
+    };
+
     Some(OpportunityMatrix {
         symbol: analysis.symbol.clone(),
         primary_opportunity,
@@ -1634,6 +1744,7 @@ fn compute_opportunity(
         direction_family: matrix_direction_family,
         long_geometry_consistent,
         short_geometry_consistent,
+        neutral_reference_bracket,
     })
 }
 
@@ -1703,6 +1814,16 @@ pub fn synthesize_cross_tf(
         previous_volume_dim,
         previous_bias,
     );
+
+    // v6.11: stamp the L1-computed trend-stability Sharpe (EMA-50 log-return
+    // Sharpe over the trailing 300-bar window) onto the L3 AnalysisMatrix.
+    // The value is carried as an unregistered per-TF indicator-map key
+    // (`first TF wins` merge above → the micro TF's reading); absent until
+    // the window fills.
+    let mut analysis = analysis;
+    analysis.trend_stability_sharpe = representative_indicators
+        .get("trend_stability_sharpe")
+        .map(|v| v.raw_value);
 
     let close = tf_snapshots
         .first()
@@ -2528,7 +2649,70 @@ mod tests {
                 // NoClearOpportunity stays at 0 regardless of raw_score
                 assert_eq!(p.score, 0.0);
             }
+            // v6.14: `display_score` must be the wire-emitted scaled score
+            // — `round(score × min(1, ratio))`, additive on top of the raw
+            // `score` (the raw value is preserved for data-science).
+            let display = p
+                .display_score
+                .expect("display_score must be present on every profile");
+            let expected_display = (p.score * expected_ratio.min(1.0)).round();
+            assert!(
+                (display - expected_display).abs() < 1e-9,
+                "display_score drifted: {} (expected {}) for {:?} (score {}, ratio {})",
+                display,
+                expected_display,
+                p.opportunity_type,
+                p.score,
+                expected_ratio,
+            );
         }
+    }
+
+    #[test]
+    fn display_score_is_zero_for_dead_setups_but_raw_score_survives() {
+        // v6.14: the operator-facing `display_score` scales to 0 when no
+        // precondition is met (0/N), while the raw `score` keeps showing
+        // how close the setup is to firing — the v6.10.1 "hide the dead
+        // setups' viability" regression must never come back via the new
+        // additive field. NoClearOpportunity is 0 in both.
+        let ctx = make_context("COMPRESSION", 0.55, 0.50, 0.40, 0.45, 25);
+        let snap = make_snapshot(60, 64000.0, ctx);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap), (180, &snap), (300, &snap), (900, &snap)],
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+        None,
+        );
+
+        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        assert!(!opp.profiles.is_empty());
+        let mut saw_dead_with_raw_viability = false;
+        for p in &opp.profiles {
+            let display = p
+                .display_score
+                .expect("display_score must be present on every profile");
+            if p.opportunity_type == analysis::OpportunityType::NoClearOpportunity {
+                assert_eq!(p.score, 0.0);
+                assert_eq!(display, 0.0);
+                continue;
+            }
+            if p.preconditions_met == 0 {
+                // 0/N → the operator-facing score is muted to 0 …
+                assert_eq!(display, 0.0, "{:?} with 0/N preconditions must display 0", p.opportunity_type);
+                // … but the raw viability blend must still surface.
+                assert!(p.score > 0.0, "{:?} raw score must survive the scale", p.opportunity_type);
+                saw_dead_with_raw_viability = true;
+            }
+        }
+        assert!(
+            saw_dead_with_raw_viability,
+            "scenario must contain at least one setup with 0/N preconditions"
+        );
     }
 
     #[test]
@@ -3188,5 +3372,125 @@ mod tests {
         assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_some());
         assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_none());
         assert!(opp.invalidation_note.starts_with("Close above "));
+    }
+
+    // ── v6.10.21 (NBR): neutral range reference bracket ──────────────────
+
+    #[test]
+    fn neutral_bracket_emitted_only_for_noclear_range() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use std::collections::HashMap;
+
+        // NoClear + Range → the neutral reference bracket is emitted.
+        // vol_dim = 50 (mtf_volatility_alignment 0.0 → 50) fails the
+        // MeanReversion gate (≤ 30); nothing else qualifies at neutral
+        // bias, so the primary falls through to NoClearOpportunity.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Neutral;
+        analysis.market_regime = MarketRegime::Range;
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        alignment.mtf_volatility_alignment = 0.0;
+
+        let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        let mut atr_values = HashMap::new();
+        atr_values.insert("atr_14".into(), 1.0);
+        ind.insert(
+            "atr".into(),
+            NormalizedIndicatorValue {
+                raw_value: 1.0,
+                normalized: 0.0,
+                state_label: "NORMAL".into(),
+                values: Some(atr_values),
+                signals: vec![],
+                confidence: 0.5,
+            },
+        );
+
+        let close = 100.0;
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, close)
+            .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::NoClearOpportunity);
+        let bracket = opp
+            .neutral_reference_bracket
+            .expect("neutral bracket must be emitted under NoClear + Range");
+        assert!(bracket.geometry_consistent, "synthetic frame must be valid");
+        assert!(
+            bracket.invalidation_level < bracket.entry_zone.low,
+            "SL must sit below the entry band (SL {} vs entry.low {})",
+            bracket.invalidation_level,
+            bracket.entry_zone.low
+        );
+        assert!(
+            bracket.target_zone.low > bracket.entry_zone.high,
+            "target must sit above the entry band (target.low {} vs entry.high {})",
+            bracket.target_zone.low,
+            bracket.entry_zone.high
+        );
+        assert!(bracket.expected_rr_internal > 0.0, "valid frame must carry R:R");
+        assert!(
+            !bracket.rationale.is_empty(),
+            "rationale must explain the frame origin"
+        );
+        assert_eq!(
+            (bracket.entry_zone.low, bracket.entry_zone.high),
+            (close - 0.2, close + 0.2),
+            "entry band must center on close at ±0.2×ATR"
+        );
+    }
+
+    #[test]
+    fn neutral_bracket_absent_outside_noclear_range() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use std::collections::HashMap;
+
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Neutral;
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        alignment.mtf_volatility_alignment = 0.0;
+        let ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+
+        // Range + vol_dim ≤ 30 → MeanReversion is the primary: no neutral
+        // bracket (a real setup exists — the frame is only for NoClear).
+        analysis.market_regime = MarketRegime::Range;
+        alignment.mtf_volatility_alignment = -0.5;
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::MeanReversion);
+        assert!(
+            opp.neutral_reference_bracket.is_none(),
+            "MeanReversion primary must not carry a neutral reference bracket"
+        );
+
+        // Trending + no candidates → NoClearOpportunity primary, but the
+        // regime is NOT a range: no neutral bracket.
+        analysis.market_regime = MarketRegime::TrendingBull;
+        alignment.mtf_volatility_alignment = 0.0;
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::NoClearOpportunity);
+        assert!(
+            opp.neutral_reference_bracket.is_none(),
+            "NoClear outside a range regime must not emit a neutral bracket"
+        );
+    }
+
+    #[test]
+    fn derive_neutral_bracket_guards_invalid_inputs() {
+        use std::collections::HashMap;
+
+        let ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        // Missing ATR falls back to close × 0.01 → still valid at close 100.
+        assert!(
+            derive_neutral_bracket(&ind, 100.0).is_some(),
+            "ATR fallback must still produce a valid frame"
+        );
+        // Non-positive close → None.
+        assert!(derive_neutral_bracket(&ind, 0.0).is_none());
+        assert!(derive_neutral_bracket(&ind, -5.0).is_none());
+        assert!(derive_neutral_bracket(&ind, f64::NAN).is_none());
     }
 }

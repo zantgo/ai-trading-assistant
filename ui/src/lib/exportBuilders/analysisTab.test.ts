@@ -132,6 +132,69 @@ describe('buildAnalysisTabExport', () => {
     expect(p.qualitative_assessment.cycle_phase).toBe('MARK UP');
   });
 
+  it('v6.11: qualitative_assessment carries the trend-stability Sharpe', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: { ...makeAnalysis(), trend_stability_sharpe: 3.85 },
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.qualitative_assessment.trend_stability_sharpe).toBeCloseTo(3.85, 2);
+    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBe('3.85');
+  });
+
+  it('v6.11: null trend-stability Sharpe renders an em-dash display', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: { ...makeAnalysis(), trend_stability_sharpe: null },
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.qualitative_assessment.trend_stability_sharpe).toBeNull();
+    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBe('\u2014');
+  });
+
+  it('v6.12: qualitative_assessment carries the per-card dimension scores', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: {
+        ...makeAnalysis(),
+        trend_score: 62.35,
+        momentum_score: 48.72,
+        structure_score: 71.4,
+        volatility_score: 78.15,
+        volume_score: 82.6,
+      },
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.qualitative_assessment.trend_score).toBeCloseTo(62.35, 2);
+    expect(p.qualitative_assessment.trend_score_display).toBe('62%');
+    expect(p.qualitative_assessment.momentum_score).toBeCloseTo(48.72, 2);
+    expect(p.qualitative_assessment.momentum_score_display).toBe('49%');
+    expect(p.qualitative_assessment.structure_score_display).toBe('71%');
+    expect(p.qualitative_assessment.volatility_score_display).toBe('78%');
+    expect(p.qualitative_assessment.volume_score_display).toBe('83%');
+  });
+
+  it('v6.12: absent dimension scores render em-dash displays', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: { ...makeAnalysis(), trend_score: null, momentum_score: null },
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    for (const key of ['trend_score', 'momentum_score', 'structure_score', 'volatility_score', 'volume_score']) {
+      expect(p.qualitative_assessment[key]).toBeNull();
+    }
+    expect(p.qualitative_assessment.trend_score_display).toBe('\u2014');
+    expect(p.qualitative_assessment.volume_score_display).toBe('\u2014');
+  });
+
   it('split-tone hero label matches the screen ("Split signals", no parenthetical)', () => {
     const split = {
       ...makeAnalysis(),
@@ -173,10 +236,11 @@ describe('buildAnalysisTabExport', () => {
       headerSpec,
     }));
     expect(p.signal_lean_hero.tone).toBe('split');
-    // v6.10.18 (I-7): the hero vote uses the bias machinery's filter — the
-    // COMPRESSION macro window no longer counts as a bullish vote.
-    expect(p.signal_lean_hero.label_html).toBe('TF votes: Net bullish (3↑ vs 0↓)');
-    expect(p.signal_lean_hero.meta_html).toContain('market bias neutral');
+    // v6.10.19c (C): the hero counts ALL four timeframe lines — the
+    // COMPRESSION macro window now counts as a bullish vote, and the
+    // "TF votes: " prefix is gone.
+    expect(p.signal_lean_hero.label_html).toBe('Net bullish (4↑ vs 0↓)');
+    expect(p.signal_lean_hero.meta_html).toBe('4:0 signal ratio · market bias neutral');
     expect(p.signal_lean_hero.bullish_pct).toBe(100);
     // The lean chip carries the same qualifier.
     expect(p.signals.lean.label).toContain('market bias neutral');

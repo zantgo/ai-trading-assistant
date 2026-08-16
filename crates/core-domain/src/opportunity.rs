@@ -78,6 +78,32 @@ pub struct ConfluentLevel {
     pub side: Option<String>,
 }
 
+/// v6.10.21 (NBR): a direction-agnostic range reference bracket emitted
+/// when the market reads as a range (`is_range`) under a
+/// `NoClearOpportunity` primary — no directional setup qualifies, but a
+/// mathematically valid range-fade frame (entry band near the close,
+/// target at the upper range bound, invalidation below the lower bound)
+/// gives the operator reference geometry. Purely informational: it is
+/// never a trade, never Actionable, and does not alter `profiles` or any
+/// per-direction invariant. `None` when no valid frame can be derived.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NeutralBracket {
+    /// Range-fade entry band (centered on close, ±0.2×ATR width).
+    pub entry_zone: PriceRange,
+    /// Target band at the upper range bound.
+    pub target_zone: PriceRange,
+    /// Invalidation below the lower range bound (never inside `entry_zone`).
+    pub invalidation_level: f64,
+    /// NET expected reward/risk ratio (gross minus friction), gated by
+    /// the same `compute_side_rr_v2` guards as the directional sides.
+    pub expected_rr_internal: f64,
+    /// Geometry-consistency flag: `invalidation_level < entry_zone.low`
+    /// AND `target_zone.low > entry_zone.high`.
+    pub geometry_consistent: bool,
+    /// Human-readable origin, e.g. "range reference — no directional setup".
+    pub rationale: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct OpportunityMatrix {
     pub symbol: String,
@@ -153,4 +179,10 @@ pub struct OpportunityMatrix {
     /// level.
     #[serde(default)]
     pub short_geometry_consistent: bool,
+    /// v6.10.21 (NBR): direction-agnostic range reference bracket, present
+    /// only when the primary is `NoClearOpportunity` and the regime is a
+    /// range. Informational only — never actionable. Legacy payloads
+    /// (field absent) deserialize to `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neutral_reference_bracket: Option<NeutralBracket>,
 }

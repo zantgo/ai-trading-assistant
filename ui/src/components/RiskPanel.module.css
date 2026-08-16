@@ -13,28 +13,19 @@
 
 /* ─────────── Hero ─────────── */
 .hero { display: flex; gap: 18px; align-items: stretch; padding: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; margin-bottom: 14px; }
-.ring { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
-.ringSvg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ringTrack { fill: rgba(255, 255, 255, 0.04); stroke: rgba(255, 255, 255, 0.08); stroke-width: 8; }
-.ringProgress { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.45s ease-out, stroke 0.3s; }
-.ringCenter { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
-.ringScore { font-size: 28px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: #f1f5f9; }
-.ringUnit { font-size: 9px; font-weight: 600; color: #64748b; letter-spacing: 0.05em; margin-top: 2px; }
-.heroInfo { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.heroLevelRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.heroLevel { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 10px; border-radius: 5px; }
-.heroPeak { font-size: 10px; color: #64748b; display: inline-flex; align-items: center; gap: 4px; }
+/* v6.10.19d (C): the ring is gone — the hero leads with the RISK
+   progress bar; Confidence is a badge next to the score. */
+.heroRiskRow { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.heroRiskLabel { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+.heroRiskBar { flex: 1; height: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; overflow: hidden; }
+.heroRiskFill { height: 100%; border-radius: 6px; background: var(--risk-fill, #475569); transition: width 0.35s ease-out; }
+.heroRiskVal { font-size: 12px; font-weight: 800; color: #e2e8f0; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.heroBadges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.heroPeak { font-size: 10px; color: #64748b; }
 .heroPeakVal { font-weight: 700; padding: 1px 6px; border-radius: 3px; }
-.heroConf { display: flex; align-items: center; gap: 8px; }
-.confLabel { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
-.confBar { flex: 1; height: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 3px; overflow: hidden; }
-.confFill { height: 100%; border-radius: 3px; background: #475569; transition: width 0.3s; }
-.confFillLow { background: #f59e0b; }
-.confFillHigh { background: #3b82f6; }
-.confVal { font-size: 11px; font-weight: 700; color: #e2e8f0; width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
-.heroHint { font-size: 10px; color: #64748b; line-height: 1.45; margin: 0; }
+.confBadge { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); white-space: nowrap; }
 
-/* Risk color tokens — shared across ring stroke, fill bars, tiles, pills */
+/* Risk color tokens — shared across fill bars, tiles, pills */
 .riskVeryLow { --risk-stroke: #22c55e; --risk-bg: rgba(34,197,94,0.15); --risk-fg: #22c55e; --risk-fill: #22c55e; border-color: var(--risk-stroke); }
 .riskLow { --risk-stroke: #4ade80; --risk-bg: rgba(74,222,128,0.15); --risk-fg: #4ade80; --risk-fill: #4ade80; border-color: var(--risk-stroke); }
 .riskModerate { --risk-stroke: #f59e0b; --risk-bg: rgba(245,158,11,0.15); --risk-fg: #f59e0b; --risk-fill: #f59e0b; border-color: var(--risk-stroke); }
@@ -53,13 +44,6 @@
 .fillModerate { background: #f59e0b; }
 .fillHigh { background: #f97316; }
 .fillExtreme { background: #ef5350; }
-
-/* Hook for ring progress */
-.riskVeryLow .ringProgress { stroke: #22c55e; }
-.riskLow .ringProgress { stroke: #4ade80; }
-.riskModerate .ringProgress { stroke: #f59e0b; }
-.riskHigh .ringProgress { stroke: #f87171; }
-.riskExtreme .ringProgress { stroke: #ef4444; }
 
 /* ── Summary tiles ── */
 .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 18px; }
@@ -81,11 +65,15 @@
 .dimLevel { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 .dimState { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.08); }
 .dimStateArrow { font-size: 11px; line-height: 1; }
-.stateStable { background: rgba(34, 197, 94, 0.12); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-.stateIncreasing { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
-.stateElevated { background: rgba(251, 146, 60, 0.14); color: #fb923c; border-color: rgba(251, 146, 60, 0.3); }
-.stateCritical { background: rgba(239, 68, 68, 0.18); color: #f87171; border-color: rgba(239, 68, 68, 0.4); }
-.stateImproving { background: rgba(74, 222, 128, 0.14); color: #86efac; border-color: rgba(74, 222, 128, 0.3); }
+/* ── Scheme-A token colors (v6.10.19d C) — shared by the state badge
+      and the level-name tint ── */
+.tokenCritical { background: rgba(239, 68, 68, 0.18); color: #f87171; border-color: rgba(239, 68, 68, 0.4); }
+.tokenElevated { background: rgba(251, 146, 60, 0.14); color: #fb923c; border-color: rgba(251, 146, 60, 0.3); }
+.tokenSteady { background: rgba(245, 158, 11, 0.14); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+.tokenComposed { background: rgba(74, 222, 128, 0.12); color: #4ade80; border-color: rgba(74, 222, 128, 0.25); }
+.tokenMinimal { background: rgba(34, 197, 94, 0.12); color: #22c55e; border-color: rgba(34, 197, 94, 0.3); }
+.tokenRising { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+.tokenImproving { background: rgba(74, 222, 128, 0.14); color: #86efac; border-color: rgba(74, 222, 128, 0.3); }
 
 .dimBarRow { display: flex; align-items: center; gap: 8px; }
 .dimBar { flex: 1; height: 10px; background: rgba(255, 255, 255, 0.03); border-radius: 5px; overflow: hidden; position: relative; }
@@ -106,6 +94,11 @@
 .cascadeField { display: flex; align-items: center; gap: 4px; font-size: 10px; }
 .cascadeFieldLabel { color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 .cascadeFieldValue { color: #cbd5e1; font-weight: 700; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+/* v6.10.21: volatility-to-spread band tints (L5 scoring tiers). */
+.execVolGood { color: #22c55e; }
+.execVolNeutral { color: #cbd5e1; }
+.execVolWarn { color: #f59e0b; }
+.execVolBad { color: #ef4444; }
 
 /* ─────────── Interpretation ─────────── */
 .interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 10px 12px; background: rgba(255,255,255,0.015); border-radius: 6px; border-left: 3px solid #334155; }
@@ -131,5 +124,5 @@
 
 /* ─────────── Reduced motion ─────────── */
 @media (prefers-reduced-motion: reduce) {
-    .ringProgress, .dimFill, .confFill, .summaryTile, .disclosureChevron { transition: none !important; }
+    .heroRiskFill, .dimFill, .summaryTile, .disclosureChevron { transition: none !important; }
 }

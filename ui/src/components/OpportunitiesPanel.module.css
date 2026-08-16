@@ -3,33 +3,12 @@
 .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0; text-transform: uppercase; }
 .section { margin-bottom: 16px; }
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
-.oppBadge { font-size: 14px; font-weight: 800; padding: 5px 14px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-block; margin-bottom: 10px; }
-.topSetupLabel { font-size: 9px; font-weight: 600; letter-spacing: 0.12em; color: #64748b; text-transform: uppercase; margin-bottom: 6px; }
-.headerRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.leanChip {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 3px 10px;
-    border-radius: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    border: 1px solid transparent;
-}
-.leanBull { background: rgba(34, 197, 94, 0.12); color: #22c55e; border-color: rgba(34, 197, 94, 0.30); }
-.leanBear { background: rgba(239, 68, 68, 0.12); color: #ef4444; border-color: rgba(239, 68, 68, 0.30); }
-.leanNeutral { background: rgba(245, 158, 11, 0.12); color: #f59e0b; border-color: rgba(245, 158, 11, 0.30); }
 .oppTrend { background: rgba(34,197,94,0.18); color: #22c55e; }
 .oppBreakout { background: rgba(245,158,11,0.18); color: #f59e0b; }
 .oppPullback { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); }
 .oppReversal { background: rgba(239,68,68,0.18); color: #ef4444; }
 .oppNone { background: rgba(148,163,184,0.08); color: #64748b; }
 .oppDefault { background: rgba(148,163,184,0.12); color: #94a3b8; }
-.scoreRow { display: flex; align-items: center; gap: 10px; }
-.scoreLabel { font-size: 11px; color: #94a3b8; }
-.scoreBar { flex: 1; height: 10px; background: rgba(255,255,255,0.04); border-radius: 5px; overflow: hidden; }
-.scoreFill { height: 100%; border-radius: 5px; transition: width 0.3s; }
-.scoreVal { font-size: 14px; font-weight: 700; width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
-.qualityBadge { font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 4px; text-transform: uppercase; }
 .prime { background: rgba(34,197,94,0.18); color: #22c55e; }
 .strong { background: rgba(74,222,128,0.15); color: #4ade80; }
 .moderate { background: rgba(245,158,11,0.15); color: #f59e0b; }
@@ -49,10 +28,34 @@
 .confluencePrice { font-size: 12px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; width: 70px; }
 .confluenceSources { display: flex; gap: 3px; flex: 1; flex-wrap: wrap; }
 .confluenceStr { font-size: 10px; font-weight: 700; width: 36px; text-align: right; }
-.sourceTag { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.10); text-transform: uppercase; }
+.sourceTag { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.10); text-transform: uppercase; white-space: normal; text-align: center; line-height: 1.35; }
 .noteBox { font-size: 11px; color: #cbd5e1; line-height: 1.5; padding: 10px 12px; background: rgba(255,255,255,0.02); border-radius: 6px; border-left: 3px solid #334155; }
 .noConfluence { font-size: 11px; color: #64748b; padding: 6px 0; font-style: italic; }
 .noProfiles { font-size: 11px; color: #64748b; padding: 6px 0; font-style: italic; }
+
+/* ── v6.10.19b (C1): sectioned Trade Setups — RANGE → BULL → BEAR ── */
+.setupSection { margin-top: 10px; }
+.setupSectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px;
+    border-radius: 6px 6px 0 0;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-bottom: none;
+}
+.setupSectionNeutral { background: rgba(148,163,184,0.08); }
+.setupSectionBull { background: rgba(34,197,94,0.10); }
+.setupSectionBear { background: rgba(239,68,68,0.10); }
+.setupSectionLabel { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.85); }
+.setupSectionCount {
+    font-size: 10px; font-weight: 800; min-width: 18px; text-align: center;
+    padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.75);
+}
+.setupSectionEmpty {
+    font-size: 10px; color: #64748b; font-style: italic; padding: 6px 10px;
+    border: 1px dashed rgba(255,255,255,0.06); border-top: none; border-radius: 0 0 6px 6px;
+}
 .profileList { display: flex; flex-direction: column; gap: 6px; }
 .profileCard { padding: 8px 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; border-left-width: 3px; }
 .profileCard.oppTrend { border-left-color: #22c55e; }
@@ -70,38 +73,54 @@
 .profilePreFill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .profileNotes { font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4; }
 
-/* ── Directional Setups ── */
-.directionalGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-@media (max-width: 720px) { .directionalGrid { grid-template-columns: 1fr; } }
-.sideCard { padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; border-top-width: 2px; }
-.sideCardLong { border-top-color: #22c55e; }
-.sideCardShort { border-top-color: #ef4444; }
-.sideCardHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.sideCardLabel { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.sideCardLong .sideCardLabel { color: #22c55e; }
-.sideCardShort .sideCardLabel { color: #ef4444; }
-.zoneRow { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-top: 1px solid rgba(255,255,255,0.04); font-size: 11px; }
-.zoneRow:first-of-type { border-top: none; }
-
 /* ── Trade Setups (symmetric Long + mirrored Short) ── */
 .setupPair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 @media (max-width: 720px) { .setupPair { grid-template-columns: 1fr; } }
 .setupCard { display: flex; flex-direction: column; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; }
-.setupCardActive { border-color: rgba(255,255,255,0.22); box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset; }
-.setupCardInactive { opacity: 0.62; }
-.setupCardHypo { opacity: 0.78; }
+/* v6.10.21: unified state-driven card language — all states share the
+   very-dark solid background and a thin outer border; the operational
+   state is signalled by the left-edge accent + badge + text contrast. */
+.setupCardActive      { border-color: rgba(255,255,255,0.22); box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset; }
+.setupCardQualifying  { border-color: rgba(255,255,255,0.16); }
+.setupCardReference   { border-color: rgba(148,163,184,0.25); opacity: 0.85; }
+.setupCardHypo        { opacity: 0.78; }
 .setupHeader { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-.setupHeaderLong   { background: rgba(34,197,94,0.10); }
-.setupHeaderShort  { background: rgba(239,68,68,0.10); }
+/* v6.10.20 (B): nested setup rows inside the BULLISH/BEARISH folders
+   carry the same clean, desaturated dark background as the RANGE rows —
+   the heavy solid green/red fills are gone. Direction is signalled by a
+   thin 3px left-edge accent + the colored title text only.
+   v6.10.21: the accent is STATE-driven (A = bright directional green/
+   red, B = amber, C = grey, D = red). */
+.setupHeaderLong        { background: transparent; border-left: 3px solid #22c55e; }
+.setupHeaderShort       { background: transparent; border-left: 3px solid #ef4444; }
+.setupHeaderQualifying  { background: transparent; border-left: 3px solid #f59e0b; }
+.setupHeaderReference   { background: transparent; border-left: 3px solid #64748b; }
+.setupHeaderInverted    { background: transparent; border-left: 3px solid #ef4444; }
 .setupHeaderTitle { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.92); }
-.setupHeaderLong  .setupHeaderTitle { color: #22c55e; }
-.setupHeaderShort .setupHeaderTitle { color: #ef4444; }
+.setupHeaderLong        .setupHeaderTitle { color: #22c55e; }
+.setupHeaderShort       .setupHeaderTitle { color: #ef4444; }
+.setupHeaderQualifying  .setupHeaderTitle { color: #f59e0b; }
+.setupHeaderReference   .setupHeaderTitle { color: #94a3b8; }
+.setupHeaderInverted    .setupHeaderTitle { color: #ef4444; }
+.setupHeaderRight { display: inline-flex; align-items: center; gap: 7px; }
 .setupScoreInline { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.setupStatus { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+/* v6.10.21: compact outlined Quality Level Badge (PRIME/STRONG/MODERATE/
+   MARGINAL/NONE) — sits immediately left of the raw numeric score. */
+.setupQualityPill {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+    padding: 1px 7px; border-radius: 999px;
+    border: 1px solid currentColor; background: transparent;
+    text-transform: uppercase; white-space: nowrap;
+}
+.pillPrime    { color: #22c55e; }
+.pillStrong   { color: #4ade80; }
+.pillModerate { color: #f59e0b; }
+.pillMarginal { color: #fb923c; }
+.pillNone     { color: #94a3b8; }
 .setupList { display: flex; flex-direction: column; gap: 6px; }
 .setupBody { display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 4px; }
-.setupRow { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 8px; font-family: var(--mono, monospace); font-size: 11px; }
-.setupRowLabel { font-size: 9px; font-weight: 800; color: #22d3ee; letter-spacing: 0.08em; text-transform: uppercase; }
+.setupRow { display: grid; grid-template-columns: 132px 1fr auto; align-items: center; gap: 8px; font-family: var(--mono, monospace); font-size: 11px; }
+.setupRowLabel { font-size: 9px; font-weight: 800; color: #22d3ee; letter-spacing: 0.04em; text-transform: uppercase; }
 .setupRowValue { font-weight: 700; color: rgba(255,255,255,0.95); text-align: right; }
 .setupRowStop { color: #ef4444; }
 .setupRowRr { font-size: 9px; color: rgba(255,255,255,0.55); }
@@ -112,44 +131,13 @@
 .red   { color: #ef4444; font-weight: 700; }
 .rrNone { color: rgba(255, 255, 255, 0.50); }
 
-/* ── HOLD / No Clear Setup scenario note ── */
-.scenarioNote {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    margin-bottom: 8px;
-    background: rgba(245, 158, 11, 0.06);
-    border: 1px dashed rgba(245, 158, 11, 0.35);
-    border-radius: 6px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.85);
-    line-height: 1.4;
-}
-.scenarioBadge {
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: rgba(245, 158, 11, 0.18);
-    color: #f59e0b;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
 /* ── Geometry inversion warning (entry/target on wrong side of stop) ── */
 .setupCardInverted { border-color: rgba(239, 68, 68, 0.45); border-style: dashed; }
-.geometryWarn {
-    font-size: 9px;
-    font-weight: 700;
-    color: #ef4444;
-    padding: 6px 12px 0;
-    line-height: 1.4;
-}
 
-/* ── Per-card viability badges (Actionable / Neutral / Inverted) ── */
-.setupBadgeTop {
+/* ── Per-card viability badges (v6.10.21: state-driven language) ──
+   State A: bright actionable. State B: amber qualitative.
+   State C: grey informational. State D: red warning. */
+.setupBadgeActionable {
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.06em;
@@ -161,15 +149,27 @@
     text-transform: uppercase;
     align-self: flex-start;
 }
-.setupBadgeNeutral {
+.setupBadgeAmber {
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.06em;
     padding: 2px 8px;
     margin: 6px 12px 0;
     border-radius: 3px;
-    background: rgba(245, 158, 11, 0.18);
+    background: rgba(245, 158, 11, 0.16);
     color: #f59e0b;
+    text-transform: uppercase;
+    align-self: flex-start;
+}
+.setupBadgeReference {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    margin: 6px 12px 0;
+    border-radius: 3px;
+    background: rgba(148, 163, 184, 0.14);
+    color: #94a3b8;
     text-transform: uppercase;
     align-self: flex-start;
 }
@@ -185,40 +185,18 @@
     text-transform: uppercase;
     align-self: flex-start;
 }
-.setupCardMuted {
-    opacity: 0.55;
-    border-style: dashed;
+
+/* ── State D red-flagged coordinate values ── */
+.setupRowFlagged {
+    color: #ef4444;
+    text-decoration: underline wavy rgba(239, 68, 68, 0.55) 1px;
+    text-underline-offset: 3px;
 }
 
-/* ── NoClearOpportunity placeholder strip ── */
-.noClearStrip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    margin-top: 6px;
-    background: rgba(148, 163, 184, 0.06);
-    border: 1px dashed rgba(148, 163, 184, 0.30);
-    border-radius: 6px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.55);
-    line-height: 1.4;
-}
-.noClearBadge {
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: rgba(148, 163, 184, 0.18);
-    color: #94a3b8;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-.noClearMeta {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.45);
-}
+/* ── State C: desaturated grey coordinate text on reference cards ── */
+.setupCardReference .setupRowLabel { color: #64748b; }
+.setupCardReference .setupRowValue { color: rgba(148, 163, 184, 0.68); }
+.setupCardReference .setupRowMeta { color: rgba(148, 163, 184, 0.5); }
 
 /* ── N/A R:R (Internal) ── */
 .rrValueNA {
@@ -300,8 +278,8 @@
 .dirBarBear .dirBarFill { background: #ef4444; }
 .dirBarFill.bullish { background: #22c55e; }
 .dirBarFill.bearish { background: #ef4444; }
-.dirBarFill.hold { background: rgba(245, 158, 11, 0.35); }
-.hold { color: #f59e0b; }
+.dirBarFill.range { background: rgba(245, 158, 11, 0.35); }
+.range { color: #f59e0b; }
 .dirBarLabel {
     font-size: 10px;
     font-weight: 800;
@@ -334,22 +312,4 @@
 .confluenceSideShort {
     color: #ef4444;
     border-color: rgba(239, 68, 68, 0.4);
-}
-
-/* v6.10.19 (P6): floor-boosted lean pattern fill + marker */
-.dirBarFillLean {
-    background-image: repeating-linear-gradient(
-        45deg,
-        rgba(255, 255, 255, 0.18) 0 4px,
-        transparent 4px 8px
-    );
-}
-.leanFloorTag {
-    display: block;
-    margin-top: 6px;
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    color: #f59e0b;
-    text-transform: uppercase;
 }

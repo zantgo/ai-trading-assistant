@@ -44,29 +44,152 @@
 .dimCardConf { font-size: 9px; color: #64748b; }
 .emptyGridNote { font-size: 11px; color: #64748b; font-style: italic; padding: 8px 10px; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; line-height: 1.55; }
 
-/* ── Consensus ── */
-.consensusRow { display: flex; align-items: center; gap: 14px; }
-.consensusMeter { display: flex; align-items: center; gap: 10px; width: 200px; flex-shrink: 0; }
-.consensusVal { font-size: 18px; font-weight: 800; color: #e2e8f0; width: 44px; font-variant-numeric: tabular-nums; }
-.consensusBar { flex: 1; height: 8px; background: rgba(255,255,255,0.04); border-radius: 4px; overflow: hidden; }
-.consensusFill { height: 100%; border-radius: 4px; transition: width 0.4s; }
-.consensusStrong { background: #22c55e; }
-.consensusPartial { background: #f59e0b; }
-.consensusConflict { background: #ef4444; }
-.consensusText { font-size: 11px; color: #94a3b8; flex: 1; }
-.conflictBadge { font-size: 11px; font-weight: 700; color: #f59e0b; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); padding: 6px 10px; border-radius: 5px; margin-top: 10px; }
-
-/* ── Polarization (axis sign chips below the consensus meter) */
-.polarization { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.polarLabel { font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; min-width: 70px; }
-.polarChip {
-    display: inline-flex; align-items: baseline; gap: 4px;
-    padding: 2px 8px; border-radius: 4px;
-    border: 1px solid rgba(148, 163, 184, 0.4);
-    font-family: var(--mono, monospace);
+/* ── Consensus hero ── */
+/* v6.10.20 (C): the header-container hero row is two side-by-side
+   containers — a circular consensus dial (left) and a CONSENSUS 2×2
+   axis grid (right). The flat bar + "Polarization" chip row are gone. */
+.consensusHero {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.015);
 }
-.polarKey { font-size: 9px; font-weight: 700; color: #94a3b8; }
-.polarVal { font-size: 11px; font-weight: 700; }
+.consensusGaugeCard {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: #10141a;
+    min-width: 0;
+}
+.consensusDialLabel {
+    font-size: 9px;
+    font-weight: 700;
+    color: #6f9f80;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+}
+.consensusDialRow {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-width: 0;
+}
+.consensusDial {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    flex-shrink: 0;
+}
+.consensusDialSvg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.consensusDialTrack {
+    fill: none;
+    stroke: rgba(148,163,184,0.14);
+    stroke-width: 4;
+}
+.consensusDialFill {
+    fill: none;
+    stroke-width: 4;
+    stroke-linecap: butt;
+    transition: stroke-dashoffset 0.4s ease;
+}
+.consensusDialPct {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 20px;
+    font-weight: 800;
+    color: #f8fafc;
+    font-family: var(--mono, monospace);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+.consensusDialCopy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.consensusDialHeader {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+}
+.consensusDialHeaderStrong { color: #22c55e; }
+.consensusDialHeaderPartial { color: #f59e0b; }
+.consensusDialHeaderConflict { color: #f97316; }
+.consensusDialHeaderNeutral { color: #94a3b8; }
+.consensusDialSub {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+.consensusDetails {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    min-width: 0;
+}
+.consensusDetailsLabel {
+    font-size: 9px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+}
+.axisGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.axisCard {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 10px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 6px;
+}
+.axisName {
+    font-size: 9px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.axisValue {
+    font-size: 13px;
+    font-weight: 800;
+    font-family: var(--mono, monospace);
+    font-variant-numeric: tabular-nums;
+}
+.axisStrongBull { color: #22c55e; }
+.axisStrongBear { color: #ef4444; }
+.axisSubtleBull { color: #4ade80; opacity: 0.8; }
+.axisSubtleBear { color: #f87171; opacity: 0.8; }
+.axisNeutral { color: #94a3b8; }
+.conflictBadge { font-size: 11px; font-weight: 700; color: #f97316; background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.25); padding: 6px 10px; border-radius: 5px; }
+
+@media (max-width: 720px) {
+    .consensusHero { grid-template-columns: 1fr; }
+}
 
 /* ── Per-TF cards ── */
 .tfCards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

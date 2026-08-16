@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-**Version:**  6.10 (2026-08-15) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
+**Version:**  6.10 (2026-08-16) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
 **Status:** In progress — partial implementation; multiple engines still in WIP.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
@@ -13,7 +13,7 @@
 | Engine | Backend code | Frontend | Production-ready? | Status |
 |---|---|---|---|---|
 | **DIE — Data Infrastructure** | `crates/network-adapters`, `crates/database-storage`, L2–L4 in `crates/market-analyzer` | `DataInfraDashboard` (live fetches) | **Yes — implemented** | ✅ Implemented |
-| **MME — Market Monitoring** | `crates/market-analyzer` (51 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip`, `MarketContextStrip` (all WS-fed) | **Yes — implemented** | ✅ Implemented |
+| **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | ✅ Implemented |
 | **TAE — Trade Automation** | `crates/portfolio-supervisor` (Policy engine, Execution engine, paper trading, lifecycle manager, trigger engine, veto loop) | `TradeAutomationDashboard` (hardcoded placeholder data — does not fetch) | **No — backend present, frontend is a placeholder; not production-ready** | ⚠️ WIP |
 | **PME — Portfolio Management** | `crates/portfolio-supervisor` (Safety manager, position/exposure/capital/portfolio layers, registry) | `PortfolioDashboard` (hardcoded placeholder data — does not fetch) | **No — backend present, frontend is a placeholder; not production-ready** | ⚠️ WIP |
 | **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, performance evaluator, strategy analytics, risk analytics, strategy optimizer) | `PerformanceDashboard` (fetches real data; **Backtesting** tab is a UI-only mock) | **Partial — analytics APIs work; backtesting UI is a placeholder; not production-ready** | ⚠️ WIP |
@@ -46,7 +46,7 @@ The Data Infrastructure dashboard (`ui/src/components/DataInfraDashboard.svelte`
 
 ### 2.2 MME — Market Monitoring Engine ✅
 
-- **51 indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data; the v6.6 `mark_index_spread` registry entry moved Derivatives to 8 rows and the total to 51 — see [01-01-ontology.md Appendix B §B.2](conceptual-foundations/01-01-ontology.md)).
+- **52 indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data; the v6.6 `mark_index_spread` registry entry moved Derivatives to 8 rows and the total to 51, and the v6.11 `price_trend_sharpe` entry moved Regime to 5 rows and the total to 52 — see [01-01-ontology.md Appendix B §B.2](conceptual-foundations/01-01-ontology.md)).
 - **4 configurable timeframes** (micro / fast / slow / macro), each with its own `TimeframePipeline`.
 - **12 `SignalKind` types** with 100 `(indicator, SignalKind)` declarations.
 - **10-dimension Alignment Matrix**, **Analysis Matrix**, **Opportunity Matrix**, **Risk Matrix**, **Decision Matrix**, **Overview Matrix**.

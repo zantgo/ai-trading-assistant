@@ -20,7 +20,6 @@
                 moderate: rd.moderate_pct,
                 high: rd.high_pct,
                 environment: rd.risk_environment ?? 'NO_DATA',
-                source: 'L7',
             };
         }
         const local = aggregateRisk(instances);
@@ -34,7 +33,6 @@
                 moderate: (moderate / instances.length) * 100,
                 high: (high / instances.length) * 100,
                 environment: 'LOCAL',
-                source: 'L5',
             };
         }
         return {
@@ -42,7 +40,6 @@
             moderate: 0,
             high: 0,
             environment: 'NO_DATA',
-            source: null,
         };
     });
 
@@ -84,10 +81,5 @@
             </div>
             <span class={styles.val}>{data.high.toFixed(0)}%</span>
         </div>
-    </div>
-
-    <div class={styles.footer}>
-        <span class={styles.footLabel}>Source</span>
-        <span class={styles.footVal}>{data.source ?? 'no data'}</span>
     </div>
 </div>

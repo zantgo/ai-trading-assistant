@@ -104,8 +104,12 @@
         return `M ${cx + r * Math.cos(midAngle)} ${cy - r * Math.sin(midAngle)} A ${r} ${r} 0 ${large} ${sweepFlag} ${ex} ${ey}`;
     });
     const arcColor = $derived(displayNet > 0 ? '#22c55e' : displayNet < 0 ? '#ef4444' : 'rgba(255,255,255,0.30)');
-    const netLabel = $derived(displayNet === 0 ? '0%' : `${displayNet > 0 ? '+' : ''}${displayNet}%`);
     const netColor = $derived(displayNet > 0 ? '#22c55e' : displayNet < 0 ? '#ef4444' : '#f59e0b');
+    // The center-bottom dial label is the numeric anchor for the needle —
+    // the net directional bias percentage, color-coded by sign (green LONG,
+    // red SHORT, amber neutral). It reuses the same verdict-consistent
+    // `displayNet` the needle renders (0 under a genuine HOLD verdict).
+    const netLabel = $derived(displayNet === 0 ? '0%' : `${displayNet > 0 ? '+' : ''}${displayNet}%`);
 
     // ── L6 LayerHeader — single authoritative verdict ────────────────────
     // The opportunity matrix is passed so the Risk-Adj R:R chip can
@@ -127,6 +131,7 @@
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
             markPrice,
+            overallRisk: instance?.risk?.overall_risk?.score ?? null,
             headerSpec,
             terms: {
                 microTerm: instance?.microTerm as any,
@@ -193,6 +198,11 @@
     const dangerState = $derived((dangerRaw as { state?: string } | null)?.state ?? 'Unknown');
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
     const stopLossPct = $derived(advisory?.stop_loss_distance_pct ?? 0);
+    // v6.11: setup-efficiency KPI — market quality ÷ overall risk.
+    // `null` when the advisory hasn't loaded or overall risk is zero.
+    const qualityToRiskDisplay = $derived<number | null>(
+        advisory?.quality_to_risk_ratio ?? null,
+    );
 
     // ── Top Setup card model ──────────────────────────────────────────────
     // The Recommendation panel surfaces ONLY the highest-scored qualifying
@@ -205,29 +215,35 @@
     // aggregated primary bracket so even Neutral-family profiles
     // surface a usable price level. R:R prefers the wire's per-side
     // `expected_rr_internal` over the geometric computation.
-    // v6.10.17 (A3): `topSetupSummary` now ALWAYS publishes a bracket when
-    // the opportunity matrix exists — a No Clear state yields the
-    // aggregated bracket on the bias side marked NoClear (informational),
-    // so the operator always has TPs/SLs/R:R to work with. The No Clear
-    // explanation card renders alongside it (it explains WHY there is no
-    // qualifying profile, not that no levels exist).
-    const topSetup = $derived(topSetupSummary(opportunity, analysis, decisionCtx));
-    const hasNoClearSetup = $derived(
-        !!opportunity
-            && !!advisory
-            && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity'
-            && (topSetup === null || topSetup.viability === 'NoClear'),
-    );
+    // v6.10.19c (D3): the unified container has two cases — a qualifying
+    // setup (any side, incl. NEUTRAL) headlines with its real values, or
+    // the clean "No Active Setup" empty container (fields null). The
+    // v6.10.19b no-clear explanation card was removed (redundant with
+    // the empty container).
+    const topSetup = $derived(topSetupSummary(opportunity, analysis, decisionCtx, rank.top, markPrice));
 
     // ── R:R (Risk-Adj R:R) display: when verdict is HOLD AND the
     // discount is 0, surface "N/A — no directional bias" instead of a
     // misleading "0.00" that operators read as "this trade has 0 R:R".
-    const riskAdjRrDisplay = $derived.by((): { value: string; isNA: boolean } => {
+    const riskAdjRrDisplay = $derived.by((): { value: string; isNA: boolean; reason: string | null } => {
+        // v6.10.19c (D4): the Risk-Adj R:R is bracket-aware — whenever the
+        // container has a bracket (incl. Neutral/Qualifying) the
+        // risk-discounted ratio shows: backend `expected_reward_risk_ratio`
+        // if > 0, else `container bracket R:R × (1 − overall_risk/100)`.
+        // N/A only when there is genuinely no bracket or < 0.10 floor.
         const v = decisionCtx?.expected_reward_risk_ratio ?? 0;
-        if (rank.top === 'HOLD' && v === 0) {
-            return { value: 'N/A', isNA: true };
+        if (v > 0) {
+            return { value: v.toFixed(2), isNA: false, reason: null };
         }
-        return { value: v.toFixed(2), isNA: false };
+        const rr = topSetup?.rr;
+        const riskScore = instance?.risk?.overall_risk?.score;
+        if (rr != null && riskScore != null && riskScore > 0 && riskScore < 100) {
+            const adj = rr * (1 - riskScore / 100);
+            if (adj >= 0.1) {
+                return { value: adj.toFixed(2), isNA: false, reason: null };
+            }
+        }
+        return { value: 'N/A', isNA: true, reason: topSetup?.rr_reason ?? 'no active setup' };
     });
 
     // ── Hero direction-class mapping ──────────────────────────────────────
@@ -285,24 +301,34 @@
                 <span class="{styles.gaugeNet} {biasDirection === 'LONG' ? styles.gaugeNetLong : biasDirection === 'SHORT' ? styles.gaugeNetShort : styles.gaugeNetNeutral}">{netLabel}</span>
                 <span class="{styles.gaugeLong} {biasDirection !== 'LONG' ? styles.dim : ''}">LONG</span>
             </div>
-            <!-- v6.10.19 (P6): cognitive transparency — the floors boosted
-                 this lean; the operator sees it's not a deep consensus. -->
-            {#if rank.lean_floor_applied}
-                <div class={styles.leanFloorTag}>LEAN — floor-boosted (low-confidence read)</div>
-            {/if}
         </div>
     </div>
 
-    <!-- ── Top Setup card (single highest-scored profile) ──────────────────── -->
+    <!-- ── SETUP (the single unified presentation — verdict-consistent
+         headline carrying ALL price levels: ENTRY / TARGET / SL / R:R
+         + horizon. v6.10.19b (B3): the separate "Price Levels" section is
+         gone — everything lives here, at the top, in one cohesive card.
+         Qualifying setups that did not make the headline (counter-bias /
+         any setup under HOLD) are surfaced below the card and always
+         appear on the Opportunities panel. -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>
-            {topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'Top Setup'}
+            {topSetup && topSetup.opportunity_type === 'NoActiveSetup'
+                ? 'No Active Setup'
+                : (topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'SETUP')}
             <span class={styles.sectionMeta}>
-                {topSetup ? (topSetup.below_floor ? 'not actionable' : `score ${topSetup.score.toFixed(0)}`) : 'no qualifying setup yet'}
+                {topSetup
+                    ? (topSetup.opportunity_type === 'NoActiveSetup'
+                        ? 'watch state'
+                        : (topSetup.below_floor
+                            ? 'not actionable'
+                            : `score ${(topSetup.display_score ?? topSetup.score).toFixed(0)}${topSetup.horizon ? ` · ${topSetup.horizon}` : ''}`))
+                    : 'no qualifying setup yet'}
             </span>
         </div>
         {#if topSetup}
             <div class="{styles.profileCardRec} {topSetup.direction === 'LONG' ? styles.recLong : topSetup.direction === 'SHORT' ? styles.recShort : styles.recNeutral}">
+                {#if topSetup.opportunity_type !== 'NoActiveSetup'}
                 <div class={styles.profileCardHead}>
                     <span class={styles.profileCardTitle}>
                         {sanitizeLabel(topSetup.opportunity_type)}
@@ -310,7 +336,7 @@
                     <span class="{styles.profileCardDir} {topSetup.direction === 'LONG' ? styles.dirLong : topSetup.direction === 'SHORT' ? styles.dirShort : styles.dirNeutral}">
                         {topSetup.direction === 'LONG' ? 'LONG' : topSetup.direction === 'SHORT' ? 'SHORT' : 'NEUTRAL'}
                     </span>
-                    <span class={styles.profileCardScore}>{topSetup.score.toFixed(0)}</span>
+                    <span class={styles.profileCardScore}>{(topSetup.display_score ?? topSetup.score).toFixed(0)}</span>
                 </div>
                 {#if topSetup.below_floor}
                     <!-- v6.10.19 (T3): sub-1 R:R reference brackets are
@@ -327,13 +353,14 @@
                     <div class={styles.profileCardBadgeNeutral}>HOLD · NO DIRECTIONAL EDGE</div>
                 {:else if topSetup.viability === 'GeometryInverted'}
                     <div class={styles.profileCardBadgeInverted}>GEOMETRY INVERTED</div>
-                {:else if topSetup.viability === 'NoClear'}
+                {:else if topSetup.viability === 'NoClear' && topSetup.opportunity_type !== 'NoActiveSetup'}
                     <div class={styles.profileCardBadgeNoClear}>NO CLEAR SETUP</div>
                 {/if}
                 <div class={styles.profileCardPre}>
                     <span class={styles.profileCardPreLabel}>Preconditions</span>
                     <span class={styles.profileCardPreVal}>{topSetup.preconditions_met}/{topSetup.preconditions_total}</span>
                 </div>
+                {/if}
                 <!-- ENTRY / TARGET / SL / R:R are ALWAYS rendered. The fallback
                      chain goes per-profile zones → aggregated primary bracket,
                      so even Neutral-family profiles surface the close-pinned
@@ -358,7 +385,7 @@
                         </span>
                     </div>
                     <div class={styles.profileRecZone}>
-                        <span class={styles.profileRecZoneLabel}>SL</span>
+                        <span class={styles.profileRecZoneLabel}>Stop-Loss</span>
                         <span class={styles.profileRecZoneValue}>
                             {topSetup.zones && topSetup.zones.invalidation > 0
                                 ? `$${fmtPriceScale(topSetup.zones.invalidation, markPrice)}`
@@ -366,14 +393,14 @@
                         </span>
                     </div>
                     <div class={styles.profileRecZone}>
-                        <span class={styles.profileRecZoneLabel}>R:R</span>
+                        <span class={styles.profileRecZoneLabel}>Reward-to-Risk</span>
                         <span class={styles.profileRecZoneValue}>
                             {#if topSetup.rr != null}
                                 <span class={rrColorCls(topSetup.rr)}>
-                                    {topSetup.rr >= 9.99 ? 'R:R 1 : 9.99+' : topSetup.rr >= 5 ? `R:R 1 : ${topSetup.rr.toFixed(1)}` : `R:R 1 : ${topSetup.rr.toFixed(2)}`}
+                                    {topSetup.rr >= 9.99 ? '9.99+' : topSetup.rr >= 5 ? topSetup.rr.toFixed(1) : topSetup.rr.toFixed(2)}
                                 </span>
                             {:else}
-                                <span class={styles.rrNa} title={topSetup.rr_reason ?? 'R:R not available'}>R:R N/A</span>
+                                <span class={styles.rrNa} title={topSetup.rr_reason ?? 'Reward-to-Risk not available'}>—</span>
                             {/if}
                         </span>
                     </div>
@@ -381,14 +408,19 @@
                 {#if topSetup.rationale && topSetup.rationale !== `${topSetup.opportunity_type}: preconditions ${topSetup.preconditions_met}/${topSetup.preconditions_total}`}
                     <div class={styles.profileCardNotes}>{topSetup.rationale}</div>
                 {/if}
-            </div>
-        {/if}
-        {#if hasNoClearSetup}
-            <div class={styles.noClearCard}>
-                <div class={styles.noClearTitle}>No Clear Setup</div>
-                <div class={styles.noClearBody}>
-                    {advisory?.final_recommendation || opportunity?.invalidation_note || 'No qualifying setup; market conditions do not currently favor a directional trade.'}
-                </div>
+                {#if (topSetup.alternate_setups?.length ?? 0) > 0}
+                    <div class={styles.alternateNote}>
+                        {#each topSetup.alternate_setups.slice(0, 2) as alt, i (i)}
+                            <span class={styles.alternateItem}>
+                                {alt.side === 'LONG' ? 'LONG' : alt.side === 'SHORT' ? 'SHORT' : 'NEUTRAL'} {sanitizeLabel(alt.opportunity_type)} ({alt.preconditions_met}/{alt.preconditions_total})
+                            </span>
+                        {/each}
+                        {#if topSetup.alternate_setups.length > 2}
+                            <span class={styles.alternateItem}>+{topSetup.alternate_setups.length - 2} more</span>
+                        {/if}
+                        <span class={styles.alternateLabel}>qualifying — see Opportunities</span>
+                    </div>
+                {/if}
             </div>
         {/if}
     </div>
@@ -404,14 +436,14 @@
                 </span>
             </div>
             <div class={styles.kpi}>
-                <span class={styles.kpiLabel}>Risk-Adj R:R</span>
+                <span class={styles.kpiLabel}>Risk-Adjusted Reward-to-Risk</span>
                 <span class={styles.kpiVal} style="color: {riskAdjRrDisplay.isNA ? '#94a3b8' : rrDisplay >= 2 ? '#22c55e' : rrDisplay >= 1 ? '#f59e0b' : '#ef4444'}">
                     {(() => {
-                        if (riskAdjRrDisplay.isNA) return riskAdjRrDisplay.value;
+                        if (riskAdjRrDisplay.isNA) return '\u2014';
                         const v = Number(riskAdjRrDisplay.value);
-                        if (Number.isNaN(v) || v <= 0) return 'R:R \u2014';
+                        if (Number.isNaN(v) || v <= 0) return '\u2014';
                         const norm = v >= 9.99 ? '9.99+' : v >= 5 ? v.toFixed(1) : v.toFixed(2);
-                        return `R:R 1 : ${norm}`;
+                        return norm;
                     })()}
                 </span>
             </div>
@@ -433,74 +465,22 @@
                     {dangerDisplay.toFixed(0)} ({dangerLevel})
                 </span>
             </div>
+            <div class={styles.kpi}>
+                <span class={styles.kpiLabel}>Quality/Risk</span>
+                {#if qualityToRiskDisplay != null}
+                    <span class={styles.kpiVal} style="color: {qualityToRiskDisplay >= 2 ? '#22c55e' : qualityToRiskDisplay >= 1 ? '#f59e0b' : '#ef4444'}" title="Setup-efficiency: market quality ÷ overall risk (higher = the setup's quality justifies the risk)">
+                        {qualityToRiskDisplay.toFixed(2)}
+                    </span>
+                {:else}
+                    <span class={styles.kpiVal} style="color: #94a3b8">—</span>
+                {/if}
+            </div>
         </div>
     </div>
 
-    <!-- ── Why (top-3 rationale, gated by rank consistency) -->
+    <!-- ── Strategy (environment guidance — never a trade call) ── -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Why</div>
-        {#if rank.top === 'HOLD'}
-            <div class={styles.whyNote}>
-                No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.
-            </div>
-        {/if}
-        <ul class={styles.why}>
-            {#each rank.rationale.slice(0, 3) as line, i (i)}
-                <li class={styles.whyItem}>{line}</li>
-            {/each}
-        </ul>
-    </div>
-
-    <!-- ── Price Levels ──
-         LONG/SHORT verdict: show the active side's per-side zones (the
-         primary actionable bracket).
-         HOLD verdict: collapse the two-card hypothetical grid into a
-         single muted line. The Top Setup card above carries the
-         aggregated bracket on the net-bias side — R:R reads N/A when
-         geometry is inverted and the bracket is non-actionable. -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Price Levels</div>
-        {#if rank.top === 'LONG' || rank.top === 'SHORT'}
-            {@const side = rank.top === 'LONG'
-                ? { entry: opportunity?.long_entry_zone, target: opportunity?.long_target_zone, inval: opportunity?.long_invalidation_level }
-                : { entry: opportunity?.short_entry_zone, target: opportunity?.short_target_zone, inval: opportunity?.short_invalidation_level }}
-            <div class={styles.grid2}>
-                <div class={styles.card}>
-                    <span class={styles.cardLabel}>Entry Zone — {rank.top}</span>
-                    <span class={styles.cardValue}>
-                        {side.entry ? `$${fmtPriceScale(side.entry.low, markPrice)} – $${fmtPriceScale(side.entry.high, markPrice)}` : '—'}
-                    </span>
-                </div>
-                <div class={styles.card}>
-                    <span class={styles.cardLabel}>Target Zone — {rank.top}</span>
-                    <span class={styles.cardValue}>
-                        {side.target ? `$${fmtPriceScale(side.target.low, markPrice)} – $${fmtPriceScale(side.target.high, markPrice)}` : '—'}
-                    </span>
-                </div>
-                <div class={styles.card}>
-                    <span class={styles.cardLabel}>Invalidation — {rank.top}</span>
-                    <span class={styles.cardValue}>
-                        {side.inval ? `$${fmtPriceScale(side.inval, markPrice)}` : '—'}
-                    </span>
-                </div>
-                <div class={styles.card}>
-                    <span class={styles.cardLabel}>Horizon</span>
-                    <span class={styles.cardValue}>{opportunity?.time_horizon ?? '—'}</span>
-                </div>
-            </div>
-        {:else}
-            <div class={styles.holdPriceLevels}>
-                <span class={styles.holdPriceLevelsLabel}>No active setup — verdict is HOLD.</span>
-                <span class={styles.holdPriceLevelsSub}>
-                    The Top Setup card above carries the aggregated bracket on the net-bias side for reference; when geometry is inverted its R:R reads N/A and the bracket is non-actionable.
-                </span>
-            </div>
-        {/if}
-    </div>
-
-    <!-- ── Strategy (environment playbook — never a trade call) ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Environment Playbook</div>
+        <div class={styles.sectionTitle}>Environment Guidance</div>
         {#if rank.top === 'HOLD'}
             <div class={styles.whyNote}>For reference — no active directional call. The guidance below describes the environment, not a trade trigger.</div>
         {/if}
@@ -558,5 +538,19 @@
                 <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top)}</div>
             {/if}
         {/if}
+    </div>
+    <!-- ── Why (top-3 rationale, gated by rank consistency) -->
+    <div class={styles.section}>
+        <div class={styles.sectionTitle}>Why</div>
+        {#if rank.top === 'HOLD'}
+            <div class={styles.whyNote}>
+                No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.
+            </div>
+        {/if}
+        <ul class={styles.why}>
+            {#each rank.rationale.slice(0, 3) as line, i (i)}
+                <li class={styles.whyItem}>{line}</li>
+            {/each}
+        </ul>
     </div>
 </div>

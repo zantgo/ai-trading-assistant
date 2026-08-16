@@ -177,17 +177,6 @@ impl TimeframeSlot {
             },
         }
     }
-
-    /// True if the slot is one of the 4 default ladder positions.
-    pub fn is_legacy(&self) -> bool {
-        matches!(
-            self,
-            TimeframeSlot::Micro
-                | TimeframeSlot::Fast
-                | TimeframeSlot::Slow
-                | TimeframeSlot::Macro
-        )
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -557,98 +546,6 @@ impl MarketSnapshot {
     }
     pub fn macd_crossover_detected(&self) -> Option<bool> {
         self.ind_label("macd").map(|l| l.contains("CROSSOVER"))
-    }
-
-    // ── State-string accessors (legacy vocabulary) ──
-    pub fn ema_stack_state(&self) -> Option<String> {
-        self.ind_label("ema_stack").map(|l| {
-            if l.contains("BULLISH") {
-                "bullish".to_string()
-            } else if l.contains("BEARISH") {
-                "bearish".to_string()
-            } else {
-                "tangled".to_string()
-            }
-        })
-    }
-    pub fn vwap_bias(&self) -> Option<String> {
-        self.ind_label("vwap").map(|l| {
-            if l.contains("PREMIUM") {
-                "premium".to_string()
-            } else if l.contains("DISCOUNT") {
-                "discount".to_string()
-            } else {
-                "equilibrium".to_string()
-            }
-        })
-    }
-    pub fn adx_regime(&self) -> Option<String> {
-        self.ind_label("adx").map(|l| {
-            if l.contains("CONGESTION") {
-                "congestion".to_string()
-            } else if l.contains("EMERGING") {
-                "emerging".to_string()
-            } else if l.contains("CLIMACTIC") {
-                "extreme".to_string()
-            } else if l.contains("STRONG") {
-                "strong".to_string()
-            } else {
-                "congestion".to_string()
-            }
-        })
-    }
-    pub fn squeeze_momentum_direction(&self) -> Option<String> {
-        self.ind("squeeze").map(|v| {
-            let l = v.state_label.as_str();
-            if l.contains("BULLISH") && v.normalized >= 0.5 {
-                "BullishAcceleration".to_string()
-            } else if l.contains("BULLISH") {
-                "BullishDeceleration".to_string()
-            } else if l.contains("BEARISH") && v.normalized <= -0.5 {
-                "BearishAcceleration".to_string()
-            } else if l.contains("BEARISH") {
-                "BearishDeceleration".to_string()
-            } else {
-                "Flat".to_string()
-            }
-        })
-    }
-    pub fn macd_trend_state(&self) -> Option<String> {
-        let hist = self.ind_sub("macd", "histogram")?.abs();
-        let peak = self.ind_sub("macd", "histogram_peak")?.abs();
-        Some(if peak > 0.0 && hist < peak {
-            "decelerating".to_string()
-        } else {
-            "accelerating".to_string()
-        })
-    }
-    pub fn macd_crossover_direction(&self) -> Option<String> {
-        let v = self.ind("macd")?;
-        if !v.state_label.contains("CROSSOVER") {
-            return None;
-        }
-        Some(
-            if v.normalized >= 0.0 {
-                "BULLISH"
-            } else {
-                "BEARISH"
-            }
-            .to_string(),
-        )
-    }
-    pub fn chart_pattern(&self) -> Option<String> {
-        self.ind("patterns").and_then(|v| {
-            if v.normalized > 0.0 {
-                Some("BullishPattern".to_string())
-            } else if v.normalized < 0.0 {
-                Some("BearishPattern".to_string())
-            } else {
-                None
-            }
-        })
-    }
-    pub fn chart_pattern_confidence(&self) -> Option<Decimal> {
-        Self::dec(self.ind_raw("patterns"))
     }
 
     // ── Fibonacci resting-level accessors (raw prices) ──

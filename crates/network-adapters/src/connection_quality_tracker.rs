@@ -237,18 +237,6 @@ impl ConnectionQualityTracker {
             score,
         }
     }
-
-    pub async fn run_persistence_loop(
-        self: Arc<Self>,
-        db_pool: sqlx::SqlitePool,
-        cancel: tokio_util::sync::CancellationToken,
-    ) {
-        let registry = ConnectionQualityRegistry::default();
-        registry
-            .insert_existing("GLOBAL", 0, (*self).clone())
-            .await;
-        registry.run_persistence_loop(db_pool, cancel).await;
-    }
 }
 
 /// Registry of per-`(pair_key, timeframe_secs)` quality scopes
@@ -272,18 +260,6 @@ impl ConnectionQualityRegistry {
             .entry((pair_key.to_string(), timeframe_secs))
             .or_insert_with(ConnectionQualityTracker::new)
             .clone()
-    }
-
-    /// Register a pre-built tracker under a scope key (used for legacy
-    /// process-wide tracking and in tests).
-    pub async fn insert_existing(
-        &self,
-        pair_key: &str,
-        timeframe_secs: u64,
-        tracker: ConnectionQualityTracker,
-    ) {
-        let mut scopes = self.scopes.write().await;
-        scopes.insert((pair_key.to_string(), timeframe_secs), tracker);
     }
 
     /// Report for one scope, or `None` when the scope has never been seen.

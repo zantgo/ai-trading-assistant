@@ -101,27 +101,37 @@
         }
     }
 
-    function stateClass(s: string): string {
-        const n = s ? s.toLowerCase().replace(/_/g, '') : 'stable';
-        switch (n) {
-            case 'stable': return styles.stateStable;
-            case 'increasing': return styles.stateIncreasing;
-            case 'elevated': return styles.stateElevated;
-            case 'critical': return styles.stateCritical;
-            case 'improving': return styles.stateImproving;
-            default: return styles.stateStable;
+    // v6.10.19d (C): unified Scheme-A state badge. Trend states win when
+    // present; otherwise the LEVEL maps to its distinct token:
+    // Extreme→CRITICAL ⚠ / High→ELEVATED ↑ / Moderate→STEADY → /
+    // Low→COMPOSED → / VeryLow→MINIMAL →, with RISING ↗ / IMPROVING ↓
+    // for the trends. The level NAME keeps its wording on the dimension
+    // card, tinted by the token's color.
+    function riskToken(d: { level: string; state: string } | undefined): { token: string; icon: string } {
+        if (!d) return { token: 'STEADY', icon: '\u2192' };
+        const st = String(d.state).toLowerCase();
+        if (st === 'increasing') return { token: 'RISING', icon: '\u2197' };
+        if (st === 'improving') return { token: 'IMPROVING', icon: '\u2198' };
+        switch (normalizeLevel(d.level)) {
+            case 'Verylow': return { token: 'MINIMAL', icon: '\u2192' };
+            case 'Low': return { token: 'COMPOSED', icon: '\u2192' };
+            case 'Moderate': return { token: 'STEADY', icon: '\u2192' };
+            case 'High': return { token: 'ELEVATED', icon: '\u2191' };
+            case 'Extreme': return { token: 'CRITICAL', icon: '\u26A0' };
+            default: return { token: 'STEADY', icon: '\u2192' };
         }
     }
 
-    function stateArrow(s: RiskState | string): string {
-        const n = typeof s === 'string' ? s.toLowerCase().replace(/_/g, '') : 'stable';
-        switch (n) {
-            case 'stable': return '\u2192';
-            case 'increasing': return '\u2197';
-            case 'elevated': return '\u2191';
-            case 'critical': return '\u26A0';
-            case 'improving': return '\u2198';
-            default: return '\u2192';
+    function tokenClass(token: string): string {
+        switch (token) {
+            case 'CRITICAL': return styles.tokenCritical;
+            case 'ELEVATED': return styles.tokenElevated;
+            case 'STEADY': return styles.tokenSteady;
+            case 'COMPOSED': return styles.tokenComposed;
+            case 'MINIMAL': return styles.tokenMinimal;
+            case 'RISING': return styles.tokenRising;
+            case 'IMPROVING': return styles.tokenImproving;
+            default: return styles.tokenSteady;
         }
     }
 
@@ -212,8 +222,15 @@
         return `0.0% (balanced)`;
     }
 
-    const ringRadius = 40;
-    const ringCircumference = 2 * Math.PI * ringRadius;
+    /** v6.10.21: volatility-to-spread band tint mirroring the L5 scoring
+     *  tiers — ≥ 10 favorable (green), 3–10 neutral, 1.5–3 moderate
+     *  friction (amber), < 1.5 spread-friction-dominated (red). */
+    function volToSpreadClass(ratio: number): string {
+        if (ratio >= 10) return styles.execVolGood;
+        if (ratio < 1.5) return styles.execVolBad;
+        if (ratio < 3) return styles.execVolWarn;
+        return styles.execVolNeutral;
+    }
 
     // L5 LayerHeader — single authoritative badge (overall risk level);
     // sublabel is the risk `state`. Score chip uses `riskDangerColor`
@@ -235,45 +252,31 @@
         {/snippet}
     </LayerHeader>
 
-    <!-- ── Hero: ring + confidence (Level badge + State pill now live in
-            the canonical LayerHeader; the body keeps the ring + per-dim
-            confidence visualisation as the L5 supplement) ── -->
+    <!-- v6.10.19d (C): the hero is a RISK PROGRESS BAR (the ring is
+         gone) + a Confidence badge next to the score. The bar carries the
+         "lower is safer" tooltip; the Confidence badge explains itself.
+         No caption text below the hero. -->
     <section class={styles.hero}>
-        <div class={styles.ring}>
-            <svg viewBox="0 0 96 96" class={styles.ringSvg}
-                 role="img"
-                 aria-label="Overall risk {risk ? risk.overall_risk.score.toFixed(0) : '0'} out of 100">
-                <circle cx="48" cy="48" r={ringRadius} class={styles.ringTrack} />
-                <circle cx="48" cy="48" r={ringRadius}
-                        class="{styles.ringProgress} {risk ? levelClass(risk.overall_risk.level) : ''}"
-                        stroke-dasharray={ringCircumference}
-                        stroke-dashoffset={ringCircumference * (1 - Math.min(risk?.overall_risk?.score ?? 0, 100) / 100)}
-                        transform="rotate(-90 48 48)" />
-            </svg>
-            <div class={styles.ringCenter}>
-                <span class={styles.ringScore}>{risk ? risk.overall_risk.score.toFixed(0) : '\u2014'}</span>
-                <span class={styles.ringUnit}>{risk ? '/ 100' : ''}</span>
+        <div class={styles.heroRiskRow}
+             title="Overall risk \u2014 lower is safer">
+            <span class={styles.heroRiskLabel}>Risk</span>
+            <div class={styles.heroRiskBar}>
+                <div class="{styles.heroRiskFill} {risk ? levelClass(risk.overall_risk.level) : ''}"
+                     style="width: {risk ? Math.min(risk.overall_risk.score, 100).toFixed(1) : '0'}%"></div>
             </div>
+            <span class={styles.heroRiskVal}>{risk ? risk.overall_risk.score.toFixed(0) : '\u2014'} / 100</span>
         </div>
-        <div class={styles.heroInfo}>
+        <div class={styles.heroBadges}>
             {#if topSeverity && risk && topSeverity !== risk.overall_risk.level}
-                <div class={styles.heroPeakRow}>
-                    <span class={styles.heroPeak}>
-                        peak: <span class="{styles.heroPeakVal} {labelClass(topSeverity)}">{topSeverity}</span>
-                    </span>
-                </div>
+                <span class={styles.heroPeakRow}>
+                    <span class={styles.heroPeak}>Top risk:</span>
+                    <span class="{styles.heroPeakVal} {labelClass(topSeverity)}">{topSeverity}</span>
+                </span>
             {/if}
-            <div class={styles.heroConf}>
-                <span class={styles.confLabel}>Confidence</span>
-                <div class={styles.confBar}>
-                    <div class="{styles.confFill} {risk ? (risk.overall_risk.confidence >= 50 ? styles.confFillHigh : styles.confFillLow) : ''}"
-                         style="width: {risk ? Math.min(risk.overall_risk.confidence, 100).toFixed(1) : '0'}%"></div>
-                </div>
-                <span class={styles.confVal}>{risk ? risk.overall_risk.confidence.toFixed(0) : '\u2014'}%</span>
-            </div>
-            <p class={styles.heroHint}>
-                Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.
-            </p>
+            <span class={styles.confBadge}
+                  title="Confidence of the risk assessment \u2014 higher is more trustworthy">
+                Confidence {risk ? risk.overall_risk.confidence.toFixed(0) : '\u2014'}%
+            </span>
         </div>
     </section>
 
@@ -300,6 +303,7 @@
         {#if sortedDims.length > 0}
             <div class={styles.dimCards}>
                 {#each sortedDims as dim (dim.key)}
+                    {@const token = riskToken(dim.data)}
                     {#if dim.data}
                         {@const levelFillCls = fillClass(dim.data.level)}
                         <article class={styles.dimCard} aria-label="{dim.name}: {dim.data.level}, score {dim.data.score}">
@@ -309,10 +313,10 @@
                                     <span class={styles.dimWeight}>{Math.round(dim.weight * 100)}% wt</span>
                                 </div>
                                 <div class={styles.dimBadges}>
-                                    <span class="{styles.dimLevel} {labelClass(dim.data.level)}">{dim.data.level}</span>
-                                    <span class="{styles.dimState} {stateClass(dim.data.state)}">
-                                        <span class={styles.dimStateArrow}>{stateArrow(dim.data.state)}</span>
-                                        <span>{dim.data.state.toUpperCase()}</span>
+                                    <span class="{styles.dimLevel} {tokenClass(token.token)}">{dim.data.level}</span>
+                                    <span class="{styles.dimState} {tokenClass(token.token)}">
+                                        <span class={styles.dimStateArrow}>{token.icon}</span>
+                                        <span>{token.token}</span>
                                     </span>
                                 </div>
                             </header>
@@ -359,6 +363,20 @@
                                             <span class={styles.cascadeFieldValue}>{cascadeAsymmetryText(cascadeCluster.cascade_asymmetry)}</span>
                                         </span>
                                     {/if}
+                                </div>
+                            {/if}
+
+                            {#if dim.key === 'execution_risk' && dim.data.volatility_to_spread_ratio != null}
+                                <div class={styles.cascadeExtra}>
+                                    <span class={styles.cascadeField}>
+                                        <span class={styles.cascadeFieldLabel}>ATR-to-Spread</span>
+                                        <span
+                                            class="{styles.cascadeFieldValue} {volToSpreadClass(dim.data.volatility_to_spread_ratio)}"
+                                            title="ATR(14) ÷ top-of-book spread — execution-friction gauge. Green ≥ 10 (favorable), amber 1.5–3 (moderate friction), red < 1.5 (spread friction dominates)."
+                                        >
+                                            {dim.data.volatility_to_spread_ratio.toFixed(1)}×
+                                        </span>
+                                    </span>
                                 </div>
                             {/if}
                         </article>

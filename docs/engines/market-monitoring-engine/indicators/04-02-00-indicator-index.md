@@ -1,12 +1,12 @@
 # Indicator Documentation Index
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 
-> 51 indicators across 8 functional groups. Registry-verified count: 51 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-05`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry. The registry describes capability and never changes with runtime config.
+> **52** indicators across 8 functional groups. Registry-verified count: 52 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-08-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry. The registry describes capability and never changes with runtime config.
 >
 > **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/market-analyzer/src/indicators/registry.rs` and updated on every registry change.
 >
-> **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index (01 → 51). The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
+> **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index (01 → 52). The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
 
 ---
 
@@ -80,14 +80,15 @@
 
 ---
 
-## REGIME (4 indicators)
+## REGIME (5 indicators)
 
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
-|---|---|-----|-------------|-------|-----|---------|----------|
+|---|---------|-----|-------------|-------|-----|---------|----------|
 | 36 | `04-02-36-aroon.md` | `aroon` | Aroon | Hybrid | Y | TrendFlip×2, Threshold×2 | [04-02-36-aroon.md](04-02-36-aroon.md) |
 | 37 | `04-02-37-choppiness.md` | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease | [04-02-37-choppiness.md](04-02-37-choppiness.md) |
 | 38 | `04-02-38-linreg-slope.md` | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 | [04-02-38-linreg-slope.md](04-02-38-linreg-slope.md) |
 | 39 | `04-02-39-zscore.md` | `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross | [04-02-39-zscore.md](04-02-39-zscore.md) |
+| 52 | `04-02-52-price-trend-sharpe.md` | `price_trend_sharpe` | Price Trend Sharpe | Lagging | Y | — (data-only) | [04-02-52-price-trend-sharpe.md](04-02-52-price-trend-sharpe.md) |
 
 ---
 
@@ -123,9 +124,9 @@
 
 | Metric | Count |
 |--------|-------|
-| Authoritative Registry Entries | 51 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives) |
-| Files in this directory | 52 (51 entries + this master index) |
-| Directional (scoring contributors) | 41 |
+| Authoritative Registry Entries | 52 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional + 8 Derivatives) |
+| Files in this directory | 53 (52 entries + this master index) |
+| Directional (scoring contributors) | 42 |
 | Non-Directional Gates | 10 (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest, Mark-Index Spread) |
 | Divergence-Bearing Indicators (`supports_divergence: true`) | 8 (RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze) |
 | Standalone Divergence Indicators | 1 (`oi_price_divergence` — own registry entry & JSON key) |

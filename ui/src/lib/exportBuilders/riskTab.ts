@@ -76,6 +76,9 @@ export interface RiskDimensionExport {
   is_cascade_dim: boolean;
   not_active: boolean;
   cascade_extras: RiskCascadeExtras | null;
+  /** v6.11: execution-friction gauge on the Execution Risk dimension —
+   *  ATR(14) ÷ top-of-book spread. `null` when absent (all other dims). */
+  execution_extras: { volatility_to_spread_ratio: number | null } | null;
 }
 
 export interface RiskHeadlineParts {
@@ -87,10 +90,6 @@ export interface RiskHeadlineParts {
   overall_level: string;
 }
 
-export interface RiskHeroHintBlock {
-  hint: string;
-}
-
 export interface RiskDisclosureBlock {
   weights: Array<{ label: string; pct: number }>;
   note: string;
@@ -100,7 +99,7 @@ export interface RiskPayload {
   source_tab: 'risk';
   meta: MetaEnvelope;
   header: HeaderBlock;
-  hero: (RiskHeroBlock & RiskHeroHintBlock) | null;
+  hero: RiskHeroBlock | null;
   summary_counts: RiskSummaryCountsBlock;
   dimensions: RiskDimensionExport[];
   headline_parts: RiskHeadlineParts | null;
@@ -173,16 +172,21 @@ function normalizeLevelKey(l: string): string {
   return l ? l.toLowerCase().replace(/_/g, '') : 'moderate';
 }
 
-function stateArrow(state: string): string {
-  // Wire states are PascalCase ("Critical"); the screen normalizes the
-  // arrow lookup to lowercase — mirror it exactly.
-  switch (String(state).toLowerCase()) {
-    case 'improving':  return '↘';
-    case 'increasing': return '↗';
-    case 'elevated':   return '↑';
-    case 'critical':   return '⚠';
-    case 'stable':
-    default:           return '→';
+// v6.10.19d (C): unified Scheme-A state tokens shared with RiskPanel —
+// trend states win when present, otherwise the LEVEL maps to its token
+// (Extreme→CRITICAL / High→ELEVATED / Moderate→STEADY / Low→COMPOSED /
+// VeryLow→MINIMAL; trends RISING ↗ / IMPROVING ↘).
+function riskToken(level: string | undefined, state: string | undefined): { token: string; icon: string } {
+  const st = String(state ?? '').toLowerCase();
+  if (st === 'increasing') return { token: 'RISING', icon: '↗' };
+  if (st === 'improving') return { token: 'IMPROVING', icon: '↘' };
+  switch (normalizeLevelKey(level ?? '')) {
+    case 'verylow': return { token: 'MINIMAL', icon: '→' };
+    case 'low':     return { token: 'COMPOSED', icon: '→' };
+    case 'moderate':return { token: 'STEADY', icon: '→' };
+    case 'high':    return { token: 'ELEVATED', icon: '↑' };
+    case 'extreme': return { token: 'CRITICAL', icon: '⚠' };
+    default:        return { token: 'STEADY', icon: '→' };
   }
 }
 
@@ -307,6 +311,7 @@ function buildDimensionsBlock(
       weight_mark_pct: Math.round(def.weight * 100),
       is_cascade_dim: def.isCascade,
       cascade_extras: def.isCascade ? buildCascadeExtras(flow, cluster) : null,
+      execution_extras: null,
     }));
   }
   const decorated = RISK_DIMENSION_DEFS.map((def) => {
@@ -333,7 +338,12 @@ function buildDimensionsBlock(
     awaiting_badge: null,
     level: dim?.level ?? 'UNKNOWN',
     state: dim?.state ?? 'UNKNOWN',
-    state_display: `${stateArrow(dim?.state ?? 'STABLE')} ${(dim?.state ?? 'UNKNOWN').toUpperCase()}`,
+    // v6.10.19d (C): state_display mirrors the screen's Scheme-A badge
+    // (`{icon} {TOKEN}`), e.g. "⚠ CRITICAL" or "↗ RISING".
+    state_display: (() => {
+      const t = riskToken(dim?.level, dim?.state);
+      return `${t.icon} ${t.token}`;
+    })(),
     confidence: Math.round(dim?.confidence ?? 0),
     evidence: dim?.evidence ?? [],
     // Screen chip for High/Extreme dims that carry no recorded evidence.
@@ -347,6 +357,10 @@ function buildDimensionsBlock(
     weight_mark_pct: Math.round(def.weight * 100),
     is_cascade_dim: def.isCascade,
     cascade_extras: def.isCascade ? buildCascadeExtras(flow, cluster) : null,
+    execution_extras:
+      def.key === 'execution_risk' && dim?.volatility_to_spread_ratio != null
+        ? { volatility_to_spread_ratio: dim.volatility_to_spread_ratio }
+        : null,
   }));
 }
 
@@ -460,10 +474,10 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
     note: 'Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.',
   };
   const baseHero = risk ? buildHeroBlock(risk) : null;
-  const hero = baseHero
-    // Verbatim screen copy (RiskPanel.svelte hero hint).
-    ? { ...baseHero, hint: 'Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.' }
-    : null;
+  // v6.10.19d (C): the "Lower is safer." caption was removed from the
+  // hero — the guidance now lives on the bar's tooltip only, so the
+  // payload carries the data fields and no `hint` string.
+  const hero = baseHero;
   const payload: RiskPayload = {
     source_tab: 'risk',
     meta,

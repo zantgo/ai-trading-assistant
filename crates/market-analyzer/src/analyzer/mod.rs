@@ -43,9 +43,11 @@ pub mod normalize;
 pub mod warm;
 pub use warm::{warm_indicators_for_timeframe, WarmedPipelineState, HIST_BUFFER_MAX};
 
-/// Canonical buffer size from `[candle_buffer] size` (CB-01). Used as the
-/// higher-tier system-gate (Layer 2) — the pipeline transitions `Loading → Live`
-/// when the buffer reaches this count. Default 500.
+/// Canonical buffer size from `[candle_buffer] size` (CB-01) — the
+/// historical warmup depth. Used as the higher-tier system-gate (Layer 2) —
+/// the pipeline transitions `Loading → Live` when the buffer reaches this
+/// count. Independent of the indicator floor (`INDICATORS_MAX_BARS_REQUIRED
+/// = 300`) and the absolute cap (`HIST_BUFFER_MAX = 1000`). Default 500.
 pub const DEFAULT_BUFFER_SIZE: usize = 500;
 
 pub struct TimeframePipeline {
@@ -190,20 +192,6 @@ impl ActivePair {
         match hits.len() {
             0 => Err(format!("No slot matches timeframe_secs={timeframe_secs}")),
             _ => Ok(hits[0].1),
-        }
-    }
-
-    pub fn subscribe_broadcast(&self, timeframe_secs: u64) -> broadcast::Receiver<MarketSnapshot> {
-        // Existing WS callers still key by duration. We fall back to the
-        // micro pipeline only when there is exactly no match; collisions
-        // (two slots sharing a duration) propagate as an error and never
-        // silently collapse onto the same broadcast channel.
-        match self.pipeline_for_duration(timeframe_secs) {
-            Ok(p) => p.broadcast_tx.subscribe(),
-            Err(e) => {
-                eprintln!("ActivePair::subscribe_broadcast fallback to micro: {e}");
-                self.micro.broadcast_tx.subscribe()
-            }
         }
     }
 
@@ -496,7 +484,13 @@ pub fn build_indicator_lifecycle_map(
             prev_status.and_then(|p| p.last_error.clone())
         };
         let feed_state = if matches!(target_state, IndicatorLifecycleState::Live) {
-            if is_real_reading {
+            // v6.10.21: close-only rows whose value is preserved by the
+            // frontend per-key merge across shadow ticks (`effective_real`
+            // via `is_close_only_on_shadow_live`) are genuinely current —
+            // report `Live` instead of the misleading `WaitingFeed` (which
+            // is reserved for rows whose upstream feed truly hasn't
+            // delivered, e.g. a WS-derived indicator before its first push).
+            if is_real_reading || is_close_only_on_shadow_live {
                 if silent {
                     FeedState::Silent
                 } else {
@@ -547,78 +541,6 @@ pub fn derive_pipeline_state(buffer_len: usize, target: usize) -> CandlePipeline
     }
 }
 
-/// Build the minimal completed `MarketSnapshot` used to transport a
-/// gap-filled candle (08-04 §Forwarding). Reconstructed candles carry no
-/// indicator payload — they exist so charts, persistence, and rollups see a
-/// continuous candle series; indicator state resumes on the next live candle.
-///
-/// AUDIT-V8-005: production usage removed — reconnect gap-fill candles are
-/// now fed through the full indicator pipeline (EMA/RSI/etc. advance across
-/// the gap instead of the chart bridging it with a straight line). Kept for
-/// the pin tests below.
-#[cfg(test)]
-fn build_gapfill_snapshot(
-    candle: &NormalizedCandle,
-    symbol: &str,
-    timeframe_secs: u64,
-    slot: TimeframeSlot,
-) -> MarketSnapshot {
-    MarketSnapshot {
-        timeframe_slot: Some(slot),
-        exchange: Some(candle.exchange),
-        timeframe_secs,
-        timestamp: candle.start_time_ms / 1000,
-        symbol: symbol.to_string(),
-        is_completed: Some(true),
-        mid_price: candle.close,
-        bid_price: candle.close,
-        ask_price: candle.close,
-        bid_size: None,
-        ask_size: None,
-        funding_rate: None,
-        open_interest: None,
-        oi_delta_1h: None,
-        mark_price: None,
-        index_price: None,
-        mark_index_spread_pct: None,
-        prev_day_px: None,
-        open: Some(candle.open),
-        high: Some(candle.high),
-        low: Some(candle.low),
-        close: Some(candle.close),
-        volume: Some(candle.volume),
-        average_volume: None,
-        pipeline_state: CandlePipelineState::default(),
-        indicator_lifecycle: HashMap::new(),
-        context: None,
-        decision_context: None,
-        statistical_context: None,
-        indicators: HashMap::new(),
-        alignment: None,
-        risk: None,
-        analysis: None,
-        advisory: None,
-        opportunity: None,
-        liquidity_signals: vec![],
-        metrics_config: None,
-        risk_profile: None,
-        liquidity: None,
-        cluster: None,
-        volume_profile: None,
-        quality_envelope: Some(CandleQualityEnvelope {
-            quality_score: 100.0,
-            is_valid: true,
-            is_gap_filled: true,
-            had_outliers_rejected: false,
-            spike_detected: false,
-            is_stale: false,
-            sequence_integrity: SequenceIntegrity::Valid,
-            gap_since_last: candle.duration_ms / 1000,
-            validated_at: candle.start_time_ms + candle.duration_ms,
-        }),
-    }
-}
-
 /// Stable slot identity. Stamped onto every snapshot emitted by this task
 /// so the wire and the frontend always know which slot a snapshot came from,
 /// regardless of the user-chosen `timeframe_secs`.
@@ -641,7 +563,6 @@ pub async fn run_single(
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
-    paper_pool: Option<sqlx::SqlitePool>,
     latest_oi: Arc<RwLock<Option<Decimal>>>,
     latest_funding: Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: Arc<RwLock<Option<Decimal>>>,
@@ -738,6 +659,11 @@ pub async fn run_single(
         mut vwap_sum_vol,
         mut last_day_index,
         mut volume_history,
+        // v6.11: rolling 300-sample windows for the L1 price-trend and L3
+        // trend-stability Sharpe ratios. Real completed candles only
+        // (PRI-06 — synthetic doji/idle buckets never enter).
+        mut close_history,
+        mut ema_medium_history,
         mut pivot_points_indicator,
         mut candlestick_indicator,
         mut ichimoku_indicator,
@@ -815,6 +741,8 @@ pub async fn run_single(
         vwap_sum_vol = w.vwap_sum_vol;
         last_day_index = w.last_day_index;
         volume_history = w.volume_history;
+        close_history = w.close_history;
+        ema_medium_history = w.ema_medium_history;
         sr_tracker = w.sr_tracker;
         pivot_points_indicator = w.pivot_points_indicator;
         candlestick_indicator = w.candlestick_indicator;
@@ -921,6 +849,8 @@ pub async fn run_single(
         // AUDIT-AIU-070: honor the configured `volume_average_period`.
         volume_history =
             VecDeque::with_capacity(active_indicators.volume_average_period.max(1));
+        close_history = VecDeque::with_capacity(crate::indicators::ratio::SHARPE_WINDOW);
+        ema_medium_history = VecDeque::with_capacity(crate::indicators::ratio::SHARPE_WINDOW);
         pivot_points_indicator = PivotPoints::new(PivotMethod::from_str_lenient(&active_indicators.pivot_points_method)); // AUDIT-AIU-072
         candlestick_indicator = Candlestick::new(CandlestickConfig::default());
         ichimoku_indicator = Ichimoku::new(
@@ -1324,12 +1254,13 @@ pub async fn run_single(
                             &active_indicators,
                         &active_set,
                             buffer_size,
-                            &paper_pool,
                             &fib_config,
                             &liquidity_config,
                             spread_wide_threshold_pct,
                             &history,
                             &mut volume_history,
+                            &mut close_history,
+                            &mut ema_medium_history,
                             &mut adx_slope_history,
                             &divergence_detector,
                             &mut sr_tracker,
@@ -1488,11 +1419,9 @@ pub async fn run_single(
 
                             // Broadcast the doji as a completed snapshot
                             // with a fully-populated indicators map (built
-                            // from the just-computed readings). The old
-                            // `build_gapfill_snapshot` emitted an empty
-                            // indicators map, which left the chart's
-                            // overlay lines (EMA/RSI/etc.) frozen across
-                            // sub-minute doji-fill seconds.
+                            // from the just-computed readings) so the
+                            // chart's overlay lines (EMA/RSI/etc.) keep
+                            // advancing across sub-minute doji-fill seconds.
                             bar_count = bar_count.saturating_add(1);
                             let avg_vol = if !volume_history.is_empty() {
                                 let sum: Decimal = volume_history.iter().sum();
@@ -1526,6 +1455,10 @@ pub async fn run_single(
                                 derive_pipeline_state(bar_count as usize, buffer_size),
                                 avg_vol,
                                 rvol,
+                                // Synthetic doji: Sharpe windows only accept
+                                // real closes (PRI-06), so the ratios are None.
+                                None,
+                                None,
                             );
                             let _ = broadcast_tx.send(doji_snap.clone());
                             // AUDIT-V8-004 (history continuity): synthetic
@@ -1670,6 +1603,10 @@ pub async fn run_single(
                                     derive_pipeline_state(bar_count as usize, buffer_size),
                                     avg_vol,
                                     rvol,
+                                    // Synthetic idle heartbeat: no Sharpe
+                                    // contribution (real closes only).
+                                    None,
+                                    None,
                                 );
                                 let _ = broadcast_tx.send(idle_snap.clone());
                                 {
@@ -1892,10 +1829,9 @@ pub async fn run_single(
                                 // AUDIT-V8-005 (reconnect-gap indicator continuity):
                                 // feed the reconstructed candle through EVERY
                                 // stateful indicator and broadcast a fully-
-                                // populated snapshot. The old
-                                // `build_gapfill_snapshot` emitted an EMPTY
-                                // indicators map, so the chart's EMA/RSI lines
-                                // bridged reconnect gaps with straight lines.
+                                // populated snapshot so the chart's EMA/RSI lines
+                                // advance across reconnect gaps instead of
+                                // bridging them with straight lines.
                                 // These snapshots are still never persisted to
                                 // the DB (the `reconstructed` flag + the
                                 // `quality_envelope.is_gap_filled` marker keep
@@ -1968,6 +1904,42 @@ pub async fn run_single(
                                     (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
                                     _ => None,
                                 };
+                                // v6.11: reconstructed gap candles are REAL
+                                // closes — roll the Sharpe windows (PRI-06
+                                // history continuity) and derive the ratios.
+                                let (gap_price_sharpe, gap_stability_sharpe) = {
+                                    let close_f_gap = gap_candle.close.to_f64().unwrap_or(0.0);
+                                    let ema_f_gap = gap_readings
+                                        .final_ema_medium
+                                        .to_f64()
+                                        .unwrap_or(close_f_gap);
+                                    close_history.push_back(close_f_gap);
+                                    ema_medium_history.push_back(ema_f_gap);
+                                    while close_history.len()
+                                        > crate::indicators::ratio::SHARPE_WINDOW
+                                    {
+                                        close_history.pop_front();
+                                    }
+                                    while ema_medium_history.len()
+                                        > crate::indicators::ratio::SHARPE_WINDOW
+                                    {
+                                        ema_medium_history.pop_front();
+                                    }
+                                    let closes: Vec<f64> =
+                                        close_history.iter().copied().collect();
+                                    let ema_mediums: Vec<f64> =
+                                        ema_medium_history.iter().copied().collect();
+                                    (
+                                        crate::indicators::sharpe_ratio_annualized(
+                                            &closes,
+                                            timeframe_secs,
+                                        ),
+                                        crate::indicators::sharpe_ratio_annualized(
+                                            &ema_mediums,
+                                            timeframe_secs,
+                                        ),
+                                    )
+                                };
                                 let gap_snap = build_completed_snapshot_from_readings(
                                     &gap_readings,
                                     &gap_candle,
@@ -1990,6 +1962,8 @@ pub async fn run_single(
                                     derive_pipeline_state(bar_count as usize, buffer_size),
                                     avg_vol,
                                     rvol,
+                                    gap_price_sharpe,
+                                    gap_stability_sharpe,
                                 );
                                 let _ = broadcast_tx.send(gap_snap.clone());
                                 // AUDIT-V8-004: keep the in-memory snapshot
@@ -2162,12 +2136,13 @@ pub async fn run_single(
                         &active_indicators,
                         &active_set,
                         buffer_size,
-                        &paper_pool,
                         &fib_config,
                         &liquidity_config,
                         spread_wide_threshold_pct,
                         &history,
                         &mut volume_history,
+                        &mut close_history,
+                        &mut ema_medium_history,
                         &mut adx_slope_history,
                         &divergence_detector,
                         &mut sr_tracker,
@@ -2210,31 +2185,6 @@ pub async fn run_single(
                         &telemetry_tx,
                         &latency_tracker,
                             ).await;
-
-                    // Decisive close invalidation: check at every 1-minute candle close
-                    if timeframe_secs == 60 {
-                        if let Some(ref pool) = paper_pool {
-                            if let Some(pos) =
-                                database_storage::paper::queries::paper_get_active_position(
-                                    pool, &symbol,
-                                )
-                                .await
-                            {
-                                if let Some(inval_level) = pos.final_invalidation_level {
-                                    let tolerance = 0.002;
-                                    let close_f = completed.close.to_f64().unwrap_or(0.0);
-                                    let invalidated = match pos.direction.as_str() {
-                                        "LONG" => close_f < inval_level * (1.0 - tolerance),
-                                        "SHORT" => close_f > inval_level * (1.0 + tolerance),
-                                        _ => false,
-                                    };
-                                    if invalidated {
-                                        // paper_trading::invalidate_position removed (stub; cycle broken)
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     // The strict handover gate above guarantees this candle is
                     // strictly newer than any historical candle, so it is always
@@ -2509,12 +2459,18 @@ async fn synthesize_completed_candle(
     active_indicators: &config_models::IndicatorsConfig,
     active_set: &crate::active_set::ActiveSet,
     buffer_size: usize,
-    paper_pool: &Option<sqlx::SqlitePool>,
     fib_config: &FibonacciConfig,
     liquidity_config: &Option<LiquidityConfig>,
     spread_wide_threshold_pct: f64,
     history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
     volume_history: &mut VecDeque<Decimal>,
+    // v6.11: rolling 300-close window backing the L1 `price_trend_sharpe`.
+    // Real completed candles only (PRI-06 — synthetic doji/idle buckets
+    // never enter the Sharpe windows either).
+    close_history: &mut VecDeque<f64>,
+    // v6.11: rolling 300-value window of the EMA-50 line backing the L3
+    // `trend_stability_sharpe`.
+    ema_medium_history: &mut VecDeque<f64>,
     adx_slope_history: &mut VecDeque<Decimal>,
     divergence_detector: &Arc<tokio::sync::Mutex<DivergenceDetector>>,
     sr_tracker: &mut SrRoleTracker,
@@ -2611,6 +2567,28 @@ async fn synthesize_completed_candle(
         final_linreg,
         final_zscore,
     } = readings;
+
+    // v6.11: roll the Sharpe windows with this real completed close. Only
+    // real candles enter the buffers (synthetic doji/idle buckets go
+    // through `build_completed_snapshot_from_readings` with `None` ratios),
+    // matching the PRI-06 history-continuity convention.
+    close_history.push_back(close_f);
+    ema_medium_history.push_back(final_ema_medium.to_f64().unwrap_or(close_f));
+    while close_history.len() > crate::indicators::ratio::SHARPE_WINDOW {
+        close_history.pop_front();
+    }
+    while ema_medium_history.len() > crate::indicators::ratio::SHARPE_WINDOW {
+        ema_medium_history.pop_front();
+    }
+    let (price_trend_sharpe, trend_stability_sharpe) = {
+        let closes: Vec<f64> = close_history.iter().copied().collect();
+        let ema_mediums: Vec<f64> = ema_medium_history.iter().copied().collect();
+        (
+            crate::indicators::sharpe_ratio_annualized(&closes, timeframe_secs),
+            crate::indicators::sharpe_ratio_annualized(&ema_mediums, timeframe_secs),
+        )
+    };
+
     // ── Generalized divergence detection ──
     // Each oscillator's SeriesDivergence is updated every bar
     // for the RSI/MACD confirmation path below. The 6 extra
@@ -2751,22 +2729,10 @@ async fn synthesize_completed_candle(
             .take(2)
             .all(|s| *s < Decimal::ZERO);
 
-    // Active position context for direction-aware normalization.
-    let active_position: Option<i8> = if let Some(ref pool) = paper_pool {
-        match database_storage::paper::queries::paper_get_active_position(
-            pool, &symbol,
-        )
-        .await
-        .map(|p| p.direction)
-        .as_deref()
-        {
-            Some("LONG") => Some(1),
-            Some("SHORT") => Some(-1),
-            _ => Some(0),
-        }
-    } else {
-        Some(0)
-    };
+    // Active position context for direction-aware normalization. The
+    // paper-trading position query was removed (stub; cycle broken) — the
+    // direction-aware branch always runs with the neutral 0 context.
+    let active_position: Option<i8> = Some(0);
 
     let ema_stack_str = ema_stack_state.as_deref();
     // Increment bar_count BEFORE building the indicator map so
@@ -2935,6 +2901,8 @@ async fn synthesize_completed_candle(
             rvol_institutional_threshold: active_indicators
                 .rvol_threshold_institutional,
             rvol_climax_threshold: active_indicators.rvol_threshold_climax,
+            price_trend_sharpe,
+            trend_stability_sharpe,
         },
         *bar_count,
         false,
@@ -4282,6 +4250,11 @@ pub(super) fn build_completed_snapshot_from_readings(
     pipeline_state: CandlePipelineState,
     avg_vol: Option<Decimal>,
     rvol: Option<Decimal>,
+    // v6.11: L1/L3 Sharpe ratios for this completed candle. `None` for
+    // synthetic doji/idle buckets (only real closes enter the Sharpe
+    // windows — PRI-06); `Some` for real/force-close/gap candles.
+    price_trend_sharpe: Option<f64>,
+    trend_stability_sharpe: Option<f64>,
 ) -> MarketSnapshot {
     let close_f = readings.close_f;
     let ema_stack_str = readings.ema_stack_state.as_deref();
@@ -4364,6 +4337,8 @@ pub(super) fn build_completed_snapshot_from_readings(
             // AUDIT-AIU-071: config defaults (no tf_config in this helper).
             rvol_institutional_threshold: 1.5,
             rvol_climax_threshold: 3.0,
+            price_trend_sharpe,
+            trend_stability_sharpe,
         },
         bar_count,
         false,
@@ -4737,6 +4712,11 @@ fn broadcast_live_snapshot(
             // AUDIT-AIU-071: config defaults (shadow path carries no config).
             rvol_institutional_threshold: 1.5,
             rvol_climax_threshold: 3.0,
+            // Close-only (updates_on_shadow: false): shadow ticks never
+            // carry the Sharpe values — the frontend preserves the last
+            // completed-candle reading via its per-key merge.
+            price_trend_sharpe: None,
+            trend_stability_sharpe: None,
         },
         bar_count as u32,
         true,
@@ -4932,7 +4912,7 @@ mod lifecycle_tests {
     #[test]
     fn lifecycle_is_loading_for_volume_profile_until_strict_gate_fires() {
         // Volume profile's `bars_required` is 50, but the strict `compute()`
-        // gate fires only at `window_size / 2` (250 with the default 500-bar
+        // gate fires only at `window_size / 2` (150 with the default 300-bar
         // window). Until then the indicators map carries the WARMING
         // placeholder. The lifecycle must stay Loading through bars 50..249
         // so the frontend never renders the misleading `Live + UNKNOWN` row.
@@ -5160,121 +5140,6 @@ mod lifecycle_tests {
             rsi.state,
             IndicatorLifecycleState::Live,
             "rsi with updates_on_shadow=true and a real reading must be Live via the standard branch",
-        );
-    }
-}
-
-#[cfg(test)]
-mod gap_fill_snapshot_tests {
-    //! Pin tests for `build_gapfill_snapshot`. The reconstructed-candle
-    //! path (sub-minute "missing bar recovery" via
-    //! `CandleReconstructor::reconstruct`) and the stale-check Doji path
-    //! both call this helper. The tests pin the gap-fill markers so a
-    //! future change that drops them doesn't silently re-introduce the
-    //! "no bodies after tab switch" chart regression.
-    //!
-    //! As of v6.10 (Phase 2 of the chart-rendering fix) the gap-fill
-    //! snapshot is broadcast over WS but **not persisted to the DB** —
-    //! see the inline comment at the gap-fill call sites
-    //! (`mod.rs:1410-1445`) for the rationale. These tests pin the
-    //! shape of the WS payload that consumers still receive.
-
-    use super::build_gapfill_snapshot;
-    use core_domain::models::{CandleQualityEnvelope, TimeframeSlot};
-    use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
-    use rust_decimal::Decimal;
-
-    fn sample_gap_fill_candle() -> NormalizedCandle {
-        NormalizedCandle {
-            exchange: Exchange::Hyperliquid,
-            symbol: "BTC-USDC".to_string(),
-            start_time_ms: 1_786_329_600_000,
-            duration_ms: 3_000,
-            open: Decimal::from_f64_retain(65000.0).unwrap(),
-            high: Decimal::from_f64_retain(65000.0).unwrap(),
-            low: Decimal::from_f64_retain(65000.0).unwrap(),
-            close: Decimal::from_f64_retain(65000.0).unwrap(),
-            volume: Decimal::ZERO,
-            trades_count: 0,
-            reconstructed: Some(ReconstructionMethod::ExponentialMovingAverage),
-        }
-    }
-
-    #[test]
-    fn gap_fill_market_snapshot_is_marked_is_gap_filled_true() {
-        // The chart / downstream consumers rely on `is_gap_filled: true`
-        // to distinguish a reconstruction scaffolding candle from a real
-        // trade-derived one. Without this marker the chart can't tell
-        // apart a genuine "stable price" candle (O=H=L=C, real trades at
-        // one price) from a synthetic gap-fill (O=H=L=C=EMA, no trades).
-        let snap = build_gapfill_snapshot(
-            &sample_gap_fill_candle(),
-            "BTC-USDC",
-            3,
-            TimeframeSlot::Fast,
-        );
-
-        let envelope: &CandleQualityEnvelope = snap
-            .quality_envelope
-            .as_ref()
-            .expect("gap-fill snapshot must carry a quality envelope");
-        assert!(
-            envelope.is_gap_filled,
-            "gap-fill MarketSnapshot must have quality_envelope.is_gap_filled = true"
-        );
-    }
-
-    #[test]
-    fn gap_fill_market_snapshot_carries_completed_marker() {
-        // Gap-fills are synthetic but the chart treats them as completed
-        // (they replace an absent real candle). They must therefore
-        // carry `is_completed: Some(true)` so the WS consumer doesn't
-        // hold them as in-progress shadow ticks.
-        let snap = build_gapfill_snapshot(
-            &sample_gap_fill_candle(),
-            "BTC-USDC",
-            3,
-            TimeframeSlot::Fast,
-        );
-        assert_eq!(
-            snap.is_completed,
-            Some(true),
-            "gap-fill snapshot must be marked is_completed: Some(true)"
-        );
-    }
-
-    #[test]
-    fn gap_fill_market_snapshot_has_flat_ohlc_and_zero_volume() {
-        // Pin the data shape that the reconstructor produces — flat
-        // OHLC + zero volume + zero trades_count. These properties are
-        // what would make the candle look like a horizontal line on the
-        // chart if it ever leaked into the persistent store (which is
-        // exactly what the Phase 2 fix prevents by skipping DB
-        // persistence for gap-fills).
-        let candle = sample_gap_fill_candle();
-        assert_eq!(candle.open, candle.close);
-        assert_eq!(candle.high, candle.low);
-        assert_eq!(candle.volume, Decimal::ZERO);
-        assert_eq!(candle.trades_count, 0);
-        assert_eq!(
-            candle.reconstructed,
-            Some(ReconstructionMethod::ExponentialMovingAverage)
-        );
-
-        let snap = build_gapfill_snapshot(&candle, "BTC-USDC", 3, TimeframeSlot::Fast);
-        assert_eq!(snap.open, Some(candle.open));
-        assert_eq!(snap.high, Some(candle.high));
-        assert_eq!(snap.low, Some(candle.low));
-        assert_eq!(snap.close, Some(candle.close));
-        assert_eq!(snap.volume, Some(Decimal::ZERO));
-        assert_eq!(
-            snap.timeframe_slot,
-            Some(TimeframeSlot::Fast),
-            "snapshot must carry its slot for the chart's slot guard"
-        );
-        assert_eq!(
-            snap.timeframe_secs, 3,
-            "snapshot must carry its TF seconds for the chart's TF guard"
         );
     }
 }

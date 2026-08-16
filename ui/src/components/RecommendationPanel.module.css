@@ -455,6 +455,43 @@
     line-height: 1.4;
 }
 
+/* ── v6.10.19b (B3): unified SETUP section notes ── */
+.holdNote {
+    margin-top: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.05);
+    border: 1px dashed rgba(245, 158, 11, 0.30);
+    border-radius: 6px;
+}
+.alternateNote {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: rgba(59, 130, 246, 0.06);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 6px;
+}
+.alternateItem {
+    font-size: 11px;
+    font-weight: 700;
+    color: #60a5fa;
+    background: rgba(59, 130, 246, 0.12);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+.alternateLabel {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-left: auto;
+}
+
 /* ── Top Setup viability badges ── */
 .profileCardBadgeActionable {
     font-size: 9px;

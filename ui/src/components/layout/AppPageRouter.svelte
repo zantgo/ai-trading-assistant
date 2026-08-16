@@ -27,9 +27,14 @@
         activePair: InstanceState | undefined;
         activeTab: string;
         wssMap: Record<string, WsState>;
+        /** Delegated to InstancePicker so delete flows through the same
+         *  App-level confirm modal + `executeDelete` path as the right
+         *  Instances panel. */
+        onrequestConfirm: (id: string, action: 'delete', pair?: string) => void;
+        errorMessage: string | null;
     }
 
-    let { currentEngine, middleTab, selectedInstance, activePair, activeTab, wssMap }: Props = $props();
+    let { currentEngine, middleTab, selectedInstance, activePair, activeTab, wssMap, onrequestConfirm, errorMessage }: Props = $props();
 
     // Diagnostic: uncomment to confirm props remain reactive after the fix
     // $inspect('router.middleTab', middleTab);
@@ -75,7 +80,7 @@
                     <RecommendationPanel pairKey={activeTab} wssState={activeWss} />
                 {/if}
             {:else}
-                <InstancePicker />
+                <InstancePicker {onrequestConfirm} {errorMessage} />
             {/if}
         {:else if middleTab === 'overview'}
             <GeneralDashboard {wssMap} />

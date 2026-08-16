@@ -317,11 +317,6 @@ fn default_initial_capital() -> f64 {
     1_000.0
 }
 
-/// Backward-compat alias for the v5.0 migration window. New code should
-/// use `WorkspaceConfig` and `InstanceEntry` directly.
-#[deprecated(note = "use WorkspaceConfig + InstanceEntry instead")]
-pub type AppConfig = WorkspaceConfig;
-
 // ===========================================================================
 // Loaders
 // ===========================================================================

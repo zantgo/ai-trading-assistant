@@ -4,7 +4,7 @@ This directory contains the full specification for the Trading Platform — a co
 
 > **Numbering scheme.** Every file is named `NN-MM[-KK]-kebab-case.md` so cross-links survive restructuring:
 > - `01-` Concept Foundations · `02-` Matrices · `03-` Engines (with engine sub-counter: `03-01` DIE, `03-02` MME, `03-03` TAE, `03-04` PME, `03-05` PAE)
-> - `04-02-` MME Indicators (50 registry entries, kebab-case filenames; `04-02-00-` is the master index)
+> - `04-02-` MME Indicators (52 registry entries, kebab-case filenames; `04-02-00-` is the master index)
 > - `05-02-` MME Signals (12 SignalKinds + master index)
 > - `06-` Integration & API · `07-` UI/UX · `08-` Operations & Compliance
 
@@ -71,10 +71,10 @@ docs/
 │   │   ├── 03-02-14-mme-sub-min-tf-feasibility.md
 │   │   ├── 03-02-15-mme-indicator-lifecycle-states.md ← per-indicator IndicatorLifecycleState machine (v6.5)
 │   │   └── 03-02-16-mme-subminute-vs-aboveminute-parity.md ← AIU parity contract sub-minute vs ≥1m (v6.10.7)
-│   │   ├── indicators/                               (04-02 — 50 + 1 master index)
+│   │   ├── indicators/                               (04-02 — 52 + 1 master index)
 │   │   │   ├── 04-02-00-indicator-index.md
 │   │   │   ├── 04-02-01-ema-stack.md
-│   │   │   ├── … (10 Trend + 07 Momentum + 07 Volume + 06 Volatility + 05 Structure + 04 Regime + 04 Institutional + 07 Derivatives = 50)
+│   │   │   ├── … (10 Trend + 07 Momentum + 07 Volume + 06 Volatility + 05 Structure + 05 Regime + 04 Institutional + 08 Derivatives = 52)
 │   │   │   └── 04-02-50-depth-bias.md
 │   │   └── signals/                                  (05-02 — 12 + 1 master index)
 │   │       ├── 05-02-00-signals-index.md
@@ -107,7 +107,7 @@ docs/
 ├── ui-ux/                                            (07 — 6 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
-│   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
+│   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (52 → 19 dedicated components)
 │   ├── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
 │   ├── 07-05-export-data-payload-schema.md           ← per-tab Export Data JSON schemas (v6.7)
 │   └── 07-06-ui-color-conventions.md                 ← canonical semantic color mapping (Red=bearish, Green=bullish, Amber=risky, Grey=error, Blue=safe)
@@ -122,14 +122,14 @@ docs/
     └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
 ```
 
-Total: **157 markdown files** at v6.10.19 — 154 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 10 conceptual + 17 matrix + **41 engine** (8 DIE + 16 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 52 indicator + 13 signal + 4 integration + 5 UI + 9 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **16 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 51 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry.
+Total: **158 markdown files** at v6.10.26 — 155 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 10 conceptual + 17 matrix + **41 engine** (8 DIE + 16 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 53 indicator + 13 signal + 4 integration + 5 UI + 9 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **16 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry.
 
 ## The Five Engines
 
 | Engine | Role | Layers | Key Output | Status |
 |--------|------|--------|------------|--------|
 | **Data Infrastructure Engine (DIE)** `03-01` | Data ingest, normalization, quality, broadcast | 4 | Market Data Matrix | ✅ Implemented |
-| **Market Monitoring Engine (MME)** `03-02` | 51 indicators, signals, multi-TF alignment, decision support | 7 (+2 fractional: L1.5, L2.5; L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix | ✅ Implemented |
+| **Market Monitoring Engine (MME)** `03-02` | 52 indicators, signals, multi-TF alignment, decision support | 7 (+2 fractional: L1.5, L2.5; L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix | ✅ Implemented |
 | **Trade Automation Engine (TAE)** `03-03` | Policy evaluation, position sizing, order routing | 2 | Policy Matrix + Execution Matrix | ⚠️ WIP (see [ROADMAP.md §2.3, §3 Phase A–B](ROADMAP.md)) |
 | **Portfolio Management Engine (PME)** `03-04` | Position tracking, exposure, capital, safety veto | 4 | Portfolio Matrix | ⚠️ WIP (see [ROADMAP.md §2.4, §3 Phase A + C](ROADMAP.md)) |
 | **Performance Analytics Engine (PAE)** `03-05` | Trade reconstruction, NHST (sign-randomized Monte Carlo), drawdown/Sharpe, regime maps | 4 | Performance Matrix | ⚠️ WIP — analytics live, backtest UI mock (see [ROADMAP.md §2.5, §3 Phase D](ROADMAP.md)) |
@@ -182,7 +182,7 @@ This table is the **single source of implementation truth** — every spec in `d
 | Engine | Status | Spec of record |
 |---------|--------|---------------|
 | **DIE — Data Infrastructure** | ✅ Implemented | `03-01-01`…`03-01-07`, `01-06`, `08-03`, `08-04`, `08-05`, `08-06` |
-| **MME — Market Monitoring** (51 indicators, 4 TFs, 12 SignalKinds, Liquidity Intelligence Phases 0-2) | ✅ Implemented | `03-02-01`…`03-02-15`, `01-05`, `04-02-00`, `05-02-00` |
+| **MME — Market Monitoring** (52 indicators, 4 TFs, 12 SignalKinds, Liquidity Intelligence Phases 0-2) | ✅ Implemented | `03-02-01`…`03-02-15`, `01-05`, `04-02-00`, `05-02-00` |
 | **TAE — Trade Automation** (Policy + Execution + Paper trading + Lifecycle) | ⚠️ WIP — backend runs (paper engine fills, veto loop drains), but the `TradeAutomationDashboard` is a placeholder | `03-03-01`…`03-03-06`, `ROADMAP.md §3 Phase A–B` |
 | **PME — Portfolio Management** (Position + Exposure + Capital + Portfolio/Safety) | ⚠️ WIP — backend runs (safety manager + veto loop live, ledger persists), but the `PortfolioDashboard` is a placeholder | `03-04-01`…`03-04-05`, `ROADMAP.md §3 Phase A + C` |
 | **PAE — Performance Analytics** (Stats compiler + Strategy NHST + Risk analytics + Optimizer) | ⚠️ WIP — analytics APIs and Overview/Strategy/Risk/Regimes/Trades panels live; **backtest panel is a UI mock** | `03-05-01`…`03-05-05`, `ROADMAP.md §3 Phase D` |
@@ -191,8 +191,8 @@ This table is the **single source of implementation truth** — every spec in `d
 
 | Feature | Status | Spec of record |
 |---------|--------|---------------|
-| Multi-timeframe indicators (50) | ✅ Implemented | `04-02-00` |
-| Signal pipeline (12 SignalKinds, 100 declarations) | ✅ Implemented | `05-02-00` |
+| Multi-timeframe indicators (52) | ✅ Implemented | `04-02-00` |
+| Signal pipeline (12 SignalKinds, 101 declarations) | ✅ Implemented | `05-02-00` |
 | WebSocket ingestion (Hyperliquid, Bitget) | ✅ Implemented | `03-01-01`, `03-01-02` |
 | Candle reconstruction | ✅ Implemented | `03-01-03`, `08-04` |
 | Connection resilience + backoff | ✅ Implemented | `08-03` |
@@ -228,11 +228,11 @@ This table is the **single source of implementation truth** — every spec in `d
 - All candle aggregation closes candles at the **exact epoch-duration multiple of UTC** (a 60 s candle for a trade at 123456 ms aligns to `[120000, 180000)`, closing at 180000 ms = `:00.000` of the next minute) — see `01-04-timeframe-model.md §3.1`. Local clock drift budget is ≤ 100 µs of UTC, enforced at runtime by `crates/network-adapters/src/clock_monitor.rs` (configurable via the `[clock_monitor]` section of `config.toml`).
 - Position sizing uses **available margin** (`available_margin`), not raw equity, with formula `S = E·R / (D_sl / 100)` (see `03-03-03-tae-layer2-execution.md §2`).
 - Divergences are nested `Divergence` signals on the parent indicator key — there are no separate `*_divergence` registry entries (see `04-02-00-indicator-index.md`).
-- The **Analytical Input Universe** is the collective term for everything emitted into the `MarketSnapshot` that MME Layers 2–7 consume: the full 51-entry indicator registry, all signals (indicator signals + the 11 `liquidity_signals`), and the L1.5/L2.5 telemetry sub-objects (`liquidity`, `cluster`, derivatives/orderbook data). It is a vocabulary term — no code artifact exists for it. Canonical definition: [`01-01-ontology.md` §3.9.1](conceptual-foundations/01-01-ontology.md); in-context usage: [`02-07-metrics-matrix.md` §1](matrices/02-07-metrics-matrix.md).
+- The **Analytical Input Universe** is the collective term for everything emitted into the `MarketSnapshot` that MME Layers 2–7 consume: the full 52-entry indicator registry, all signals (indicator signals + the 11 `liquidity_signals`), and the L1.5/L2.5 telemetry sub-objects (`liquidity`, `cluster`, derivatives/orderbook data). It is a vocabulary term — no code artifact exists for it. Canonical definition: [`01-01-ontology.md` §3.9.1](conceptual-foundations/01-01-ontology.md); in-context usage: [`02-07-metrics-matrix.md` §1](matrices/02-07-metrics-matrix.md).
 - Monte Carlo significance uses **sign-randomization** (±1 on each PnL), not order-shuffling (see `03-05-03-pae-layer2-strategy-analytics.md §3.3`).
 - The PME vetoes new entries by switching the affected symbol's **stance** to `AVOID` *or* `CLOSE_ONLY` per trigger severity (see `03-04-05-pme-layer4-portfolio.md §4.1` and `01-03-systemic-data-flow.md Sequence D`). A `CLOSE_ONLY` stance is a Policy-Layer scope restriction, *not* an order attribute. Every order packet generated from a `CLOSE_ONLY` stance is forced to carry the Execution-Layer **`reduce_only` flag** (a per-order boolean, exchange-native term) — see `03-03-03-tae-layer2-execution.md §3.3`. The DB column `is_reduce_only` and the wire field `reduce_only` mirror Hyperliquid/Bitget/Binance and are intentionally unchanged for exchange-protocol parity.
 - Two drawdown metrics exist and are **distinct**:
   - `max_daily_drawdown_pct` — cumulative PnL decline within the trading session; default 5 %; used as an early-warning threshold.
   - `drawdown_limit_pct` — equity peak-to-trough ratio; default 30 %; this is the **hard veto** threshold.
   See `03-04-05-pme-layer4-portfolio.md §3–§4` and `03-04-01-pme-overview-spec.md §3`.
-- The registry contains **51 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives) and **101 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). The historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](conceptual-foundations/01-01-ontology.md); the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry. The canonical source of truth is the registry count itself. See also Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.
+- The registry contains **52 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional + 8 Derivatives) and **101 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). The historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](conceptual-foundations/01-01-ontology.md); the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry. The canonical source of truth is the registry count itself. See also Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.

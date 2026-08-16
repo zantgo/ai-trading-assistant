@@ -11,30 +11,14 @@
 // honestly but with a neutral (amber) tone and a "market bias neutral"
 // qualifier; raw counts stay visible. Under a directional bias the
 // behaviour is unchanged.
-
-/**
- * v6.10.18 (I-7): ONE vote definition across panels — the same filter the
- * bias machinery applies (`analysis.rs` `vote_lean_with`): COMPRESSION
- * windows do not vote (their positive scores are mean-reversion bait) and
- * flat per-TF scores (|overall_score| ≤ 10) do not count. The hero's
- * "Net bullish (3↑ vs 1↓)" previously counted a COMPRESSION macro window
- * as a bullish vote while the bias engine excluded it — the hero
- * overstated the vote breadth.
- */
-export function parseTfVoteLine(text: string): { regime: string | null; score: number | null } {
-    const regime = text.match(/,\s*([A-Z_]+)\s+regime,/i)?.[1]?.toUpperCase() ?? null;
-    const score = text.match(/score\s*([+-]?\d+)/i)?.[1];
-    return { regime, score: score != null ? parseInt(score, 10) : null };
-}
-
-export function isVotingTfLine(text: string): boolean {
-    const { regime, score } = parseTfVoteLine(text);
-    if (regime === 'COMPRESSION') return false;
-    if (score != null && Math.abs(score) <= 10) return false;
-    // Lines that fail to parse (legacy payloads) are kept so the hero
-    // never drops data it cannot interpret.
-    return true;
-}
+//
+// v6.10.19c (C): the hero counts ALL timeframe lines present (the
+// supporting/contradicting lists) — a display choice over the raw data.
+// The bias engine's LEAN-tier vote definition (COMPRESSION windows and
+// |overall_score| ≤ 10 TFs excluded) is unchanged and lives in
+// `analysis.rs` — the hero and the bias vote intentionally differ: the
+// hero shows every TF that reported; the bias engine votes only on the
+// decisive ones.
 
 export interface AnalysisLean {
     label: string;
@@ -87,11 +71,11 @@ export function computeAnalysisLean(
     if (biasNeutralized) {
         const dirWord = direction === 'bullish' ? 'bullish' : 'bearish';
         return {
-            label: `TF votes: Net ${dirWord} \u00b7 ${bull}\u2191 vs ${bear}\u2193 \u00b7 market bias neutral`,
+            label: `Net ${dirWord} \u00b7 ${bull}\u2191 vs ${bear}\u2193 \u00b7 market bias neutral`,
             bullish: bull,
             bearish: bear,
             tone: 'split',
-            callHtml: `TF votes: Net ${dirWord} (${bull}\u2191 vs ${bear}\u2193)`,
+            callHtml: `Net ${dirWord} (${bull}\u2191 vs ${bear}\u2193)`,
             metaHtml: `${ratioText(dominant, opposing)} signal ratio \u00b7 market bias neutral`,
             biasNeutralized: true,
         };

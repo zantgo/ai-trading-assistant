@@ -1,6 +1,6 @@
 # Signal Specification Index
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 
 > Index of 12 canonical `SignalKind` types. Each has a dedicated specification file documenting detection semantics, confirmation lifecycle, and contributing indicators. The registry describes capability and never changes with runtime config.
 >

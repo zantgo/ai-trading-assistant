@@ -291,6 +291,14 @@ pub struct OpportunityProfile {
     /// user-facing rationale.
     #[serde(skip)]
     pub scoring_factors: Option<ScoringFactors>,
+    /// v6.14: precondition-scaled operator-facing score —
+    /// `round(score × min(1, preconditions_met / preconditions_total))`,
+    /// computed by the L4 producer so the displayed setup score has a
+    /// single source of truth. The raw `score` field above is untouched
+    /// (data-science logging keeps the true viability blend). `None` on
+    /// legacy payloads — the UI falls back to its local scaling rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_score: Option<f64>,
 }
 
 /// Internal scoring factors for an `OpportunityProfile`. Kept on the
@@ -355,6 +363,41 @@ pub struct AnalysisMatrix {
     pub opportunity_analysis: OpportunityType,
     pub market_quality: QualityLevel,
     pub market_quality_score: f64,
+    /// Annualized Sharpe ratio of EMA-50 log returns over the trailing
+    /// 300-bar window (L1 metrics). `None` until 300 completed candles
+    /// accumulate; computed in `market-analyzer` and stamped onto the
+    /// matrix during cross-TF synthesis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trend_stability_sharpe: Option<f64>,
+    /// v6.12 numeric companions: the exact 0-100 alignment dimension
+    /// scores each qualitative assessment is bucketed from (the
+    /// disaggregated siblings of `market_quality_score`). L3-owned,
+    /// derived from L2 during `derive_analysis`; `Some` whenever at least
+    /// one timeframe is present, `None` on the empty sentinel so the wire
+    /// omits them (§6 convention). The label can never disagree with its
+    /// score — the label IS the band the score falls into (see
+    /// docs/matrices/02-02-analysis-matrix.md §4.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trend_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub momentum_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structure_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volatility_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_score: Option<f64>,
+    /// v6.10.21 traceability: the L3 regime-input values (representative
+    /// first-TF-wins `bbwp` / `adx` raw values) that the `rationale`
+    /// quotes — carried on the matrix so UI exports can trace the regime
+    /// derivation without re-deriving the representative map. The
+    /// pair-level matrix mirror is per-slot last-writer-wins, so the
+    /// exporting slot's own indicator map can differ from the matrix's
+    /// provenance; these fields pin the exact inputs used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub representative_bbwp: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub representative_adx: Option<f64>,
     pub market_phase: MarketPhase,
     pub market_interpretation: String,
     pub rationale: String,
@@ -380,6 +423,14 @@ impl AnalysisMatrix {
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Poor,
             market_quality_score: 0.0,
+            trend_stability_sharpe: None,
+            trend_score: None,
+            momentum_score: None,
+            structure_score: None,
+            volatility_score: None,
+            volume_score: None,
+            representative_bbwp: None,
+            representative_adx: None,
             market_phase: MarketPhase::Unknown,
             market_interpretation: "No data available — no candles have been completed.".into(),
             rationale: String::new(),
@@ -968,6 +1019,21 @@ let market_quality = if quality_score >= 85.0 {
         opportunity_analysis: opportunity,
         market_quality,
         market_quality_score: quality_score,
+        trend_stability_sharpe: None,
+        // v6.12: the exact 0-100 alignment dimension scores each
+        // assessment is bucketed from — the numeric companions rendered
+        // as badges on the Analysis panel (the disaggregated siblings of
+        // `market_quality_score`). Present whenever timeframes_present >= 1.
+        trend_score: Some(trend_dim),
+        momentum_score: Some(mom_dim),
+        structure_score: Some(struct_dim),
+        volatility_score: Some(vol_dim),
+        volume_score: Some(volu_dim),
+        // v6.10.21: pin the exact L3 regime inputs the rationale quotes so
+        // export surfaces can trace the derivation without re-deriving the
+        // representative map (which can differ from this matrix's slot).
+        representative_bbwp: bbwp,
+        representative_adx: adx,
         market_phase,
         market_interpretation: interpretation,
         rationale: rationale_parts.join(" "),
@@ -1016,10 +1082,10 @@ mod tests {
                 "NEUTRAL_MTF".into()
             },
             blend_weights: vec![
-                ("T".into(), 0.5),
-                ("M".into(), 0.3),
-                ("Vt".into(), 0.1),
-                ("Vm".into(), 0.1),
+                ("Trend".into(), 0.5),
+                ("Momentum".into(), 0.3),
+                ("Volume".into(), 0.1),
+                ("Volatility".into(), 0.1),
             ],
             timeframe_alignments: alignments,
             signal_cross_tf_count: cross_tf,

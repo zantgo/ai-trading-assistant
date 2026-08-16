@@ -17,6 +17,7 @@ import {
   riskAdjRrExplanation,
   topSetupSummary,
   entryDangerLevel,
+  type AlternateSetupInfo,
 } from '../../lib/decisionRank';
 import {
   buildPriceBlock,
@@ -39,6 +40,10 @@ export interface RecommendationEnvironmentBlock {
   readiness: string;
   entry_danger_score: number;
   entry_danger_level: string;
+  /** v6.11: setup-efficiency metric — market quality ÷ overall risk.
+   *  `null` until the advisory carries a value (or overall risk = 0). */
+  quality_to_risk_ratio: number | null;
+  quality_to_risk_ratio_display: string;
 }
 
 export interface RecommendationVerdictBlock {
@@ -53,6 +58,10 @@ export interface TopSetupBlock {
   viability: string;
   badge_text: string;
   score: number;
+  /** v6.14: the screen card's number — backend `display_score` when
+   *  present (precondition-scaled), raw `score` on legacy payloads.
+   *  Verbatim copy of the card face; `score` above stays raw. */
+  score_display: number;
   preconditions_met: number;
   preconditions_total: number;
   direction_label: string;
@@ -68,6 +77,16 @@ export interface TopSetupBlock {
   rr_value: number | null;
   rr_reason: string | null;
   rationale: string;
+  /** v6.10.19b (B3): the unified SETUP block also carries the horizon
+   *  (previously only in `price_levels`). */
+  horizon: string | null;
+  /** v6.10.19b (B1): qualifying setups that did not make the verdict-
+   *  consistent headline (counter-bias / any setup under HOLD) — they
+   *  always appear on the Opportunities panel. */
+  alternate_qualifying_setups: AlternateSetupInfo[];
+  /** v6.10.19b (B3): the unified SETUP note under a HOLD verdict
+   *  (null under directional verdicts). */
+  hold_placeholder: string | null;
 }
 
 function viabilityBadgeText(viability: string, top: string, belowFloor = false): string {
@@ -102,6 +121,9 @@ export interface SafetyFlagsBlock {
   stop_loss_display: string;
   confidence_display: string;
   entry_danger_display: string;
+  /** v6.11: Quality/Risk KPI chip (mirrors the Environment block value). */
+  quality_to_risk_ratio: number | null;
+  quality_to_risk_ratio_display: string;
 }
 
 export interface GaugeBlock {
@@ -120,11 +142,6 @@ export interface GaugeBlock {
   net_bias_display: string;
 }
 
-export interface NoClearCardBlock {
-  title: string;
-  body: string;
-}
-
 export interface RecommendationPayload {
   source_tab: 'recommendation';
   meta: MetaEnvelope;
@@ -136,7 +153,6 @@ export interface RecommendationPayload {
   /** Verbatim section-meta caption shown when no qualifying setup exists
    *  ("no qualifying setup yet") — null when a setup renders. */
   top_setup_empty_text: string | null;
-  no_clear_card: NoClearCardBlock | null;
   safety_flags: SafetyFlagsBlock;
   why_note: string | null;
   why: string[];
@@ -250,12 +266,12 @@ function fmtPriceScale(n: number, mp: number): string {
   return n.toFixed(8);
 }
 
-/** Risk-Adjusted R:R KPI string — mirrors the screen chip exactly. */
+/** Risk-Adjusted Reward-to-Risk KPI string — mirrors the screen chip exactly. */
 function rrKpiDisplay(rrRaw: number, isNA: boolean): string {
-  if (isNA) return 'N/A';
-  if (Number.isNaN(rrRaw) || rrRaw <= 0) return 'R:R \u2014';
+  if (isNA) return '\u2014';
+  if (Number.isNaN(rrRaw) || rrRaw <= 0) return '\u2014';
   const norm = rrRaw >= 9.99 ? '9.99+' : rrRaw >= 5 ? rrRaw.toFixed(1) : rrRaw.toFixed(2);
-  return `R:R 1 : ${norm}`;
+  return norm;
 }
 
 function buildEnvironmentBlock(
@@ -264,6 +280,7 @@ function buildEnvironmentBlock(
   readiness: string,
 ): RecommendationEnvironmentBlock {
   const score = readEntryDangerScore(decisionContext);
+  const qualityToRisk = advisory?.quality_to_risk_ratio ?? null;
   return {
     directional_guidance: advisory?.directional_guidance ?? '',
     market_stance: advisory?.market_stance ?? '',
@@ -273,6 +290,9 @@ function buildEnvironmentBlock(
     readiness,
     entry_danger_score: score,
     entry_danger_level: entryDangerLevel(score),
+    // v6.11: mirrors the Quality/Risk KPI chip (2-dp, em-dash placeholder).
+    quality_to_risk_ratio: qualityToRisk,
+    quality_to_risk_ratio_display: qualityToRisk != null ? qualityToRisk.toFixed(2) : '\u2014',
   };
 }
 
@@ -307,16 +327,10 @@ function buildGaugeBlock(
 }
 
 function buildTopSetupBlock(
-  opportunity: OpportunityMatrix | null,
-  analysis: AnalysisMatrix | null,
-  decisionContext: DecisionContext | null,
+  summary: ReturnType<typeof topSetupSummary>,
   markPrice: number,
   top: 'LONG' | 'SHORT' | 'HOLD',
 ): TopSetupBlock | null {
-  if (!opportunity) return null;
-  // The panel passes the real decisionContext so the aggregate-fallback
-  // side resolution (net_bias_pct) matches what the screen shows.
-  const summary = topSetupSummary(opportunity, analysis, decisionContext);
   if (!summary) return null;
   const z = summary.zones;
   const viability =
@@ -350,7 +364,7 @@ function buildTopSetupBlock(
   // human-readable reason rides in `rr_reason`.
   let rrDisplay: string;
   if (summary.rr == null) {
-    rrDisplay = 'R:R N/A';
+    rrDisplay = '\u2014';
   } else {
     rrDisplay = rrKpiDisplay(summary.rr, false);
   }
@@ -358,8 +372,12 @@ function buildTopSetupBlock(
   return {
     opportunity_type: sanitizeLabel(summary.opportunity_type),
     viability,
-    badge_text: viabilityBadgeText(viability, top, belowFloor),
+    badge_text:
+      summary.opportunity_type === 'NoActiveSetup'
+        ? ''
+        : viabilityBadgeText(viability, top, belowFloor),
     score: summary.score,
+    score_display: summary.display_score ?? summary.score,
     preconditions_met: summary.preconditions_met,
     preconditions_total: summary.preconditions_total,
     direction_label:
@@ -376,6 +394,14 @@ function buildTopSetupBlock(
     rr_value: rr.value,
     rr_reason: rrReason,
     rationale: summary.rationale,
+    // v6.10.19b (B3): the unified SETUP block is the single price-levels
+    // source — horizon + hold note ride here (the separate `price_levels`
+    // block below is now an alias of the SAME zones so the two can never
+    // disagree).
+    horizon: summary.horizon,
+    alternate_qualifying_setups: summary.alternate_setups,
+    // v6.10.19d (D): the "fields are placeholders" caveat is gone.
+    hold_placeholder: top === 'HOLD' ? 'No active setup.' : null,
   };
 }
 
@@ -385,21 +411,36 @@ function buildSafetyFlagsBlock(
   readiness: string,
   topAction: 'LONG' | 'SHORT' | 'HOLD',
   opportunity: OpportunityMatrix | null,
+  overallRisk: number | null,
+  topSetup: TopSetupBlock | null,
 ): SafetyFlagsBlock {
+  // v6.10.19c (D4): the Risk-Adj R:R is bracket-aware — whenever the
+  // container has a bracket (incl. Neutral/Qualifying) the discounted
+  // ratio shows: backend `expected_reward_risk_ratio` if > 0, else
+  // `container bracket R:R × (1 − overall_risk/100)`. N/A only when
+  // there is genuinely no bracket or the ratio < 0.10 floor.
   const rrRaw = decisionContext?.expected_reward_risk_ratio ?? 0;
-  const rrNotApplicable = topAction === 'HOLD' && rrRaw === 0;
-  const rr = rrNotApplicable
-    ? { available: false, value: null, reason: 'no_directional_bias' as string | null }
-    : buildRrBlock(rrRaw > 0 ? rrRaw : null, 'no_wire_rr');
+  let rrValue: number | null = rrRaw > 0 ? rrRaw : null;
+  let rrReason: string | null = rrRaw > 0 ? null : 'no_wire_rr';
+  let rrExplanation: string | null = null;
+  if (rrRaw > 0) {
+    const geometricRr = resolveActiveRr(opportunity, decisionContext).value;
+    rrExplanation = riskAdjRrExplanation(geometricRr, rrRaw);
+  } else if (topSetup?.rr_value != null && overallRisk != null && overallRisk > 0 && overallRisk < 100) {
+    const adj = topSetup.rr_value * (1 - overallRisk / 100);
+    if (adj >= 0.1) {
+      rrValue = Math.round(adj * 100) / 100;
+      rrReason = null;
+      rrExplanation = riskAdjRrExplanation(topSetup.rr_value, rrValue);
+    }
+  }
+  const rr = buildRrBlock(rrValue, rrReason ?? 'no_wire_rr');
   const score = readEntryDangerScore(decisionContext);
   const stopLossPct = advisory?.stop_loss_distance_pct ?? 0;
   const confidence = advisory?.confidence_assessment ?? 0;
   const entryDangerLevelVal = entryDangerLevel(score);
-  // RR-008 (v6.10.14): the first-class discount explanation — the SAME
-  // sentence the L6 header chip tooltip renders, so consumers don't
-  // recompute the factor. Null when there is no real risk-adjusted R:R.
-  const geometricRr = resolveActiveRr(opportunity, decisionContext).value;
-  const rrExplanation = rrRaw > 0 ? riskAdjRrExplanation(geometricRr, rrRaw) : null;
+  const rrNotApplicable = rrValue == null;
+  const qualityToRisk = advisory?.quality_to_risk_ratio ?? null;
   return {
     readiness,
     rr_available: rr.available,
@@ -411,10 +452,13 @@ function buildSafetyFlagsBlock(
     entry_danger_score: score,
     entry_danger_level: entryDangerLevelVal,
     // Verbatim screen chips:
-    rr_display: rrKpiDisplay(rrRaw, rrNotApplicable),
+    rr_display: rrKpiDisplay(rrValue ?? 0, rrNotApplicable),
     stop_loss_display: stopLossPct > 0 ? `${stopLossPct.toFixed(2)}%` : '\u2014',
     confidence_display: `${confidence.toFixed(0)}%`,
     entry_danger_display: `${score.toFixed(0)} (${entryDangerLevelVal})`,
+    // v6.11: Quality/Risk KPI chip — verbatim screen value (2-dp).
+    quality_to_risk_ratio: qualityToRisk,
+    quality_to_risk_ratio_display: qualityToRisk != null ? qualityToRisk.toFixed(2) : '\u2014',
   };
 }
 
@@ -431,65 +475,27 @@ function buildWhyNote(
   return null;
 }
 
-function buildNoClearCard(
-  advisory: AdvisoryMatrix | null,
-  opportunity: OpportunityMatrix | null,
-  topSetup: TopSetupBlock | null,
-): NoClearCardBlock | null {
-  // Mirrors the panel (v6.10.17): the No Clear Setup card renders when
-  // the primary opportunity is NoClearOpportunity AND the top setup is
-  // either absent (warmup) or the informational aggregated bracket
-  // (viability NoClear). It explains WHY there is no qualifying profile
-  // — the bracket card above still carries TPs/SLs/R:R.
-  const hasNoClear =
-    !!opportunity
-    && !!advisory
-    && (opportunity?.primary_opportunity ?? '') === 'NoClearOpportunity'
-    && (topSetup === null || topSetup.viability === 'NoClear');
-  if (!hasNoClear) return null;
-  const body =
-    advisory?.final_recommendation ||
-    opportunity?.invalidation_note ||
-    'No qualifying setup; market conditions do not currently favor a directional trade.';
-  return { title: 'No Clear Setup', body };
-}
-
+// v6.10.19b (B3): `price_levels` is now an ALIAS of the unified SETUP
+// block — it derives from the same verdict-consistent summary so the two
+// can never disagree (the panel renders one SETUP section at the top).
 function buildPriceLevelsBlock(
-  opportunity: OpportunityMatrix | null,
+  summary: ReturnType<typeof topSetupSummary>,
   topAction: 'LONG' | 'SHORT' | 'HOLD',
+  opportunity: OpportunityMatrix | null,
 ): RecommendationPayload['price_levels'] {
-  if (topAction === 'LONG') {
-    return {
-      side: 'long',
-      entry_zone: opportunity?.long_entry_zone ?? null,
-      target_zone: opportunity?.long_target_zone ?? null,
-      invalidation: opportunity?.long_invalidation_level ?? null,
-      horizon: opportunity?.time_horizon ?? '\u2014',
-      hold_placeholder: null,
-    };
-  }
-  if (topAction === 'SHORT') {
-    return {
-      side: 'short',
-      entry_zone: opportunity?.short_entry_zone ?? null,
-      target_zone: opportunity?.short_target_zone ?? null,
-      invalidation: opportunity?.short_invalidation_level ?? null,
-      horizon: opportunity?.time_horizon ?? '\u2014',
-      hold_placeholder: null,
-    };
-  }
+  const z = summary?.zones ?? null;
+  const side = summary?.direction === 'LONG'
+    ? 'long'
+    : summary?.direction === 'SHORT'
+      ? 'short'
+      : 'hold';
   return {
-    side: 'hold',
-    entry_zone: null,
-    target_zone: null,
-    invalidation: null,
-    horizon: opportunity?.time_horizon ?? '\u2014',
-    // R5: describes the ACTUAL card state — under HOLD the Top Setup
-    // card carries the aggregated bracket on the net-bias side (not the
-    // close-pinned sentinel the legacy copy claimed), with R:R N/A when
-    // geometry is inverted.
-    hold_placeholder:
-      'No active setup — verdict is HOLD. The Top Setup card above carries the aggregated bracket on the net-bias side for reference; when geometry is inverted its R:R reads N/A and the bracket is non-actionable.',
+    side: topAction === 'HOLD' ? 'hold' : side,
+    entry_zone: z ? { low: z.entry.low, high: z.entry.high } : null,
+    target_zone: z ? { low: z.target.low, high: z.target.high } : null,
+    invalidation: z?.invalidation ?? null,
+    horizon: summary?.horizon ?? opportunity?.time_horizon ?? '\u2014',
+    hold_placeholder: topAction === 'HOLD' ? 'No active setup.' : null,
   };
 }
 
@@ -528,6 +534,9 @@ export interface RecommendationTabInputs {
   tfSecs?: number | null;
   timestamp?: number | null;
   markPrice?: number | null;
+  /** v6.10.19c (D4): the L5 overall risk for the bracket-aware Risk-Adj
+   *  R:R fallback (instance risk matrix). */
+  overallRisk?: number | null;
   isCompleted?: boolean;
   terms?: import('./shared').InstanceTermsLike;
   headerSpec: LayerHeaderSpec;
@@ -553,8 +562,14 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     opportunity: args.opportunity,
     analysis: args.analysis,
   });
-  const topSetup = buildTopSetupBlock(args.opportunity, args.analysis, args.decisionContext, args.markPrice ?? 0, rank.top);
-  const noClearCard = buildNoClearCard(args.advisory, args.opportunity, topSetup);
+  // v6.10.19b (B1): the headline is VERDICT-consistent — the best
+  // qualifying profile on the verdict side, else the verdict-side
+  // aggregated reference bracket; counter-bias qualifying setups ride in
+  // `alternate_qualifying_setups`. The summary is computed ONCE here and
+  // shared with `price_levels` so the export can never disagree with
+  // itself.
+  const topSummary = topSetupSummary(args.opportunity, args.analysis, args.decisionContext, rank.top, args.markPrice ?? 0);
+  const topSetup = buildTopSetupBlock(topSummary, args.markPrice ?? 0, rank.top);
   // FIX-4/FIX-5 (v6.10.15) + v6.10.17 decoupling: "no active directional
   // call" applies ONLY under a genuine HOLD verdict — a directional lean
   // gated by STAND ASIDE carries a real (graded) read whose sentence
@@ -573,6 +588,8 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     source_tab: 'recommendation',
     meta,
     header,
+    // v6.10.19c (D1): payload order mirrors the panel — dial → setup →
+    // safety → playbook → verdict → why (bottom).
     gauge: buildGaugeBlock(rank),
     environment: buildEnvironmentBlock(args.advisory, args.decisionContext, rank.headline.state),
     verdict: buildVerdictBlock(rank),
@@ -580,11 +597,8 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     // Verbatim section-meta caption the panel renders when no setup exists
     // (top_setup null — opportunity matrix absent).
     top_setup_empty_text: topSetup ? null : 'no qualifying setup yet',
-    no_clear_card: noClearCard,
-    safety_flags: buildSafetyFlagsBlock(args.decisionContext, args.advisory, rank.headline.state, rank.top, args.opportunity),
-    why_note: buildWhyNote(rank),
-    why: rank.rationale.slice(0, 3),
-    price_levels: buildPriceLevelsBlock(args.opportunity, rank.top),
+    safety_flags: buildSafetyFlagsBlock(args.decisionContext, args.advisory, rank.headline.state, rank.top, args.opportunity, args.overallRisk ?? null, topSetup),
+    price_levels: buildPriceLevelsBlock(topSummary, rank.top, args.opportunity),
     strategy: buildStrategyBlock(args.advisory, noActiveCall),
     // R6 + FIX-4 + v6.10.17: the final verdict is the verdict — under a
     // genuine HOLD it reads "no directional call"; under a directional
@@ -597,6 +611,11 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
       verdictAwareGuidance(args.advisory, rank.top) != null
         ? `Environment guidance: ${verdictAwareGuidance(args.advisory, rank.top)}`
         : null,
+    why_note: buildWhyNote(rank),
+    // Top-3 bullets (panel parity — qualifying alternatives surface in
+    // `top_setup.alternate_qualifying_setups` + the panel's note, so the
+    // export mirrors the screen 1:1).
+    why: rank.rationale.slice(0, 3),
   };
   return JSON.stringify(payload, null, 2);
 }

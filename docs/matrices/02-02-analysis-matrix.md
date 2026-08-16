@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -43,6 +43,9 @@ Implemented as `AnalysisMatrix` (`crates/core-domain/src/analysis.rs`), produced
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
 | `market_quality` | `QualityLevel` | Aggregate environment quality. Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
 | `market_quality_score` | `f64` | Raw numeric mean of the per-dimension scores (trend, momentum, structure, volume) in `[0, 100]`. The numeric companion to `market_quality`, consumed by the Layer 6 `confluence_score` formula and other downstream numeric aggregations. When unavailable at the L3 boundary, callers must map `QualityLevel → f64` via the §3.8 numeric bands. |
+| `trend_stability_sharpe` | `f64?` | **v6.11.** Annualized Sharpe ratio of EMA-50 log returns over the trailing **300-bar** window — the statistical proof behind the Trend assessment (see §3.3.1). `null`/absent until 300 completed candles accumulate; computed in `market-analyzer` (L1) and stamped onto this matrix during cross-TF synthesis. Clamped to ±20 (v6.10.21). |
+| `trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` | `f64?` | **v6.12 numeric companions.** The exact 0-100 alignment dimension scores each qualitative assessment is bucketed from — the disaggregated siblings of `market_quality_score`, rendered as badges on the Analysis panel (see §3.4.1–3.7.1). L3-owned, derived from L2 during `derive_analysis`; `Some` whenever `timeframes_present ≥ 1`, `None` on the empty sentinel (omitted from the wire, §6). The label can never disagree with its score — the label IS the band the score falls into (§4.2). |
+| `representative_bbwp` / `representative_adx` | `f64?` | **v6.10.21 traceability.** The exact L3 regime-input raw values (representative first-TF-wins `bbwp` / `adx`) that the `rationale` quotes. The pair-level matrix mirror is per-slot last-writer-wins, so the exporting slot's own indicator map can differ from the matrix's provenance — these fields pin the exact inputs used. |
 | `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: 4 phases (`ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN`) + `UNKNOWN` empty-state sentinel (§3.9). |
 | `market_interpretation` | `string` | Human-readable natural-language summary. |
 | `rationale` | `string` | Explainability trace of the derivation. |
@@ -102,6 +105,17 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 ### 3.3 TrendAssessment
 `WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED`, `UNKNOWN` — derived from alignment dimension 0 (trend).
 
+#### 3.3.1 Supporting numeric field: `trend_stability_sharpe` (v6.11)
+
+The qualitative enum stays scalar on the wire; its **statistical proof** is carried as the optional `AnalysisMatrix.trend_stability_sharpe` numeric field (see §2.1) and rendered as a high-contrast monospace badge inside the Trend qualitative card on the Analysis panel.
+
+$$\text{Trend Stability Sharpe} = \frac{\text{mean}\left(\ln\frac{\text{EMA}_{50,t}}{\text{EMA}_{50,t-1}}\right)}{\sigma\left(\ln\frac{\text{EMA}_{50,t}}{\text{EMA}_{50,t-1}}\right)} \times \sqrt{\frac{86\,400}{\text{timeframe\_secs}} \times 365}$$
+
+- **Window:** trailing **300** completed candles (equal to `[candle_buffer] size`; `null` until it fills).
+- **Semantics:** measures the directional stability of the EMA-50 slope with high-frequency price noise (wicks, bid-ask bounce) stripped out. A steadily rising EMA-50 line has near-zero return variance → a high, stable Sharpe (e.g. `+3.85`) that mathematically validates a `STRONG`/`HEALTHY` trend classification; a choppy slope → value near zero. **v6.10.21:** the annualized output is clamped to ±20 (and `None` when σ < 1e-9) so the near-flat-market `σ → 0` pathology can never surface a value like −117 on the Trend card.
+- **Wire:** `f64?`, serialized only when present (`Option::None` omitted); absent until bar 300.
+- **Producer:** computed in `market-analyzer` from the pipeline's rolling `ema_medium_history` window; stamped onto the matrix during cross-TF synthesis (`synthesize_cross_tf`).
+
 ### 3.4 MomentumAssessment
 `INCREASING`, `STABLE`, `WEAKENING`, `REVERSING`, `UNKNOWN` — derived from alignment dimension 1 (momentum).
 
@@ -113,6 +127,14 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 
 ### 3.7 VolumeAssessment
 `WEAK`, `NORMAL`, `STRONG`, `EXCEPTIONAL`, `UNKNOWN` — derived from alignment dimension 2 (volume).
+
+#### 3.4.1–3.7.1 Supporting numeric fields: the per-assessment dimension scores (v6.12)
+
+Each of the four assessments above (plus Trend, §3.3) carries its exact derivation input on the wire: `AnalysisMatrix.momentum_score` / `structure_score` / `volatility_score` / `volume_score` (and `trend_score`), the 0-100 alignment dimension scores the §4.2 bands bucket. They are the **disaggregated siblings of `market_quality_score`** (which is `mean(0,1,2,4)` of the same inputs) and follow its derivation model exactly — L3-owned values derived from L2, never L1 products.
+
+The Analysis panel renders each as a high-contrast monospace badge on the qualitative card face, **v6.13:** in rounded-integer + `%` form (e.g. `77%` — the `%` makes the cross-timeframe agreement semantics explicit, unlike a bare `76.50`), tinted by coarse band heat (≥70 strong / ≥40 mid / <40 weak) and carrying a ▲/▼ delta arrow against the previous frame's score (UI-side computation over the WS stream — no backend state). Each badge carries a hover tooltip (v6.13) qualifying its meaning — "agreement across timeframes", the % share of weighted TF readings sharing the dominant direction (Structure: % of TFs sharing the same S/R label). The Trend card additionally keeps the `trend_stability_sharpe` badge (v6.11) side by side as its statistical proof — it carries its own tooltip so the two number families are never confused. The export's `qualitative_assessment` block carries raw value + verbatim display string per field (see [07-05-export-data-payload-schema.md](../ui-ux/07-05-export-data-payload-schema.md)).
+
+> **Layer note.** The dimension scores live on the **Alignment Matrix** (L2, §2.2). Stamping them onto the Analysis Matrix is the same allowed `L3 ← L2` derivation as `market_quality_score` (see [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md) §2.3) — distinct from `trend_stability_sharpe`, which is an L1-computed statistical proof carried as traceability (documented §3.3.1 and the field-ownership §5 note).
 
 > **`UNKNOWN` sentinel.** Every assessment enum admits `UNKNOWN` as its empty-state value (§6). For Structure, `UNKNOWN` is also the §4.2 fall-through band (score `< 20`); for the other four enums it is reachable only via the empty state. Enum values serialize as `SCREAMING_SNAKE_CASE`.
 
@@ -171,6 +193,8 @@ state_confidence = clamp(state_confidence, 0, 1)
 | Volatility | dim 3 | `≥90` `EXTREME` · `≥70` `EXPANDING` · `≥40` `NORMAL` · `≥20` `COMPRESSED` · else `UNSTABLE` |
 | Volume | dim 2 | `≥90` `EXCEPTIONAL` · `≥70` `STRONG` · `≥40` `NORMAL` · else `WEAK` |
 
+> **v6.12 invariant.** Each assessment's numeric companion (§3.4.1–3.7.1) is the exact dimension score this table buckets: the emitted label and its score are always consistent by construction.
+
 ### 4.3 *(Removed in the institutional redesign)*
 
 The opportunity-selection decision tree has been **moved to the Opportunity Matrix** ([02-08-opportunity-matrix.md §4](02-08-opportunity-matrix.md#4-setup-selection-rule)) because the `OpportunityType` field is a forecast (L4-owned) and not a state interpretation (L3-owned). See [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md) for the canonical mapping.
@@ -195,6 +219,13 @@ The `rationale` and `market_interpretation` strings are generated deterministica
   "volatility_assessment": "EXPANDING",
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
+  "market_quality_score": 72.0,
+  "trend_stability_sharpe": 3.85,
+  "trend_score": 76.5,
+  "momentum_score": 83.2,
+  "structure_score": 81.4,
+  "volatility_score": 55.0,
+  "volume_score": 78.8,
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, expanding volatility, and strong volume participation. Favors trend continuation.",
   "rationale": "state_confidence = |40|/100 + 0.15 (agreement 75%) + 0.10 (3 cross-TF signals) = 0.65",
   "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
@@ -218,6 +249,8 @@ When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty
 | `market_regime` | `TRANSITION` |
 | `market_quality` | `POOR` |
 | `market_quality_score` | `0.0` |
+| `trend_stability_sharpe` | absent (`Option::None` omitted from the wire) |
+| `trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` | absent (`Option::None` omitted from the wire) |
 | `market_phase` | `UNKNOWN` |
 | `trend_assessment` | `UNKNOWN` |
 | `momentum_assessment` | `UNKNOWN` |

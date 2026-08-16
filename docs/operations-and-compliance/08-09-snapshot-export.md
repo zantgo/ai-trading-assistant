@@ -1,6 +1,6 @@
 # Snapshot Export Operator Manual
 
-**Version:** 6.10.4 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Audience:** Operators configuring the periodic JSON dump that feeds the offline data-science pipeline.
 

@@ -14,7 +14,7 @@
 import { DASHBOARD_COLORS, biasColor, directionColor, riskDangerColor, scoreColor, rrColor } from './dashboardColors';
 import { COLORS } from './scoreStyles';
 import { resolveEffectiveDirection, RR_MEANINGFUL_FLOOR } from './opportunityBars';
-import { resolveActiveRr, riskAdjRrExplanation } from './decisionRank';
+import { resolveActiveRr } from './decisionRank';
 import type {
     AdvisoryMatrix,
     AlignmentMatrix,
@@ -190,6 +190,21 @@ export function signalCount(tf: TimeframeTelemetry | null | undefined): number {
     return n;
 }
 
+/**
+ * Bars elapsed since the TF's last completed-candle snapshot — the same
+ * formula the metrics export's `market_context.age_bars_display` uses
+ * (`Math.floor(ageSec / barDurationSec)`, display `${bars}b`). Single
+ * source for the header `Age` chip and the export's age string.
+ */
+export function tfAgeBars(tf: TimeframeTelemetry | null | undefined): number | null {
+    if (!tf?.barDurationSec) return null;
+    const ts = (tf.latestSnapshot as { timestamp?: number } | null | undefined)?.timestamp;
+    if (!ts || !isFinite(ts)) return null;
+    const ageSec = Date.now() / 1000 - ts;
+    if (ageSec < 0) return null;
+    return Math.floor(ageSec / tf.barDurationSec);
+}
+
 /** Infer a LayerHeader `status` from a TimeframeTelemetry + WS state. */
 export function tfStatusFrom(
     tf: TimeframeTelemetry | null | undefined,
@@ -239,6 +254,12 @@ export function buildL1MetricsHeader(
         chip('Score', score, score, scoreColor),
         chip('Signals', signalCount(tf), signalCount(tf), null, true),
     ];
+    // Age — freshness of the L1 synthesis in completed bars. Same value
+    // the export carries in `market_context.age_bars_display`.
+    const ageBars = tfAgeBars(tf);
+    if (ageBars != null) {
+        meta.push({ label: 'Age', value: `${ageBars}b`, color: COLORS.textMuted, state: 'valid' });
+    }
     // Hide regime from chips when it's already implied by the badge label.
     const regimeImplied =
         (regime === 'TRENDING' && (label === 'BULLISH' || label === 'BEARISH')) ||
@@ -311,7 +332,6 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
 export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): LayerHeaderSpec {
     const label = a?.mtf_overall_label ?? null;
     const score = a?.mtf_overall_score ?? null;
-    const agreement = a?.trend_agreement_pct ?? null;
     const tfs = a?.timeframes_present ?? null;
 
     if (!a || !label) {
@@ -328,7 +348,9 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
         },
         meta: [
             chip('Score', score, score, scoreColor),
-            chip('Agreement', agreement != null ? `${agreement.toFixed(0)}%` : null, agreement, scoreColor),
+            // v6.10.19d (A): the Agreement chip was removed — the
+            // consensus hero lives in the panel's header container
+            // (v6.10.20 C: circular dial + CONSENSUS axes grid).
             chip('TFs', tfs != null ? `${tfs}/4` : null, tfs, null, true),
         ],
         status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
@@ -436,7 +458,7 @@ export function buildL4OpportunityHeader(
         },
         meta: [
             chip('Score', score, score, scoreColor),
-            chip('R:R', activeRr > 0 ? `1:${activeRr.toFixed(2)}` : null, activeRr, rrColor),
+            chip('Reward-to-Risk Ratio', activeRr > 0 ? `1:${activeRr.toFixed(2)}` : null, activeRr, rrColor),
             chip('Horizon', horizon ? prettifyEnum(horizon) : null, null, () => COLORS.textMuted),
         ],
         status: 'live',
@@ -517,9 +539,8 @@ export function buildL6DecisionHeader(input: {
     /** Opportunity matrix — lets the chip explain the risk discount. */
     opportunity?: OpportunityMatrix | null | undefined;
 }): LayerHeaderSpec {
-    const { rank, decisionContext, advisory, opportunity } = input;
+    const { rank, decisionContext, advisory } = input;
     const confidence = advisory?.confidence_assessment ?? null;
-    const rr = decisionContext?.expected_reward_risk_ratio ?? 0;
     const stance = advisory?.market_stance ?? null;
     const readiness = decisionContext?.trade_readiness ?? null;
 
@@ -543,19 +564,11 @@ export function buildL6DecisionHeader(input: {
         return { layerNumber: 6, layerName: 'Recommendation', badge: emptyBadge(), meta: [], status: 'loading' };
     }
 
-    // RR-001 (v6.10.12): this chip is the L6 RISK-ADJUSTED decision R:R
-    // (geometric × (1 − overall_risk/100)) — named distinctly from the L4
-    // geometric "R:R" the setup cards show, and its discount is explainable
-    // in the tooltip (shared sentence with the export, RR-008).
-    let rrTitle: string | undefined;
-    if (rr > 0) {
-        rrTitle = riskAdjRrExplanation(resolveActiveRr(opportunity, decisionContext).value, rr) ?? undefined;
-    }
+    // v6.10.19d (D): the "Risk-Adj R:R" header chip was removed — the
+    // Risk-Adjusted R:R lives solely in the Safety Flags KPI row (the
+    // header keeps Confidence + Stance).
     const meta: MetaChipSpec[] = [
         chip('Confidence', confidence != null ? `${Math.round(confidence)}%` : null, confidence, scoreColor),
-        rank.top === 'HOLD' && rr === 0
-            ? chip('Risk-Adj R:R', 'N/A', null, null, false, { title: rrTitle })
-            : chip('Risk-Adj R:R', rr > 0 ? `1:${rr.toFixed(2)}` : null, rr, rrColor, false, { title: rrTitle }),
     ];
     if (stance && stance !== 'Neutral' && stance !== 'Avoid') {
         meta.push(chip('Stance', prettifyEnum(stance), null, () => COLORS.textMuted));

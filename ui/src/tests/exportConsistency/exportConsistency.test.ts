@@ -86,11 +86,17 @@ describe('export consistency — Alignment tab', () => {
     expect(c.dom).toContain('4/4');
     expect(c.jsonText).toContain('4/4');
 
-    // Breakdown caption — same sign-prefixed values on screen and in JSON.
-    expectInDomAndJson(c, 'T:0.45');
-    expectInDomAndJson(c, 'M:0.30');
-    expectInDomAndJson(c, 'Vt:0.10');
-    expectInDomAndJson(c, 'Vm:-0.20');
+    // Consensus hero (v6.10.20 C): the dial verdict renders as a bold
+    // header + grey sub-label — the export's `label_display` mirrors the
+    // header verbatim; the sub-label stays DOM-only. The "Polarization"
+    // term is retired — the details container is labeled CONSENSUS and
+    // the axis values surface as the 2×2 grid cards only.
+    expectInDomAndJson(c, 'Strong Consensus');
+    expect(c.dom).toContain('Timeframes are aligned.');
+    expect(c.dom).not.toContain('Polarization');
+    expect(c.dom).toContain('Consensus');
+    expectInDomAndJson(c, '+0.45');
+    expectInDomAndJson(c, '-0.20');
 
     // Dimensions: state tokens + integer-rounded score/confidence.
     expect(c.payload.dimensions[0].name).toBe('Trend');
@@ -101,8 +107,8 @@ describe('export consistency — Alignment tab', () => {
     expect(c.dom).toContain('78%');
     expect(c.dom).toContain('BEARISH');
 
-    // Consensus meter + polarization chips.
-    expectInDomAndJson(c, 'Strong consensus — timeframes aligned');
+    // Consensus dial verdict + axis grid.
+    expectInDomAndJson(c, 'Strong Consensus');
     expectInDomAndJson(c, '+0.45');
     expectInDomAndJson(c, '-0.20');
 
@@ -119,7 +125,6 @@ describe('export consistency — Alignment tab', () => {
     expect(c.dom).toContain('(50%)');
     expect(c.payload.score_calculation.weights[0].contribution_display).toBe('+0.23');
     expect(c.dom).toContain('contrib: +0.23');
-    expectInDomAndJson(c, '(0.5 * (0.45) + 0.3 * (0.30) + 0.1 * (0.10) + 0.1 * (-0.20)) × 100 = 30.5');
 
     // Interpretation — real label (STRONG BULL) and full screen sentence.
     const interpretation = stripTags(c.payload.interpretation);
@@ -140,14 +145,16 @@ describe('export consistency — Risks tab', () => {
     const c = await renderPanelAndExport(RiskPanel, { pairKey: PAIR }, seedRichInstance);
     const p = c.payload;
 
-    // Hero ring + confidence.
+    // Hero — risk progress bar (the ring is gone, v6.10.19d C).
     expectJsonNumberRenderedAsDom(c, '48', 48);
-    expect(c.dom).toContain('/ 100');
+    expect(c.dom).toContain('48 / 100');
     expect(p.hero.overall_score).toBe(48);
     expect(p.hero.overall_confidence).toBe(74);
-    expect(c.dom).toContain('74%');
-    // Peak chip (High ≠ overall Moderate → visible).
-    expect(c.dom).toContain('peak:');
+    // Confidence is a badge next to the score — full words, no caption.
+    expect(c.dom).toContain('Confidence 74%');
+    expect('hint' in p.hero).toBe(false);
+    // Peak chip renamed "Top risk:" (High ≠ overall Moderate → visible).
+    expect(c.dom).toContain('Top risk:');
     expect(p.hero.top_severity).toBe('High');
 
     // Summary tiles — counts of each level.
@@ -163,8 +170,9 @@ describe('export consistency — Risks tab', () => {
     expect(p.dimensions[0].name).toBe('Cascade Risk');
     expect(p.dimensions[0].score).toBe(70);
     expect(p.dimensions[0].level).toBe('High');
-    expect(p.dimensions[0].state_display).toBe('⚠ CRITICAL');
-    expect(c.dom).toContain('CRITICAL');
+    // Scheme A (v6.10.19d C): level High + non-trend state → ELEVATED.
+    expect(p.dimensions[0].state_display).toBe('↑ ELEVATED');
+    expect(c.dom).toContain('ELEVATED');
     expect(p.dimensions[0].confidence).toBe(85);
     expect(c.dom).toContain('85%');
     // Dimension names byte-identical to the screen cards (incl. the
@@ -187,6 +195,12 @@ describe('export consistency — Risks tab', () => {
     expect(cascade.asymmetry_display).toBe('↑35.0% (short squeeze)');
     expectInDomAndJson(c, '↑35.0% (short squeeze)');
 
+    // v6.11: execution-friction gauge — screen card + export parity.
+    const exec = p.dimensions.find((d: { key: string }) => d.key === 'execution_risk')!;
+    expect(exec.execution_extras).toEqual({ volatility_to_spread_ratio: 9.2 });
+    // The `×` suffix is display-only; the JSON carries the bare number.
+    expect(c.dom).toContain('9.2×');
+
     // Interpretation paragraph — zero-count sentences omitted like the screen.
     expect(p.interpretation_full).toContain('Elevated risk environment.');
     expect(p.interpretation_full).not.toContain('0 dimensions at extreme levels');
@@ -195,10 +209,6 @@ describe('export consistency — Risks tab', () => {
     expect(p.interpretation_full).toContain('Overall composite score is');
     expect(p.interpretation_full).toContain('at 74% confidence');
     expect(c.dom).toContain('Overall composite score is');
-
-    // Hero hint — verbatim screen copy (v6.10.9: state is descriptive).
-    expect(p.hero.hint).toBe('Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.');
-    expect(c.dom).toContain('Lower is safer.');
 
     // Disclosure weights + note.
     expect(p.disclosure.weights).toHaveLength(8);
@@ -211,29 +221,28 @@ describe('export consistency — Risks tab', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('export consistency — Opportunities tab', () => {
-  it('exports the exact bars, top setup, trade setups (incl. NEUTRAL), R:R, levels and environment shown', async () => {
+  it('exports the exact bars, top setup, trade setups (incl. RANGE), R:R, levels and environment shown', async () => {
     const c = await renderPanelAndExport(OpportunitiesPanel, { pairKey: PAIR }, seedRichInstance);
     const p = c.payload;
 
-    // Directional bars (BULLISH / BEARISH / HOLD always rendered — the
+    // Directional bars (BULLISH / BEARISH / RANGE always rendered — the
     // labels are screen chrome; the JSON carries the raw percentages).
     expect(p.directional_bars).not.toBeNull();
     expect(p.directional_bars.bullish_pct).toBeGreaterThan(0);
     expect(c.dom).toContain('BULLISH');
     expect(c.dom).toContain('BEARISH');
-    expect(c.dom).toContain('HOLD');
+    expect(c.dom).toContain('RANGE');
 
-    // Header block: prettified opportunity class + lean + score + quality.
-    expect(p.header_block.opportunity_class).toBe('Trend Continuation');
+    // The old TOP SETUP hero (opportunity badge + lean chip + score bar +
+    // quality badge) was removed in v7.1 — the Recommendation panel owns
+    // the top setup; the LayerHeader badge + chip rail carry the matrix
+    // class/score/R:R/horizon here. `header_block` is gone from the
+    // export with it.
     expectInDomAndJson(c, 'Trend Continuation');
-    expect(p.header_block.lean).toBe('Bullish setups dominate');
-    expectInDomAndJson(c, 'Bullish setups dominate');
-    expect(p.header_block.setup_quality).toBe('STRONG');
-    expectInDomAndJson(c, 'STRONG');
     expectJsonNumberRenderedAsDom(c, '78', 78);
 
     // Trade setups: BOTH qualifying profiles are exported as cards —
-    // including the NEUTRAL-side MeanReversion ("NEUTRAL · HOLD" card).
+    // including the RANGE-side MeanReversion ("RANGE · NEUTRAL" card).
     expect(p.trade_setups).toHaveLength(2);
     const tc = p.trade_setups[0];
     expect(tc.opportunity_type).toBe('Trend Continuation');
@@ -259,11 +268,8 @@ describe('export consistency — Opportunities tab', () => {
     expect(mr.opportunity_type).toBe('Mean Reversion');
     expect(mr.side).toBe('NEUTRAL');
     expect(mr.viability).toBe('DirectionalNeutral');
-    expect(mr.badge_text).toBe('NEUTRAL · HOLD');
-    expectInDomAndJson(c, 'NEUTRAL · HOLD');
-
-    // Hold scenario note absent (rank = LONG).
-    expect(p.hold_scenario_note).toBeNull();
+    expect(mr.badge_text).toBe('RANGE · NEUTRAL');
+    expectInDomAndJson(c, 'RANGE · NEUTRAL');
 
     // R:R internal + horizon.
     expect(p.rr_internal.expected_rr_value).toBe(2.5);
@@ -279,25 +285,25 @@ describe('export consistency — Opportunities tab', () => {
       'Mean Reversion',
     ]);
 
-    // Confluent levels: same first-4 slice the screen shows, abbreviated sources.
+    // Confluent levels: same first-4 slice the screen shows, full source names.
     expect(p.confluent_entry_levels).toHaveLength(4);
-    expect(p.confluent_entry_levels[0].sources).toEqual(['FIB', 'VP', 'PP']);
-    expectInDomAndJson(c, 'FIB');
-    expectInDomAndJson(c, 'VP');
-    expectInDomAndJson(c, 'PP');
+    expect(p.confluent_entry_levels[0].sources).toEqual(['FIBONACCI', 'VOLUME PROFILE', 'PIVOT POINTS']);
+    expectInDomAndJson(c, 'FIBONACCI');
+    expectInDomAndJson(c, 'VOLUME PROFILE');
+    expectInDomAndJson(c, 'PIVOT POINTS');
     expect(p.confluent_target_levels).toHaveLength(2);
 
     // Market position + environment.
     expect(p.market_position.bias).toBe('Bullish');
     expectInDomAndJson(c, 'Bullish');
     expect(p.market_position.regime).toBe('TRENDING_BULL');
-    expect(p.environment.timeframes_considered_display).toBe('4/4 TFs considered');
-    expectInDomAndJson(c, '4/4 TFs considered');
+    expect(p.environment.timeframes_considered_display).toBe('4/4 Timeframes considered');
+    expectInDomAndJson(c, '4/4 Timeframes considered');
     expect(p.environment.confidence_pct).toBe(72);
     expect(c.dom).toContain('Confidence: 72%');
   });
 
-  it('exports the HOLD scenario note + N/A R:R when the rank is HOLD', async () => {
+  it('exports the empty-state sections + N/A R:R when the rank is HOLD (no scenario note, no strip)', async () => {
     const c = await renderPanelAndExport(OpportunitiesPanel, { pairKey: PAIR }, () => {
       seedRichInstance();
       const entry = useAppStore().instancesMap[PAIR];
@@ -338,8 +344,15 @@ describe('export consistency — Opportunities tab', () => {
       } as any;
     });
     const p = c.payload;
-    expect(p.hold_scenario_note).toContain('HOLD / NO CLEAR');
-    expect(c.dom).toContain('HOLD / NO CLEAR');
+    // v6.10.19c (A/B): the scenario note and the NO CLEAR strip were
+    // erased — the RANGE/BULLISH/BEARISH sections are the container.
+    expect(p.hold_scenario_note).toBeUndefined();
+    expect(c.dom).not.toContain('HOLD / NO CLEAR');
+    expect(p.no_clear_strip).toBeUndefined();
+    expect(p.trade_setup_sections.length).toBe(3);
+    // v7.1: folders are RANKED by content — the LONG TrendContinuation
+    // card (score 78) puts BULL first ahead of the NEUTRAL MeanReversion.
+    expect(p.trade_setup_sections[0].section).toBe('BULL');
     expect(p.rr_internal.expected_rr_available).toBe(false);
     expect(c.dom).toContain('N/A');
   });
@@ -387,9 +400,9 @@ describe('export consistency — Analysis tab', () => {
     expectInDomAndJson(c, '2.0:1 signal ratio');
     expect(p.signal_lean_hero.tone).toBe('bull');
 
-    // Lean chip label.
+    // Lean chip label (export payload only — the on-screen chip was
+    // removed; the hero above carries the same info).
     expect(p.signals.lean.label).toBe('Net bullish · 2↑ vs 1↓');
-    expectInDomAndJson(c, 'Net bullish · 2↑ vs 1↓');
 
     // Decomposed signals — same rows as the screen grid squares.
     expect(p.signals.list).toHaveLength(3);
@@ -408,6 +421,22 @@ describe('export consistency — Analysis tab', () => {
     expectInDomAndJson(c, 'Healthy');
     expect(p.qualitative_assessment.cycle_phase).toBe('MARKUP');
     expectInDomAndJson(c, 'MARKUP');
+    // v6.11: trend-stability Sharpe badge + export parity.
+    expect(p.qualitative_assessment.trend_stability_sharpe).toBeCloseTo(3.85, 2);
+    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBe('3.85');
+    expectInDomAndJson(c, '3.85');
+    // v6.12: per-card dimension-score badges + export parity
+    // (v6.13: rounded-integer + '%' screen format mirrored exactly).
+    expect(p.qualitative_assessment.trend_score_display).toBe('77%');
+    expectInDomAndJson(c, '77%');
+    expect(p.qualitative_assessment.momentum_score_display).toBe('83%');
+    expectInDomAndJson(c, '83%');
+    expect(p.qualitative_assessment.structure_score_display).toBe('81%');
+    expectInDomAndJson(c, '81%');
+    expect(p.qualitative_assessment.volatility_score_display).toBe('55%');
+    expectInDomAndJson(c, '55%');
+    expect(p.qualitative_assessment.volume_score_display).toBe('79%');
+    expectInDomAndJson(c, '79%');
 
     // Per-timeframe alignment 2×2 grid.
     expect(p.per_timeframe_alignment).toHaveLength(4);
@@ -422,6 +451,11 @@ describe('export consistency — Analysis tab', () => {
     // Interpretation + rationale.
     expectInDomAndJson(c, 'Price is making higher highs');
     expectInDomAndJson(c, 'The market is in a healthy uptrend');
+
+    // v6.10.21: representative traceability — the matrix's own pinned
+    // inputs (per-slot last-writer-wins proof) beat the micro-map fallback.
+    expect(p.representative_bbwp).toBeCloseTo(83.3, 1);
+    expect(p.representative_adx).toBeCloseTo(33.0, 1);
   });
 });
 
@@ -438,7 +472,9 @@ describe('export consistency — Recommendation tab', () => {
     expect(p.gauge.net_bias_pct).toBe(45);
     expect(p.gauge.bias_direction).toBe('LONG');
     expect(p.gauge.net_bias_display).toBe('+45%');
-    expectInDomAndJson(c, '+45%');
+    // The center-bottom dial label renders the same net % the needle
+    // points at (+45% green) — DOM and JSON agree verbatim.
+    expect(c.dom).toContain('+45%');
     expectInDomAndJson(c, 'LONG');
 
     // Top setup card.
@@ -452,20 +488,20 @@ describe('export consistency — Recommendation tab', () => {
     expectInDomAndJson(c, '$66000–$66500');
     expect(p.top_setup.invalidation_display).toBe('$62800');
     expectInDomAndJson(c, '$62800');
-    // The Top Setup card R:R is the canonical wire-side value
+    // The Top Setup card Reward-to-Risk is the canonical wire-side value
     // (`long_expected_rr_internal`, target-mid geometry) — the same
     // number the header chip and safety flags surface. The legacy
     // TP1-geometry recompute (reward 2950 / risk 500 = 5.9) is no
     // longer rendered anywhere.
-    expect(p.top_setup.rr_display).toBe('R:R 1 : 2.50');
-    expectInDomAndJson(c, 'R:R 1 : 2.50');
+    expect(p.top_setup.rr_display).toBe('2.50');
+    expectInDomAndJson(c, '2.50');
     expect(p.top_setup.preconditions_met).toBe(3);
     expect(c.dom).toContain('3/3');
 
     // Safety flags KPI chips.
     expect(p.safety_flags.readiness).toBe('READY');
     expectInDomAndJson(c, 'READY');
-    expect(p.safety_flags.rr_display).toBe('R:R 1 : 2.50');
+    expect(p.safety_flags.rr_display).toBe('2.50');
     expect(p.safety_flags.stop_loss_display).toBe('1.00%');
     expectInDomAndJson(c, '1.00%');
     expect(p.safety_flags.confidence_display).toBe('72%');
@@ -474,9 +510,16 @@ describe('export consistency — Recommendation tab', () => {
     expectInDomAndJson(c, '35 (LOW)');
     expect(p.safety_flags.entry_danger_level).toBe('LOW');
 
-    // D2 canonical R:R: the top-setup card, the safety-flags KPI and the
-    // header chip must all surface the SAME wire-side value — no
-    // independent geometry recompute anywhere in the payload.
+    // v6.11: Quality/Risk KPI chip — screen + environment + safety_flags parity.
+    expect(p.safety_flags.quality_to_risk_ratio).toBeCloseTo(1.5, 2);
+    expect(p.safety_flags.quality_to_risk_ratio_display).toBe('1.50');
+    expect(p.environment.quality_to_risk_ratio).toBeCloseTo(1.5, 2);
+    expect(p.environment.quality_to_risk_ratio_display).toBe('1.50');
+    expectInDomAndJson(c, '1.50');
+
+    // Canonical Reward-to-Risk: the top-setup card and the safety-flags
+    // KPI must all surface the SAME wire-side value — no independent
+    // geometry recompute anywhere in the payload.
     expect(p.top_setup.rr_value).toBe(p.safety_flags.rr_value);
     expect(p.top_setup.rr_display).toBe(p.safety_flags.rr_display);
     expect(p.safety_flags.rr_available).toBe(true);
@@ -528,9 +571,10 @@ describe('export consistency — Recommendation tab', () => {
     });
     const p = c.payload;
 
-    // Gauge: the directional needle shows +60% in the DOM AND the export.
+    // Gauge: the directional needle data stays in the JSON and the DOM
+    // dial label mirrors it (+60% green).
     expect(p.gauge.net_bias_display).toBe('+60%');
-    expectInDomAndJson(c, '+60%');
+    expect(c.dom).toContain('+60%');
     // The verdict hero is the graded sentence with the gate attached.
     expect(p.final_verdict).toBe('LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH).');
     expectInDomAndJson(c, 'LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH)');
@@ -571,15 +615,15 @@ describe('export consistency — Recommendation tab', () => {
       } as any;
     });
     const p = c.payload;
-    // The aggregated bracket is published on the SHORT side.
+    // v6.10.19c (D3): the verdict-side aggregated bracket is published on
+    // the SHORT side; the no-clear explanation card was removed.
     expect(p.top_setup).not.toBeNull();
     expect(p.top_setup!.direction_label).toBe('SHORT');
     expect(p.top_setup!.viability).toBe('NoClear');
     expect(p.top_setup!.badge_text).toBe('NO CLEAR SETUP');
     expectInDomAndJson(c, 'NO CLEAR SETUP');
-    // The explanation card coexists (both in DOM and JSON).
-    expect(p.no_clear_card).not.toBeNull();
-    expectInDomAndJson(c, 'No Clear Setup');
+    expect(p.no_clear_card).toBeUndefined();
+    expect(c.dom).not.toContain('No Clear Setup');
     // The verdict is the directional lean, gated by readiness.
     expect(p.verdict.top).toBe('SHORT');
     expect(p.final_verdict).toContain('SHORT lean');
@@ -594,10 +638,10 @@ describe('export consistency — Recommendation tab', () => {
       entry.alignment = {
         ...entry.alignment!,
         blend_weights: [
-          ['T', 0.55],
-          ['M', 0.35],
-          ['Vt', 0.05],
-          ['Vm', 0.05],
+          ['Trend', 0.55],
+          ['Momentum', 0.35],
+          ['Volume', 0.05],
+          ['Volatility', 0.05],
         ],
       } as any;
     });
@@ -623,12 +667,53 @@ describe('export consistency — Metrics tab (single-TF Micro)', () => {
     const p1 = c1.payload;
     expect(p1.source_tab).toBe('metrics');
 
-    // Market context strip.
+    // Market context — export carries the wire values verbatim; the screen
+    // surfaces the synthesis in the LayerHeader headline (humanized
+    // display-form labels) plus the distributed dimension chips.
     expect(p1.market_context.regime).toBe('TRENDING_BULL');
     expect(p1.market_context.overall_label).toBe('STRONG_BULLISH');
-    expect(c1.dom).toContain('TRENDING_BULL');
-    expect(c1.dom).toContain('STRONG_BULLISH');
+    expect(c1.dom).toContain('TRENDING BULL');
+    expect(c1.dom).toContain('STRONG BULLISH');
     expect(p1.market_context.age_bars_display).toMatch(/^\d+b$/);
+
+    // Age chip (per-TF header) mirrors the export's age_bars_display —
+    // same formula, same inputs; allow ±1 bar for a boundary crossing
+    // between DOM capture and export capture.
+    const ageChip = c1.dom.match(/Age: (\d+)b/);
+    expect(ageChip).not.toBeNull();
+    const domBars = parseInt(ageChip![1], 10);
+    const expBars = parseInt(p1.market_context.age_bars_display, 10);
+    expect(Math.abs(domBars - expBars)).toBeLessThanOrEqual(1);
+
+    // The 5 L1 dimensions are distributed, one surface each: Trend /
+    // Momentum / Volatility / Volume group cards + the LIQUIDITY tile.
+    // Each chip renders the export's raw score in sign-prefixed 2-decimal
+    // form, and the tooltip carries confidence + label (checked at the
+    // component level). Card-owned dims assert only when the owning group
+    // card renders in this fixture (Trend/Volume cards are pinned in
+    // GroupConfluenceGrid.test.ts — the fixture has no Trend/Volume groups).
+    const cardGroups = new Set(p1.group_confluence.map((g: { group: string }) => g.group));
+    const DIM_CARD: Record<string, string> = { trend: 'Trend', momentum: 'Momentum', volatility: 'Volatility', volume: 'Volume' };
+    for (const k of ['trend', 'momentum', 'volatility', 'volume'] as const) {
+        if (!cardGroups.has(DIM_CARD[k])) continue;
+        const dim = p1.market_context[k];
+        const fmt = (dim.score >= 0 ? '+' : '') + dim.score.toFixed(2);
+        expectJsonNumberRenderedAsDom(c1, fmt, dim.score);
+    }
+    // Liquidity has no group card — its single home is the LIQUIDITY tile,
+    // which renders unconditionally when the context block is present.
+    const liqDim = p1.market_context.liquidity;
+    expectJsonNumberRenderedAsDom(c1, (liqDim.score >= 0 ? '+' : '') + liqDim.score.toFixed(2), liqDim.score);
+
+    // Signal-count parity — facet badge (default all-pass filters) and
+    // header Signals chip both agree with the export's signal_count.
+    expect(c1.dom).toContain(`Signals ${p1.market_context.signal_count}`);
+    expect(c1.dom).toContain(`Signals: ${p1.market_context.signal_count}`);
+
+    // Signal-count parity — facet badge (filtered=default all-pass) and
+    // header Signals chip both agree with the export's signal_count.
+    expect(c1.dom).toContain(`Signals ${p1.market_context.signal_count}`);
+    expect(c1.dom).toContain(`Signals: ${p1.market_context.signal_count}`);
 
     // Group confluence.
     const momentum = p1.group_confluence.find((g: { group: string }) => g.group === 'Momentum');
@@ -826,22 +911,17 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     expect(p.liquidity_panel.context.estimation_confidence_pct).toBe(85);
     expect(p.liquidity_panel.context.long_oi_usd).toBe(40000000);
 
-    // Filter state — no pills active: everything visible, per-group counts
-    // equal the unfiltered totals.
-    expect(p.filter_state).toEqual({
-      active_only: false,
-      confirmed_plus_only: false,
-      hide_gates: false,
-      hide_overlays: false,
-      query: '',
-    });
+    // v6.10.19d B: the filter pills were removed — no `filter_state`
+    // block; the grid always runs on the default filters, so every row
+    // is visible and per-group counts equal the unfiltered totals.
+    expect('filter_state' in p).toBe(false);
     expect(p.indicators.every((r: { visible: boolean }) => r.visible)).toBe(true);
     const smcGroup = p.groups.find((g: { key: string }) => g.key === 'Institutional');
     expect(smcGroup.indicator_count).toBe(smcGroup.total_indicator_count);
     expect(smcGroup.indicator_count).toBe(2); // vwap + smc_fvg
   });
 
-  it('serializes active filter pills and visible flags matching the on-screen grid', async () => {
+  it('serializes visible flags matching the on-screen grid under the default filters', async () => {
     seedRichInstance();
     const writes: string[] = [];
     Object.defineProperty(navigator, 'clipboard', {
@@ -850,10 +930,13 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
       configurable: true,
     });
     const { container } = render(TerminalMonitor, { props: { pairKey: PAIR } });
-    // Toggle "Active only" (drops rows without signals on any TF) and
-    // "Hide gates" (drops non-directional rows) BEFORE exporting.
-    await clickButtonByText(container, 'Active only');
-    await clickButtonByText(container, 'Hide gates');
+    // v6.10.19d B: the filter pills are gone — no "Active only" / "Hide
+    // gates" buttons exist; the grid always runs on the default filters
+    // (everything visible), and no `filter_state` block is emitted.
+    const pillButtons = Array.from(container.querySelectorAll('button')).filter((b) =>
+      ['Active only', 'Confirmed+', 'Hide gates', 'Hide overlays', 'Clear'].includes((b.textContent ?? '').trim()),
+    );
+    expect(pillButtons).toHaveLength(0);
     const exportBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       (b.textContent ?? '').toUpperCase().includes('EXPORT DATA'),
     );
@@ -865,33 +948,27 @@ describe('export consistency — Metrics tab (MTF grid)', () => {
     const p = JSON.parse(writes[0]);
 
     expect(p.source_tab).toBe('mtf');
-    expect(p.filter_state).toEqual({
-      active_only: true,
-      confirmed_plus_only: false,
-      hide_gates: true,
-      hide_overlays: false,
-      query: '',
-    });
+    expect('filter_state' in p).toBe(false);
 
+    // Default filters show every row — including ones that would have
+    // been hidden by the old pills.
     const rsi = p.indicators.find((r: { key: string }) => r.key === 'rsi');
     expect(rsi.visible).toBe(true);
     const fib = p.indicators.find((r: { key: string }) => r.key === 'fibonacci');
-    expect(fib.visible).toBe(false); // no signals on any TF
+    expect(fib.visible).toBe(true);
     const squeeze = p.indicators.find((r: { key: string }) => r.key === 'squeeze');
-    expect(squeeze.visible).toBe(false); // no signals AND a gate
+    expect(squeeze.visible).toBe(true);
     const sr = p.indicators.find((r: { key: string }) => r.key === 'support_resistance');
-    expect(sr.visible).toBe(false); // gate (directional: false), despite having signals
+    expect(sr.visible).toBe(true);
 
-    // Group counts mirror the visible rows (Structure: sr hidden as gate,
-    // fibonacci hidden as inactive, pivot_points hidden as gate → none).
+    // Group counts equal the unfiltered totals.
     const structure = p.groups.find((g: { key: string }) => g.key === 'Structure');
-    expect(structure.indicator_count).toBe(0);
-    expect(structure.total_indicator_count).toBe(3);
+    expect(structure.indicator_count).toBe(structure.total_indicator_count);
 
-    // The hidden rows are gone from the rendered grid too.
-    expect(dom).not.toContain('Fibonacci');
-    expect(dom).not.toContain('Squeeze');
-    expect(dom).not.toContain('Pivot Points');
+    // Every rendered grid row is in the DOM.
+    expect(dom).toContain('Fibonacci');
+    expect(dom).toContain('Squeeze');
+    expect(dom).toContain('Pivot Points');
   });
 });
 
@@ -1052,13 +1129,13 @@ describe('export consistency — Overview tab', () => {
     expect(c.dom).toContain('MARKET ALIGNMENT');
     expect(c.dom).toContain('MTF consensus');
 
-    // Risk distribution — L7 source + LOW_RISK label.
+    // Risk distribution — LOW_RISK label (source footer removed from card).
     expect(p.cards.risk_distribution.source).toBe('L7');
     expect(p.cards.risk_distribution.low_pct).toBe(60);
     expect(p.cards.risk_distribution.environment).toBe('LOW_RISK');
     expect(p.cards.risk_distribution.environment_display).toBe('LOW RISK');
     expect(c.dom).toContain('LOW RISK');
-    expect(c.dom).toContain('L7');
+    expect(c.dom).not.toContain('Source');
 
     // Market Alignment — populated state.
     expect(p.cards.market_alignment.has_data).toBe(true);

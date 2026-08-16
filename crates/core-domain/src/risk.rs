@@ -76,6 +76,11 @@ pub struct RiskDimension {
     /// Supporting evidence strings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
+    /// ATR(14) ÷ top-of-book bid-ask spread (raw price units) — execution
+    /// friction gauge. Populated only on `execution_risk`; other dimensions
+    /// leave it `None` (absent from the wire).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volatility_to_spread_ratio: Option<f64>,
 }
 
 impl RiskDimension {
@@ -114,11 +119,17 @@ impl RiskDimension {
             state: RiskState::Stable,
             confidence,
             evidence: Vec::new(),
+            volatility_to_spread_ratio: None,
         }
     }
 
     fn with_evidence(mut self, evidence: Vec<String>) -> Self {
         self.evidence = evidence;
+        self
+    }
+
+    fn with_volatility_to_spread_ratio(mut self, ratio: Option<f64>) -> Self {
+        self.volatility_to_spread_ratio = ratio;
         self
     }
 
@@ -448,12 +459,43 @@ fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
 }
 
 /// Assess execution risk: practical difficulties from spread/movement.
+///
+/// Also computes the L5 `volatility_to_spread_ratio` (ATR-14 ÷ top-of-book
+/// spread, raw price units): a high ratio means the average candle range
+/// dwarfs transaction cost (favorable for scalping); a low ratio means
+/// spread friction and slippage consume potential profits. Scoring rules
+/// (additive, baseline 25):
+///   +15 ratio < 1.5  — spread friction dominates the environment
+///   +5  ratio < 3.0  — moderate friction
+///   −5  ratio > 10.0 — range-to-cost favorable (execution-friendly)
+/// The ratio is `None` (absent) when ATR or spread is unavailable/zero.
+///
+/// v6.10.21 unit fix: the `spread` indicator's `raw_value` is a
+/// PERCENTAGE of mid price (`(best_ask − best_bid) / mid × 100`). The
+/// ratio formula requires the spread in raw price units, so the percentage
+/// is converted via the close price (`spread / 100 × close`) before
+/// dividing ATR. The legacy behavior divided ATR by the percentage scalar
+/// directly — e.g. a real BTC-USDC spread of 0.000568 % produced a
+/// meaningless ratio of ~2659 instead of ~4.2.
 fn assess_execution_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
+    close: f64,
 ) -> RiskDimension {
     let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
+    let atr_14 = indicators
+        .get("atr")
+        .and_then(|v| v.values.as_ref())
+        .and_then(|vals| vals.get("atr_14").copied())
+        .unwrap_or(0.0);
+    // Spread in raw price units: percentage → `spread / 100 × close`.
+    let spread_price = if close > 0.0 { spread / 100.0 * close } else { 0.0 };
+    let volatility_to_spread_ratio = if spread_price > 1e-9 && atr_14 > 0.0 {
+        Some(atr_14 / spread_price)
+    } else {
+        None
+    };
     let mut evidence = Vec::new();
     let mut score: f64 = 25.0;
     if spread > 0.15 {
@@ -467,8 +509,21 @@ fn assess_execution_risk(
         score += 15.0;
         evidence.push("Low participation".into());
     }
+    if let Some(ratio) = volatility_to_spread_ratio {
+        if ratio < 1.5 {
+            score += 15.0;
+            evidence.push(format!("Low volatility-to-spread ({:.1})", ratio));
+        } else if ratio < 3.0 {
+            score += 5.0;
+            evidence.push(format!("Moderate volatility-to-spread ({:.1})", ratio));
+        } else if ratio > 10.0 {
+            score -= 5.0;
+            evidence.push(format!("Favorable volatility-to-spread ({:.1})", ratio));
+        }
+    }
     RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
         .with_evidence(evidence)
+        .with_volatility_to_spread_ratio(volatility_to_spread_ratio)
 }
 
 /// Assess cascade risk (Phase 3): danger from forced liquidation
@@ -582,7 +637,7 @@ pub fn compute_risk(
     let structure = assess_structure_risk(analysis, indicators);
     let momentum = assess_momentum_risk(analysis);
     let signal = assess_signal_risk(analysis);
-    let execution = assess_execution_risk(analysis, indicators);
+    let execution = assess_execution_risk(analysis, indicators, close);
     let cascade = assess_cascade_risk(analysis, flow, cluster, liquidity_signals);
 
     // v6.10 (Phase 1 / A6): Risk weights restored to the canonical spec table
@@ -679,6 +734,14 @@ mod tests {
             state_confidence: 0.5,
             confidence: 0.5,
             market_quality_score: 50.0,
+            trend_stability_sharpe: None,
+            trend_score: None,
+            momentum_score: None,
+            structure_score: None,
+            volatility_score: None,
+            volume_score: None,
+            representative_bbwp: None,
+            representative_adx: None,
             market_regime: MarketRegime::Range,
             trend_assessment: TrendAssessment::Healthy,
             momentum_assessment: MomentumAssessment::Stable,
@@ -896,6 +959,121 @@ mod tests {
         // A strongly negative previous synthesis (reference ≈ 5) → Increasing.
         let r3 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(-90.0), &[]);
         assert_eq!(r3.overall_risk.state, RiskState::Increasing);
+    }
+
+    fn execution_indicators(atr_14: f64, spread: f64) -> HashMap<String, NormalizedIndicatorValue> {
+        let mut map = HashMap::new();
+        map.insert(
+            "atr".to_string(),
+            NormalizedIndicatorValue {
+                raw_value: 0.0,
+                normalized: 0.0,
+                state_label: "ATR_RAW".into(),
+                values: Some(HashMap::from([("atr_14".to_string(), atr_14)])),
+                signals: vec![],
+                confidence: 1.0,
+            },
+        );
+        map.insert(
+            "spread".to_string(),
+            NormalizedIndicatorValue {
+                raw_value: spread,
+                normalized: 0.0,
+                state_label: "SPREAD".into(),
+                values: None,
+                signals: vec![],
+                confidence: 1.0,
+            },
+        );
+        map
+    }
+
+    #[test]
+    fn execution_risk_low_vol_to_spread_adds_friction_penalty() {
+        // ATR 0.05 / spread 0.04 % at close 100 → price spread 0.04 →
+        // ratio 1.25 < 1.5 → +15 on the baseline 25. (Spread 0.04 stays
+        // under the 0.08 moderate-spread threshold, so only the ratio rule
+        // fires.)
+        let analysis = make_analysis_with_timeframes();
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.05, 0.04), 100.0);
+        assert_eq!(dim.score, 40.0);
+        assert_eq!(dim.volatility_to_spread_ratio, Some(1.25));
+        assert!(
+            dim.evidence.iter().any(|e| e.contains("volatility-to-spread")),
+            "evidence must carry the ratio: {:?}",
+            dim.evidence
+        );
+    }
+
+    #[test]
+    fn execution_risk_moderate_vol_to_spread_adds_small_penalty() {
+        let analysis = make_analysis_with_timeframes();
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.06, 0.03), 100.0);
+        assert_eq!(dim.score, 30.0);
+        assert_eq!(dim.volatility_to_spread_ratio, Some(2.0));
+    }
+
+    #[test]
+    fn execution_risk_high_vol_to_spread_reduces_score() {
+        // Ratio 12.5 > 10.0 → −5 on the baseline 25.
+        let analysis = make_analysis_with_timeframes();
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.5, 0.04), 100.0);
+        assert_eq!(dim.score, 20.0);
+        assert_eq!(dim.volatility_to_spread_ratio, Some(12.5));
+    }
+
+    #[test]
+    fn execution_risk_missing_spread_yields_none_ratio() {
+        let analysis = make_analysis_with_timeframes();
+        let dim = assess_execution_risk(&analysis, &execution_indicators(12.0, 0.0), 100.0);
+        assert_eq!(dim.volatility_to_spread_ratio, None);
+        assert_eq!(dim.score, 25.0);
+    }
+
+    #[test]
+    fn execution_risk_zero_atr_yields_none_ratio() {
+        let analysis = make_analysis_with_timeframes();
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.0, 1.0), 100.0);
+        assert_eq!(dim.volatility_to_spread_ratio, None);
+    }
+
+    #[test]
+    fn execution_risk_converts_spread_percent_to_price_units() {
+        // v6.10.21 unit-fix regression: the live BTC-USDC capture had
+        // ATR-14 = 1.5107 and a real spread of 0.000568 % at close 63040.
+        // The spread in price units is 0.000568/100 × 63040 ≈ 0.358 → the
+        // ratio must be ≈ 4.22 — NOT 1.5107/0.000568 ≈ 2659 (the legacy
+        // percent-vs-price unit bug).
+        let analysis = make_analysis_with_timeframes();
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(1.5107, 0.000568),
+            63_040.0,
+        );
+        let ratio = dim.volatility_to_spread_ratio.expect("ratio must compute");
+        assert!(
+            (ratio - 4.22).abs() < 0.05,
+            "spread must be converted to price units before dividing ATR, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn risk_dimension_serde_roundtrip_skips_none_ratio() {
+        let dim = RiskDimension {
+            score: 25.0,
+            level: RiskLevel::Low,
+            state: RiskState::Stable,
+            confidence: 50.0,
+            evidence: vec![],
+            volatility_to_spread_ratio: None,
+        };
+        let json = serde_json::to_string(&dim).unwrap();
+        assert!(!json.contains("volatility_to_spread_ratio"));
+        let dim2 = RiskDimension { volatility_to_spread_ratio: Some(7.5), ..dim };
+        let json2 = serde_json::to_string(&dim2).unwrap();
+        assert!(json2.contains("volatility_to_spread_ratio"));
+        let back: RiskDimension = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.volatility_to_spread_ratio, None);
     }
 }
 

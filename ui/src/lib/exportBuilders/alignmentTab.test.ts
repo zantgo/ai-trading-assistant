@@ -54,17 +54,17 @@ describe('buildAlignmentTabExport', () => {
     }));
     expect(p.consensus.trend_agreement_pct).toBe(75);
     expect(p.consensus.label).toBe('strong_consensus');
-    expect(p.consensus.label_display).toBe('Strong consensus — timeframes aligned');
+    expect(p.consensus.label_display).toBe('Strong Consensus');
   });
 
-  it('polarization values carry sign-prefixed display strings', () => {
+  it('axes values carry sign-prefixed display strings', () => {
     const p = JSON.parse(buildAlignmentTabExport({
       alignment: makeAlignment(),
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
     }));
-    const trend = p.consensus.polarization.find((x: { key: string }) => x.key === 'T');
+    const trend = p.consensus.axes.find((x: { key: string }) => x.key === 'Trend');
     expect(trend.value).toBe(0.45);
     expect(trend.value_display).toBe('+0.45');
     expect(trend.label).toBe('Trend');
@@ -108,7 +108,7 @@ describe('buildAlignmentTabExport', () => {
     expect(p.dimensions).toEqual([]);
   });
 
-  it('emits breakdown_meta caption and conflict banner when applicable', () => {
+  it('v6.10.19d (A): breakdown_meta caption removed; conflict banner kept', () => {
     const conflictAlignment = {
       ...makeAlignment(),
       trend_agreement_pct: 30,
@@ -119,10 +119,7 @@ describe('buildAlignmentTabExport', () => {
       markPrice: 63390,
       headerSpec,
     }));
-    expect(p.breakdown_meta).toContain('T:');
-    expect(p.breakdown_meta).toContain('M:');
-    expect(p.breakdown_meta).toContain('Vt:');
-    expect(p.breakdown_meta).toContain('Vm:');
+    expect('breakdown_meta' in p).toBe(false);
     expect(p.consensus_conflict_banner).toContain('TIMEFRAME MISALIGNMENT');
     expect(p.hero.mtf_overall_label_display).toMatch(/STRONG|WEAK|NEUTRAL/);
   });
@@ -134,10 +131,10 @@ describe('buildAlignmentTabExport', () => {
       // 0.55×0.45 + 0.35×0.3 + 0.05×0.1 + 0.05×0.2 = 0.36 → 36.0
       mtf_overall_score: 36,
       blend_weights: [
-        ['T', 0.55],
-        ['M', 0.35],
-        ['Vt', 0.05],
-        ['Vm', 0.05],
+        ['Trend', 0.55],
+        ['Momentum', 0.35],
+        ['Volume', 0.05],
+        ['Volatility', 0.05],
       ] as Array<[string, number]>,
     } as AlignmentMatrix;
     const p = JSON.parse(buildAlignmentTabExport({
@@ -147,12 +144,40 @@ describe('buildAlignmentTabExport', () => {
       headerSpec,
     }));
     const byKey = Object.fromEntries(p.score_calculation.weights.map((w: { key: string; pct: number }) => [w.key, w.pct]));
-    expect(byKey.T).toBe(55);
-    expect(byKey.M).toBe(35);
-    expect(byKey.Vt).toBe(5);
-    expect(byKey.Vm).toBe(5);
-    // The formula must balance the composite it mirrors.
-    expect(p.score_calculation.formula).toBe('(0.55 * (0.45) + 0.35 * (0.30) + 0.05 * (0.10) + 0.05 * (0.20)) × 100 = 36.0');
+    expect(byKey.Trend).toBe(55);
+    expect(byKey.Momentum).toBe(35);
+    expect(byKey.Volume).toBe(5);
+    expect(byKey.Volatility).toBe(5);
+  });
+
+  it('v6.10.18: legacy "Vt"/"Vm" wire keys normalize to Volume/Volatility', () => {
+    const legacy = {
+      ...makeAlignment(),
+      mtf_overall_score: 36,
+      blend_weights: [
+        ['T', 0.55],
+        ['M', 0.35],
+        ['Vt', 0.05],
+        ['Vm', 0.05],
+      ] as Array<[string, number]>,
+    } as AlignmentMatrix;
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: legacy,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    const byKey = Object.fromEntries(p.score_calculation.weights.map((w: { key: string; pct: number }) => [w.key, w.pct]));
+    expect(byKey.Volume).toBe(5);
+    expect(byKey.Volatility).toBe(5);
+    expect(byKey.Vt).toBeUndefined();
+    expect(byKey.Vm).toBeUndefined();
+    // Volume stays bound to mtf_volume_alignment, Volatility to
+    // mtf_volatility_alignment — the legacy keys were swapped vs. spec.
+    const vol = p.score_calculation.weights.find((w: { key: string }) => w.key === 'Volume');
+    expect(vol.value).toBe(0.1);
+    const vola = p.score_calculation.weights.find((w: { key: string }) => w.key === 'Volatility');
+    expect(vola.value).toBe(0.2);
   });
 
   it('null state mirrors the screen placeholders (—%, — verdict, +0.00, — weights)', () => {
@@ -167,17 +192,15 @@ describe('buildAlignmentTabExport', () => {
     expect(p.consensus.trend_agreement_pct).toBeNull();
     expect(p.consensus.label).toBeNull();
     expect(p.consensus.label_display).toBe('—');
-    // Polarization: screen renders "+0.00" for the zero fallbacks.
-    for (const axis of p.consensus.polarization) {
+    // Axes: screen renders "+0.00" for the zero fallbacks.
+    for (const axis of p.consensus.axes) {
       expect(axis.value_display).toBe('+0.00');
     }
-    // Score calculation: screen renders "—" for values, contributions and
-    // the formula.
+    // Score calculation: screen renders "—" for values and contributions.
     for (const w of p.score_calculation.weights) {
       expect(w.value_display).toBe('—');
       expect(w.contribution_display).toBe('—');
     }
-    expect(p.score_calculation.formula).toBe('—');
     expect(p.dimensions).toEqual([]);
   });
 

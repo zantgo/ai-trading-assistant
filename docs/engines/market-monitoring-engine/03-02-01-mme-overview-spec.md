@@ -1,6 +1,6 @@
 # Market Monitoring Engine — Overview Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven core analytical layers (L1–L7) with two fractional extension layers (L1.5: Derivatives Telemetry, L2.5: Liquidity Synthesis) — see `01-01-ontology.md` Ch. 6 and `03-02-11-mme-liquidity-extension.md`. L1–L3 sequential, L4 ∥ L5 parallel from L3 (with additional feeds from L1.5 and L2.5), L6–L7 sequential after convergence.
@@ -42,7 +42,7 @@ The per-timeframe pipeline (`crates/market-analyzer/src/analyzer/mod.rs`) execut
 completed candle
    │
    ▼
-[indicator calculators]  → raw values (51 indicators)
+[indicator calculators]  → raw values (52 indicators)
    │
    ▼
 [NormalizationEngine]    → normalized [-1,1] scores + state labels
@@ -83,7 +83,7 @@ broadcast MarketSnapshot (is_completed = false)
 
 Shadow snapshots carry updated indicator readings for real-time display, but signals, cross-TF synthesis, and higher-layer matrices are not re-evaluated until the candle closes.
 
-> **Single Source of Truth.** The `indicators` map produced at `build_indicator_map` (both completed and shadow paths) is the **single canonical source of truth** for all indicator data across the platform. Every downstream consumer — all 35 frontend chart components, all 6 Metrics-tab facets, the MarketContextStrip, GroupConfluenceGrid, StructuralAnchorsStrip, export JSON, DB logger, and L2–L7 synthesis layers — reads from the accumulated `tf.indicators` map and from no other data source for indicator values. On the frontend, `applySnapshotToTimeframe()` performs a per-key spread-merge on every snapshot arrival so close-dependent indicators (Fibonacci, patterns, S/R, Ichimoku, etc.) persist across shadow ticks. The `updates_on_shadow` registry metadata governs which entries carry tick-fresh values vs. last-completed-candle values. See the [Metrics Matrix §2.1.1](../../matrices/02-07-metrics-matrix.md) for the full contract.
+> **Single Source of Truth.** The `indicators` map produced at `build_indicator_map` (both completed and shadow paths) is the **single canonical source of truth** for all indicator data across the platform. Every downstream consumer — all 35 frontend chart components, all 6 Metrics-tab facets, GroupConfluenceGrid, StructuralAnchorsStrip, export JSON, DB logger, and L2–L7 synthesis layers — reads from the accumulated `tf.indicators` map and from no other data source for indicator values. On the frontend, `applySnapshotToTimeframe()` performs a per-key spread-merge on every snapshot arrival so close-dependent indicators (Fibonacci, patterns, S/R, Ichimoku, etc.) persist across shadow ticks. The `updates_on_shadow` registry metadata governs which entries carry tick-fresh values vs. last-completed-candle values. See the [Metrics Matrix §2.1.1](../../matrices/02-07-metrics-matrix.md) for the full contract.
 
 ---
 

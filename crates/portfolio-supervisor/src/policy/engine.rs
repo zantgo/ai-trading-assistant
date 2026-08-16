@@ -222,6 +222,7 @@ mod tests {
             state: RiskState::Stable,
             confidence: 80.0,
             evidence: vec![],
+            volatility_to_spread_ratio: None,
         };
 
         MarketSnapshot {
@@ -257,6 +258,14 @@ mod tests {
                 opportunity_analysis: OpportunityType::Breakout,
                 market_quality: QualityLevel::Good,
                 market_quality_score: 70.0,
+                trend_stability_sharpe: None,
+                trend_score: None,
+                momentum_score: None,
+                structure_score: None,
+                volatility_score: None,
+                volume_score: None,
+                representative_bbwp: None,
+                representative_adx: None,
                 market_phase: MarketPhase::Markup,
                 market_interpretation: "Test".into(),
                 rationale: String::new(),

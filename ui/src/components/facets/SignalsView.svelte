@@ -9,19 +9,20 @@
     // indicator.
     //
     // Uses the registry to resolve parent indicator display names.
+    //
+    // v6.11: filtering was removed entirely — every signal the snapshot
+    // carries is ALWAYS shown, unfiltered, by construction.
 
     import type { IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry } from '../../types';
-    import { filterSignals, type FilterState } from '../../lib/filtering';
     import { confPct, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
     import styles from './SignalsView.module.css';
 
     interface Props {
         tf: TimeframeTelemetry;
         registry: IndicatorMeta[];
-        filters: FilterState;
     }
 
-    let { tf, registry, filters }: Props = $props();
+    let { tf, registry }: Props = $props();
 
     const SIGNAL_KIND_ORDER: SignalKind[] = [
         'Divergence', 'Crossover', 'Threshold', 'Breakout', 'BandTouch',
@@ -46,14 +47,10 @@
         const out = {} as Record<SignalKind, SignalEntry[]>;
         for (const k of SIGNAL_KIND_ORDER) out[k] = [];
 
-        // Apply kind whitelist filter first.
-        const kindFilter = filters.kinds.length > 0 ? new Set(filters.kinds) : null;
-
+        // v6.11: no filtering — every signal the snapshot carries is listed.
         for (const meta of registry) {
-            const allSigs = tf.indicators?.[meta.key]?.signals ?? [];
-            const sigs = filterSignals(allSigs, filters);
+            const sigs = tf.indicators?.[meta.key]?.signals ?? [];
             for (const sig of sigs) {
-                if (kindFilter && !kindFilter.has(sig.kind)) continue;
                 if (!out[sig.kind]) out[sig.kind] = [];
                 out[sig.kind].push({
                     indicatorKey: meta.key,

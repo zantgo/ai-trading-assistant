@@ -1,4 +1,4 @@
-import type { DecisionContext, MarketBias, OpportunityMatrix } from '../types';
+import type { MarketBias, OpportunityMatrix } from '../types';
 import { selectProfileSide, topQualifyingProfile } from './decisionRank';
 // RR-001 (v6.10.12): the R:R floor is owned by `decisionRank` (shared with
 // the R:R resolver + zones formula) and re-exported here for the bars.
@@ -10,23 +10,6 @@ export interface DirectionalBars {
   bullish: number;
   bearish: number;
   hold: number;
-}
-
-/**
- * v6.10.18 (I-4): the L4 directional bars mirror the L6 VERDICT split
- * (long/short/hold probabilities) whenever a DecisionContext is present —
- * one conviction number across panels, never two stories for the same
- * market. `null` when the decision context carries no probabilities
- * (legacy payloads → `computeOpportunityBars` fallback).
- */
-export function directionBarsFromRank(
-    decisionContext: DecisionContext | null | undefined,
-): DirectionalBars | null {
-    const l = decisionContext?.long_probability;
-    const s = decisionContext?.short_probability;
-    const h = decisionContext?.hold_probability;
-    if (l == null || s == null || h == null) return null;
-    return { bullish: Math.round(l), bearish: Math.round(s), hold: Math.round(h) };
 }
 
 /**
@@ -157,4 +140,45 @@ export function computeOpportunityBars(
     return dir === 'LONG' ? roundBars(lean, 0) : roundBars(0, lean);
   }
   return { bullish: 0, bearish: 0, hold: 100 };
+}
+
+// ── Trade Setups folder ranking ─────────────────────────────────────────
+
+export interface RankedSectionInput<T> {
+  key: 'NEUTRAL' | 'BULL' | 'BEAR';
+  label: string;
+  /** The section's setup rows (references NOT included — counted via `hasReference`). */
+  setups: T[];
+  /** `true` when a reference bracket occupies the folder instead of setups. */
+  hasReference: boolean;
+  /** Per-row score used for the top-row tie-break (references score 0). */
+  scoreOf: (s: T) => number;
+}
+
+/**
+ * Rank the three Trade Setups folders (RANGE / BULLISH / BEARISH) the way
+ * the directional conviction bars are ordered — the most relevant folder
+ * first, always populated folders above empty ones. Shared by the panel
+ * and the export so the screen and the clipboard can never disagree.
+ * Callers may pass extra fields (tone, empty label, …) — they ride along
+ * on the returned sections.
+ *
+ *   1. Folder content count DESC — real setup cards plus one for a
+ *      reference bracket that occupies the folder (mirrors the folder
+ *      counter: `setups.length + (reference ? 1 : 0)`).
+ *   2. Top row score DESC (references carry score 0).
+ *   3. Fixed fallback order NEUTRAL → BULL → BEAR (the empty-state
+ *      layout is unchanged).
+ */
+export function rankSectionsByCount<S extends RankedSectionInput<S['setups'][number]>>(sections: S[]): S[] {
+  const fixed: Record<RankedSectionInput<S['setups'][number]>['key'], number> = { NEUTRAL: 0, BULL: 1, BEAR: 2 };
+  return sections
+    .map((s) => ({ ...s, rank: s.setups.length + (s.hasReference ? 1 : 0) }))
+    .sort((a, b) => {
+      if (b.rank !== a.rank) return b.rank - a.rank;
+      const ta = a.setups[0] ? a.scoreOf(a.setups[0]) : 0;
+      const tb = b.setups[0] ? b.scoreOf(b.setups[0]) : 0;
+      if (tb !== ta) return tb - ta;
+      return fixed[a.key] - fixed[b.key];
+    });
 }

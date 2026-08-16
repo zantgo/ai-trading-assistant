@@ -405,6 +405,24 @@ export interface AnalysisMatrix {
     /** Numeric market-quality score in [0, 100] — distinct from
      *  categorical `market_quality` (`QualityLevel` enum). */
     market_quality_score: number;
+    /** Annualized Sharpe of EMA-50 log returns over the trailing 300-bar
+     *  window (v6.11 L3). `null` until 300 completed candles accumulate. */
+    trend_stability_sharpe?: number | null;
+    /** v6.12 numeric companions: the exact 0-100 alignment dimension
+     *  scores each qualitative assessment is bucketed from — the
+     *  disaggregated siblings of `market_quality_score`, rendered as
+     *  badges on the Analysis panel. Absent on the empty sentinel. */
+    trend_score?: number | null;
+    momentum_score?: number | null;
+    structure_score?: number | null;
+    volatility_score?: number | null;
+    volume_score?: number | null;
+    /** v6.10.21 traceability: the L3 regime-input raw values the
+     *  `rationale` quotes (representative first-TF-wins bbwp/adx). The
+     *  pair-level matrix mirror is per-slot last-writer-wins, so these
+     *  pin the exact inputs used regardless of the exporting slot. */
+    representative_bbwp?: number | null;
+    representative_adx?: number | null;
     /** Wyckoff-style market-cycle phase (L3). */
     market_phase: MarketPhase;
     market_interpretation: string;
@@ -424,6 +442,9 @@ export interface RiskDimension {
     state: RiskState;
     confidence: number;
     evidence: string[];
+    /** ATR(14) ÷ top-of-book bid-ask spread (raw price units) — execution
+     *  friction gauge. Present only on `execution_risk` (v6.11 L5). */
+    volatility_to_spread_ratio?: number | null;
 }
 
 export interface RiskMatrix {
@@ -487,6 +508,10 @@ export interface AdvisoryMatrix {
      * band on the safety-flags row.
      */
     environment_favorability: RiskDimension;
+    /** Setup-efficiency metric: `market_quality_score ÷ overall_risk.score`
+     *  (both unipolar 0-100; higher = better). `null` when overall risk is
+     *  zero (v6.11 L6). */
+    quality_to_risk_ratio?: number | null;
     final_recommendation: string;
 }
 
@@ -1243,6 +1268,15 @@ export interface OpportunityProfile {
     long_geometry_consistent?: boolean;
     /** Server-side geometry-consistency for the SHORT side. */
     short_geometry_consistent?: boolean;
+    /**
+     * v6.14: precondition-scaled operator-facing score —
+     * `round(score × min(1, preconditions_met/preconditions_total))`,
+     * emitted by the backend as the single source of truth for the
+     * displayed setup score. Raw `score` stays intact for data-science.
+     * `null`/absent on legacy payloads — fall back to the local
+     * `displayScore` rule.
+     */
+    display_score?: number | null;
 }
 
 export interface OpportunityMatrix {
@@ -1279,6 +1313,22 @@ export interface OpportunityMatrix {
     long_geometry_consistent?: boolean;
     /** Server-side geometry-consistency for the SHORT side at matrix level. */
     short_geometry_consistent?: boolean;
+    /** v6.10.21 (NBR): direction-agnostic range reference bracket. Present
+     *  only when the primary is NoClearOpportunity and the regime reads as
+     *  a range — informational only, never actionable. Legacy payloads
+     *  omit the field. */
+    neutral_reference_bracket?: NeutralBracket | null;
+}
+
+/** v6.10.21 (NBR): range-fade reference frame emitted by the backend
+ *  under NoClear + Range. Mirrors `core_domain::opportunity::NeutralBracket`. */
+export interface NeutralBracket {
+    entry_zone: PriceRange;
+    target_zone: PriceRange;
+    invalidation_level: number;
+    expected_rr_internal: number;
+    geometry_consistent: boolean;
+    rationale: string;
 }
 
 // ── Snapshot Export (v6.10.4+) ──────────────────────────────────────

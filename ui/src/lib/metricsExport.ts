@@ -73,12 +73,6 @@ interface ExportPayload {
     };
     timestamp: number | null;
     mark_price: number | null;
-    filter_state: {
-        active_only: boolean;
-        confirmed_plus_only: boolean;
-        hide_gates: boolean;
-        hide_overlays: boolean;
-    };
     indicators: ExportIndicator[];
     signals_total: number;
     context: Record<string, unknown> | null;
@@ -680,12 +674,6 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         timeframe: { label: tfLabel, duration_seconds: tfSecs },
         timestamp,
         mark_price: isFinite(markPrice) && markPrice > 0 ? markPrice : null,
-        filter_state: {
-            active_only: filters.activeOnly,
-            confirmed_plus_only: filters.confirmedPlusOnly,
-            hide_gates: filters.hideGates,
-            hide_overlays: filters.hideOverlays,
-        },
         indicators: [],
         signals_total: 0,
         pipeline_state: (tf?.pipelineState ?? null) as string | null,
@@ -1180,12 +1168,6 @@ interface MtfExportPayload {
     exported_at: string;
     source_tab: 'mtf';
     symbol: string;
-    filter_state: {
-        active_only: boolean;
-        confirmed_plus_only: boolean;
-        hide_gates: boolean;
-        hide_overlays: boolean;
-    };
     timeframes: MtfTimeframeEntry[];
     groups: MtfGroupEntry[];
     indicators: MtfIndicatorEntry[];
@@ -1328,12 +1310,6 @@ export function buildMtfExportJson(args: MtfExportArgs): string {
         exported_at: new Date().toISOString(),
         source_tab: 'mtf',
         symbol,
-        filter_state: {
-            active_only: filters.activeOnly,
-            confirmed_plus_only: filters.confirmedPlusOnly,
-            hide_gates: filters.hideGates,
-            hide_overlays: filters.hideOverlays,
-        },
         timeframes,
         groups,
         indicators,

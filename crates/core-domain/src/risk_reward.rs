@@ -219,9 +219,15 @@ pub fn compute_side_rr_v2(
     if invalidation >= entry_low && invalidation <= entry_high {
         return SideRrStatus::NoValue(NoValueReason::SlInsideEntry);
     }
-    // SL effectively at entry mid (zero risk).
+    // SL effectively at entry mid (zero risk). v6.10.19b (B1): the epsilon
+    // was 0.0001 × price (0.01% ≈ 6.3 points on a $63k instrument), which
+    // rejected REAL horizon-budgeted stops (the I-5b derivation anchors
+    // scalp stops at ~1.5×ATR — ~4 points in low-ATR compression states)
+    // as "zero risk", demoting valid brackets to GeometryInverted. Only a
+    // truly-degenerate stop (sub-0.0001% of price) is zero risk now; the
+    // `RR_MEANINGFUL_FLOOR` ratio guard below still rejects noise.
     let risk_dir = entry_mid - invalidation;
-    if risk_dir.abs() < 0.0001 * entry_mid.abs().max(1.0) {
+    if risk_dir.abs() < 1e-6 * entry_mid.abs().max(1.0) {
         return SideRrStatus::NoValue(NoValueReason::SlAtEntry);
     }
     // Target on wrong side of close for the active side.
@@ -323,6 +329,43 @@ mod tests {
         // ratio = 3.0.
         let r = compute_side_rr_v2(65500.0, 66000.0, 63000.0, 64000.0, 66500.0, 64279.0, SHORT);
         assert!(matches!(r, SideRrStatus::Value(v) if (v - 3.0).abs() < 0.01));
+    }
+
+    #[test]
+    fn tight_real_stop_not_rejected_as_sl_at_entry() {
+        // v6.10.19b (B1) regression: the live 20:28 MeanReversion bracket —
+        // a ~4.12-point stop on a $63k instrument (1.5×ATR in a low-ATR
+        // compression state). The OLD 0.01%-of-price epsilon (≈6.3 points)
+        // rejected it as SlAtEntry and demoted a geometrically valid
+        // 1.13 R:R bracket to GeometryInverted.
+        let r = compute_side_rr_v2(
+            63045.96928083956,
+            63047.0,
+            63050.092157481304,
+            63052.15359580217,
+            63042.36176377805,
+            63047.0,
+            LONG,
+        );
+        match r {
+            SideRrStatus::Value(v) => {
+                assert!((v - 1.126).abs() < 0.01, "expected ≈1.13, got {v}")
+            }
+            other => panic!("valid tight bracket must be a Value, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn truly_zero_risk_stop_still_rejected() {
+        // v6.10.19b (B1): with the tightened 1e-6 epsilon, a degenerate
+        // stop within ~0.0001% of the entry mid is always INSIDE the entry
+        // zone — `SlInsideEntry` (which precedes SlAtEntry) is now the
+        // effective guard for zero-risk brackets; SlAtEntry remains the
+        // defensive fallback for exact-boundary edge cases.
+        let r = compute_side_rr_v2(63000.0, 63100.0, 63200.0, 63300.0, 63050.0004, 63050.0, LONG);
+        assert_eq!(r, SideRrStatus::NoValue(NoValueReason::SlInsideEntry));
+        let r2 = compute_side_rr_v2(63000.0, 63100.0, 63200.0, 63300.0, 63050.0004, 63050.0, SHORT);
+        assert!(matches!(r2, SideRrStatus::NoValue(_)));
     }
 
     #[test]

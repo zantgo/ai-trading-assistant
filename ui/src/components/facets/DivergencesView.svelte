@@ -12,17 +12,15 @@
         IndicatorMeta, IndicatorSignal, TimeframeTelemetry,
     } from '../../types';
     import { classifyDivergence, divergenceLabel, divergenceAccent } from '../../lib/divergence';
-    import type { FilterState } from '../../lib/filtering';
     import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
     import styles from './DivergencesView.module.css';
 
     interface Props {
         tf: TimeframeTelemetry;
         registry: IndicatorMeta[];
-        filters: FilterState;
     }
 
-    let { tf, registry, filters }: Props = $props();
+    let { tf, registry }: Props = $props();
 
     const DIVERGENCE_KEYS = new Set([
         'rsi', 'macd', 'stochastic', 'chandemo',
@@ -43,8 +41,6 @@
             const sigs = tf.indicators?.[meta.key]?.signals ?? [];
             for (const sig of sigs) {
                 if (sig.kind !== 'Divergence') continue;
-                if (filters.confirmedPlusOnly && sig.status === 'Potential') continue;
-                if (filters.query && !sig.label?.toLowerCase().includes(filters.query.toLowerCase())) continue;
                 out.push({
                     indicatorKey: meta.key,
                     displayName: meta.display_name,

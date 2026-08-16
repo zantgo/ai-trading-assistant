@@ -13,6 +13,7 @@ import {
     topSetupSummary,
     profileSummary,
     resolveActiveRr,
+    geometricRrFromZones,
 } from './decisionRank';
 import type {
     AdvisoryMatrix,
@@ -299,6 +300,74 @@ describe('computeDecisionRank', () => {
         });
         expect(rank.long.probability + rank.short.probability + rank.hold.probability).toBe(100);
         expect(['LONG', 'SHORT', 'HOLD']).toContain(rank.top);
+    });
+
+    it('G3 (v6.10.19b): hold-dominant split with a qualifying setup leans the verdict to that side with its real %', () => {
+        // The live 20:46 shape: 12/2/86 hold-dominant + a qualifying
+        // LONG-side MeanReversion setup. The verdict must read LONG
+        // (with its real 12%) — never a bare HOLD next to a setup card.
+        const rank = computeDecisionRank({
+            advisory: makeAdvisory({ directional_guidance: 'Neutral', market_stance: 'Cautious' }),
+            decisionContext: makeDecisionContext({
+                score: 0,
+                bias: 'Neutral',
+                score_confidence: 0.1,
+                entry_danger: makeDanger(58),
+                expected_reward_risk_ratio: 0,
+                trade_readiness: 'STAND_ASIDE',
+                long_probability: 12,
+                short_probability: 2,
+                hold_probability: 86,
+                net_bias_pct: 10,
+            }),
+            opportunity: {
+                ...makeOpportunity(),
+                profiles: [
+                    {
+                        opportunity_type: 'MeanReversion',
+                        score: 55,
+                        preconditions_met: 2,
+                        preconditions_total: 2,
+                        notes: '',
+                        direction_family: 'CounterTrend',
+                        long_entry_zone: { low: 63058, high: 63059 },
+                        long_target_zone: { low: 63104, high: 63207 },
+                        long_invalidation_level: 63055,
+                        long_expected_rr_internal: 1.5,
+                        short_entry_zone: null,
+                        short_target_zone: null,
+                        short_invalidation_level: null,
+                        short_expected_rr_internal: null,
+                    },
+                ],
+            } as any,
+            analysis: null,
+        });
+        expect(rank.top).toBe('LONG');
+        expect(rank.top_prob).toBe(12);
+        expect(rank.long.probability).toBe(12);
+    });
+
+    it('G3 (v6.10.19b): no qualifying setup keeps the genuine flat HOLD', () => {
+        const rank = computeDecisionRank({
+            advisory: makeAdvisory({ directional_guidance: 'Neutral', market_stance: 'Cautious' }),
+            decisionContext: makeDecisionContext({
+                score: 0,
+                bias: 'Neutral',
+                score_confidence: 0.1,
+                entry_danger: makeDanger(75),
+                expected_reward_risk_ratio: 0,
+                trade_readiness: 'STAND_ASIDE',
+                long_probability: 2,
+                short_probability: 2,
+                hold_probability: 96,
+                net_bias_pct: 0,
+            }),
+            opportunity: makeOpportunity(), // profiles: []
+            analysis: null,
+        });
+        expect(rank.top).toBe('HOLD');
+        expect(rank.headline.label).toBe('HOLD — STAND ASIDE');
     });
 });
 
@@ -1166,6 +1235,74 @@ describe('topSetupSummary', () => {
         expect(t).not.toBeNull();
         expect(t!.opportunity_type).toBe('TrendContinuation');
     });
+
+    it('B1 (v6.10.19b): SHORT verdict + LONG qualifying profile → verdict-consistent SHORT headline + alternate LONG', () => {
+        // The live 20:42 shape: verdict SHORT (54%) with only a
+        // countertrend LONG MeanReversion qualifying. The headline must
+        // be the verdict side (SHORT aggregated reference bracket); the
+        // LONG setup rides in alternate_setups.
+        const opp = makeOpportunity({
+            opportunity_type: 'MeanReversion',
+            direction_family: 'CounterTrend',
+            score: 55,
+            trade_viability: 'Actionable',
+            long_expected_rr_internal: 1.14,
+        });
+        opp.profiles[0].opportunity_type = 'MeanReversion';
+        opp.short_entry_zone = { low: 63071, high: 63416 };
+        opp.short_target_zone = { low: 62978, high: 63030 };
+        opp.short_invalidation_level = 63416;
+        const t = topSetupSummary(opp, makeAnalysis('Bearish'), { bias: 'Bearish', net_bias_pct: -52 } as any, 'SHORT');
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('SHORT');
+        expect(t!.viability).toBe('NoClear');
+        expect(t!.rationale).toContain('aggregated bracket');
+        expect(t!.alternate_setups.length).toBe(1);
+        expect(t!.alternate_setups[0].opportunity_type).toBe('MeanReversion');
+        expect(t!.alternate_setups[0].side).toBe('LONG');
+        expect(t!.alternate_setups[0].preconditions_met).toBe(3);
+    });
+
+    it('D3 (v6.10.19c): HOLD verdict + qualifying profile → the profile headlines the container (never hidden)', () => {
+        // The 20:46 shape: a qualifying (NEUTRAL-side) setup is the ONLY
+        // one available — it must take the container with its zones/R:R,
+        // not be hidden behind a placeholder.
+        const opp = makeOpportunity({
+            direction_family: 'CounterTrend',
+            trade_viability: 'DirectionalNeutral',
+        });
+        opp.profiles[0].opportunity_type = 'MeanReversion';
+        const t = topSetupSummary(opp, makeAnalysis('Neutral'), { bias: 'Neutral', net_bias_pct: 10 } as any, 'HOLD');
+        expect(t).not.toBeNull();
+        expect(t!.opportunity_type).toBe('MeanReversion');
+        expect(t!.direction).toBe('LONG'); // zone-presence side
+        expect(t!.zones).not.toBeNull();
+        expect(t!.rr).not.toBeNull();
+        expect(t!.alternate_setups.length).toBe(0);
+        // NoActiveSetup is reserved for the truly-empty state.
+        const empty = makeOpportunity();
+        empty.profiles = [];
+        const t2 = topSetupSummary(empty, makeAnalysis('Neutral'), { bias: 'Neutral' } as any, 'HOLD');
+        expect(t2!.opportunity_type).toBe('NoActiveSetup');
+        expect(t2!.zones).toBeNull();
+        expect(t2!.rr).toBeNull();
+    });
+
+    it('B1 (v6.10.19b): directional verdict WITH a qualifying profile on that side headlines the profile', () => {
+        const opp = makeOpportunity();
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'), { bias: 'Bullish' } as any, 'LONG');
+        expect(t).not.toBeNull();
+        expect(t!.direction).toBe('LONG');
+        expect(t!.opportunity_type).toBe('TrendContinuation');
+        expect(t!.viability).toBe('Actionable');
+        expect(t!.alternate_setups.length).toBe(0);
+    });
+
+    it('B3 (v6.10.19b): the summary carries the opportunity horizon', () => {
+        const opp = makeOpportunity();
+        const t = topSetupSummary(opp, makeAnalysis('Bullish'), { bias: 'Bullish' } as any, 'LONG');
+        expect(t!.horizon).toBe('SWING');
+    });
 });
 
 describe('profileSummary', () => {
@@ -1366,6 +1503,77 @@ describe('resolveActiveRr', () => {
         const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
         expect(r.available).toBe(false);
         expect(r.reason).toBe('below the 0.10 meaningfulness floor');
+    });
+
+    it('B2 (v6.10.19b): the server geometry flag is respected — no local-rr leak on an inverted bracket', () => {
+        const opp = makeOpportunity(
+            [
+                makeProfile({
+                    long_entry_zone: { low: 63070, high: 63071 },
+                    long_target_zone: { low: 63073, high: 63074 },
+                    long_invalidation_level: 63067,
+                    long_expected_rr_internal: 0,
+                    long_geometry_consistent: false,
+                }),
+            ],
+            { long_geometry_consistent: false },
+        );
+        const r = resolveActiveRr(opp, undefined, { bias: 'Bullish' } as any);
+        expect(r.available).toBe(false);
+        expect(r.reason).toBe('geometry inverted');
+    });
+
+    it('B1 (v6.10.19b): sideOverride forces the verdict-side resolution', () => {
+        const opp = makeOpportunity(
+            [
+                makeProfile({
+                    opportunity_type: 'MeanReversion',
+                    direction_family: 'CounterTrend',
+                    long_expected_rr_internal: 1.14,
+                }),
+            ],
+            {
+                long_expected_rr_internal: 1.14,
+                short_expected_rr_internal: 1.2,
+                short_entry_zone: { low: 64100, high: 64300 },
+                short_target_zone: { low: 63000, high: 63500 },
+                short_invalidation_level: 65000,
+            },
+        );
+        const r = resolveActiveRr(opp, { bias: 'Bearish' } as any, undefined, null, 'Bearish', undefined, 'SHORT');
+        expect(r.available).toBe(true);
+        expect(r.source).toBe('matrix_wire');
+        expect(r.value).toBeCloseTo(1.2, 1);
+    });
+
+    it('A2 (v6.10.19b): the local zones fallback mirrors SlAtEntry — a real tight stop is valid, a degenerate one is not', () => {
+        const entry = { low: 63045.96928083956, high: 63047 };
+        const target = { low: 63050.092157481304, high: 63052.15359580217 };
+        const z = geometricRrFromZones(entry, target, 63042.36176377805, 'LONG');
+        expect(z.rr).not.toBeNull();
+        expect(z.rr!).toBeCloseTo(1.13, 2);
+        const z2 = geometricRrFromZones(entry, target, 63046.5, 'LONG');
+        expect(z2.rr).toBeNull();
+        expect(z2.reason).toBe('geometry_inverted');
+    });
+
+    it('A2 (v6.10.19b): the local zones fallback is close-aware (TargetOnWrongSide mirror)', () => {
+        const z = geometricRrFromZones(
+            { low: 63070.57, high: 63071.2 },
+            { low: 63073.09, high: 63074.36 },
+            63067.1,
+            'LONG',
+            63079.4,
+        );
+        expect(z.rr).toBeNull();
+        expect(z.reason).toBe('geometry_inverted');
+        const z2 = geometricRrFromZones(
+            { low: 63070.57, high: 63071.2 },
+            { low: 63073.09, high: 63074.36 },
+            63067.1,
+            'LONG',
+        );
+        expect(z2.rr).toBeCloseTo(0.75, 2);
     });
 });
 });

@@ -93,11 +93,16 @@ fn default_candle_duration() -> u64 {
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandleBufferConfig {
-    /// Canonical rolling buffer length. Every per-timeframe in-memory buffer
-    /// (`NormalizedCandle` history, `MarketSnapshot` history, indicator
-    /// warm-up buffers) is rolled at exactly this many entries (CB-03).
-    /// Default: **500** (the previous `analysis_limit` default of 1000 is
-    /// removed).
+    /// Canonical rolling buffer length — the **historical warmup depth**
+    /// (CB-01/CB-08): every ≥ 1-minute pipeline starts with exactly this
+    /// many candles fetched from the exchange REST endpoint, and every
+    /// per-timeframe in-memory buffer (`NormalizedCandle` history,
+    /// `MarketSnapshot` history) is rolled at exactly this many entries
+    /// (CB-03). The three candle numbers are **independent tiers**:
+    /// `INDICATORS_MAX_BARS_REQUIRED = 300` (indicator calculation floor),
+    /// this `size` (default **500**, the internet warmup), and
+    /// `HIST_BUFFER_MAX = 1000` (absolute in-memory cap — never more than
+    /// 1000 candles, sub-minute and above-minute, same behavior).
     #[serde(default = "default_candle_buffer_size")]
     pub size: usize,
 
@@ -988,24 +993,6 @@ impl TimeframeConfig {
             leverage: TfLeverageConfig::default(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceSpecificConfig {
-    pub micro_term: TimeframeConfig,
-    pub fast_term: TimeframeConfig,
-    #[serde(default)]
-    pub slow_term: Option<TimeframeConfig>,
-    #[serde(default)]
-    pub macro_term: Option<TimeframeConfig>,
-    #[serde(default)]
-    pub automation: AutomationConfig,
-    #[serde(default)]
-    pub operational_mode: OperationalMode,
-    #[serde(default)]
-    pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
-    #[serde(default)]
-    pub position_scaling: Option<PositionScalingConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

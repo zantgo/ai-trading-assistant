@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -46,7 +46,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 
 > **Target Architecture (Not Yet Implemented).** The Metrics Matrix is intended to have a **dual representation**:
 >
-> - **Hot-path representation (`FastTelemetryFrame`):** a contiguous, binary, `#[repr(C)]` C-struct layout (enum-indexed `[IndicatorEvaluation; 51]`, `f64` fields) optimized for CPU caches and SIMD, used internally across MME Layers 1–5.
+> - **Hot-path representation (`FastTelemetryFrame`):** a contiguous, binary, `#[repr(C)]` C-struct layout (enum-indexed `[IndicatorEvaluation; 52]`, `f64` fields) optimized for CPU caches and SIMD, used internally across MME Layers 1–5.
 > - **Egress representation:** the serialized JSON-RPC 2.0 payload matching the schema below, used for API distribution and frontend rendering.
 >
 > *Current implementation:* a single representation — the `MarketSnapshot` struct with `Decimal` OHLCV and `indicators: HashMap<String, NormalizedIndicatorValue>` — serves both the internal broadcast and the JSON egress.
@@ -89,7 +89,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `metrics_config` | `Option<MetricsConfig>` | Yes | **Configurable Data Activation** (added v6.2). Optional block recording the active indicator/signal set the cascade considered. **Omitted entirely** when the active set is the registry default (all enabled). Canonical form, semantics, and gating rules: [03-02-12-mme-configurable-activation.md §3](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). `metrics_config.config_version` joins PAE attribution. |
 
 > #### 2.1.1 Single Source of Truth — v6.11 EMA Ribbon unification
-> The `indicators` map is the **single canonical source of truth** for all indicator readings across the platform. The per-TF pipeline produces this map on every completed candle (`build_indicator_map()`) and refreshes it on shadow ticks via clone-based tick-safe recomputation. On the frontend, `TimeframeTelemetry.indicators` accumulates every incoming snapshot via per-key spread-merge (`{ ...prev, ...incoming }`) so close-dependent indicators (Fibonacci, patterns, S/R zones, Ichimoku, etc.) persist across shadow ticks. **Every downstream consumer — all 35 chart components, all 6 Metrics-tab facets, the MarketContextStrip, GroupConfluenceGrid, StructuralAnchorsStrip, ScoreChart, export JSON, and the L2–L7 synthesis layers — reads indicator values from this single accumulated map.** No consumer derives indicator values from raw OHLCV, `latestSnapshot` fields, or any secondary source. The companion `indicator_lifecycle` map (per-key `IndicatorLifecycleStatus`) is the operational sidecar that drives the Loading/Live/Stale/Failed lifecycle badges — it is always co-emitted with the indicators map as a pair, never accessed independently for valuation purposes.
+> The `indicators` map is the **single canonical source of truth** for all indicator readings across the platform. The per-TF pipeline produces this map on every completed candle (`build_indicator_map()`) and refreshes it on shadow ticks via clone-based tick-safe recomputation. On the frontend, `TimeframeTelemetry.indicators` accumulates every incoming snapshot via per-key spread-merge (`{ ...prev, ...incoming }`) so close-dependent indicators (Fibonacci, patterns, S/R zones, Ichimoku, etc.) persist across shadow ticks. **Every downstream consumer — all 35 chart components, all 6 Metrics-tab facets, GroupConfluenceGrid, StructuralAnchorsStrip, ScoreChart, export JSON, and the L2–L7 synthesis layers — reads indicator values from this single accumulated map.** No consumer derives indicator values from raw OHLCV, `latestSnapshot` fields, or any secondary source. The companion `indicator_lifecycle` map (per-key `IndicatorLifecycleStatus`) is the operational sidecar that drives the Loading/Live/Stale/Failed lifecycle badges — it is always co-emitted with the indicators map as a pair, never accessed independently for valuation purposes.
 >
 > See the [Layer 1 Metrics spec §9.3](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) for the production-side accumulation contract, and the [Consumer Onboarding doc §3.1](../integration-and-api/06-00-consumer-onboarding.md) for consumer-side usage rules.
 >
@@ -155,7 +155,21 @@ Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry 
 | `signal_types` | The `SignalKind`s this indicator may emit. |
 | `default_weight` | Baseline scoring weight. |
 
-See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (51 entries, **101 signal-kind declarations** — post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry).
+See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (**52 entries**, **101 signal-kind declarations** — post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry).
+
+#### 3.3.1 `price_trend_sharpe` — dual-representation wire format (v6.11)
+
+The fifty-second registry entry measures single-timeframe asset-return smoothness: the **annualized Sharpe ratio of price log returns** over the trailing **300-bar window** (equal to the canonical `[candle_buffer] size` — the indicator reaches `Live` exactly when the pipeline buffer fills, so it can never lifecycle-lock).
+
+| Wire field | Format | Meaning |
+|------------|--------|---------|
+| `raw_value` | `f64` | Annualized Sharpe: `mean(ln(c_t/c_{t-1})) ÷ σ(ln(c_t/c_{t-1})) × sqrt((86400/timeframe_secs) × 365)` over the trailing 300 completed closes. **v6.10.21:** clamped to ±20 and `None` when σ < 1e-9 (numerically-flat series — the Sharpe `σ → 0` pathology) so the wire can never carry an absurd value like −117. |
+| `normalized` | `f64` | `(raw_value / 3.0).clamp(-1.0, 1.0)` — the ±3 Sharpe significance band maps to the unit interval. |
+| `state_label` | `string` | Banded: `STRONG_POSITIVE_SHARPE` (≥ +2.0) · `POSITIVE_SHARPE` (> 0) · `NEGATIVE_SHARPE` (≤ 0) · `STRONG_NEGATIVE_SHARPE` (≤ −2.0). |
+| `values` | — | Absent (single-line indicator). |
+| `signals` | — | Never emitted (`signal_types = []`, `DataOnly` signal axis). |
+
+Registry metadata: `group = Regime`, `class = Lagging`, `render = Pane`, `directional = true`, `value_format = ratio2`, `bars_required = 300`, `data_source = CandleBased`, `updates_on_shadow = false` (close-only — shadow ticks preserve the last completed-candle value via the frontend per-key merge). The value is computed by the pipeline from its rolling `close_history` window and injected into the indicator map in `crates/market-analyzer/src/analyzer/normalize.rs` after `normalize_all` (before the CA-06 retain, so a disabled `price_trend_sharpe` is filtered like every other indicator). Warm-started pipelines replay the buffer from historical closes so the reading is available at the first live close.
 
 ### 3.4 `StatisticalContext` Schema
 

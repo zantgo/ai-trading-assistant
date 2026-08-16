@@ -142,6 +142,24 @@
     background: transparent;
 }
 
+/* L1 synthesis dimension chip — the owning card's context score, same
+   value the export's `market_context` block carries (rendered once). */
+.cardCtx {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    padding: 1px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 800;
+    font-feature-settings: "tnum" 1;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.04);
+    cursor: help;
+}
+
 .bias_bull    { background: linear-gradient(90deg, transparent, #4ade80, transparent); }
 .bias_bear    { background: linear-gradient(90deg, transparent, #f87171, transparent); }
 .bias_neutral { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent); }

@@ -1,6 +1,6 @@
 # MME Layer 3 — Analysis Layer
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 3 of 7
@@ -93,6 +93,12 @@ Each is derived from a specific alignment dimension score (see [Analysis Matrix 
 *Note: the `Opportunity` assessment was removed in the institutional redesign — `OpportunityType` is now produced by L4 (the [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md)) as a forecast field, not a state interpretation.*
 
 *Note: `UNKNOWN` is the empty-state sentinel admitted by every assessment enum (mirroring [02-02-analysis-matrix.md §3.5–3.8](../../matrices/02-02-analysis-matrix.md)); the Structure enum's former `UNCLEAR` value was renamed `UNKNOWN`, and enum values serialize as `SCREAMING_SNAKE_CASE`.*
+
+### 4.1 Numeric companions (v6.12)
+
+Each qualitative enum is bucketed from a specific 0-100 alignment dimension score (§4.2 table above, implemented in `derive_analysis`). Since v6.12 those exact inputs travel on the matrix as `AnalysisMatrix.trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` — L3-owned derivations from L2 (the disaggregated siblings of `market_quality_score`), stamped inside `derive_analysis` itself; no L1 involvement.
+
+The Analysis panel renders each as a monospace badge on its qualitative card (no tooltip), tinted by coarse band heat and carrying a ▲/▼ delta against the prior frame (UI-side over the WS stream). The Trend card additionally renders the v6.11 `trend_stability_sharpe` badge — the **L1-computed** annualized EMA-50 log-return Sharpe (trailing 300-bar window) stamped during cross-TF synthesis as the trend's statistical proof. The two number families are distinct by design: the dimension scores are L3 state derived from L2; the Sharpe is an L1 evidence copy carried for traceability (see [02-00-matrix-field-ownership.md §5](../../matrices/02-00-matrix-field-ownership.md)).
 
 ---
 

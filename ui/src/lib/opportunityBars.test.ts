@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeOpportunityBars, resolveEffectiveDirection } from './opportunityBars';
+import { computeOpportunityBars, rankSectionsByCount, resolveEffectiveDirection, type RankedSectionInput } from './opportunityBars';
 import type { OpportunityMatrix, OpportunityProfile } from '../types';
 
 function profile(partial: Partial<OpportunityProfile> & { opportunity_type: string }): OpportunityProfile {
@@ -264,5 +264,58 @@ describe('computeOpportunityBars', () => {
     expect(bars.bullish).toBeLessThanOrEqual(40);
     expect(bars.hold).toBeGreaterThanOrEqual(60);
     expect(bars.bullish + bars.bearish + bars.hold).toBe(100);
+  });
+});
+
+describe('rankSectionsByCount', () => {
+  const section = (
+    key: 'NEUTRAL' | 'BULL' | 'BEAR',
+    scores: number[],
+    hasReference = false,
+  ): RankedSectionInput<{ score: number }> => ({
+    key,
+    label: key,
+    setups: scores.map((score) => ({ score })),
+    hasReference,
+    scoreOf: (s: { score: number }) => s.score,
+  });
+
+  it('ranks the populated folder first when the others are empty', () => {
+    // The user's rule: one BEARISH setup, none elsewhere → BEARISH first.
+    const ranked = rankSectionsByCount([
+      section('NEUTRAL', []),
+      section('BULL', []),
+      section('BEAR', [62]),
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(['BEAR', 'NEUTRAL', 'BULL']);
+  });
+
+  it('breaks equal counts by the top setup score desc', () => {
+    const ranked = rankSectionsByCount([
+      section('NEUTRAL', [30]),
+      section('BULL', [80]),
+      section('BEAR', [62]),
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(['BULL', 'BEAR', 'NEUTRAL']);
+  });
+
+  it('counts a reference bracket as folder content (counter parity)', () => {
+    // BULL hosts no setups but mounts its reference bracket — it ranks
+    // above a fully-empty BEAR folder.
+    const ranked = rankSectionsByCount([
+      section('NEUTRAL', []),
+      section('BULL', [], true),
+      section('BEAR', []),
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(['BULL', 'NEUTRAL', 'BEAR']);
+  });
+
+  it('falls back to the fixed RANGE → BULL → BEAR order when everything is empty', () => {
+    const ranked = rankSectionsByCount([
+      section('NEUTRAL', []),
+      section('BULL', []),
+      section('BEAR', []),
+    ]);
+    expect(ranked.map((s) => s.key)).toEqual(['NEUTRAL', 'BULL', 'BEAR']);
   });
 });

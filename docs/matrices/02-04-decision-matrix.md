@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -47,9 +47,10 @@ The Decision Matrix is realized by two complementary structures:
 | `confidence_assessment` | `f64` | Guidance confidence in `[0, 100]`. |
 | `trade_readiness` | `TradeReadiness` | Headline readiness state (§4). `READY` / `FORMING` / `WATCH` / `STAND_ASIDE`. *(Added to the schema in the institutional redesign; previously documented in §4 but missing from §2.1.)* |
 | `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `risk_favorability` in v2.1; semantic successor of `Risk.expected_rr`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `risk_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
-| `expected_reward_risk_ratio` | `f64` | Synthesized from the active-side R:R (`L4.long_expected_rr_internal` for bullish bias, `L4.short_expected_rr_internal` for bearish, 0 for Neutral) × `(1 − L5.overall_risk / 100.0)`. The legacy matrix-level `L4.expected_rr_internal` was removed in v6.9. *(Added in the institutional redesign.)* **UI label (v6.10.12): `Risk-Adj R:R`** — distinct from the L4 geometric `R:R`; the L6 header chip, the Safety-Flags KPI, the why-bullets, and the plan strip all use this label. |
+| `expected_reward_risk_ratio` | `f64` | Synthesized from the active-side R:R (`L4.long_expected_rr_internal` for bullish bias, `L4.short_expected_rr_internal` for bearish, 0 for Neutral) × `(1 − L5.overall_risk / 100.0)`. The legacy matrix-level `L4.expected_rr_internal` was removed in v6.9. *(Added in the institutional redesign.)* **UI label (v6.10.12): `Risk-Adj R:R`** — distinct from the L4 geometric `R:R`; the Safety-Flags KPI, the why-bullets, and the plan strip use this label (v6.10.19d D: the L6 header chip was removed — the KPI row is the single header-adjacent surface). |
 
 > **`expected_reward_risk_ratio` formula — unit normalization.** `overall_risk` is on the canonical `[0, 100]` scale; the formula divides by `100.0` before the subtraction: `active-side R:R × (1 − L5.overall_risk / 100.0) = 2.5 × (1 − 0.283) = 1.79`. Without the `/100.0` normalization the formula produces nonsensical values for any non-trivial risk score (e.g. with `overall_risk = 28.3`, the unnormalized form gives `2.5 × (1 − 28.3) = −68.25`). The same formula appears in the canonical ownership map at [02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md).
+| `quality_to_risk_ratio` | `f64?` | **v6.11.** Setup-efficiency metric — the forward-looking "is the risk justified by the setup?" ratio: `analysis.market_quality_score ÷ risk.overall_risk.score` (both unipolar `[0, 100]`; higher = better). Rendered as the **Quality/Risk** KPI on the Recommendation panel, adjacent to Entry Danger. `null`/absent when `overall_risk.score == 0` (division guard). |
 | `final_recommendation` | `string` | Natural-language recommendation summary. |
 
 ### 2.2 DecisionContext Fields
@@ -118,6 +119,12 @@ The three percentage fields (`long_probability`, `short_probability`, `hold_prob
 5. **Renormalization & floor.** The three modulated values are renormalized so `long + short + hold = 100`, then a 2% minimum floor is applied. **Graded-lean floors (v6.10.17):** whenever a directional read exists, HOLD is additionally capped at **60%** and the directional arm is floored at **15%** before the final renormalization — the distribution can never collapse into a 96% HOLD next to a minimal bullish/bearish confirmation. The 2% floor (and thus the 96%-HOLD shape) survives ONLY in the genuinely flat state (Neutral bias, no directional offset). This is the release gate that keeps the panel sensitive: HOLD ≥ 90% is the exception, not the norm.
 
 The computation above is **identical on the backend and the frontend fallback** — the two paths share the same formulas, same inputs, and same modulation tables. The backend version additionally uses the exact `MarketStance`/`DirectionalGuidance` derivation tables from `compute_advisory()` (rather than the advisory wire fields) so the percentages are self-consistent within the `DecisionContext` envelope.
+
+> **Verdict lean from valid setups (G3, v6.10.19b).** The verdict `top` (the UI-side resolution over the backend probabilities) respects VALID SETUPS: when the split is hold-dominant (`top = HOLD`) but a qualifying setup with a resolvable side exists, the verdict leans to that side with its REAL probability (e.g. `LONG lean 12% — STAND ASIDE` on a 12/2/86 split with a qualifying LONG-side setup). The probabilities, readiness and execution gate are unchanged — only the top-action label becomes setup-aware. This is the "it should not say HOLD when a valid setup exists" rule; a genuine flat HOLD (no qualifying setup, e.g. 2/2/96 No Clear) keeps the neutral verdict.
+>
+> **Verdict-consistent Recommendation `top_setup` (B1 v6.10.19b + D3 v6.10.19c).** The Recommendation panel's single SETUP card is the **verdict-consistent headline**: under a directional verdict it is the best qualifying profile ON that side, else the verdict-side aggregated reference bracket (`viability: NoClear`, informational); under HOLD with qualifying profiles it is the top qualifying profile (any side, incl. NEUTRAL — a real setup is never hidden behind a placeholder); under HOLD with no qualifying profiles it is the clean **"No Active Setup"** empty container (fields null, no badges). Counter-bias qualifying setups ride in `alternate_qualifying_setups` and always appear on the Opportunities panel (parity invariant, `02-08`). Both rules are panel compositions over the unchanged `DecisionContext` — no wire field depends upward.
+>
+> **Risk-Adj R:R is bracket-aware (D4, v6.10.19c).** The Safety-Flags KPI displays the risk-discounted ratio whenever the container has a bracket (v6.10.19d D: the L6 header chip was removed): backend `expected_reward_risk_ratio` when > 0, else `container bracket R:R × (1 − L5.overall_risk/100)`; `N/A` only when there is genuinely no bracket or the ratio falls below the 0.10 meaningfulness floor. A NEUTRAL-side setup's bracket R:R is computed from its populated zones (populated-side math) — never blanked by "no directional bias" when zones exist.
 
 ---
 
@@ -365,6 +372,7 @@ The Decision Matrix carries the structural invalidation and target context used 
     "trade_readiness": "READY",
     "entry_danger": { "score": 12.5, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
     "expected_reward_risk_ratio": 1.79,
+    "quality_to_risk_ratio": 3.53,
     "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 71% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
   },
   "decision_context": {
@@ -388,6 +396,7 @@ The Decision Matrix carries the structural invalidation and target context used 
 - `bias = STRONG_BULLISH` with `overall_risk = 28.3 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
 - `decision_context.score = 97.0` per the §2.3 confluence-score formula: with `alignment.tradability_dim = 100`, `analysis.market_quality_score = 100` (EXCELLENT → 100), and `opportunity.opportunity_score = 85`, the formula yields `0.50·100 + 0.30·100 + 0.20·85 = 97.0` ⇒ `score_confidence = |score| / 100 = 0.97` per the §2.2 mapping ✓
 - `expected_reward_risk_ratio = (active-side R:R) × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.long_expected_rr_internal = 2.5` from the Opportunity Matrix example — active side for the bullish `STRONG_BULLISH` bias — and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
+- `quality_to_risk_ratio = market_quality_score ÷ overall_risk.score = 100 ÷ 28.3 ≈ 3.53` (v6.11 — the setup-efficiency KPI; `None` when the risk score is 0) ✓
 - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals) ✓
 - `trade_readiness = READY` per the §4 ordered rules: rule 1 does not fire (`market_stance = CONSTRUCTIVE`, `confidence_assessment = 71.7 ≥ 20`); rule 2 fires — non-neutral guidance (`STRONG_LONG`), `71.7 ≥ 60`, `market_stance = CONSTRUCTIVE ∈ {AGGRESSIVE, CONSTRUCTIVE}`, `entry_guidance = IMMEDIATE ≠ WAIT_FOR_CONFIRMATION` ✓
 - `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary.

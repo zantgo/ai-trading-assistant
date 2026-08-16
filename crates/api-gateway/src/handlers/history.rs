@@ -41,17 +41,12 @@ pub async fn serve_history(
             // to the DB so the chart has OHLCV history on first mount — but
             // only when there are real persisted rows for the requested TF.
             //
-            // Previously this branch also called `derive_sub_minute_candles`
-            // when the DB was empty, synthesising flat-close candles from the
-            // next-larger TF (typically 60s). Those synthetic candles carried
-            // identical O=H=L=C=minute_close, which rendered as a horizontal
-            // line spanning the entire minute. The chart couldn't distinguish
-            // them from real sub-minute data, so the user saw a misleading
-            // "line of about 1 minute" on every cold start.
-            //
-            // The derivation is gone: if neither in-memory nor DB has rows
-            // for the sub-minute TF, the chart gets an empty historical
-            // payload and the live WS stream fills it in within seconds.
+            // No synthetic flat-close candles are ever derived from the
+            // next-larger TF: O=H=L=C candles render as a horizontal line
+            // spanning the entire minute (the v6.9 "line of about 1 minute"
+            // regression). If neither in-memory nor DB has rows for the
+            // sub-minute TF, the chart gets an empty historical payload and
+            // the live WS stream fills it in within seconds.
             if snap_hist.is_empty() && tf_secs < 60 {
                 let db_candles = database_storage::query_recent_candles(
                     &state.pool,

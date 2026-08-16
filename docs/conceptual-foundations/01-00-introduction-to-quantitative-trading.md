@@ -1,6 +1,6 @@
 # 01-00 — Introduction to Quantitative Trading
 
-**Version:**  6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 
 > **Audience.** This document is the formal theoretical foundation of the platform. It states, in standard institutional-quant terminology, the concepts that underpin every engine, layer, and matrix in this codebase. It is the first document a senior quant reviewer should read.
 >
@@ -302,8 +302,8 @@ The platform's signal layer is a deterministic bank of 50 technical indicators a
 
 1. **Interpretability**. Every indicator has a closed-form mathematical definition and a documented economic interpretation. A reviewer can audit why a signal fired and contest the assumption.
 2. **No training loop → no overfitting risk**. Without gradient descent on a parameter set, there is no risk of fit-to-noise that requires held-out validation, regularization sweeps, or walk-forward discipline.
-3. **Low CPU cost**. Indicator evaluation is `O(n)` over the lookback buffer with no matrix decompositions; the 51-indicator computation fits in under 10 ms per pipeline (`01-04-timeframe-model.md`).
-4. **Multi-Timeframe consensus as institutional alternative to feature engineering**. The platform's 10 alignment dimensions (`02-01-alignment-matrix.md`) aggregate 51 indicators across 4 timeframes into a single decision vector. This is the institutional equivalent of an ML feature pipeline, but deterministic and auditable.
+3. **Low CPU cost**. Indicator evaluation is `O(n)` over the lookback buffer with no matrix decompositions; the 52-indicator computation fits in under 10 ms per pipeline (`01-04-timeframe-model.md`).
+4. **Multi-Timeframe consensus as institutional alternative to feature engineering**. The platform's 10 alignment dimensions (`02-01-alignment-matrix.md`) aggregate 52 indicators across 4 timeframes into a single decision vector. This is the institutional equivalent of an ML feature pipeline, but deterministic and auditable.
 5. **Determinism → auditability → reproducibility**. Given the same input snapshot, the platform produces the same Decision Matrix bit-for-bit. This property is critical for backtesting, regulatory audit, and dispute resolution.
 
 The trade-off: indicator-based systems have lower representational capacity than ML models and require the operator to encode edge via hand-crafted signal logic rather than learned parameters. The platform treats this trade-off as acceptable for the institutional-taker use case.
@@ -386,7 +386,7 @@ The following standard quantitative-trading concepts are **explicitly excluded**
 | Concept | Reason for exclusion |
 |---|---|
 | **Machine-learning regression / classification models** | No training loop exists; the signal layer is deterministic. The platform produces regime tags (deterministic rule outputs) not statistical classifiers. |
-| **Gradient descent / loss functions / learning rate / local minima** | No parameters to learn. The 51 indicators have no learnable coefficients. |
+| **Gradient descent / loss functions / learning rate / local minima** | No parameters to learn. The 52 indicators have no learnable coefficients. |
 | **AR(1) / Auto-regressive time-series models** | The platform does not predict future values from lagged values via regression. Indicator smoothing (EMA, ATR) is implicit lag, not AR. |
 | **Univariate / multivariate statistical models** | No statistical model exists in the ML sense. Multi-TF consensus is feature aggregation, not a regression. |
 | **Neural networks / deep learning** | Out of scope by source-text (text's own characterization) and by architecture. |
@@ -423,6 +423,6 @@ Every concept in this document maps to a concrete implementation file:
 | 8 | Hard-Tanh / Tanh (new) | [`01-00-introduction-to-quantitative-trading.md` §8.5–§8.6](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) — same canonical definitions as above |
 | 8 | Fixed-fractional `S = E·R/D_sl` (textbook form, §8.7) — equivalent engine form `S = (E·R)/(D_sl/100)` | [`01-00-introduction-to-quantitative-trading.md` §8.7](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) + `08-02-pre-trade-risk-controls.md` Gate 4 + `03-03-03-tae-layer2-execution.md` §2 |
 | 9 | Exposure slot caps | `03-04-03-pme-layer2-exposure.md` §3 Concentration Limits |
-| 10 | 51 indicators | `04-02-00-indicator-index.md` Summary (51 entries; per-indicator specs under `04-02-NN-*.md`) |
+| 10 | 52 indicators | `04-02-00-indicator-index.md` Summary (52 entries; per-indicator specs under `04-02-NN-*.md`) |
 | 10 | MTF consensus | `02-01-alignment-matrix.md` §3 The 10 Alignment Dimensions |
 | 11 | Systematic Rule-Based Trading | `01-01-ontology.md` Ch 2 Design Philosophy + `03-02-01-mme-overview-spec.md` §1 |

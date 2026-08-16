@@ -1,6 +1,6 @@
 # Candle Buffer Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** network-adapters + portfolio-supervisor + market-analyzer
@@ -9,24 +9,32 @@
 
 ## §1 Purpose
 
-This document is the **single source of truth** for the platform's candle buffer behavior across all exchanges and all four timeframes. Before this document existed the corpus had three competing numbers for the rolling buffer size (the config-model default `analysis_limit = 1000`, the in-memory cap `HIST_BUFFER_MAX = 1000`, the UI selector cap `500`) and per-exchange REST behavior diverged (Hyperliquid sent no `limit` parameter at all; Bitget hardcoded `limit=200` with no pagination; both exchanges silently coerced sub-minute durations to `"1m"` and warmed sub-minute pipelines with 60-second candles).
+This document is the **single source of truth** for the platform's candle buffer behavior across all exchanges and all four timeframes. The candle universe is governed by **three independent numbers** — each with its own role, never interchangeable:
 
-The platform now has one canonical behavior. Every exchange, every timeframe, every session runs the same algorithm against the same constants; the only inputs that vary are the configured `[candle_buffer] size` and the configured `timeframe_secs` of each pipeline.
+| Tier | Value | Constant / config | Role |
+|------|-------|-------------------|------|
+| Indicator minimum | **300** | `INDICATORS_MAX_BARS_REQUIRED` (`market-analyzer/src/indicators/registry.rs`) | The minimum bars every indicator needs to be mathematically correct (`bars_required`); carried by the L1 `price_trend_sharpe` window. |
+| Warmup | **500** | `[candle_buffer] size` (`config.toml`, default in `config-models`) | The historical warmup depth: how many candles a ≥ 1-minute pipeline fetches from the exchange REST endpoint at bootstrap (CB-08). |
+| Absolute maximum | **1000** | `HIST_BUFFER_MAX` (`market-analyzer/src/analyzer/warm.rs`) | The hard in-memory cap — there are **never more than 1000 candles**, sub-minute and above-minute, **same behavior**. Enforced by `trim_snapshot_history_to_cap` and the `/api/history` 1000-candle contract. |
+
+*(Before this document existed the corpus conflated the three into competing buffer sizes — the legacy `analysis_limit = 1000` config default, the `HIST_BUFFER_MAX = 1000` cap, and the UI selector cap `500` — and per-exchange REST behavior diverged: Hyperliquid sent no `limit` parameter at all; Bitget hardcoded `limit=200` with no pagination; both exchanges silently coerced sub-minute durations to `"1m"` and warmed sub-minute pipelines with 60-second candles.)*
+
+The platform now has one canonical behavior per tier. Every exchange, every timeframe, every session runs the same algorithm against the same constants; the only inputs that vary are the configured `[candle_buffer] size` and the configured `timeframe_secs` of each pipeline.
 
 ## §2 Frozen decisions (CB-01 … CB-12)
 
 | ID | Decision |
 |----|----------|
-| **CB-01** | The canonical candle-buffer size is configured by **`[candle_buffer] size`** in `config.toml`. The default value is **500**. The previous `analysis_limit` field is **removed**; the historical lookback depth equals the buffer size. |
+| **CB-01** | The canonical candle-buffer size — the **historical warmup depth** — is configured by **`[candle_buffer] size`** in `config.toml`. The default value is **500**. It is one of three independent candle numbers: `INDICATORS_MAX_BARS_REQUIRED = 300` (indicator calculation floor), this `size` (500, the internet warmup), and `HIST_BUFFER_MAX = 1000` (absolute in-memory cap, sub-minute and above-minute, same behavior). The previous `analysis_limit` field is **removed**; the historical lookback depth equals the buffer size. |
 | **CB-02** | Every per-timeframe in-memory buffer (`NormalizedCandle` history, `MarketSnapshot` history, indicator warm-up buffers) is rolled at exactly `candle_buffer.size` entries. Steady-state memory per pipeline is therefore `2 × size` rows of OHLCV + size snapshots. |
 | **CB-03** | The rolling window is **FIFO oldest-evict**. On every completed candle the pipeline pushes the new candle at the back and pops the oldest from the front, keeping the deque at exactly `size`. There is no grow-then-trim mode — the deque never exceeds `size`. |
 | **CB-04** | The **sub-minute / ≥ 1 minute** behavior split is binary on `timeframe_secs`: any duration strictly below 60 seconds follows CB-05–CB-07; any duration of 60 seconds or more follows CB-08–CB-10. There is no third branch. |
 | **CB-05** | **Sub-minute timeframes (`timeframe_secs < 60`) do not fetch historical candles.** Neither the SQLite `market_snapshots` cache nor the exchange REST endpoint is consulted during bootstrap. The buffer starts at **zero entries** and grows one candle at a time as live trades close their buckets. |
 | **CB-05a** | **(AUDIT-V8-003 idle-bucket heartbeat)** When a sub-minute pipeline has **no current candle** (the market is quiet after a close) and wall-clock has advanced past ≥ 1 bucket since the last completed bucket, the stale check synthesizes one doji per elapsed empty bucket at the last known close (`reconstructed: SYNTHETIC`, O=H=L=C=last close, zero volume), feeds it through every stateful indicator, broadcasts it, and pushes it into the in-memory `snapshot_history` (never the DB). The chart therefore shows one closed candle per wall-clock bucket even with zero trades — no gaps, no frontend flat-Doji bridges, no straight-line EMA segments. |
-| **CB-06** | While a sub-minute pipeline is warming up, **every one of the 51 indicators is in `IndicatorLifecycleState::Loading`** until its individual `bars_required` is met. The pipeline transitions to `CandlePipelineState::Live` only when the buffer reaches `candle_buffer.size` (the rolling window is full). Reconstructed candles from `[08-04]` count toward `bars_seen` but are not enough on their own to promote `Loading → Live` — at least `bars_required` of **true live** candles must also be present. *(AUDIT-V8-001: `ema_stack` carries `bars_required = 1`; its ribbon lines are gated per-period inside `inject_ema_values` — see [04-02-01](../engines/market-monitoring-engine/indicators/04-02-01-ema-stack.md) §Sub-minute warm-up.)* |
+| **CB-06** | While a sub-minute pipeline is warming up, **every one of the 52 indicators is in `IndicatorLifecycleState::Loading`** until its individual `bars_required` is met. The pipeline transitions to `CandlePipelineState::Live` only when the buffer reaches `candle_buffer.size` (the rolling window is full). Reconstructed candles from `[08-04]` count toward `bars_seen` but are not enough on their own to promote `Loading → Live` — at least `bars_required` of **true live** candles must also be present. *(AUDIT-V8-001: `ema_stack` carries `bars_required = 1`; its ribbon lines are gated per-period inside `inject_ema_values` — see [04-02-01](../engines/market-monitoring-engine/indicators/04-02-01-ema-stack.md) §Sub-minute warm-up.)* |
 | **CB-07** | Sub-minute pipelines therefore need `size × timeframe_secs` of wall-clock time to reach `Live` from a cold start (500 × 15 s = 125 minutes for the UI-default 15-second micro TF). This is **expected behavior** and is the user's locked decision; the UI surfaces the loading progress via `tf.pipeline_state = LOADING` and per-indicator badges. |
 | **CB-08** | **≥ 1 minute timeframes (`timeframe_secs ≥ 60`) always start with exactly `candle_buffer.size` historical candles.** The platform paginates the exchange REST endpoint until either `size` candles are returned or the exchange's earliest available history is reached, then merges with the SQLite `market_snapshots` cache (newest DB takes precedence on overlap), then caps at `size`. |
-| **CB-09** | A ≥ 1 minute cold start always completes with **all 51 indicators in `IndicatorLifecycleState::Live`** (every indicator's `bars_required ≤ size = 500`). The user sees a chart with full history on first paint; the only visible loading state is the brief exchange-REST round-trip. |
+| **CB-09** | A ≥ 1 minute cold start always completes with **all 52 indicators in `IndicatorLifecycleState::Live`** (every indicator's `bars_required ≤ INDICATORS_MAX_BARS_REQUIRED = 300 ≤ size = 500`). The user sees a chart with full history on first paint; the only visible loading state is the brief exchange-REST round-trip. |
 | **CB-10** | Per-exchange REST pagination is the responsibility of the `HistoricalFetchPolicy` trait ([03-01-07](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md)). Bitget must paginate against its 200-row limit until `size` rows are returned; Hyperliquid must paginate against its implicit return-size cap using backward `startTime` cursors. Both adapters **must converge to exactly `size`** rows from a cold start whenever the exchange has sufficient history. |
 | **CB-11** | A **timeframe change** (the operator alters `micro.duration_seconds`, `fast.duration_seconds`, `slow.duration_seconds`, or `macro.duration_seconds`) triggers a **single-TF reload** of only the affected pipeline via the `reload_timeframe` API ([03-04 PMPE](../engines/portfolio-management-engine) / `portfolio-supervisor`). The other three pipelines continue uninterrupted. The reload tears down the affected `TimeframePipeline`, re-runs bootstrap against the new `timeframe_secs`, and re-emits `INITIALIZING → LOADING → LIVE` on the new pipeline. |
 | **CB-12** | SQLite retains its existing **7-day** retention policy unchanged. The `market_snapshots` table is the long-term log; the in-memory `candle_buffer.size` rolling window is the only thing bounded by `size`. On eviction the candle leaves memory; the corresponding SQLite row remains queryable until the 7-day cleanup deletes it. |
@@ -36,7 +44,7 @@ The platform now has one canonical behavior. Every exchange, every timeframe, ev
 ```toml
 # config.toml — single source of truth for candle buffer behavior
 [candle_buffer]
-size = 500                                # canonical rolling window length (CB-01)
+size = 500                                # historical warmup depth (CB-01)
 stale_threshold_secs = 300                # CB-06/§4 stale-loading escalation
 sub_minute_skip_historical = true         # CB-05 (default true; set false only for legacy compatibility)
 ```

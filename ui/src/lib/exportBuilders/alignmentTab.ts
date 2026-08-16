@@ -3,7 +3,11 @@
 // v7.0-audit: rewrites the payload to use the new shared envelope (no
 // filter_state, single current_price, structured header chrome). Adds
 // `label_display` for consensus, sign-prefixed display strings for
-// polarization and per-TF scores.
+// axes and per-TF scores.
+//
+// v6.10.20 (C): the consensus hero is a two-container row — the dial
+// verdict renders as a header + sub-label, and the "polarization"
+// term is retired (field renamed `consensus.axes`).
 
 import type {
   AlignmentMatrix,
@@ -50,8 +54,10 @@ export interface AlignmentConsensusBlock {
   trend_agreement_pct: number | null;
   label: 'strong_consensus' | 'partial_consensus' | 'conflict' | null;
   label_display: string;
-  polarization: Array<{
-    key: 'T' | 'M' | 'Vt' | 'Vm';
+  // v6.10.20 (C): renamed from `polarization` — the axis values are the
+  // four blend dimensions (signed axes [−1, 1]) feeding the consensus.
+  axes: Array<{
+    key: 'Trend' | 'Momentum' | 'Volume' | 'Volatility';
     label: string;
     value: number;
     value_display: string;
@@ -72,7 +78,7 @@ export interface AlignmentPerTimeframeRow {
 
 export interface AlignmentScoreCalcBlock {
   weights: Array<{
-    key: 'T' | 'M' | 'Vt' | 'Vm';
+    key: 'Trend' | 'Momentum' | 'Volume' | 'Volatility';
     label: string;
     pct: number;
     color: string;
@@ -81,7 +87,6 @@ export interface AlignmentScoreCalcBlock {
     contribution: number;
     contribution_display: string;
   }>;
-  formula: string;
 }
 
 export interface AlignmentPayload {
@@ -89,7 +94,6 @@ export interface AlignmentPayload {
   meta: MetaEnvelope;
   header: HeaderBlock;
   hero: AlignmentHeroBlock;
-  breakdown_meta: string;
   dimensions: AlignmentDimensionRow[];
   consensus: AlignmentConsensusBlock;
   per_timeframe: AlignmentPerTimeframeRow[];
@@ -102,22 +106,42 @@ export interface AlignmentPayload {
 
 const SLOT_RANK: Record<string, number> = { MICRO: 0, FAST: 1, SLOW: 2, MACRO: 3 };
 
+// v6.10.18: keys are the full dimension names — the legacy "Vt"/"Vm"
+// abbreviations bound Volume/Volatility swapped vs. the spec (V_t =
+// volatility, V_m = volume, 02-01 §4.2). Full-word keys bind each weight
+// to exactly one mtf_*_alignment field; legacy wire keys are normalized
+// in `effective()` ("Vt" → Volume, "Vm" → Volatility, matching the
+// legacy wire semantics).
 const SCORE_CALC_WEIGHTS: Array<{
   label: string;
-  key: 'T' | 'M' | 'Vt' | 'Vm';
+  key: 'Trend' | 'Momentum' | 'Volume' | 'Volatility';
   pct: number;
   color: string;
 }> = [
-  { label: 'Trend',      key: 'T',  pct: 50, color: '#22c55e' },
-  { label: 'Momentum',   key: 'M',  pct: 30, color: '#3b82f6' },
-  { label: 'Volume',     key: 'Vt', pct: 10, color: '#a78bfa' },
-  { label: 'Volatility', key: 'Vm', pct: 10, color: '#f59e0b' },
+  { label: 'Trend',      key: 'Trend',      pct: 50, color: '#22c55e' },
+  { label: 'Momentum',   key: 'Momentum',   pct: 30, color: '#3b82f6' },
+  { label: 'Volume',     key: 'Volume',     pct: 10, color: '#a78bfa' },
+  { label: 'Volatility', key: 'Volatility', pct: 10, color: '#f59e0b' },
 ];
 
+const WEIGHT_KEY_CANON: Record<string, string> = {
+  T: 'Trend',
+  M: 'Momentum',
+  Vt: 'Volume',
+  Vm: 'Volatility',
+  Trend: 'Trend',
+  Momentum: 'Momentum',
+  Volume: 'Volume',
+  Volatility: 'Volatility',
+};
+
+// v6.10.20 (C): label_display mirrors the dial verdict HEADER only —
+// the panel renders it as a bold tier-colored header ("Strong Consensus")
+// with a grey sub-label ("Timeframes are aligned.") that stays DOM-only.
 const CONSENSUS_DISPLAY: Record<'strong_consensus' | 'partial_consensus' | 'conflict', string> = {
-  strong_consensus: 'Strong consensus — timeframes aligned',
-  partial_consensus: 'Partial consensus — mixed signals',
-  conflict: 'Mixed consensus — timeframes not aligned',
+  strong_consensus: 'Strong Consensus',
+  partial_consensus: 'Partial Consensus',
+  conflict: 'Mixed Consensus',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -135,11 +159,6 @@ function signedStr(n: number, decimals: number): string {
   // leading '+' (so 0.00 shows as "+0.00"); only negatives are bare.
   const s = n.toFixed(decimals);
   return n >= 0 ? '+' + s : s;
-}
-
-function buildBreakdownMeta(alignment: AlignmentMatrix | null): string {
-  if (!alignment) return 'T:— M:— Vt:— Vm:—';
-  return `T:${alignment.mtf_trend_alignment.toFixed(2)} M:${alignment.mtf_momentum_alignment.toFixed(2)} Vt:${alignment.mtf_volume_alignment.toFixed(2)} Vm:${alignment.mtf_volatility_alignment.toFixed(2)}`;
 }
 
 function buildConflictBanner(alignment: AlignmentMatrix | null): string {
@@ -184,11 +203,11 @@ function buildConsensusBlock(alignment: AlignmentMatrix): AlignmentConsensusBloc
     trend_agreement_pct: pct,
     label: classifyConsensus(pct),
     label_display: CONSENSUS_DISPLAY[classifyConsensus(pct)],
-    polarization: [
-      { key: 'T',  label: 'Trend',      value: alignment.mtf_trend_alignment,      value_display: signedStr(alignment.mtf_trend_alignment, 2) },
-      { key: 'M',  label: 'Momentum',   value: alignment.mtf_momentum_alignment,   value_display: signedStr(alignment.mtf_momentum_alignment, 2) },
-      { key: 'Vt', label: 'Volume',     value: alignment.mtf_volume_alignment,     value_display: signedStr(alignment.mtf_volume_alignment, 2) },
-      { key: 'Vm', label: 'Volatility', value: alignment.mtf_volatility_alignment, value_display: signedStr(alignment.mtf_volatility_alignment, 2) },
+    axes: [
+      { key: 'Trend',      label: 'Trend',      value: alignment.mtf_trend_alignment,      value_display: signedStr(alignment.mtf_trend_alignment, 2) },
+      { key: 'Momentum',   label: 'Momentum',   value: alignment.mtf_momentum_alignment,   value_display: signedStr(alignment.mtf_momentum_alignment, 2) },
+      { key: 'Volume',     label: 'Volume',     value: alignment.mtf_volume_alignment,     value_display: signedStr(alignment.mtf_volume_alignment, 2) },
+      { key: 'Volatility', label: 'Volatility', value: alignment.mtf_volatility_alignment, value_display: signedStr(alignment.mtf_volatility_alignment, 2) },
     ],
   };
 }
@@ -212,23 +231,26 @@ function buildPerTimeframeBlock(alignment: AlignmentMatrix): AlignmentPerTimefra
 }
 
 function buildScoreCalcBlock(alignment: AlignmentMatrix): AlignmentScoreCalcBlock {
-  const getValue = (key: 'T' | 'M' | 'Vt' | 'Vm'): number => {
-    if (key === 'T') return alignment.mtf_trend_alignment;
-    if (key === 'M') return alignment.mtf_momentum_alignment;
-    if (key === 'Vt') return alignment.mtf_volume_alignment;
+  const getValue = (key: 'Trend' | 'Momentum' | 'Volume' | 'Volatility'): number => {
+    if (key === 'Trend') return alignment.mtf_trend_alignment;
+    if (key === 'Momentum') return alignment.mtf_momentum_alignment;
+    if (key === 'Volume') return alignment.mtf_volume_alignment;
     return alignment.mtf_volatility_alignment;
   };
   // v6.10.16 (FIX-H2): the backend may apply thin-participation
-  // reweighting (T 0.55 / M 0.35 / Vt 0.05 / Vm 0.05) — consume the
-  // wire's effective weights so the export formula ALWAYS balances the
-  // composite it mirrors. Legacy payloads fall back to the standard
-  // static table.
+  // reweighting (Trend 0.55 / Momentum 0.35 / Volume 0.05 / Volatility
+  // 0.05) — consume the wire's effective weights so the export formula
+  // ALWAYS balances the composite it mirrors. Legacy payloads fall back
+  // to the standard static table. v6.10.18: wire keys are full dimension
+  // names; legacy "T"/"M"/"Vt"/"Vm" keys are normalized via
+  // WEIGHT_KEY_CANON ("Vt" → Volume, "Vm" → Volatility).
   const effective = (key: string): number => {
-    const found = (alignment.blend_weights ?? []).find(([k]) => k === key);
-    return found ? found[1] : SCORE_CALC_WEIGHTS.find((w) => w.key === key)!.pct / 100;
+    const canon = WEIGHT_KEY_CANON[key] ?? key;
+    const found = (alignment.blend_weights ?? []).find(([k]) => (WEIGHT_KEY_CANON[k] ?? k) === canon);
+    return found ? found[1] : SCORE_CALC_WEIGHTS.find((w) => w.key === canon)!.pct / 100;
   };
   const weights = SCORE_CALC_WEIGHTS.map((w) => {
-    const value = getValue(w.key as 'T' | 'M' | 'Vt' | 'Vm');
+    const value = getValue(w.key);
     const pct = effective(w.key);
     return {
       key: w.key,
@@ -242,19 +264,9 @@ function buildScoreCalcBlock(alignment: AlignmentMatrix): AlignmentScoreCalcBloc
       contribution_display: signedStr(value * pct, 2),
     };
   });
-  const t = alignment.mtf_trend_alignment.toFixed(2);
-  const m = alignment.mtf_momentum_alignment.toFixed(2);
-  const vt = alignment.mtf_volume_alignment.toFixed(2);
-  const vm = alignment.mtf_volatility_alignment.toFixed(2);
-  const overall = alignment.mtf_overall_score.toFixed(1);
-  const fmt = (v: number) => String(Math.round(v * 100) / 100);
-  // AL-1 (v6.10.10): the backend scales the blend by ×100 — the formula
-  // must carry the factor or the equation never balances (the left side
-  // evaluates on the signed [−1, 1] axes).
-  return {
-    weights,
-    formula: `(${fmt(effective('T'))} * (${t}) + ${fmt(effective('M'))} * (${m}) + ${fmt(effective('Vt'))} * (${vt}) + ${fmt(effective('Vm'))} * (${vm})) × 100 = ${overall}`,
-  };
+  // v6.10.19d (A): the formula line was removed from the panel — the
+  // export mirrors the screen (weights only).
+  return { weights };
 }
 
 function buildInterpretation(alignment: AlignmentMatrix | null): string {
@@ -335,7 +347,6 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
       signal_cross_tf_count: 0,
       trend_agreement_pct: 0,
     },
-    breakdown_meta: buildBreakdownMeta(alignment),
     dimensions: alignment ? buildDimensionsBlock(alignment) : [],
     consensus: {
       // Screen renders the "—%" placeholder + em-dash verdict; JSON carries
@@ -343,11 +354,11 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
       trend_agreement_pct: null,
       label: null,
       label_display: '\u2014',
-      polarization: [
-        { key: 'T',  label: 'Trend',      value: 0, value_display: signedStr(0, 2) },
-        { key: 'M',  label: 'Momentum',   value: 0, value_display: signedStr(0, 2) },
-        { key: 'Vt', label: 'Volume',     value: 0, value_display: signedStr(0, 2) },
-        { key: 'Vm', label: 'Volatility', value: 0, value_display: signedStr(0, 2) },
+      axes: [
+        { key: 'Trend',      label: 'Trend',      value: 0, value_display: signedStr(0, 2) },
+        { key: 'Momentum',   label: 'Momentum',   value: 0, value_display: signedStr(0, 2) },
+        { key: 'Volume',     label: 'Volume',     value: 0, value_display: signedStr(0, 2) },
+        { key: 'Volatility', label: 'Volatility', value: 0, value_display: signedStr(0, 2) },
       ],
     },
     per_timeframe: [],
@@ -362,7 +373,6 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
         contribution: 0,
         contribution_display: '\u2014',
       })),
-      formula: '\u2014',
     },
     interpretation: buildInterpretation(null),
     consensus_conflict_banner: '',
@@ -375,7 +385,6 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
     meta,
     header: buildHeaderBlock(args.headerSpec),
     hero: buildHeroBlock(alignment),
-    breakdown_meta: buildBreakdownMeta(alignment),
     dimensions: buildDimensionsBlock(alignment),
     consensus: buildConsensusBlock(alignment),
     per_timeframe: buildPerTimeframeBlock(alignment),

@@ -7,17 +7,16 @@
      PascalCase — they document the screen-facing *display* fields, not
      wire enums. Exempted from the G6 enum-casing lint via the marker. -->
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the JSON payload produced by every panel's `Export Data` button. Each panel's export mirrors **1:1 the data the panel renders** — the same numbers, the same prices, the same dynamic strings, the same words; only the presentation changes (the screen formats `63390` as `$63390`, the JSON carries the raw value). Consumers (AI agents, downstream services, debugging tools) can rely on the field shapes documented here.
 
-> **Filter pills.** On the single-TF Metrics surface the filter pills
-> (`Active only`, `Confirmed+`, `Hide gates`, `Hide overlays`, search) are
-> presentation-only conveniences — that export always carries the full
-> dataset. The **MTF export is the one exception**: it serializes the
-> active pill state (`filter_state`) plus a per-row `visible` flag so the
-> on-screen row set is reconstructible from the JSON (the payload rows
-> themselves remain the unfiltered superset).
+> **Filter pills (v6.10.19d B).** The filter pills (`Active only`,
+> `Confirmed+`, `Hide gates`, `Hide overlays`, search) were removed from
+> both Metrics surfaces — the views always run on the platform default
+> filters, so every row is visible. Exports carry the full dataset with
+> per-row `visible` flags (always `true` under the defaults); the
+> top-level `filter_state` block is gone.
 
 ---
 
@@ -75,7 +74,7 @@ Rules:
 - Numbers are raw (no `%`, `$`, `1 :` diminutives).
 - Strings mixed with numbers are split into structured fields plus `*_display` verbatim copies of the screen sentence where the screen renders one (e.g. `rr_display`, `entry_danger_display`, `current_position_label`, `badge_text`).
 - `header` mirrors the LayerHeader chrome (badge label/sublabel + meta chips + status). Chip values that are numeric strings are parsed to numbers.
-- **No `filter_state` in `meta`.** The MTF and single-TF Metrics tabs carry a top-level `filter_state` block (see §3.2; metrics: §3.1) — never inside `meta`.
+- **No `filter_state` anywhere (v6.10.19d B).** The filter pill bars were removed from the Metrics and MTF views — the grid always runs on the default filters (everything visible). Neither `meta` nor the top level carries a `filter_state` block anymore (it was never inside `meta`).
 
 ### 2.2 Canonical value sources (cross-tab consistency)
 
@@ -107,13 +106,6 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
   "source_tab": "metrics",
   "meta": { },
   "header": { },
-  "filter_state": {
-    "active_only": false,
-    "confirmed_plus_only": false,
-    "hide_gates": false,
-    "hide_overlays": false,
-    "query": ""
-  },
   "market_context": {
     "regime": "TRENDING_BULL",
     "overall_score": 0.62,
@@ -204,6 +196,21 @@ Mirrors `TerminalMonitor.svelte` single-TF mode (Market Context strip, Group Con
         "state": "Live", "state_display": "LIVE", "bars_seen": 14, "bars_required": 14,
         "last_updated_at": 1753950000, "last_error": null, "feed_state": null, "not_active": false
       }
+    },
+    {
+      "key": "price_trend_sharpe", "period": null, "fast_period": null, "slow_period": null, "signal_period": null,
+      "display_name": "Price Trend Sharpe",
+      "group": "Regime", "class": "Lagging",
+      "raw": 2.4, "raw_display": "2.40",
+      "normalized_available": true, "normalized_value": 0.8, "normalized_reason": null,
+      "state": "STRONG_POSITIVE_SHARPE", "state_display": "STRONG_POSITIVE_SHARPE",
+      "confidence_pct": 80,
+      "signals": [],
+      "sub_values": null,
+      "indicator_lifecycle": {
+        "state": "Live", "state_display": "LIVE", "bars_seen": 300, "bars_required": 300,
+        "last_updated_at": 1753950000, "last_error": null, "feed_state": null, "not_active": false
+      }
     }
   ],
   "signals_by_kind": {
@@ -267,7 +274,7 @@ Notes:
 - Liquidity ladder clusters (`top_short` / `top_long`) are the **top-4 by magnet strength** — the same selection as the anchors-strip ladder and the Levels facet "Liquidation Magnets".
 - `fibonacci.status` and `volume_profile.current_position_label` are the canonical sentences also rendered by the strip and the Levels facet (`lib/structuralStrings.ts`).
 - **`micro_volume_profile` / `micro_cascade_alert`** mirror the Structural Anchors strip's Volume Profile tile and the Tier-1 cascade banner, both of which are anchored to the **micro** timeframe regardless of the active TF. `volume_profile` / `cascade_alert` mirror the active-TF values (Levels facet / strip liquidity tile). Both the banner and `micro_cascade_alert` read the **snapshot-path** micro liquidity (v6.10.11) — the tf-level field retains stale values across shadow ticks.
-- **L1 five-dimension synthesis (v6.10.11).** The `market_context` block's five dimensions (trend / momentum / volatility / volume / liquidity) are now rendered on screen too: `MarketContextStrip` expands to show the same score + confidence + label values the export carries.
+- **L1 five-dimension synthesis (v6.10.11).** The `market_context` block carries the five dimensions (trend / momentum / volatility / volume / liquidity) with the same score + confidence + label values; the per-TF overall score and regime label surface in the Metrics LayerHeader headline.
 - **Group-confluence counts (v6.10.13, M-7).** The `group_confluence` cards report the TF's RAW signal breakdown (unfiltered bull/bear/inactive counts — they are an explicit summary). The interactive facet badges and the strip's "N signals" badge are filter-aware; the group cards are intentionally not.
 - Derived strings (`fibonacci.status`, `price_vs_gp_pct`, VP position label, `age_bars_display`) are computed from the **active TF's `priceText`** — the same price the screen uses. `meta.current_price` remains the freshest price across all four slots.
 
@@ -301,10 +308,6 @@ carries `timesframes: ["Micro","Fast","Slow","Macro"]` and
   "source_tab": "mtf",
   "meta": { "timesframes": ["Micro", "Fast", "Slow", "Macro"] },
   "header": { },
-  "filter_state": {
-    "active_only": false, "confirmed_plus_only": false,
-    "hide_gates": false, "hide_overlays": false, "query": ""
-  },
   "groups": [
     { "key": "Momentum", "label": "Momentum", "accent": "#a78bfa", "indicator_count": 2, "total_indicator_count": 2 }
   ],
@@ -362,14 +365,12 @@ Notes:
   the per-entry `kind` field stays abbreviated like the Metrics entries),
   and `divergences` / `levels` surface every Divergence / LevelTest signal
   present on any TF.
-- **`filter_state` + `visible` (v7.0-verify).** The MTF export serializes
-  the active filter pills and marks every row with the same
-  `filterRegistry` visibility the on-screen grid applies (`Active only`
-  counts signals across all four slots — same as `MtfView.svelte`).
-  `groups[].indicator_count` counts **visible** rows (the screen's
-  section count); `total_indicator_count` counts all registry rows in the
-  group. Consumers reconstruct the on-screen set via
-  `indicators[].visible` / `filter_state`.
+- **`visible` flags (v7.0-verify, v6.10.19d B).** The filter pills were
+  removed — the grid always runs on the platform defaults, so every row
+  is visible and `groups[].indicator_count` equals
+  `total_indicator_count`. The per-row `visible` flag (always `true`
+  under the defaults) is retained for schema stability;
+  `filter_state` is gone.
 
 ### 3.3 Alignment Tab — `source_tab: "alignment"`
 
@@ -383,19 +384,18 @@ Notes:
     "mtf_overall_label_display": "STRONG BULL",
     "timeframes_present": 4, "signal_cross_tf_count": 2, "trend_agreement_pct": 82
   },
-  "breakdown_meta": "T:0.70 M:0.60 Vt:0.50 Vm:0.40",
   "dimensions": [
     { "name": "Trend", "score": 75, "state": "STRONG", "confidence": 78 }
   ],
   "consensus": {
     "trend_agreement_pct": 82,
     "label": "strong_consensus",
-    "label_display": "Strong consensus — timeframes aligned",
-    "polarization": [
-      { "key": "T",  "label": "Trend",      "value": 0.70, "value_display": "+0.70" },
-      { "key": "M",  "label": "Momentum",   "value": 0.60, "value_display": "+0.60" },
-      { "key": "Vt", "label": "Volume",     "value": 0.50, "value_display": "+0.50" },
-      { "key": "Vm", "label": "Volatility", "value": 0.40, "value_display": "+0.40" }
+    "label_display": "Strong Consensus",
+    "axes": [
+      { "key": "Trend",      "label": "Trend",      "value": 0.70, "value_display": "+0.70" },
+      { "key": "Momentum",   "label": "Momentum",   "value": 0.60, "value_display": "+0.60" },
+      { "key": "Volume",     "label": "Volume",     "value": 0.50, "value_display": "+0.50" },
+      { "key": "Volatility", "label": "Volatility", "value": 0.40, "value_display": "+0.40" }
     ]
   },
   "per_timeframe": [
@@ -406,10 +406,9 @@ Notes:
   ],
   "score_calculation": {
     "weights": [
-      { "key": "T", "label": "Trend", "pct": 50, "color": "#22c55e",
+      { "key": "Trend", "label": "Trend", "pct": 50, "color": "#22c55e",
         "value": 0.70, "value_display": "+0.70", "contribution": 0.35, "contribution_display": "+0.35" }
-    ],
-    "formula": "(0.5 * (0.70) + 0.3 * (0.60) + 0.1 * (0.50) + 0.1 * (0.40)) × 100 = 62.0"
+    ]
   },
   "interpretation": "Multi-timeframe alignment shows <strong>strong directional consensus</strong> (82% agreement across 4/4 timeframes). The composite score of 62.0 is classified as <strong>STRONG BULL</strong>. 2 cross-timeframe signal votes reinforce the current bias.",
   "consensus_conflict_banner": ""
@@ -417,14 +416,16 @@ Notes:
 ```
 
 Notes:
+- **Consensus hero (v6.10.20 C).** The alignment header carries `Score` + `TFs` only — the `Agreement` chip was removed. The header-container hero row is now two side-by-side containers: a circular consensus dial (percentage + tier-colored verdict header + grey sub-label) and a CONSENSUS 2×2 axis grid. The "Polarization" term is retired (the `consensus.polarization` field is renamed `consensus.axes`); the `label_display` mirrors the dial verdict header verbatim (`"Strong Consensus"`), while the sub-label (`"Timeframes are aligned."`) stays DOM-only. The `consensus_conflict_banner` renders under the axis grid.
 - Dimension `confidence` is already 0..100 on the wire — it mirrors the screen's `confidence.toFixed(0)%` (no ×100 inflation).
 - `interpretation` carries the real `mtf_overall_label` (never a hardcoded token) and matches the panel sentence verbatim (HTML `<strong>` markers included).
 - `consensus.trend_agreement_pct` keeps the raw float (screen text `toFixed(0)`, bar width `toFixed(1)`).
 - The `NO_DATA` dimension state renders `"NO DATA"` on both surfaces (panel and export).
-- **Score formula (v6.10.10).** `score_calculation.formula` carries the `× 100` factor: the backend computes `mtf_overall_score = 100·(0.5·T + 0.3·M + 0.1·Vt + 0.1·Vm)` on signed axes `[−1, 1]`, so the displayed equation balances (the legacy formula omitted the factor and printed `≈ 0.4 = 40.0`).
+- **Formula line removed (v6.10.19d A).** `score_calculation.formula` was removed with the on-screen formula line — the block carries the weight chips only. The backend math is unchanged: `mtf_overall_score = 100·(0.5·T + 0.3·M + 0.1·V_t + 0.1·V_m)` on signed axes `[−1, 1]` ([02-01 §4.2](../matrices/02-01-alignment-matrix.md)); the equation just no longer prints. `breakdown_meta` (the `Trend:0.70 …` caption) was removed with the duplicate breakdown text — the sign-prefixed axis values live in `consensus.axes[].value_display` and the weight chips.
+- **Full-word weight keys (v6.10.18).** The `blend_weights` / `score_calculation.weights` / `consensus.axes` keys are the full dimension names (`"Trend"`, `"Momentum"`, `"Volume"`, `"Volatility"`) — never abbreviations. The legacy wire keys `"T"` / `"M"` / `"Vt"` / `"Vm"` bound Volume/Volatility **swapped** vs. the spec (`V_t` = volatility, `V_m` = volume), so the panel previously mislabeled the chips as `Vt Volume` / `Vm Volatility`; consumers still normalize legacy payloads (`"Vt"` → Volume, `"Vm"` → Volatility, matching the legacy wire's actual bindings).
 - **Low-agreement wording (v6.10.10).** The sub-50 consensus label reads `"Mixed consensus — timeframes not aligned"` and the banner `"TIMEFRAME MISALIGNMENT — …"` — "conflict" overstated the case where low agreement comes from undecided (neutral) TFs.
 - **Sentinel gate (v6.10.10).** The backend's warmup sentinel (`timeframes_present: 0`, label `NO_DATA`, agreement 0) renders the awaiting consensus (`trend_agreement_pct: null`, `label: null`, `label_display: "—"`) and the awaiting interpretation — never a fabricated "Conflict" verdict. The 10 `NO_DATA` dimension rows are kept.
-- **Null state (`alignment: null`).** The consensus block mirrors the screen placeholders exactly: `trend_agreement_pct: null`, `label: null`, `label_display: "—"`, polarization `value_display: "+0.00"`, and score-calculation `value_display` / `contribution_display` / `formula` all `"—"` — never fabricated zeros or a fabricated "Conflict" verdict.
+- **Null state (`alignment: null`).** The consensus block mirrors the screen placeholders exactly: `trend_agreement_pct: null`, `label: null`, `label_display: "—"`, axes `value_display: "+0.00"`, and score-calculation `value_display` / `contribution_display` `"—"` — never fabricated zeros or a fabricated "Conflict" verdict.
 
 ### 3.4 Opportunity Tab — `source_tab: "opportunity"`
 
@@ -434,15 +435,11 @@ Notes:
   "meta": { },
   "header": { },
   "directional_bars": { "bullish_pct": 60, "bearish_pct": 10, "hold_pct": 30, "sort": "desc" },
-  "header_block": {
-    "opportunity_class": "Trend Continuation",
-    "lean": "Bullish setups dominate",
-    "setup_score": 78, "setup_quality": "STRONG"
-  },
   "trade_setups": [
     {
       "opportunity_type": "Trend Continuation", "viability": "Actionable",
       "badge_text": "TOP · ACTIONABLE", "side": "LONG", "rank_idx": 0, "is_top": true,
+      "quality": "STRONG", "below_floor": false,
       "geometry_consistent": true,
       "entry_mid": 63300, "entry_zone": { "low": 63200, "high": 63400 },
       "tp1": 66000, "tp2": 66500, "invalidation": 62800,
@@ -452,15 +449,14 @@ Notes:
     },
     {
       "opportunity_type": "Mean Reversion", "viability": "DirectionalNeutral",
-      "badge_text": "NEUTRAL · HOLD", "side": "NEUTRAL", "rank_idx": 1, "is_top": false,
+      "badge_text": "RANGE · NEUTRAL", "side": "NEUTRAL", "rank_idx": 1, "is_top": false,
+      "quality": "MODERATE", "below_floor": false,
       "geometry_consistent": false, "entry_mid": null, "entry_zone": null,
       "tp1": 0, "tp2": 0, "invalidation": null,
       "rr_available": false, "rr_value": null, "rr_reason": "no_actionable_geometry",
       "score": 42, "preconditions_met": 2, "preconditions_total": 3, "notes": "Reversion candidate"
     }
   ],
-  "no_clear_strip": null,
-  "hold_scenario_note": null,
   "rr_internal": {
     "expected_rr_available": true, "expected_rr_value": 2.5, "expected_rr_reason": null,
     "gross_rr_value": 2.52, "time_horizon": "SWING"
@@ -481,16 +477,45 @@ Notes:
 ```
 
 Notes:
-- `trade_setups` mirrors the panel's full leaderboard **one card per qualifying profile** — NEUTRAL-side cards (`side: "NEUTRAL"`, `NEUTRAL · HOLD`) and aggregate-bracket fallbacks included.
-- `viability` is the **PascalCase-normalized** token (`Actionable` / `DirectionalNeutral` / `GeometryInverted` / `NoClear`). The wire serializes `TradeViability` as SCREAMING_SNAKE_CASE (`ACTIONABLE`); the panel conditionals and the export's `badge_text` both compare on the normalized form, so `badge_text` (`TOP · ACTIONABLE`, `NEUTRAL · HOLD`, `GEOMETRY INVERTED`) matches the screen exactly.
+- `trade_setups` mirrors the panel's full leaderboard **one card per qualifying profile** — NEUTRAL-side cards (`side: "NEUTRAL"`, `RANGE · NEUTRAL`) and reference-bracket rows included. v6.10.19c: the dedicated empty-state fields were removed — the NEUTRAL/BULL/BEAR sections are the container for the empty state (they always render, with empty lists allowed).
+- **`trade_setup_sections` (v6.10.19b C2, v6.10.19c naming; v7.1 ranked order)** — the nested view mirroring the sectioned panel 1:1 — always present (empty lists allowed), top-ranked first within each. **v7.1:** the three folders render in **RANKED order** — the folder with the most content (setups + reference bracket) first, then by its top setup's score — the same relevance ordering as the directional conviction bars (a lone BEARISH setup puts the BEARISH folder first). The fixed RANGE → BULLISH → BEARISH fallback applies only to empty ties:
+
+```json
+{
+  "trade_setup_sections": [
+  { "section": "NEUTRAL", "label": "RANGE SETUPS", "setups": [
+    { "opportunity_type": "Mean Reversion", "viability": "DirectionalNeutral",
+      "badge_text": "RANGE · NEUTRAL", "side": "NEUTRAL", "score": 42, "score_display": 28,
+      "quality": "MODERATE", "below_floor": false,
+      "preconditions_met": 2, "preconditions_total": 3,
+      "entry_zone": null, "tp1": 0, "tp2": 0, "invalidation": null,
+      "rr_available": false, "rr_value": null, "rr_reason": "no_actionable_geometry",
+      "geometry_consistent": false, "notes": "Reversion candidate" }
+  ]},
+  { "section": "BULL", "label": "BULLISH", "setups": [
+    { "opportunity_type": "Trend Continuation", "viability": "Actionable",
+      "badge_text": "TOP · ACTIONABLE", "side": "LONG", "score": 78, "score_display": 78,
+      "quality": "STRONG", "below_floor": false,
+      "preconditions_met": 3, "preconditions_total": 3,
+      "entry_zone": { "low": 63200, "high": 63400 }, "tp1": 66000, "tp2": 66500,
+      "invalidation": 62800, "rr_available": true, "rr_value": 2.5, "rr_reason": null,
+      "geometry_consistent": true, "notes": "Trend + bias + momentum aligned" }
+  ]},
+  { "section": "BEAR", "label": "BEARISH", "setups": [] }
+  ]
+}
+```
+
+Every row carries the FULL value set (entry zone low/high, TP1, TP2, SL/invalidation, R:R value/available/reason, score + score_display, preconditions, geometry_consistent, viability, badge_text, **quality**, **below_floor**, notes, section). **v6.10.23:** reference brackets ride inside their directional section as rows — a section hosting zero qualifying setups carries its aggregated bracket (LONG → BULL, SHORT → BEAR) and/or the backend neutral range frame (RANGE, `opportunity_type: "Neutral Reference Bracket"`), each only when it carries real zones (`zones != null`), with `below_floor: true` + `badge_text: "BELOW ACTIONABLE FLOOR"` when its R:R is sub-1.0 or its geometry is inconsistent.
+- `viability` is the **PascalCase-normalized** token (`Actionable` / `DirectionalNeutral` / `GeometryInverted` / `NoClear`). The wire serializes `TradeViability` as SCREAMING_SNAKE_CASE (`ACTIONABLE`); the panel conditionals and the export's `badge_text` both compare on the normalized form, so `badge_text` (`TOP · ACTIONABLE`, `ACTIONABLE`, `QUALIFYING`, `RANGE · NEUTRAL`, `GEOMETRY INVERTED`, `INFORMATIONAL`, `BELOW ACTIONABLE FLOOR`) matches the screen exactly. **v6.10.23 badge policy:** EVERY Actionable card carries the actionable badge (the HOLD-verdict gate is removed — `TOP · ACTIONABLE` for the top-ranked Actionable card, plain `ACTIONABLE` for the rest); a card with inconsistent geometry always renders `GEOMETRY INVERTED`.
+- `quality` (**v6.10.23**) is the quality band of the **displayed** (precondition-scaled) score — `PRIME` ≥85 / `STRONG` 70–84 / `MODERATE` 50–69 / `MARGINAL` 30–49 / `NONE` <30 — mirroring the per-card outlined pill; `null` on reference rows (the screen renders no pill there).
 - `rr_value` prefers the wire per-side `expected_rr_internal` exactly like the screen card.
-- `hold_scenario_note` (badge `HOLD / NO CLEAR` + body) appears only when the decision rank is HOLD.
 - Confluent levels are capped at the screen's first 4 per group; sources are the on-screen abbreviations (FIB/VP/PP/SR/LIQ, with the screen's `ATR` fallback for unknown tokens).
 - The evaluated list excludes the NoClearOpportunity profile (it has its own strip).
-- `directional_bars` is **always** emitted — when the matrix is absent it mirrors the screen's always-rendered bars as `{0, 0, 100}`. The split is direction-aware (v6.10.6): the effective direction is the top qualifying profile's resolved side (`selectProfileSide`), else the macro bias, else the argmax per-side R:R; conviction weights **only the active side's** R:R (`exp(RR·3)` vs a hold floor, capped by `opportunity_score` and floored at 30% (v6.10.12, `MIN_ACTIVE_FLOOR`) whenever a valid active-side bracket exists — so a bearish panel can never emit bullish-dominant bars from a countertrend long bracket, and a `NO CLEAR SETUP` (score 0) matrix with a real bracket emits a ~30/70 directional split instead of collapsing to `{0, 0, 100}`.
+- `directional_bars` is **always** emitted — when the matrix is absent it mirrors the screen's always-rendered bars as `{0, 0, 100}`. The split is direction-aware (v6.10.6): the effective direction is the top qualifying profile's resolved side (`selectProfileSide`), else the macro bias, else the argmax per-side R:R; conviction weights **only the active side's** R:R (`exp(RR·3)` vs a hold floor, capped by `opportunity_score` and floored at 30% (v6.10.12, `MIN_ACTIVE_FLOOR`) whenever a valid active-side bracket exists — so a bearish panel can never emit bullish-dominant bars from a countertrend long bracket, and a `NO CLEAR SETUP` (score 0) matrix with a real bracket emits a ~30/70 directional split instead of collapsing to `{0, 0, 100}`. **v7.1 (L4-only):** the bars read **only** the L4 opportunity matrix — the L6 decision-context probabilities (`long_probability` / `short_probability` / `hold_probability`) never shape them, and the L6-only `lean_floor_applied` flag was removed from the block (the LEAN annotation is the Recommendation gauge's marker, not this panel's).
 - `expected_rr` mirrors the screen cell exactly: `N/A` only when the verdict is HOLD **and** the active-side R:R is 0 (degenerate ratios below the 0.1 meaningfulness floor read as 0); any other state emits `available: true` with the raw value (including `0` → screen `"0.00"`).
 - `evaluated_setups[].notes` / `trade_setups[].notes` are the **raw wire strings** the panel renders verbatim (never prettified).
-- Empty states render the screen's `"—"` placeholder in `header_block.opportunity_class`, `rr_internal.time_horizon` and all four `market_position` fields.
+- Empty states render the screen's `"—"` placeholder in `rr_internal.time_horizon` and all four `market_position` fields. (**v7.1:** `header_block` was removed with the panel's TOP SETUP hero — the top setup lives on the Recommendation tab; the Opportunity `header` block's badge + chip rail carry the matrix class/score/R:R/horizon.)
 
 ### 3.5 Risk Tab — `source_tab: "risk"`
 
@@ -501,8 +526,7 @@ Notes:
   "header": { },
   "hero": {
     "overall_score": 48, "overall_level": "Moderate", "overall_state": "Elevated",
-    "overall_confidence": 74, "top_severity": "High",
-    "hint": "Lower is safer. The state chip describes the risk trend (elevating / improving / stable); it does not change the score."
+    "overall_confidence": 74, "top_severity": "High"
   },
   "summary_counts": {
     "very_low": { "label": "Very Low", "count": 0 },
@@ -516,7 +540,7 @@ Notes:
       "name": "Cascade Risk", "key": "cascade_risk",
       "weight": 0.14, "weight_pct": 14,
       "score": 70, "level": "High", "state": "Critical",
-      "state_display": "⚠ CRITICAL", "confidence": 85,
+      "state_display": "↑ ELEVATED", "confidence": 85,
       "evidence": ["SUSTAINED cascade above price"],
       "no_evidence_text": null, "not_active_text": null,
       "awaiting": false, "awaiting_badge": null,
@@ -528,6 +552,19 @@ Notes:
         "asymmetry_description": "short squeeze",
         "asymmetry_display": "↑35.0% (short squeeze)"
       }
+    },
+    {
+      "name": "Execution Risk", "key": "execution_risk",
+      "weight": 0.10, "weight_pct": 10,
+      "score": 35, "level": "Low", "state": "Stable",
+      "state_display": "→ COMPOSED", "confidence": 50,
+      "evidence": ["Favorable volatility-to-spread (9.2)"],
+      "no_evidence_text": null, "not_active_text": null,
+      "awaiting": false, "awaiting_badge": null,
+      "bar_pct": 35, "weight_mark_pct": 10,
+      "is_cascade_dim": false, "not_active": false,
+      "cascade_extras": null,
+      "execution_extras": { "volatility_to_spread_ratio": 9.2 }
     }
   ],
   "headline_parts": {
@@ -550,13 +587,14 @@ Notes:
 ```
 
 Notes:
-- `top_severity` is `null` when it equals the overall level (the screen hides the "peak" chip in that case).
+- `top_severity` is `null` when it equals the overall level (the screen hides the "Top risk:" label in that case — renamed from "peak:" in v6.10.19d C).
 - `asymmetry_magnitude_pct` is the screen's percentage (`|asym| × 100`); `asymmetry_display` is the exact badge sentence.
 - Zero-count sentences are omitted from `interpretation_full` exactly like the screen paragraph.
 - Dimension names are **byte-identical to the screen cards** — including the abbreviated `"Exec Liquidity Risk"` (not `"Execution Liquidity Risk"`).
-- **Risk state (v6.10.9).** `state` is functional — the backend derives `CRITICAL` (score ≥ 80) / `ELEVATED` (score ≥ 60) / `INCREASING` / `IMPROVING` / `STABLE` (previous-synthesis delta ±10). The state pill/arrows and the L5 header sublabel vary accordingly; `state_display` carries the arrow + uppercase state.
+- **Risk state (v6.10.9) + Scheme-A badge (v6.10.19d C, display-only).** `state` is functional — the backend derives `CRITICAL` (score ≥ 80) / `ELEVATED` (score ≥ 60) / `INCREASING` / `IMPROVING` / `STABLE` (previous-synthesis delta ±10). The dashboard maps each dimension to ONE Scheme-A token badge: trend states win (`INCREASING → RISING ↗`, `IMPROVING → IMPROVING ↘`), otherwise the LEVEL maps to its token (`Extreme→CRITICAL ⚠`, `High→ELEVATED ↑`, `Moderate→STEADY →`, `Low→COMPOSED →`, `VeryLow→MINIMAL →`). The level name keeps its wording (Extreme/High/…) tinted by the token color. `state_display` carries `"{icon} {TOKEN}"` verbatim from the screen. Display-only: the mapping never feeds back into the backend.
 - **Warmup sentinel gate (v6.10.9).** The backend's empty matrix (`RiskMatrix::empty` — every dimension AND the overall at exactly `50`/`Moderate` with no evidence) is treated as awaiting: `hero: null`, all 8 `awaiting` rows, and the initializing `interpretation_full` — never fabricated "Moderate risk" data. Consumers can reuse `isAwaitingRiskMatrix` (exported from `exportBuilders/riskTab.ts`).
-- **Disclosure/hint copy (v6.10.9).** The state chip is descriptive — it does not modify the weighted sum. The old "State and confidence modify each dimension's contribution" claim was never implemented and has been removed.
+- **Execution friction gauge (v6.11).** The `execution_risk` dimension carries `execution_extras: { volatility_to_spread_ratio }` (`ATR(14) ÷ top-of-book spread`, raw price units) when the backend publishes it; every other dimension (and the awaiting/null rows) carries `execution_extras: null`.
+- **Disclosure/hint copy (v6.10.9, v6.10.19d C).** The state chip is descriptive — it does not modify the weighted sum. The hero caption ("Lower is safer. …") was removed in v6.10.19d — the risk bar carries the guidance as a tooltip only, so the export has no `hero.hint` string. The old "State and confidence modify each dimension's contribution" claim was never implemented and has been removed.
 - `interpretation_headline` reads `all dimensions below moderate · overall …` when no dimension reaches Moderate (was "calm").
 - **Null state (`risk: null`).** `dimensions` carries the 8 placeholder rows the screen's "AWAITING" cards render (name + `weight_pct`, `awaiting: true`, `awaiting_badge: "AWAITING"`), and `interpretation_full` carries the "Risk synthesis is initializing — …" paragraph verbatim.
 
@@ -594,7 +632,13 @@ Notes:
   },
   "qualitative_assessment": {
     "trend": "Healthy", "momentum": "Increasing", "structure": "Strong",
-    "volatility": "Normal", "volume": "Strong", "cycle_phase": "MARKUP"
+    "volatility": "Normal", "volume": "Strong", "cycle_phase": "MARKUP",
+    "trend_stability_sharpe": 3.85, "trend_stability_sharpe_display": "3.85",
+    "trend_score": 76.5, "trend_score_display": "76.50",
+    "momentum_score": 83.2, "momentum_score_display": "83.20",
+    "structure_score": 81.4, "structure_score_display": "81.40",
+    "volatility_score": 55.0, "volatility_score_display": "55.00",
+    "volume_score": 78.8, "volume_score_display": "78.80"
   },
   "per_timeframe_alignment": [
     { "name": "MICRO", "active": true, "trend": 0.45, "trend_display": "+0.45",
@@ -625,6 +669,9 @@ Notes:
 - Empty states render the screen's `"—"` placeholder in the five qualitative cards, `cycle_phase`, the inactive per-TF score displays and `rationale`.
 - `interpretation` is the raw text; `interpretation_display` carries the keyword-`<strong>` markup the screen renders (shared `highlightKeywords` helper).
 - `cycle_phase` uses the shared `prettifyPhase` helper — identical string on screen and in the JSON.
+- **Trend Stability Sharpe (v6.11).** `qualitative_assessment.trend_stability_sharpe` is the annualized EMA-50 log-return Sharpe (trailing 300-bar window) shown as the Trend card's numeric badge; `_display` is the verbatim 2-dp screen string, `"\u2014"` when absent (`null`). The value is clamped to ±20 (v6.10.21).
+- **Per-card dimension scores (v6.12).** `qualitative_assessment.trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` are the exact 0-100 alignment dimension scores each qualitative label is bucketed from (the badges on the Analysis cards; see [02-02-analysis-matrix.md §3.4.1–3.7.1](../matrices/02-02-analysis-matrix.md)). Each `_display` is the verbatim screen string — **v6.13:** the rounded integer + `%` form (e.g. `"77%"`; the `%` makes the cross-timeframe agreement semantics explicit), `"\u2014"` when the field is absent (`null`, empty sentinel). Raw and display always agree with the emitted label — the label IS the band.
+- **Representative traceability (v6.10.21).** `representative_bbwp` / `representative_adx` now come from the AnalysisMatrix's own pinned `representative_bbwp`/`representative_adx` fields (the exact inputs the rationale quotes — the matrix mirror is per-slot last-writer-wins, so the exporting slot's indicator map can differ); the micro-map fallback applies only to older frames that lack the pins.
 - The Interpretation's opportunity sentence follows the L3 `opportunity_analysis` chain, which is synced with the L4 §4 tree (v6.10.8) — the prose can no longer claim "Favors trend continuation" under an L4 NO CLEAR SETUP verdict.
 
 ### 3.7 Recommendation Tab — `source_tab: "recommendation"`
@@ -644,31 +691,36 @@ Notes:
     "directional_guidance": "Long", "market_stance": "Constructive",
     "strategy_environment": "TrendFollowing", "opportunity_classification": "TrendContinuation",
     "confidence_pct": 72, "readiness": "READY",
-    "entry_danger_score": 35, "entry_danger_level": "LOW"
+    "entry_danger_score": 35, "entry_danger_level": "LOW",
+    "quality_to_risk_ratio": 1.5, "quality_to_risk_ratio_display": "1.50"
   },
   "verdict": { "top": "LONG", "long_probability": 60, "short_probability": 15, "hold_probability": 25 },
   "top_setup_empty_text": null,
   "top_setup": {    "opportunity_type": "Trend Continuation", "viability": "Actionable",
-    "badge_text": "ACTIONABLE", "score": 78,
+    "badge_text": "ACTIONABLE", "score": 78, "score_display": 78,
     "preconditions_met": 3, "preconditions_total": 3, "direction_label": "LONG",
     "entry_zone": { "low": 63200, "high": 63400 }, "target_zone": { "low": 66000, "high": 66500 },
     "invalidation": 62800,
     "entry_zone_display": "$63200–$63400", "target_zone_display": "$66000–$66500",
     "invalidation_display": "$62800",
-    "rr_display": "R:R 1 : 2.50",
+    "rr_display": "2.50",
     "rr_available": true, "rr_value": 2.5, "rr_reason": null,
-    "rationale": "TrendContinuation: preconditions 3/3"
+    "rationale": "TrendContinuation: preconditions 3/3",
+    "alternate_qualifying_setups": [
+      { "opportunity_type": "Mean Reversion", "side": "NEUTRAL", "score": 42,
+        "preconditions_met": 2, "preconditions_total": 3 }
+    ]
   },
-  "no_clear_card": null,
   "safety_flags": {
     "readiness": "READY",
     "rr_available": true, "rr_value": 2.5, "rr_reason": null,
     "risk_adj_rr_explanation": null,
     "stop_loss_pct": 0.01, "confidence_pct": 72,
     "entry_danger_score": 35, "entry_danger_level": "LOW",
-    "rr_display": "R:R 1 : 2.50",
+    "rr_display": "2.50",
     "stop_loss_display": "1.00%", "confidence_display": "72%",
-    "entry_danger_display": "35 (LOW)"
+    "entry_danger_display": "35 (LOW)",
+    "quality_to_risk_ratio": 1.5, "quality_to_risk_ratio_display": "1.50"
   },
   "why_note": null,
   "why": [
@@ -693,44 +745,45 @@ Notes:
 Notes:
 - `rr_display` in `top_setup` derives from the canonical wire `rr_value`
   (`long_/short_expected_rr_internal`, target-mid geometry) with the same
-  `R:R 1 : X.Y` formatting as the header chip and the safety-flags KPI —
+  single-decimal formatting as the Safety-Flags KPI (`2.50`, `9.99+`) —
   the payload never recomputes an independent geometry (a legacy
   `computeRiskReward` recompute here disagreed with the chip and the
   cards; see the export-consistency regression tests).
-- `safety_flags.*_display` are verbatim KPI-chip strings (`R:R 1 : 2.50`, `1.00%`, `72%`, `35 (LOW)`).
-- **`risk_adj_rr_explanation` (v6.10.14 / RR-008)** — the first-class R:R discount sentence, e.g. `"Risk-adjusted: geometric R:R 2.00 × risk factor 0.30 = 0.60"` — the exact string the L6 header chip tooltip renders. `null` when there is no real risk-adjusted R:R (or the factor is trivial). Consumers no longer need to recompute the factor from `top_setup.rr_value` ÷ `safety_flags.rr_value`.
-- **`risk_adj_rr_explanation` (v6.10.14 / RR-008).** First-class R:R discount sentence — the identical string the L6 header chip tooltip renders (`"Risk-adjusted: geometric R:R 2.00 × risk factor 0.30 = 0.60"`), so consumers don't recompute the factor. `null` when there is no real risk-adjusted R:R (HOLD with 0, or only one of the two values present).
+- `safety_flags.*_display` are verbatim KPI-chip strings (`2.50`, `1.00%`, `72%`, `35 (LOW)`).
+- **Quality-to-Risk ratio (v6.11).** `environment.quality_to_risk_ratio` and `safety_flags.quality_to_risk_ratio` mirror the Quality/Risk KPI chip (`market_quality_score ÷ overall_risk.score`, 2-dp `_display`, `"\u2014"` when `null` — the dual placement mirrors `entry_danger`).
+- **`risk_adj_rr_explanation` (v6.10.14 / RR-008)** — the first-class R:R discount sentence, e.g. `"Risk-adjusted: geometric R:R 2.00 × risk factor 0.30 = 0.60"` — the exact string the Safety-Flags KPI tooltip renders (v6.10.19d D: the L6 header chip was removed; the KPI is the single Risk-Adj R:R surface). `null` when there is no real risk-adjusted R:R (or the factor is trivial). Consumers no longer need to recompute the factor from `top_setup.rr_value` ÷ `safety_flags.rr_value`.
+- **`risk_adj_rr_explanation` (v6.10.14 / RR-008).** First-class R:R discount sentence — the identical string the Safety-Flags KPI tooltip renders (v6.10.19d D: header chip removed), so consumers don't recompute the factor. `null` when there is no real risk-adjusted R:R (HOLD with 0, or only one of the two values present).
 - Missing `entry_danger` reads 50 (MODERATE) exactly like the panel.
 - `top_setup_empty_text` carries the section-meta caption the panel renders when no qualifying setup exists (`"no qualifying setup yet"`); it is `null` whenever a setup renders.
 - The four `strategy` fields render the screen's `"—"` placeholder when the advisory guidance is absent.
-- **Gauge needle (v6.10.7 / R1, v6.10.12 GAUGE-001, v6.10.15 FIX-3, v6.10.17 decoupling).** `gauge.net_bias_pct` / `bias_direction` are the raw long−short math. The panel's needle renders **neutral** (amber, `0%`, no arc) only when `verdict.top === "HOLD"` — a directional lean gated by `STAND_ASIDE` (e.g. LONG 62/2/36) draws its REAL `+60%` needle next to the gate badge, because the directional read is decoupled from the execution gate (v6.10.17). The needle IS the single final number: **no percentage readout is rendered under the dial**; the raw split stays in `gauge.long_pct` / `hold_pct` / `short_pct` for data consumers only.
-- **Risk-Adj R:R chip (v6.10.7 / R2, v6.10.12 RR-001).** The L6 header chip is labelled **`Risk-Adj R:R`** (it reads `DecisionContext.expected_reward_risk_ratio` — geometric × (1 − overall_risk/100)) — distinct from the L4 geometric `R:R` the setup cards show. It mirrors the Safety-Flags KPI exactly: `N/A` only when `verdict.top === "HOLD"` AND the risk-adjusted R:R is `0`; a HOLD verdict with a non-zero R:R still surfaces `1:X.Y`. When a value renders, the chip's tooltip explains the discount (`geometric R:R × risk factor = value`).
+- **Gauge needle (v6.10.7 / R1, v6.10.12 GAUGE-001, v6.10.15 FIX-3, v6.10.17 decoupling, v6.10.19c D2, v6.10.19e).** `gauge.net_bias_pct` / `bias_direction` are the raw long−short math. The panel's needle renders **neutral** (amber, no arc) only when `verdict.top === "HOLD"` — a directional lean gated by `STAND_ASIDE` (e.g. LONG 62/2/36) draws its REAL `+60%` needle next to the gate badge, because the directional read is decoupled from the execution gate (v6.10.17). The center-bottom dial label mirrors the needle: the verdict-consistent net % (`gauge.net_bias_display`), color-coded by sign — green `+N%` LONG, red `-N%` SHORT, amber `0%` under a HOLD verdict (the raw split stays in `gauge.long_pct` / `hold_pct` / `short_pct` for data consumers only; **no LONG/HOLD/SHORT percentage split row is rendered** under the dial).
+- **Risk-Adjusted Reward-to-Risk KPI (v6.10.7 / R2, v6.10.12 RR-001, v6.10.19d D, v6.10.19e).** The Safety-Flags KPI row is the single **`Risk-Adjusted Reward-to-Risk`** surface (it reads `DecisionContext.expected_reward_risk_ratio` — geometric × (1 − overall_risk/100)) — distinct from the L4 geometric `R:R` the setup cards show. The L6 **header chip was removed** in v6.10.19d (the header keeps Confidence + Stance). `—` only when `verdict.top === "HOLD"` AND the risk-adjusted R:R is `0`; a HOLD verdict with a non-zero R:R still surfaces the single decimal (`X.Y`). When a value renders, the KPI's tooltip explains the discount (`geometric R:R × risk factor = value`).
 - **Final verdict (v6.10.7 / R6, v6.10.15 FIX-4, v6.10.17).** `final_verdict` is the verdict — one of four graded sentences (v6.10.17):
   - `HOLD — no directional call (readiness: …)` — only under a genuine HOLD top.
   - `${TOP} lean ${pct}% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger ${LEVEL}).` — directional lean gated by the execution gate.
   - `${TOP} ${pct}% — READY (readiness: READY).` — execution-cleared.
   - `${TOP} lean ${pct}% — awaiting confirmation (readiness: ${WATCH|FORMING}).`
   The advisory `final_recommendation` is carried separately as `final_verdict_guidance` (`Environment guidance: …`) whenever present.
-- **Strategy block (v6.10.16 FIX-O5, v6.10.17).** `strategy.entry` / `exit` / `protection` / `target` render `"—"` ONLY under a genuine HOLD top — a directional lean gated by STAND ASIDE carries its REAL playbook values (the lean is directional; only the gate differs). `strategy.hold_caption` mirrors the panel's muted "environment playbook" caption under HOLD (`null` otherwise).
-- **Gauge lean-floor flag (v6.10.19 P6).** `gauge.lean_floor_applied` (and `directional_bars.lean_floor_applied` on the Opportunity tab) is `true` when the graded-lean floors adjusted the split — the operator-facing LEAN annotation marks a structurally boosted low-confidence read, never a deep consensus.
+- **Strategy block (v6.10.16 FIX-O5, v6.10.17, v6.10.19d D).** `strategy.entry` / `exit` / `protection` / `target` render `"—"` ONLY under a genuine HOLD top — a directional lean gated by STAND ASIDE carries its REAL guidance values (the lean is directional; only the gate differs). The section is titled "Environment Guidance" on screen (renamed from "Environment Playbook" in v6.10.19d; the export key `strategy` is unchanged). `strategy.hold_caption` mirrors the panel's muted caption under HOLD (`null` otherwise).
+- **Gauge lean-floor flag (v6.10.19 P6).** `gauge.lean_floor_applied` is `true` when the graded-lean floors adjusted the split — the operator-facing LEAN annotation marks a structurally boosted low-confidence read, never a deep consensus. (**v7.1:** the flag was removed from the Opportunity `directional_bars` block — the L4 bars are bracket-derived and never floor-boosted; the LEAN marker is the Recommendation gauge's surface only.)
 - **Net R:R (v6.10.19 P5).** The L4 `long_expected_rr_internal` / `short_expected_rr_internal` (and every card reading them) carry the NET R:R — the gross geometric ratio minus estimated fees/slippage/funding (`NetCostModel`, 6/5/0 bps defaults). `rr_internal.gross_rr_value` (from `long_gross_rr_internal` / `short_gross_rr_internal`) preserves the gross for offline analysis; the Risk-Adj R:R explanation sentence reads "Risk-adjusted: net R:R … × risk factor … = …".
-- **BelowFloor (v6.10.19 T3).** A sub-1.0 aggregated reference bracket exports `badge_text: "R:R BELOW ACTIONABLE FLOOR"` with the levels intact — it is a reference card, never a trade.
+- **BelowFloor (v6.10.19 T3, v6.10.23).** A sub-1.0 aggregated reference bracket exports `badge_text: "BELOW ACTIONABLE FLOOR"` (v6.10.23 wording) with `below_floor: true` and the levels intact — it is a reference card, never a trade.
 - **Verdict-aware guidance (v6.10.19 T2/T5).** Under `verdict.top === "HOLD"` the `final_verdict_guidance` carries no "Entry:/Stop:" clauses and leads with "…no actionable directional edge (HOLD)" — the server omits the entry/stop suffix under Neutral/Avoid guidance too.
-- **Evaluated-setup scores (v6.10.19 T1).** `evaluated_setups[].score_display` and `trade_setups[].score_display` scale the raw wire `score` by the precondition ratio (0 when inactive) — the operator sees readiness at a glance; `score` stays raw.
+- **Evaluated-setup scores (v6.10.19 T1, wire-first v6.14).** `evaluated_setups[].score_display` and `trade_setups[].score_display` scale the raw wire `score` by the precondition ratio (0 when inactive) — the operator sees readiness at a glance; `score` stays raw. **v6.14:** the scaled value is now emitted by the backend as `OpportunityProfile.display_score` and the export is **wire-first** — `score_display = display_score` when the field is present, falling back to the local `displayScore` rule only on legacy payloads, so screen, export, and wire can never disagree.
+- **Signal-lean hero (v6.10.19c C).** The Analysis hero counts ALL timeframe lines present (no `TF votes:` prefix; no COMPRESSION/flat exclusion) — a display choice over the raw supporting/contradicting lists. The bias engine's LEAN-tier vote definition (COMPRESSION/flat excluded, `analysis.rs`) is unchanged — the hero and the bias vote intentionally differ: the hero shows every TF that reported; the bias engine votes only on the decisive ones.
 - **Analysis rationale traceability (v6.10.18 I-9).** The analysis payload carries `representative_bbwp` / `representative_adx` — the L3 regime-input values (first-TF-wins representative map) the rationale quotes, so a quant can trace the L3 regime derivation from the data itself. Intra-candle shadow drift means these can differ from any single per-TF row in the same export; the payload now makes the source explicit.
-- **Opportunity directional bars (v6.10.18 I-4).** `directional_bars` mirror the L6 verdict split (long/short/hold probabilities) whenever a decision context is present — the L4 and L6 panels can never show two different conviction numbers for the same market.
+- **Opportunity directional bars (v6.10.18 I-4, superseded v7.1).** `directional_bars` mirror the L6 verdict split whenever a decision context is present — the L4 and L6 panels can never show two different conviction numbers for the same market. **v7.1 (L4-only):** this was reversed — the L4 bars (panel + export) read **only** the opportunity matrix's bracket conviction; the L6 verdict split is the Recommendation gauge's story and the two panels intentionally differ.
 - **Asset-ranking rows (v6.10.16 FIX-O1).** `asset_rankings.rows[].signal` is `BUY`/`SELL` only when that instance holds an Actionable + READY setup — the same gate the hero's `actionable_count` / `valid_setups` use — otherwise `WAIT` (a directional verdict with WATCH/STAND_ASIDE readiness never renders BUY beside "no READY trade yet"). `rows[].rr` comes from the shared `resolveActiveRr` chain (N/A when the L4/L6 panels mark N/A; never the legacy scalar).
 - `price_levels.hold_placeholder` (v6.10.7 / R5) describes the ACTUAL card state: the Top Setup card carries the aggregated bracket on the net-bias side (R:R `N/A` when geometry is inverted) — not the close-pinned sentinel the legacy copy claimed.
-- **Top setup under No Clear (v6.10.17 A3).** `top_setup` is now ALWAYS published when the opportunity matrix exists: a state with no qualifying profile yields the **aggregated bracket on the bias side** (`opportunity_type: "Aggregated Bracket"`, `viability: "NoClear"`, real ENTRY/TARGET/SL + R:R, marked informational) so the operator always has TPs/SLs to work with. The `no_clear_card` renders alongside it (it explains WHY no profile qualifies) when the primary opportunity is NoClearOpportunity and the top setup is absent or NoClear — the two coexist by design. When present it carries the `title` / `body` strings:
+- **Top setup under No Clear (v6.10.17 A3, superseded v6.10.19c).** `top_setup` is now ALWAYS published when the opportunity matrix exists: a state with no qualifying profile yields the **aggregated bracket on the bias side** (`opportunity_type: "Aggregated Bracket"`, `viability: "NoClear"`, real ENTRY/TARGET/SL + R:R, marked informational) so the operator always has TPs/SLs to work with. The explanatory no-clear card that coexisted with it (it explained WHY no profile qualifies) was **removed in v6.10.19c** — the informational reference row is the only surface.
 
-```json
-{
-  "no_clear_card": {
-    "title": "No Clear Setup",
-    "body": "Neutral — no directional edge: NEUTRAL bias with 11% confidence, cautious stance in a mean-reversion environment. No clear opportunity. Entry: on breakout. Stop: structure-based."
-  }
-}
-```
+### v6.10.19b — verdict-consistent Recommendation + all-opportunities panel
+
+- **Verdict-consistent `top_setup` (B1).** The Recommendation's `top_setup` is now the **verdict-consistent headline**: under a directional verdict it is the best qualifying profile ON that side, else the verdict-side aggregated reference bracket (`viability: "NoClear"`, informational); under a HOLD verdict it is the NEUTRAL no-bracket headline (`entry_zone`/`target_zone`/`invalidation` all `null`, `rr_reason: "no directional bias"`). A counter-bias qualifying setup is never the headline: it rides in **`top_setup.alternate_qualifying_setups`** (`[{opportunity_type, side, score, preconditions_met, preconditions_total}]`) and always appears on the Opportunities panel.
+- **Verdict lean from valid setups (G3, v6.10.19c D3).** When `verdict.top` would be HOLD but a qualifying setup with a resolvable side exists, the verdict leans to that side with its REAL probability (e.g. `LONG lean 12% — STAND ASIDE`) — the badge/headline/gauge stay consistent, the readiness gate is unchanged. Under HOLD with a qualifying setup that has NO resolvable side (NEUTRAL, e.g. DirectionalNeutral Mean Reversion), the verdict stays HOLD but the setup still headlines the container with its zones and bracket R:R — never hidden behind a placeholder.
+- **Unified SETUP block (B3 + v6.10.19c D3/D4).** `top_setup` is the single price-levels source: it also carries `horizon` and `hold_placeholder`. The `price_levels` block is an ALIAS of the same summary (identical zones/side — the two can never disagree); the panel renders ONE setup section at the top and the separate "Price Levels" section is removed. **v6.10.19c:** the container has two cases — (a) no qualifying setup → `top_setup.opportunity_type: "No Active Setup"` with null zones, empty `badge_text` and `hold_placeholder: "No active setup."` (v6.10.19d D: the "fields are placeholders" caveat was erased); (b) qualifying setup (any side incl. NEUTRAL) → the setup headlines the container with its real zones/R:R. The explanatory no-clear card was removed. The **Risk-Adj R:R** (`safety_flags` KPI only — the header chip was removed in v6.10.19d) is bracket-aware: backend `expected_reward_risk_ratio` when > 0, else `top_setup.rr_value × (1 − overall_risk/100)` (N/A only without a bracket or below the 0.10 floor). Section order (payload keys): gauge → top_setup → safety_flags → price_levels → strategy → final_verdict → final_verdict_guidance → why_note → why (Why at the bottom). **v6.14:** `top_setup` additionally carries `score_display` — the card's precondition-scaled score (backend `display_score` when present, else the raw `score`), keeping `score` itself raw for data-science consumers.
+- **All opportunities always visible (C1, v6.10.19c; per-folder references v6.10.23; ranked order v7.1).** The Opportunities Trade Setups area renders three always-present folders in **RANKED order** — the folder with the most content first (same relevance ordering as the conviction bars; e.g. a lone BEARISH setup puts the BEARISH folder first), ties broken by the top setup's score, the fixed RANGE → BULL → BEARISH order applying only to empty ties (`trade_setups[].section` = `'NEUTRAL'|'BULL'|'BEAR'`, mirrored in `trade_setup_sections`) — top-ranked first within each. **v6.10.23:** reference brackets are fully integrated into their folders — a folder hosting zero qualifying setups mounts its own aggregated bracket (`opportunity_type: "Aggregated Bracket"`, `badge_text: "INFORMATIONAL"`, in zero-qualifying states AND counter-bias-qualifying states such as a SHORT verdict with only LONG setups qualifying) and the RANGE folder additionally mounts the backend neutral range frame (`opportunity_type: "Neutral Reference Bracket"`) — each only when it carries real zones. Sub-1.0 or geometry-broken references export `badge_text: "BELOW ACTIONABLE FLOOR"` with `below_floor: true` — reference cards, never trades. **Parity invariant:** whatever the Recommendation's `top_setup` shows is always present in the Opportunities export — provable zone-for-zone (test-locked).
+- **Truthful geometry (A1/A2).** `compute_side_rr_v2`'s SlAtEntry epsilon is `1e-6 × price` (the old 0.01% rejected real 1.5×ATR stops in low-ATR states as "zero risk"); the UI fallbacks mirror the backend guards (SlAtEntry + close-aware TargetOnWrongSide) and **respect the server geometry flag** — a GeometryInverted bracket never leaks a locally-recomputed R:R.
 
 ### 3.8 Charts Sub-Tabs — `source_tab: "positions" | "orders" | "history" | "plan"`
 

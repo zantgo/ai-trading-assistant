@@ -361,15 +361,12 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expect(spec.badge.label).toBe('WEAK BULL');
         expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
         expect(spec.meta.find((c) => c.label === 'Score')!.value).toBe('21.20');
-        expect(spec.meta.find((c) => c.label === 'Agreement')!.value).toBe('100%');
         expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4/4');
     });
 
-    it('zero agreement renders as 0% amber, not grey empty', () => {
+    it('v6.10.19d (A): the Agreement chip is gone — the Timeframe Consensus meter lives in the panel header container', () => {
         const spec = buildL2AlignmentHeader(alignmentStub({ trend_agreement_pct: 0 }));
-        const a = spec.meta.find((c) => c.label === 'Agreement')!;
-        expect(a.state).toBe('neutral');
-        expect(a.value).toBe('0%');
+        expect(spec.meta.find((c) => c.label === 'Agreement')).toBeUndefined();
     });
 });
 
@@ -426,7 +423,7 @@ describe('buildL4OpportunityHeader (L4)', () => {
             short_expected_rr_internal: 2.5,
         }), 'Bullish');
         // active R:R chip should be 1:1.00 (LONG side), not 1:2.50 (SHORT)
-        const rr = spec.meta.find((m) => m.label === 'R:R')!;
+        const rr = spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')!;
         expect(rr.value).toBe('1:1.00');
     });
 
@@ -442,7 +439,7 @@ describe('buildL4OpportunityHeader (L4)', () => {
         expect(spec.badge.label).toBe('Pullback');
         expect(spec.badge.color).toBe(COLORS.neutral);
         // The R:R chip reads nothing directional under a neutral bias.
-        const rr = spec.meta.find((m) => m.label === 'R:R')!;
+        const rr = spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')!;
         expect(rr.value).toBe('—');
     });
 
@@ -551,27 +548,21 @@ describe('buildL6DecisionHeader (L6) — must NOT consume L3 bias', () => {
         expect(spec.badge.color).toBe(COLORS.neutral);
     });
 
-    it('HOLD/STAND_ASIDE renders the R:R chip as "N/A" (no misleading 0.00)', () => {
-        const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 0 });
-        const advisory = advisoryStub({ directional_guidance: 'Neutral' });
-        const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
-        const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        const rr = spec.meta.find((m) => m.label === 'Risk-Adj R:R')!;
-        // The string "N/A" is the canonical sentinel — the chip carries
-        // explicit text the operator can never misread as a numeric R:R.
-        expect(rr.value).toBe('N/A');
-    });
+    it('v6.10.19d (D): the Risk-Adj R:R header chip is removed — the header keeps Confidence (+Stance), the KPI row owns the ratio', () => {
+        // The N/A sentinel case: no chip at all now.
+        const decisionNA = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 0 });
+        const advisoryNA = advisoryStub({ directional_guidance: 'Neutral' });
+        const rankNA = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
+        const specNA = buildL6DecisionHeader({ rank: rankNA, decisionContext: decisionNA, advisory: advisoryNA });
+        expect(specNA.meta.find((m) => m.label === 'Risk-Adj R:R')).toBeUndefined();
 
-    it('HOLD verdict with a non-zero risk-adjusted R:R surfaces the value (R2 — header cannot contradict the KPI)', () => {
-        // R2 regression: the chip previously hardcoded N/A for ANY HOLD
-        // verdict, while the Safety-Flags Risk-Adj R:R KPI renders the
-        // value when it is non-zero. One panel, one rule.
+        // The non-zero case: also gone from the header — the Safety
+        // Flags KPI is the single Risk-Adj R:R surface.
         const decision = decisionCtxStub({ score: 0, bias: 'Neutral', trade_readiness: 'WATCH', expected_reward_risk_ratio: 1.2 });
         const advisory = advisoryStub({ directional_guidance: 'Neutral' });
         const rank = { top: 'HOLD' as const, headline: { state: 'WATCH' as const, confidence_pct: 0 } };
         const spec = buildL6DecisionHeader({ rank, decisionContext: decision, advisory });
-        const rr = spec.meta.find((m) => m.label === 'Risk-Adj R:R')!;
-        expect(rr.value).toBe('1:1.20');
+        expect(spec.meta.find((m) => m.label === 'Risk-Adj R:R')).toBeUndefined();
     });
 });
 

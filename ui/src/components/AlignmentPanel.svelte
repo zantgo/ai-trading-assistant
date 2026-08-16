@@ -102,25 +102,55 @@
     // the thin-participation reweight, e.g. 55/35/5/5) so the panel can
     // never show a stale 50/30/10/10 beside a score the backend blended
     // differently. Legacy payloads fall back to the canonical 50/30/10/10.
+    // v6.10.18 (P2): the wire keys are the full dimension names
+    // ("Trend"/"Momentum"/"Volume"/"Volatility") — the legacy "Vt"/"Vm"
+    // abbreviations bound Volume/Volatility swapped vs. the spec (V_t =
+    // volatility, V_m = volume, 02-01 §4.2), so the panel showed "Volume
+    // Vt". Full-word keys bind each chip to exactly one mtf_*_alignment
+    // field; legacy keys are still normalized below for old payloads
+    // ("Vt" → Volume, "Vm" → Volatility, matching the legacy wire).
+    const WEIGHT_KEY_CANON: Record<string, string> = {
+        'T': 'Trend',
+        'M': 'Momentum',
+        'Vt': 'Volume',
+        'Vm': 'Volatility',
+        'Trend': 'Trend',
+        'Momentum': 'Momentum',
+        'Volume': 'Volume',
+        'Volatility': 'Volatility',
+    };
+    const WEIGHT_COLORS: Record<string, string> = {
+        Trend: '#22c55e',
+        Momentum: '#3b82f6',
+        Volume: '#a78bfa',
+        Volatility: '#f59e0b',
+    };
     const weights = $derived.by(() => {
         const wire = alignment?.blend_weights ?? [];
-        const chip = (key: string, pct: number): { label: string; key: string; pct: number; color: string } => ({
-            key,
-            pct: Math.round(pct * 100),
-            color: key === 'T' ? '#22c55e' : key === 'M' ? '#3b82f6' : key === 'Vt' ? '#a78bfa' : '#f59e0b',
-            label: key === 'T' ? 'Trend' : key === 'M' ? 'Momentum' : key === 'Vt' ? 'Volume' : 'Volatility',
-        });
+        const chip = (key: string, pct: number): { label: string; key: string; pct: number; color: string } => {
+            const k = WEIGHT_KEY_CANON[key] ?? key;
+            return {
+                key: k,
+                pct: Math.round(pct * 100),
+                color: WEIGHT_COLORS[k] ?? '#94a3b8',
+                label: k,
+            };
+        };
         if (wire.length === 4) return wire.map(([key, pct]) => chip(key, pct));
         return [
-            { label: 'Trend', key: 'T', pct: 50, color: '#22c55e' },
-            { label: 'Momentum', key: 'M', pct: 30, color: '#3b82f6' },
-            { label: 'Volume', key: 'Vt', pct: 10, color: '#a78bfa' },
-            { label: 'Volatility', key: 'Vm', pct: 10, color: '#f59e0b' },
+            { label: 'Trend', key: 'Trend', pct: 50, color: '#22c55e' },
+            { label: 'Momentum', key: 'Momentum', pct: 30, color: '#3b82f6' },
+            { label: 'Volume', key: 'Volume', pct: 10, color: '#a78bfa' },
+            { label: 'Volatility', key: 'Volatility', pct: 10, color: '#f59e0b' },
         ];
     });
 
     function getRawValue(key: string): number {
         if (!alignment) return 0;
+        if (key === 'Trend') return alignment.mtf_trend_alignment;
+        if (key === 'Momentum') return alignment.mtf_momentum_alignment;
+        if (key === 'Volume') return alignment.mtf_volume_alignment;
+        if (key === 'Volatility') return alignment.mtf_volatility_alignment;
         if (key === 'T') return alignment.mtf_trend_alignment;
         if (key === 'M') return alignment.mtf_momentum_alignment;
         if (key === 'Vt') return alignment.mtf_volume_alignment;
@@ -149,6 +179,61 @@
         hasAlignment && alignment!.trend_agreement_pct < 50
     );
 
+    // v6.10.20 (C): the consensus hero is a two-container row — a circular
+    // dial (Container 1) next to a CONSENSUS details grid (Container 2).
+    // The "Polarization" term is retired; the word Consensus is unified
+    // across the panel, the dial header, and the export payload.
+    const consensusPct = $derived<number | null>(
+        hasAlignment ? alignment!.trend_agreement_pct : null
+    );
+    const consensusTier = $derived<'strong' | 'partial' | 'conflict' | null>(
+        consensusPct == null ? null
+        : consensusPct >= 75 ? 'strong'
+        : consensusPct >= 50 ? 'partial'
+        : 'conflict'
+    );
+    // v7.0 (A): the dial renders a flat, vibrant tier color — no gradient,
+    // no glow. Mixed (<50%) uses a deeper orange; pure red is retired.
+    const consensusDialColor = $derived(
+        consensusTier === 'strong' ? '#22c55e'
+        : consensusTier === 'partial' ? '#f59e0b'
+        : consensusTier === 'conflict' ? '#f97316'
+        : '#94a3b8'
+    );
+    const consensusHeader = $derived(
+        consensusTier === 'strong' ? 'Strong Consensus'
+        : consensusTier === 'partial' ? 'Partial Consensus'
+        : consensusTier === 'conflict' ? 'Mixed Consensus'
+        : '\u2014'
+    );
+    const consensusSub = $derived(
+        consensusTier === 'strong' ? 'Timeframes are aligned.'
+        : consensusTier === 'partial' ? 'Mixed signals across timeframes.'
+        : consensusTier === 'conflict' ? 'Timeframes are not aligned.'
+        : ''
+    );
+    function consensusHeaderCls(): string {
+        if (consensusTier === 'strong') return styles.consensusDialHeaderStrong;
+        if (consensusTier === 'partial') return styles.consensusDialHeaderPartial;
+        if (consensusTier === 'conflict') return styles.consensusDialHeaderConflict;
+        return styles.consensusDialHeaderNeutral;
+    }
+    // Axis value intensity: |v| > 0.2 → high-contrast; 0.05 < |v| ≤ 0.2 →
+    // subtle; |v| ≤ 0.05 → neutral grey.
+    function axisValueCls(v: number): string {
+        if (v > 0.2) return styles.axisStrongBull;
+        if (v < -0.2) return styles.axisStrongBear;
+        if (v > 0.05) return styles.axisSubtleBull;
+        if (v < -0.05) return styles.axisSubtleBear;
+        return styles.axisNeutral;
+    }
+    const consensusAxes = $derived([
+        { key: 'Trend', v: alignment?.mtf_trend_alignment ?? 0 },
+        { key: 'Momentum', v: alignment?.mtf_momentum_alignment ?? 0 },
+        { key: 'Volume', v: alignment?.mtf_volume_alignment ?? 0 },
+        { key: 'Volatility', v: alignment?.mtf_volatility_alignment ?? 0 },
+    ]);
+
     const headerSpec = $derived<LayerHeaderSpec>(buildL2AlignmentHeader(alignment));
 </script>
 
@@ -163,16 +248,63 @@
         {/snippet}
     </LayerHeader>
 
+    <!-- ── v6.10.20 (C): the consensus hero lives in the header container
+         as two side-by-side containers — a circular consensus dial (left)
+         and a CONSENSUS 2×2 axis grid (right). The "Polarization" term is
+         retired; the agreement meter + verdict + axis values all speak
+         the single word Consensus. -->
+    <div class={styles.consensusHero}>
+        <div class={styles.consensusGaugeCard}>
+            <div class={styles.consensusDialRow}>
+                <div class={styles.consensusDial}>
+                    <svg viewBox="0 0 24 24" class={styles.consensusDialSvg}>
+                        <circle cx="12" cy="12" r="10" class={styles.consensusDialTrack} />
+                        <circle
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            class={styles.consensusDialFill}
+                            stroke={consensusDialColor}
+                            stroke-dasharray="62.83"
+                            stroke-dashoffset={62.83 * (1 - (consensusPct ?? 0) / 100)}
+                            transform="rotate(-90 12 12)"
+                        />
+                    </svg>
+                    <span class={styles.consensusDialPct}>
+                        {consensusPct != null ? consensusPct.toFixed(0) : '\u2014'}%
+                    </span>
+                </div>
+                <div class={styles.consensusDialCopy}>
+                    <span class={styles.consensusDialLabel}>Agreement</span>
+                    <span class="{styles.consensusDialHeader} {consensusHeaderCls()}">
+                        {consensusHeader}
+                    </span>
+                    <span class={styles.consensusDialSub}>{consensusSub}</span>
+                </div>
+            </div>
+        </div>
+        <div class={styles.consensusDetails}>
+            <span class={styles.consensusDetailsLabel}>Consensus</span>
+            <div class={styles.axisGrid}>
+                {#each consensusAxes as axis (axis.key)}
+                    <div class={styles.axisCard}>
+                        <span class={styles.axisName}>{axis.key}</span>
+                        <span class="{styles.axisValue} {axisValueCls(axis.v)}">
+                            {(axis.v >= 0 ? '+' : '') + axis.v.toFixed(2)}
+                        </span>
+                    </div>
+                {/each}
+            </div>
+            {#if conflictWarning}
+                <span class={styles.conflictBadge}>TIMEFRAME MISALIGNMENT — time horizons are not working together</span>
+            {/if}
+        </div>
+    </div>
+
     <!-- ── Alignment Breakdown — card grid ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>
             Alignment Breakdown
-            <span class={styles.sectionMeta}>
-                T:{alignment ? alignment.mtf_trend_alignment.toFixed(2) : '\u2014'}
-                {' '}M:{alignment ? alignment.mtf_momentum_alignment.toFixed(2) : '\u2014'}
-                {' '}Vt:{alignment ? alignment.mtf_volume_alignment.toFixed(2) : '\u2014'}
-                {' '}Vm:{alignment ? alignment.mtf_volatility_alignment.toFixed(2) : '\u2014'}
-            </span>
         </div>
         {#if alignment?.dimensions?.length}
             <div class={styles.dimGrid}>
@@ -203,48 +335,6 @@
         {/if}
     </div>
 
-    <!-- ── Consensus ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Timeframe Consensus</div>
-        <div class={styles.consensusRow}>
-            <div class={styles.consensusMeter}>
-                <span class={styles.consensusVal}>{alignment && alignment.timeframes_present > 0 ? alignment.trend_agreement_pct.toFixed(0) : '\u2014'}%</span>
-                <div class={styles.consensusBar}>
-                    <div class="{styles.consensusFill} {alignment && alignment.timeframes_present > 0 ? (alignment.trend_agreement_pct >= 75 ? styles.consensusStrong : alignment.trend_agreement_pct >= 50 ? styles.consensusPartial : styles.consensusConflict) : ''}"
-                         style="width: {alignment && alignment.timeframes_present > 0 ? alignment.trend_agreement_pct.toFixed(1) : '0'}%"></div>
-                </div>
-            </div>
-            <span class={styles.consensusText}>
-                {alignment && alignment.timeframes_present > 0
-                    ? (alignment.trend_agreement_pct >= 75 ? 'Strong consensus — timeframes aligned' :
-                       alignment.trend_agreement_pct >= 50 ? 'Partial consensus — mixed signals' :
-                       // AL-3: "conflict" overstates when the low agreement
-                       // comes from undecided (neutral) TFs, not opposition.
-                       'Mixed consensus — timeframes not aligned')
-                    : '\u2014'}
-            </span>
-        </div>
-        <!-- ── Polarization — sign-coded axis values used in the blend -->
-        <div class={styles.polarization}>
-            <span class={styles.polarLabel}>Polarization</span>
-            {#each [
-                { key: 'T', label: 'Trend', v: alignment?.mtf_trend_alignment ?? 0 },
-                { key: 'M', label: 'Momentum', v: alignment?.mtf_momentum_alignment ?? 0 },
-                { key: 'Vt', label: 'Volume', v: alignment?.mtf_volume_alignment ?? 0 },
-                { key: 'Vm', label: 'Volatility', v: alignment?.mtf_volatility_alignment ?? 0 },
-            ] as axis (axis.key)}
-                <span class={styles.polarChip}
-                      style="border-color: {axis.v > 0.05 ? 'rgba(34, 197, 94, 0.4)' : axis.v < -0.05 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.4)'}; color: {axis.v > 0.05 ? '#22c55e' : axis.v < -0.05 ? '#ef4444' : '#94a3b8'}">
-                    <span class={styles.polarKey}>{axis.key}</span>
-                    <span class={styles.polarVal}>{(axis.v >= 0 ? '+' : '') + axis.v.toFixed(2)}</span>
-                </span>
-            {/each}
-        </div>
-        {#if conflictWarning}
-            <div class={styles.conflictBadge}>TIMEFRAME MISALIGNMENT — time horizons are not working together</div>
-        {/if}
-    </div>
-
     <!-- ── Per-Timeframe cards ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Per-Timeframe Snapshot</div>
@@ -261,10 +351,10 @@
                                 Trend {tf.trend_score.toFixed(2)}
                             </span>
                             <span class="{styles.tfChip} {tfDirectionCls(tf.momentum_score)}">
-                                Mom {tf.momentum_score.toFixed(2)}
+                                Momentum {tf.momentum_score.toFixed(2)}
                             </span>
                             <span class="{styles.tfChip} {tfDirectionCls(tf.overall_score)}">
-                                Ov {tf.overall_score.toFixed(1)}
+                                Overall {tf.overall_score.toFixed(1)}
                             </span>
                             <span class="{styles.tfChip} {tfRegimeCls(tf.regime)}">
                                 {tf.regime}
@@ -286,9 +376,9 @@
                 {@const val = getRawValue(w.key)}
                 {@const contrib = val * (w.pct / 100)}
                 <div class={styles.weightChip}>
-                    <span class={styles.weightChipKey}>{w.key}</span>
+                    <span class={styles.weightChipKey}>{w.label}</span>
                     <span class={styles.weightChipLabel}>
-                        {w.label} <span style="color: var(--text-dim); font-size: 8px;">({w.pct}%)</span>
+                        <span style="color: var(--text-dim); font-size: 8px;">({w.pct}%)</span>
                     </span>
                     <span class={styles.weightChipPct} style="color: {w.color}">
                         {alignment ? (val >= 0 ? '+' : '') + val.toFixed(2) : '—'}
@@ -299,7 +389,6 @@
                 </div>
             {/each}
         </div>
-        <div class={styles.formula}>{blendDesc || '—'}</div>
     </div>
 
     <!-- ── Interpretation ── -->

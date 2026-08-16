@@ -4,14 +4,6 @@
 .section { margin-bottom: 16px; }
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
 .signalsHeader { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-.signalLeanChip {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    text-transform: none;
-}
 .signalLeanBull { background: rgba(34, 197, 94, 0.12); color: #22c55e; border-color: rgba(34, 197, 94, 0.30); }
 .signalLeanBear { background: rgba(239, 68, 68, 0.12); color: #ef4444; border-color: rgba(239, 68, 68, 0.30); }
 .signalLeanSplit { background: rgba(148, 163, 184, 0.08); color: #94a3b8; border-color: rgba(148, 163, 184, 0.30); }
@@ -45,6 +37,26 @@
 .assessCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255, 255, 255, 0.02); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.04); }
 .assessLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
 .assessValue { font-size: 13px; font-weight: 700; }
+/* v6.12: per-card numeric companions — the exact 0-100 alignment
+   dimension scores each assessment is bucketed from. Rendered as badges
+   on the card face (no tooltips); tint = coarse 3-level band heat. */
+.assessBadges { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.scoreBadge { font-size: 11px; font-weight: 700; font-family: var(--mono); font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: 4px; border: 1px solid transparent; width: fit-content; cursor: help; }
+.scoreStrong { color: #22c55e; background: rgba(34, 197, 94, 0.14); border-color: rgba(34, 197, 94, 0.35); }
+.scoreMid { color: #f59e0b; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.30); }
+.scoreWeak { color: #ef4444; background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.35); }
+.deltaArrow { font-size: 9px; margin-left: 2px; }
+.deltaUp { color: #4ade80; }
+.deltaDown { color: #f87171; }
+/* v6.11: high-contrast monospace numeric badge for the Trend Stability
+   Sharpe inside the Trend assessment card. */
+.sharpeBadge { font-size: 11px; font-weight: 700; font-family: var(--mono); font-variant-numeric: tabular-nums; color: #facc15; background: rgba(250, 204, 21, 0.10); border: 1px solid rgba(250, 204, 21, 0.25); padding: 1px 6px; border-radius: 4px; width: fit-content; cursor: help; }
+/* v6.10.21: band tints mirroring the L1 state-label bands — the badge is
+   self-explanatory (green = stable slope, red = unstable slope). */
+.sharpeStrongPos { color: #22c55e; background: rgba(34, 197, 94, 0.14); border-color: rgba(34, 197, 94, 0.35); }
+.sharpePos { color: #4ade80; background: rgba(74, 222, 128, 0.10); border-color: rgba(74, 222, 128, 0.25); }
+.sharpeStrongNeg { color: #ef4444; background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.38); }
+.sharpeNeg { color: #f87171; background: rgba(248, 113, 113, 0.10); border-color: rgba(248, 113, 113, 0.25); }
 .qualityBadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; }
 .qualityExc { background: rgba(34,197,94,0.18); color: #22c55e; }
 .qualityGood { background: rgba(34,197,94,0.10); color: #4ade80; }

@@ -97,7 +97,6 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         expect(screen.getByText('Neutral signals')).toBeTruthy();
         expect(screen.getByText('No directional lean across timeframes')).toBeTruthy();
         expect(screen.queryByText('No signals')).toBeNull();
-        expect(screen.getByText(/Neutral signals · no directional lean/)).toBeTruthy();
     });
 
     it('empty signal lists keep the pre-warmup placeholder (AN-2)', () => {
@@ -134,6 +133,137 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         expect(screen.getByText('2.0:1 signal ratio')).toBeTruthy();
     });
 
+    it('v6.11: Trend card renders the trend_stability_sharpe numeric badge', () => {
+        seed(makeAnalysis({ trend_stability_sharpe: 3.85 }));
+        render(AnalysisPanel, { props: {} });
+        const badge = screen.getByText('3.85');
+        expect(badge.textContent?.trim()).toBe('3.85');
+        // Absent (null) → no badge.
+        cleanup();
+        seed(makeAnalysis({ trend_stability_sharpe: null }));
+        render(AnalysisPanel, { props: {} });
+        expect(screen.queryByText('3.85')).toBeNull();
+    });
+
+    it('v6.10.21: Trend badge tint mirrors the stability bands', () => {
+        // ≥ +2 → strong-positive (green), > 0 → positive (light green),
+        // ≤ −2 → strong-negative (red), else negative (light red).
+        seed(makeAnalysis({ trend_stability_sharpe: 3.85 }));
+        render(AnalysisPanel, { props: {} });
+        let badge = screen.getByText('3.85');
+        expect(badge.className).toContain('sharpeStrongPos');
+
+        cleanup();
+        seed(makeAnalysis({ trend_stability_sharpe: 0.8 }));
+        render(AnalysisPanel, { props: {} });
+        badge = screen.getByText('0.80');
+        expect(badge.className).toContain('sharpePos');
+
+        cleanup();
+        seed(makeAnalysis({ trend_stability_sharpe: -5.7 }));
+        render(AnalysisPanel, { props: {} });
+        badge = screen.getByText('-5.70');
+        expect(badge.className).toContain('sharpeStrongNeg');
+
+        cleanup();
+        seed(makeAnalysis({ trend_stability_sharpe: -0.73 }));
+        render(AnalysisPanel, { props: {} });
+        badge = screen.getByText('-0.73');
+        expect(badge.className).toContain('sharpeNeg');
+    });
+
+    it('v6.12: all five cards render their 0-100 dimension-score badges (v6.13: rounded %)', () => {
+        seed(makeAnalysis({
+            trend_score: 62.35,
+            momentum_score: 48.72,
+            structure_score: 71.4,
+            volatility_score: 78.15,
+            volume_score: 82.6,
+        }));
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('62%')).toBeTruthy();
+        expect(screen.getByText('49%')).toBeTruthy();
+        expect(screen.getByText('71%')).toBeTruthy();
+        expect(screen.getByText('78%')).toBeTruthy();
+        expect(screen.getByText('83%')).toBeTruthy();
+    });
+
+    it('v6.12: score badges are tinted by band heat (≥70 strong, ≥40 mid, <40 weak)', () => {
+        seed(makeAnalysis({
+            trend_score: 82.0,
+            momentum_score: 55.0,
+            structure_score: 25.0,
+            volatility_score: 50.0,
+            volume_score: 75.0,
+        }));
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('82%').className).toContain('scoreStrong');
+        expect(screen.getByText('55%').className).toContain('scoreMid');
+        expect(screen.getByText('25%').className).toContain('scoreWeak');
+    });
+
+    it('v6.12: Trend card shows BOTH the dimension-score and the Sharpe badge (v6.13: with tooltips)', () => {
+        seed(makeAnalysis({ trend_score: 62.35, trend_stability_sharpe: 20.0 }));
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('62%')).toBeTruthy();
+        expect(screen.getByText('20.00')).toBeTruthy();
+        // v6.13: hover tooltips qualify the numbers — the score badge
+        // explains the cross-timeframe agreement semantics and the
+        // Sharpe badge its statistical meaning.
+        expect(screen.getByText('62%').getAttribute('title')).toContain('agreement across timeframes');
+        expect(screen.queryByTitle(/Trend stability sharpe/i)).toBeTruthy();
+    });
+
+    it('v6.12: ▲ delta arrow appears when a score rises vs the previous frame', async () => {
+        const app = seed(makeAnalysis({ trend_score: 60.0 }));
+        render(AnalysisPanel, { props: {} });
+        await tick();
+        app.instancesMap['BTC-USDT'].analysis = makeAnalysis({ trend_score: 63.5 });
+        await tick();
+        await tick();
+        const badge = screen.getByText(/64%/);
+        expect(badge.textContent).toContain('▲');
+        // Unchanged score → no arrow.
+        app.instancesMap['BTC-USDT'].analysis = makeAnalysis({ trend_score: 63.5 });
+        await tick();
+        await tick();
+        expect(screen.getByText(/64%/).textContent).not.toContain('▲');
+    });
+
+    it('v6.12: ▼ delta arrow appears when a score falls vs the previous frame', async () => {
+        const app = seed(makeAnalysis({ momentum_score: 70.0 }));
+        render(AnalysisPanel, { props: {} });
+        await tick();
+        app.instancesMap['BTC-USDT'].analysis = makeAnalysis({ momentum_score: 65.0 });
+        await tick();
+        await tick();
+        const badge = screen.getByText(/65%/);
+        expect(badge.textContent).toContain('▼');
+    });
+
+    it('v6.11: export qualitative_assessment carries the trend-stability Sharpe', async () => {
+        const app = seed(makeAnalysis({ trend_stability_sharpe: 3.85 }));
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        tf.indicators = {
+            bbwp: { raw_value: 94.8, normalized: 0.948, state_label: 'NEUTRAL', values: null },
+            adx: { raw_value: 40.06, normalized: 0.6, state_label: 'NEUTRAL', values: null },
+        } as unknown as IndicatorMap;
+        const writes: string[] = [];
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: async (t: string) => { writes.push(t); return true; } },
+            writable: true,
+            configurable: true,
+        });
+        render(AnalysisPanel, { props: {} });
+        const exportBtn = screen.getByTitle('Copy all Analysis data as JSON');
+        await fireEvent.click(exportBtn);
+        await tick();
+        await new Promise((r) => setTimeout(r, 0));
+        const payload = JSON.parse(writes[0]);
+        expect(payload.qualitative_assessment.trend_stability_sharpe).toBeCloseTo(3.85, 2);
+        expect(payload.qualitative_assessment.trend_stability_sharpe_display).toBe('3.85');
+    });
+
     it('v6.10.19a (D1): export traceability carries the representative BBWP/ADX raw values', async () => {
         // Regression: the panel read the transient snapshot map with the
         // wrong key (`raw` vs the wire `raw_value`) — the representative
@@ -161,5 +291,35 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         const payload = JSON.parse(writes[0]);
         expect(payload.representative_bbwp).toBeCloseTo(94.8, 1);
         expect(payload.representative_adx).toBeCloseTo(40.06, 1);
+    });
+
+    it('v6.10.21: matrix-pinned representative BBWP/ADX win over the micro-map fallback', async () => {
+        // The analysis mirror is per-slot last-writer-wins — the matrix's
+        // own pinned representative fields are the exact inputs the
+        // rationale quotes; the micro map must NOT override them.
+        const app = seed(makeAnalysis({
+            representative_bbwp: 53.0,
+            representative_adx: 35.3,
+        }));
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        tf.indicators = {
+            bbwp: { raw_value: 11.6, normalized: 0.116, state_label: 'NEUTRAL', values: null },
+            adx: { raw_value: 27.48, normalized: 0.27, state_label: 'NEUTRAL', values: null },
+        } as unknown as IndicatorMap;
+
+        const writes: string[] = [];
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: async (t: string) => { writes.push(t); return true; } },
+            writable: true,
+            configurable: true,
+        });
+        render(AnalysisPanel, { props: {} });
+        const exportBtn = screen.getByTitle('Copy all Analysis data as JSON');
+        await fireEvent.click(exportBtn);
+        await tick();
+        await new Promise((r) => setTimeout(r, 0));
+        const payload = JSON.parse(writes[0]);
+        expect(payload.representative_bbwp).toBeCloseTo(53.0, 1);
+        expect(payload.representative_adx).toBeCloseTo(35.3, 1);
     });
 });

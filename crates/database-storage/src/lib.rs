@@ -4,7 +4,6 @@ use sqlx::SqlitePool;
 pub mod analyzer_normalize_fallback;
 pub mod crypto;
 pub mod logger;
-pub mod paper;
 pub mod queries;
 pub mod seed;
 
@@ -31,9 +30,8 @@ pub use queries::profiles::{
     risk_profile_update, risk_profiles_list, DecisionProfile, ProfileIndicator, RiskProfile,
 };
 pub use queries::snapshots::{
-    insert_snapshot_internal, query_atr_snapshots,
-    query_closest_close_price, query_indicator_snapshots, query_latest_snapshot,
-    query_recent_candles, IndicatorSnapshotRow,
+    insert_snapshot_internal, query_closest_close_price, query_latest_snapshot,
+    query_recent_candles,
 };
 pub use queries::stats::{
     dash_trade_detail, dash_trade_timestamps, get_daily_pnl, query_all_closed_trades,

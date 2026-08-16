@@ -468,10 +468,10 @@ pub struct HistoryCandle {
     pub volume: String,
     /// Reconstruction provenance. `None` means a real, persisted OHLCV
     /// candle. `Some(_)` means the candle was synthesised by a
-    /// reconstruction path (e.g. `derive_sub_minute_candles` or an EMA
-    /// gap-fill). The frontend uses this flag to filter reconstructed
-    /// candles out of the persistent candle cache so the chart never
-    /// paints a flat-line "ghost" from minute-close interpolation.
+    /// reconstruction path (e.g. an EMA gap-fill). The frontend uses this
+    /// flag to filter reconstructed candles out of the persistent candle
+    /// cache so the chart never paints a flat-line "ghost" from
+    /// minute-close interpolation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reconstructed: Option<core_domain::normalized::ReconstructionMethod>,
 }

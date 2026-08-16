@@ -198,8 +198,14 @@
             onkeydown={(e) => e.stopPropagation()}
         >
             {#if phase === 'input'}
+                <div class={styles.inputHeader}>
+                    <h3 class={styles.inputTitle}>Watchlist symbols</h3>
+                    <p class={styles.inputSubtitle}>
+                        Add a basket of pairs and keep only those with a clear decision.
+                    </p>
+                </div>
                 <div class={styles.inputBlock}>
-                    <label class={styles.inputLabel} for="watchlist-input">Watchlist symbols</label>
+                    <label class={styles.visuallyHidden} for="watchlist-input">Watchlist symbols</label>
                     <textarea
                         id="watchlist-input"
                         class={styles.inputField}

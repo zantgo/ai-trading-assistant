@@ -17,6 +17,10 @@ import {
   computeDecisionRank,
   profileSummary,
   resolveActiveRr,
+  sideBracketSummary,
+  neutralBracketSummary,
+  type SideBracketSummary,
+  type NeutralBracketSummary,
 } from '../../lib/decisionRank';
 import {
   buildPriceBlock,
@@ -27,28 +31,46 @@ import {
   type InstanceTermsLike,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
-import { computeOpportunityBars, directionBarsFromRank } from '../../lib/opportunityBars';
+import { computeOpportunityBars, rankSectionsByCount } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
-export interface OpportunityHeaderBlock {
-  opportunity_class: string;
-  lean: string;
-  setup_score: number;
-  setup_quality: string;
+/** v6.10.19b (C2): one always-present Trade Setups section — the
+ *  Opportunities panel renders the folders in RANKED order (the folder
+ *  with the most setups first — same relevance ordering as the
+ *  conviction bars), top-ranked first within each. The export mirrors
+ *  the panel 1:1.
+ *  v6.10.21 (NBR): reference brackets ride INSIDE their directional
+ *  section as rows (a section that hosts no qualifying setups carries
+ *  its aggregated bracket / neutral range frame). */
+export interface TradeSetupSection {
+  section: 'NEUTRAL' | 'BULL' | 'BEAR';
+  label: string;
+  /** Every value of each individual setup in this section. */
+  setups: TradeSetupRow[];
 }
 
 export interface TradeSetupRow {
   opportunity_type: string;
   viability: string;
   badge_text: string;
+  /** v6.10.21: quality band of the DISPLAYED score (PRIME/STRONG/MODERATE/
+   *  MARGINAL/NONE) — mirrors the per-card pill. `null` on reference
+   *  rows (the panel renders no pill there). */
+  quality: string | null;
   /** v6.10.19 (T1): precondition-scaled display score (0 when inactive). */
   score_display: number;
   side: 'LONG' | 'SHORT' | 'NEUTRAL';
+  /** v6.10.19b (C1): the Trade Setups section the card renders in —
+   *  'NEUTRAL', 'BULL' (LONG) or 'BEAR' (SHORT). */
+  section: 'NEUTRAL' | 'BULL' | 'BEAR';
   rank_idx: number;
   is_top: boolean;
   geometry_consistent: boolean;
+  /** v6.10.21: State D flag — the reference bracket's R:R is below the
+   *  1.0 actionable floor or its geometry is inconsistent. */
+  below_floor: boolean;
   entry_mid: number | null;
   entry_zone: { low: number; high: number } | null;
   tp1: number;
@@ -113,26 +135,19 @@ export interface DirectionalBarsBlock {
   bearish_pct: number;
   hold_pct: number;
   sort: 'desc';
-  /** v6.10.19 (P6): floor-boosted lean — see `GaugeBlock`. */
-  lean_floor_applied: boolean;
 }
 
-export interface NoClearStripBlock {
-  badge: string;
-  preconditions_met: number;
-  preconditions_total: number;
-  meta: string;
-}
 
 export interface OpportunityPayload {
   source_tab: 'opportunity';
   meta: MetaEnvelope;
   header: HeaderBlock;
   directional_bars: DirectionalBarsBlock;
-  header_block: OpportunityHeaderBlock;
   trade_setups: TradeSetupRow[];
-  no_clear_strip: NoClearStripBlock | null;
-  hold_scenario_note: string | null;
+  /** v6.10.19b (C2): the nested sections view — NEUTRAL / BULL / BEAR,
+   *  each a list of its setups with ALL values (entry zone, TPs, SL, R:R,
+   *  score, preconditions, geometry, badge, notes). Always present. */
+  trade_setup_sections: TradeSetupSection[];
   rr_internal: RrInternalBlock;
   invalidation_note: string;
   evaluated_setups: EvaluatedSetupRow[];
@@ -150,10 +165,26 @@ export interface OpportunityPayload {
  * the score, 3/3 → the full score. The raw wire `score` stays untouched
  * for data-science consumers; only what the operator SEES changes, so a
  * trader can instantly separate "nearly ready" from "completely dead".
+ *
+ * v6.14: the backend now emits this scaled value as the profile's
+ * `display_score` — `wireDisplayScore` below prefers it and keeps this
+ * local rule ONLY as the legacy-payload fallback, so the export can
+ * never disagree with the panel or the wire.
  */
 function displayScore(score: number, met: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round(score * Math.min(1, met / total));
+}
+
+function wireDisplayScore(p: {
+  score: number;
+  preconditions_met: number;
+  preconditions_total: number;
+  display_score?: number | null;
+}): number {
+  return p.display_score != null
+    ? p.display_score
+    : displayScore(p.score, p.preconditions_met, p.preconditions_total);
 }
 
 function setupQuality(s: number): string {
@@ -171,40 +202,17 @@ function prettifyOpportunityType(raw: string): string {
     .replace(/_/g, ' ');
 }
 
-function deriveLean(topAction: 'LONG' | 'SHORT' | 'HOLD'): string {
-  if (topAction === 'LONG') return 'Bullish setups dominate';
-  if (topAction === 'SHORT') return 'Bearish setups dominate';
-  return 'Lean: neutral';
-}
-
-function buildOpportunityHeaderBlock(
-  opportunity: OpportunityMatrix | null,
-  lean: string,
-): OpportunityHeaderBlock {
-  return {
-    // Screen badge renders the L4 primary opportunity class
-    // ("Trend Continuation"); "—" when absent. The L3 legacy
-    // `analysis.opportunity_analysis` label is intentionally NOT used —
-    // it could contradict the L4 verdict (e.g. "Trend Continuation"
-    // under a NO CLEAR SETUP badge).
-    opportunity_class: opportunity?.primary_opportunity
-      ? prettifyOpportunityType(opportunity.primary_opportunity)
-      : '\u2014',
-    lean,
-    setup_score: opportunity?.opportunity_score ?? 0,
-    setup_quality: setupQuality(opportunity?.opportunity_score ?? 0),
-  };
-}
-
-function setupBadgeText(viability: string, isTop: boolean): string {
-  // Mirrors `OpportunitiesPanel.svelte` badge branches — the screen shows
-  // NO badge for plain Actionable cards (only TOP · ACTIONABLE,
-  // QUALIFYING, NEUTRAL · HOLD and GEOMETRY INVERTED are rendered).
-  if (viability === 'Actionable' && isTop) return 'TOP · ACTIONABLE';
-  if (viability === 'Qualifying' && isTop) return 'QUALIFYING';
-  if (viability === 'DirectionalNeutral') return 'NEUTRAL · HOLD';
-  if (viability === 'GeometryInverted') return 'GEOMETRY INVERTED';
-  return '';
+// v6.10.21 badge policy — mirrors `OpportunitiesPanel.svelte`
+// `setupBadgeCls`: EVERY Actionable card carries the actionable badge
+// (`TOP · ACTIONABLE` for the top-ranked one, plain `ACTIONABLE` for the
+// rest — the HOLD-verdict gate is gone), a card with broken geometry is
+// always `GEOMETRY INVERTED`, DirectionalNeutral reads `RANGE · NEUTRAL`.
+function setupBadgeText(viability: string, geometryConsistent: boolean, isTopActionable: boolean): string {
+  if (!geometryConsistent || viability === 'GeometryInverted') return 'GEOMETRY INVERTED';
+  if (viability === 'Actionable') return isTopActionable ? 'TOP · ACTIONABLE' : 'ACTIONABLE';
+  if (viability === 'Qualifying') return 'QUALIFYING';
+  if (viability === 'DirectionalNeutral') return 'RANGE · NEUTRAL';
+  return 'NO CLEAR';
 }
 
 const SETUP_VIABILITY_RANK: Record<string, number> = {
@@ -219,7 +227,7 @@ function buildTradeSetups(
   opportunity: OpportunityMatrix | null,
   analysis: AnalysisMatrix | null,
   decisionContext: DecisionContext | null,
-  topAction: 'LONG' | 'SHORT' | 'HOLD',
+  markPrice: number,
 ): TradeSetupRow[] {
   if (!opportunity) return [];
   const profiles = opportunity.profiles ?? [];
@@ -232,7 +240,7 @@ function buildTradeSetups(
     // Mirrors the panel's `activeSetups` derivation exactly: profileSummary
     // (aggregate-bracket fallback + wire R:R preference), NEUTRAL-side
     // cards included, geometry from the resolved zones.
-    const s = profileSummary(p, opportunity, analysis, decisionContext);
+    const s = profileSummary(p, opportunity, analysis, decisionContext, markPrice);
     const z = s.zones;
     const tpCandidates = z ? [z.target.low, z.target.high].filter((v) => v > 0) : [];
     const sortedTp = z
@@ -247,15 +255,17 @@ function buildTradeSetups(
     // "no_directional_bias" (matching rr_internal and the recommendation),
     // never the hardcoded geometry fallback.
     const rr = buildRrBlock(s.rr, s.rr_reason ?? 'no_actionable_geometry');
-    const isTop = idx === 0 && topAction !== 'HOLD';
     out.push({
       opportunity_type: prettifyOpportunityType(p.opportunity_type),
       viability: s.viability,
-      badge_text: setupBadgeText(s.viability, isTop),
+      badge_text: '',
+      quality: null,
       side: s.side,
+      section: s.side === 'LONG' ? 'BULL' : s.side === 'SHORT' ? 'BEAR' : 'NEUTRAL',
       rank_idx: idx,
-      is_top: isTop,
-      score_display: displayScore(p.score, p.preconditions_met, p.preconditions_total),
+      is_top: false,
+      below_floor: false,
+      score_display: wireDisplayScore(p),
       geometry_consistent: z?.geometry_consistent ?? false,
       entry_mid: z ? (z.entry.low + z.entry.high) / 2 : null,
       entry_zone: z ? { low: z.entry.low, high: z.entry.high } : null,
@@ -273,30 +283,93 @@ function buildTradeSetups(
     });
   });
   // Viability ordering (Actionable first), then score desc — panel order.
-  return out.sort((a, b) => {
+  const ranked = out.sort((a, b) => {
     const va = SETUP_VIABILITY_RANK[a.viability] ?? 3;
     const vb = SETUP_VIABILITY_RANK[b.viability] ?? 3;
     if (va !== vb) return va - vb;
     return b.score - a.score;
   });
-}
-
-function buildNoClearStrip(opportunity: OpportunityMatrix | null): NoClearStripBlock | null {
-  if (!opportunity?.profiles) return null;
-  const noClear = opportunity.profiles.find((p) => p.opportunity_type === 'NoClearOpportunity');
-  if (!noClear) return null;
-  return {
-    badge: 'NO CLEAR OPPORTUNITY',
-    preconditions_met: noClear.preconditions_met,
-    preconditions_total: noClear.preconditions_total,
-    meta: `${noClear.preconditions_met}/${noClear.preconditions_total} preconditions met · informational only`,
+  // v6.10.21: badge + quality assigned AFTER the viability-tier sort —
+  // `TOP · ACTIONABLE` goes to the FIRST Actionable card in panel order
+  // (the HOLD-verdict gate is removed), and the quality pill bands the
+  // DISPLAYED score exactly like the screen.
+  const firstActionableIdx = ranked.findIndex((r) => r.viability === 'Actionable');
+  ranked.forEach((r, i) => {
+    r.badge_text = setupBadgeText(r.viability, r.geometry_consistent, i === firstActionableIdx);
+    r.is_top = i === firstActionableIdx && r.viability === 'Actionable';
+    r.quality = setupQuality(r.score_display);
+  });
+  // v6.10.21 (NBR): per-folder reference brackets — mirror the panel: a
+  // folder mounts its aggregated bracket (long → BULLISH, short →
+  // BEARISH, backend neutral range frame → RANGE) ONLY when it hosts
+  // zero qualifying setup rows. `below_floor`/broken geometry demotes
+  // the badge to `BELOW ACTIONABLE FLOOR` (State D).
+  const hasRows = (section: 'NEUTRAL' | 'BULL' | 'BEAR') => ranked.some((r) => r.section === section);
+  const referenceRow = (
+    ref: SideBracketSummary | NeutralBracketSummary,
+    section: 'NEUTRAL' | 'BULL' | 'BEAR',
+  ): TradeSetupRow => {
+    const warn = ref.below_floor === true || ref.zones?.geometry_consistent === false;
+    const z = ref.zones;
+    return {
+      opportunity_type: ref.opportunity_type === 'NeutralBracket' ? 'Neutral Reference Bracket' : 'Aggregated Bracket',
+      viability: 'NoClear',
+      badge_text: warn ? 'BELOW ACTIONABLE FLOOR' : 'INFORMATIONAL',
+      quality: null,
+      side: ref.direction,
+      section,
+      rank_idx: 0,
+      is_top: false,
+      below_floor: warn,
+      score_display: 0,
+      geometry_consistent: z?.geometry_consistent ?? false,
+      entry_mid: z ? (z.entry.low + z.entry.high) / 2 : null,
+      entry_zone: z ? { low: z.entry.low, high: z.entry.high } : null,
+      tp1: z ? (z.target.low + z.target.high) / 2 : 0,
+      tp2: 0,
+      invalidation: z?.invalidation ?? null,
+      rr_available: ref.rr != null,
+      rr_value: ref.rr,
+      rr_reason: ref.rr != null ? null : (ref.rr_reason ?? 'no actionable geometry'),
+      score: 0,
+      preconditions_met: 0,
+      preconditions_total: 0,
+      notes: ref.rationale,
+    };
   };
+  if (!hasRows('BULL')) {
+    const ref = sideBracketSummary(opportunity, decisionContext, analysis, 'LONG', markPrice);
+    if (ref && ref.zones != null) ranked.push(referenceRow(ref, 'BULL'));
+  }
+  if (!hasRows('BEAR')) {
+    const ref = sideBracketSummary(opportunity, decisionContext, analysis, 'SHORT', markPrice);
+    if (ref && ref.zones != null) ranked.push(referenceRow(ref, 'BEAR'));
+  }
+  if (!hasRows('NEUTRAL')) {
+    const ref = neutralBracketSummary(opportunity);
+    if (ref && ref.zones != null) ranked.push(referenceRow(ref, 'NEUTRAL'));
+  }
+  return ranked;
 }
 
-function buildHoldScenarioNote(topAction: 'LONG' | 'SHORT' | 'HOLD'): string | null {
-  if (topAction !== 'HOLD') return null;
-  // Mirrors the screen scenario note (badge + body) verbatim.
-  return `HOLD / NO CLEAR — No directional call. The cards below show each qualifying profile's aggregated bracket — when geometry is inverted (entry/target/SL on the wrong side of close, or zero-bound contamination), R:R reads N/A and the bracket is non-actionable. None are active.`;
+function buildTradeSetupSections(rows: TradeSetupRow[]): TradeSetupSection[] {
+  const bySection = (key: 'NEUTRAL' | 'BULL' | 'BEAR') =>
+    rows.filter((r) => r.section === key);
+  // RANKED order — the panel ranks the folders by content count (setup
+  // rows + reference), then top score, falling back to RANGE → BULL →
+  // BEAR. Reference rows are merged into `rows`, so the folder count
+  // here already includes them (panel parity).
+  return rankSectionsByCount(
+    [
+      { key: 'NEUTRAL' as const, label: 'RANGE', setups: bySection('NEUTRAL') },
+      { key: 'BULL' as const, label: 'BULLISH', setups: bySection('BULL') },
+      { key: 'BEAR' as const, label: 'BEARISH', setups: bySection('BEAR') },
+    ].map((s) => ({
+      ...s,
+      hasReference: false,
+      scoreOf: (r: TradeSetupRow) => r.score,
+    })),
+  ).map((s) => ({ section: s.key, label: s.label, setups: s.setups }));
 }
 
 function buildEvaluatedSetups(opportunity: OpportunityMatrix | null): EvaluatedSetupRow[] {
@@ -312,8 +385,10 @@ function buildEvaluatedSetups(opportunity: OpportunityMatrix | null): EvaluatedS
       viability: p.trade_viability ?? (p.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
       score: p.score,
       // v6.10.19 (T1): the operator-facing score scales by precondition
-      // ratio; the raw wire value stays in `score`.
-      score_display: displayScore(p.score, p.preconditions_met, p.preconditions_total),
+      // ratio; the raw wire value stays in `score`. v6.14: wire-first —
+      // the backend's `display_score` wins, local rule only for legacy
+      // payloads (screen and clipboard always agree).
+      score_display: wireDisplayScore(p),
       preconditions_met: p.preconditions_met,
       preconditions_total: p.preconditions_total,
       // Keep the raw wire value so consumers can round-trip the enum;
@@ -352,7 +427,7 @@ function buildEnvironment(analysis: AnalysisMatrix | null): EnvironmentBlock {
   const confidencePct = analysis ? Math.round(analysis.confidence * 100) : 0;
   return {
     timeframes_considered: tf,
-    timeframes_considered_display: `${tf}/4 TFs considered`,
+    timeframes_considered_display: `${tf}/4 Timeframes considered`,
     confidence_pct: confidencePct,
     confidence_display: analysis ? `${confidencePct}%` : '\u2014',
   };
@@ -361,22 +436,17 @@ function buildEnvironment(analysis: AnalysisMatrix | null): EnvironmentBlock {
 function buildDirectionalBars(
   opportunity: OpportunityMatrix | null,
   bias: MarketBias | null,
-  decisionContext: DecisionContext | null | undefined,
 ): DirectionalBarsBlock {
-  // v6.10.18 (I-4): the L4 bars mirror the L6 verdict split whenever a
-  // decision context exists (the panel's rule) — the bracket-conviction
-  // math below is the legacy fallback so the export can never disagree
-  // with the screen. The panel ALWAYS renders all three bars.
-  const bars = directionBarsFromRank(decisionContext) ??
-    computeOpportunityBars(opportunity, bias);
+  // L4 bracket conviction only — the export mirrors the panel: the
+  // split comes from `opportunity_score` × active-side R:R, never from
+  // the L6 decision-context probabilities. The panel ALWAYS renders all
+  // three bars.
+  const bars = computeOpportunityBars(opportunity, bias);
   return {
     bullish_pct: bars.bullish,
     bearish_pct: bars.bearish,
     hold_pct: bars.hold,
     sort: 'desc',
-    // v6.10.19 (P6): floor-boosted lean — the split is structurally
-    // adjusted, not a deep consensus.
-    lean_floor_applied: decisionContext?.lean_floor_applied === true,
   };
 }
 
@@ -419,7 +489,6 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     opportunity: args.opportunity,
     analysis: args.analysis,
   });
-  const lean = deriveLean(rank.top);
   const opp = args.opportunity;
   const activeSideRr = (() => {
     if (!opp) return null;
@@ -433,15 +502,16 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     rank.top === 'HOLD' && (activeSideRr === null || activeSideRr === 0)
       ? { available: false as const, value: null, reason: 'no_directional_bias' as string | null }
       : { available: true as const, value: activeSideRr ?? 0, reason: null as string | null };
+  const tradeSetupRows = buildTradeSetups(opp, args.analysis, args.decisionContext, args.markPrice ?? 0);
   const payload: OpportunityPayload = {
     source_tab: 'opportunity',
     meta,
     header: buildHeaderBlock(args.headerSpec),
-    directional_bars: buildDirectionalBars(opp, (args.decisionContext?.bias ?? args.analysis?.bias) ?? null, args.decisionContext),
-    header_block: buildOpportunityHeaderBlock(opp, lean),
-    trade_setups: buildTradeSetups(opp, args.analysis, args.decisionContext, rank.top),
-    no_clear_strip: buildNoClearStrip(opp),
-    hold_scenario_note: buildHoldScenarioNote(rank.top),
+    // L4 bracket conviction only — the bias arg comes from Analysis (L3),
+    // never from the L6 decision context.
+    directional_bars: buildDirectionalBars(opp, args.analysis?.bias ?? null),
+    trade_setups: tradeSetupRows,
+    trade_setup_sections: buildTradeSetupSections(tradeSetupRows),
     rr_internal: {
       expected_rr_available: expectedRrBlock.available,
       expected_rr_value: expectedRrBlock.value,

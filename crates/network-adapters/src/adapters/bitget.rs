@@ -31,20 +31,6 @@ struct BookItem {
     ts: String,
 }
 
-/// Open Interest item from the V1 `open-interest` WS channel.
-///
-/// Retained as a parsed struct definition in case the field name
-/// (`openInterest` vs the V2 `holdingAmount`) ever needs to be tested
-/// against legacy mirrors. **The production handler no longer uses
-/// this** — V2 ships OI on the `ticker` payload under `holdingAmount`.
-#[derive(Debug, Deserialize)]
-#[allow(non_snake_case, dead_code)]
-struct LegacyOpenInterestItem {
-    instId: Option<String>,
-    openInterest: Option<String>,
-    ts: Option<String>,
-}
-
 #[derive(Debug, Deserialize)]
 struct FullBitgetMessage {
     #[allow(dead_code)]

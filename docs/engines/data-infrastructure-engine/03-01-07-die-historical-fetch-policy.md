@@ -1,6 +1,6 @@
 # DIE Historical Fetch Policy
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Data Infrastructure Engine (DIE)
 **Owner:** network-adapters + portfolio-supervisor
@@ -102,7 +102,7 @@ The DB query uses `(symbol, timeframe_secs)` as the key today (existing schema i
 ```toml
 # config.toml — historical fetch behavior
 [candle_buffer]
-size = 500
+size = 500                              # historical warmup depth (CB-01)
 fetch_timeout_ms = 30000                # HFP-10
 sub_minute_skip_historical = true       # HFP-03
 ```

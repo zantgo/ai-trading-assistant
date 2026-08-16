@@ -326,70 +326,6 @@ impl FibonacciRange {
             None => Self::default(),
         }
     }
-
-    // Legacy compatibility methods
-
-    pub fn compute(swing_high: Decimal, swing_low: Decimal) -> Self {
-        Self::compute_bullish(swing_low, swing_high, &[0.618, 0.660], &[1.618, 2.618])
-    }
-
-    pub fn compute_bearish_legacy(swing_high: Decimal, swing_low: Decimal) -> Self {
-        Self::compute_bearish(swing_high, swing_low, &[0.618, 0.660], &[1.618, 2.618])
-    }
-
-    /// Detects the most recent swing high from price history (legacy).
-    pub fn detect_swing_high(prices: &[(Decimal, Decimal)], lookback: usize) -> Option<usize> {
-        if prices.len() < 2 * lookback + 1 {
-            return None;
-        }
-        let end = prices.len() - lookback;
-        for i in (lookback..end).rev() {
-            let (_, candidate_high) = prices[i];
-            let mut is_peak = true;
-            #[allow(clippy::needless_range_loop)]
-            for j in i - lookback..=i + lookback {
-                if j == i {
-                    continue;
-                }
-                let (_, other_high) = prices[j];
-                if other_high >= candidate_high {
-                    is_peak = false;
-                    break;
-                }
-            }
-            if is_peak {
-                return Some(i);
-            }
-        }
-        None
-    }
-
-    /// Detects the most recent swing low from price history (legacy).
-    pub fn detect_swing_low(prices: &[(Decimal, Decimal)], lookback: usize) -> Option<usize> {
-        if prices.len() < 2 * lookback + 1 {
-            return None;
-        }
-        let end = prices.len() - lookback;
-        for i in (lookback..end).rev() {
-            let (candidate_low, _) = prices[i];
-            let mut is_trough = true;
-            #[allow(clippy::needless_range_loop)]
-            for j in i - lookback..=i + lookback {
-                if j == i {
-                    continue;
-                }
-                let (other_low, _) = prices[j];
-                if other_low <= candidate_low {
-                    is_trough = false;
-                    break;
-                }
-            }
-            if is_trough {
-                return Some(i);
-            }
-        }
-        None
-    }
 }
 
 #[cfg(test)]
@@ -531,8 +467,13 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_compute_still_works() {
-        let fib = FibonacciRange::compute(dec!(200.00), dec!(100.00));
+    fn test_bullish_compute_with_default_coefficients() {
+        let fib = FibonacciRange::compute_bullish(
+            dec!(100.00),
+            dec!(200.00),
+            &[0.618, 0.660],
+            &[1.618, 2.618],
+        );
         assert!(fib.golden_pocket_low.is_some());
         assert!(fib.golden_pocket_high.is_some());
         assert!(fib.ext_1618.is_some());
@@ -540,8 +481,13 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_compute_bearish_still_works() {
-        let fib = FibonacciRange::compute_bearish_legacy(dec!(200.00), dec!(100.00));
+    fn test_bearish_compute_with_default_coefficients() {
+        let fib = FibonacciRange::compute_bearish(
+            dec!(200.00),
+            dec!(100.00),
+            &[0.618, 0.660],
+            &[1.618, 2.618],
+        );
         assert!(fib.golden_pocket_low.is_some());
         assert!(fib.ext_1618.is_some());
     }
@@ -567,31 +513,5 @@ mod tests {
         assert!(fib.swing_low.is_some(), "expected swing low to be found");
         assert!(fib.swing_high.is_some(), "expected swing high to be found");
         assert_eq!(fib.retracement_levels.len(), 6);
-    }
-
-    #[test]
-    fn test_legacy_detect_swing_high_finds_peak() {
-        let prices: Vec<(Decimal, Decimal)> = vec![
-            (dec!(10.00), dec!(11.00)),
-            (dec!(12.00), dec!(13.00)),
-            (dec!(14.00), dec!(15.00)),
-            (dec!(13.00), dec!(14.00)),
-            (dec!(11.00), dec!(12.00)),
-        ];
-        let idx = FibonacciRange::detect_swing_high(&prices, 2);
-        assert_eq!(idx, Some(2));
-    }
-
-    #[test]
-    fn test_legacy_detect_swing_low_finds_trough() {
-        let prices: Vec<(Decimal, Decimal)> = vec![
-            (dec!(15.00), dec!(16.00)),
-            (dec!(13.00), dec!(14.00)),
-            (dec!(11.00), dec!(12.00)),
-            (dec!(14.00), dec!(15.00)),
-            (dec!(16.00), dec!(17.00)),
-        ];
-        let idx = FibonacciRange::detect_swing_low(&prices, 2);
-        assert_eq!(idx, Some(2));
     }
 }

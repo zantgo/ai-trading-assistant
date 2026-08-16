@@ -1,6 +1,6 @@
 # 03-02-13: MME Volume Profile Layer (L2.6 — Volume Profile Distribution)
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layer:** L2.6 (Volume Profile Distribution)
@@ -27,7 +27,7 @@ transacted.
 
 ## Inputs
 
-- Loaded OHLCV candle history (default 500 bars, configurable via
+- Loaded OHLCV candle history (default 300 bars, configurable via
   `volume_profile_window` in `[indicators]`).
 - The same `completed` candle the L1 indicator pipeline already feeds.
 

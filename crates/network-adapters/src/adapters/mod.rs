@@ -12,4 +12,3 @@ pub mod bitget_historical_fetch;
 pub mod hyperliquid_rest;
 pub mod reconstruction;
 pub mod resilience;
-pub use hyperliquid::HyperliquidAdapter;

@@ -8,8 +8,8 @@
 //   2. The default active Tf on first render is MTF (matches the
 //      L7 Overview "OPEN THE BIG PICTURE FIRST" operator rule).
 //   3. Clicking the MICRO button switches the active Tf and the
-//      MarketContextStrip becomes readable (its props are not
-//      `undefined`).
+//      single-TF workspace (GroupConfluenceGrid + StructuralAnchors)
+//      becomes readable (its props are not `undefined`).
 //
 // We pin these three invariants because the existing UI test gap on
 // `TerminalMonitor.test.ts` was long-standing. Any future refactor
@@ -32,7 +32,7 @@ function seedInstance(): void {
     entry.fastTerm.barDurationSec = 180;
     entry.slowTerm.barDurationSec = 300;
     entry.macroTerm.barDurationSec = 900;
-    // Provide minimal TF context so MarketContextStrip survives mount.
+    // Provide minimal TF context so the LayerHeader headline renders.
     for (const tf of [entry.microTerm, entry.fastTerm, entry.slowTerm, entry.macroTerm]) {
         tf.context = {
             trend: { score: 50, confidence: 50, label: 'NEUTRAL' },

@@ -1,6 +1,6 @@
 # 03-02-14: MME Sub-Minute Timeframe Feasibility on Commodity Hardware
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 
@@ -25,7 +25,7 @@ recompute), not pinned benchmarks — actual CPU usage is well below
 
 | TF cadence | Candles/sec | Cluster refresh rate | Volume profile rate | Indicator recompute ops | CPU/refresh |
 |---|---|---|---|---|---|
-| 1 s       | 1.00 Hz | 1.00 Hz | 1.00 Hz | ~51 indicators × `O(1)` = ~5 µs | <1 ms |
+| 1 s       | 1.00 Hz | 1.00 Hz | 1.00 Hz | ~52 indicators × `O(1)` = ~5 µs | <1 ms |
 | 15 s      | 0.067 Hz | 0.067 Hz | 0.067 Hz | same | <1 ms |
 | 60 s      | 0.017 Hz | 0.017 Hz | 0.017 Hz | same | <1 ms |
 | 300 s     | 0.003 Hz | 0.003 Hz | 0.003 Hz | same | <1 ms |
@@ -35,7 +35,7 @@ recompute), not pinned benchmarks — actual CPU usage is well below
 
 A 6-TF pair at sub-minute cadences does ~1.6 cluster refreshes/sec,
 each costing `<1 ms` (`O(P × L)` ≈ 3,500 ops for a 7-bucket leverage
-distribution × 500-bar history). Cumulative cost: **~1.6 ms/sec CPU,
+distribution × 300-bar history — the canonical `[candle_buffer] size`). Cumulative cost: **~1.6 ms/sec CPU,
 ~0.02% of one core**. Indicator recomputes are `O(1)` per candle and
 are dwarfed by the cluster and volume-profile math.
 
@@ -83,7 +83,7 @@ least a meaningful histogram.
 ## Sub-minute warm-up cost
 
 The `VolumeProfile::update()` skips output until `bars.len() >=
-window_size / 2`. At sub-minute TFs with the default 500-bar window:
+window_size / 2`. At sub-minute TFs with the default 300-bar window:
 
 | TF | Warm-up time to first profile |
 |---|---|

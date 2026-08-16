@@ -150,7 +150,7 @@
                 <div class={styles.rcFieldRow}>
                     <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class={styles.rcLabel}>RISK/REWARD RATIO</label>
-                    <span class={styles.rcStaticVal}>1 : {app.riskCalculation?.risk_reward_ratio != null ? formatDecimal(app.riskCalculation!.risk_reward_ratio!, 2) : '--'}</span>
+                    <span class={styles.rcStaticVal}>{app.riskCalculation?.risk_reward_ratio != null ? formatDecimal(app.riskCalculation!.risk_reward_ratio!, 2) : '--'}</span>
                 </div>
                 <div class={styles.rcFieldRow}>
                     <!-- svelte-ignore a11y_label_has_associated_control -->

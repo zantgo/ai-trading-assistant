@@ -1,6 +1,6 @@
 # MME Indicator Lifecycle States
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Market Monitoring Engine (MME)
 **Owner:** market-analyzer + ui
@@ -9,9 +9,9 @@
 
 ## §1 Purpose
 
-The platform computes **51 indicators** across 4 timeframes per market instance. Before this document existed there was no canonical operational lifecycle for any of them: indicators were present in the `MarketSnapshot.indicators` map only when their calculator returned `Some(...)`; absence was indistinguishable from "not ready yet" vs. "calc returned None because of insufficient history" vs. "calc returned None because of a bug" vs. "disabled by the active set." The frontend papered over the gap with neutral defaults (`--`, `UNKNOWN`, `tangled`, `equilibrium`, `OFF`) so the user could not tell whether a row represented a real neutral reading or a missing reading.
+The platform computes **52 indicators** across 4 timeframes per market instance. Before this document existed there was no canonical operational lifecycle for any of them: indicators were present in the `MarketSnapshot.indicators` map only when their calculator returned `Some(...)`; absence was indistinguishable from "not ready yet" vs. "calc returned None because of insufficient history" vs. "calc returned None because of a bug" vs. "disabled by the active set." The frontend papered over the gap with neutral defaults (`--`, `UNKNOWN`, `tangled`, `equilibrium`, `OFF`) so the user could not tell whether a row represented a real neutral reading or a missing reading.
 
-This document replaces that opacity with **four explicit lifecycle states per indicator per timeframe**, plus the metadata required to know which state is current and why. The lifecycle states are uniformly applied to **all 51 indicators** so the dashboard can show a single, predictable pattern.
+This document replaces that opacity with **four explicit lifecycle states per indicator per timeframe**, plus the metadata required to know which state is current and why. The lifecycle states are uniformly applied to **all 52 indicators** so the dashboard can show a single, predictable pattern.
 
 ## §2 Frozen decisions (ILS-01 … ILS-15)
 
@@ -90,9 +90,9 @@ All three fields are always populated on every emitted snapshot. Default seriali
 | Institutional (SMC) | `smc_structure`, `smc_liquidity`, `smc_fvg`, `smc_order_blocks` | 50 |
 | Derivatives | `open_interest`, `oi_delta`, `funding_rate`, `oi_price_divergence`, `order_flow_imbalance`, `spread`, `depth_bias` | 1 (telemetry, no warm-up) |
 
-For the standardized buffer of `candle_buffer.size = 500` (CB-01), **every one of the 51 indicators has `bars_required ≤ 200`** — so a fully-warm pipeline (sub-minute ≥ `size × timeframe_secs`, ≥ 1 minute immediately) reaches `LIVE` for every indicator. The cold-start minimums in [08-04 §EMA Synthesis](../../operations-and-compliance/08-04-candle-reconstruction.md) remain valid; the new lifecycle just makes the warm-up visible.
+For the standardized buffer of `candle_buffer.size = 500` (CB-01), **every one of the 52 indicators has `bars_required ≤ INDICATORS_MAX_BARS_REQUIRED = 300`** — well inside the 500-candle warmup — so a fully-warm pipeline (sub-minute ≥ `size × timeframe_secs`, ≥ 1 minute immediately) reaches `LIVE` for every indicator. The cold-start minimums in [08-04 §EMA Synthesis](../../operations-and-compliance/08-04-candle-reconstruction.md) remain valid; the new lifecycle just makes the warm-up visible.
 
-> **BBWP warmup note (AUDIT-AIU-080).** BBWP's true warmup is `period + lookback = 272` bars, but its registry gate stays at 200 (the `INDICATORS_MAX_BARS_REQUIRED` invariant). A fully-warm pipeline therefore shows BBWP as `WARMING` (lifecycle `Loading`, WARMING placeholder in the indicators map) for bars 200–272; the percentile is only fully valid from bar 272 on.
+> **BBWP warmup note (AUDIT-AIU-080).** BBWP's true warmup is `period + lookback = 272` bars, but its registry gate stays at 200 — well below the `INDICATORS_MAX_BARS_REQUIRED` invariant (300, carried by `price_trend_sharpe`) and far inside the canonical `[candle_buffer] size = 500`. A fully-warm pipeline therefore shows BBWP as `WARMING` (lifecycle `Loading`, WARMING placeholder in the indicators map) for bars 200–272; the percentile is only fully valid from bar 272 on — still inside the 500-bar buffer.
 
 ## §5 State machine
 
@@ -162,8 +162,8 @@ No additional config is added. `bars_required` is per-indicator and declared in 
 |-----------|--------|
 | Indicator `LIVE` + parent pipeline transitions `LIVE → STALE` | Indicator stays `LIVE`; pipeline is `STALE` because of the parent `ConnectionStatus` (DCP-07), not because of the indicator. Pipeline rule aggregates by severity but a `STALE` parent forces a `STALE` pipeline regardless of indicator states. |
 | One indicator `FAILED`, others `LIVE` | Pipeline → `FAILED` (DCP-10); dashboard shows red badge on the failed indicator row and a red header badge on the TF. |
-| All 51 indicators `LIVE`, parent pipeline `LIVE` | Pipeline → `LIVE` (DCP-04). |
-| All 51 indicators `LOADING`, parent pipeline `LOADING` | Pipeline → `LOADING` (DCP-04). |
+| All 52 indicators `LIVE`, parent pipeline `LIVE` | Pipeline → `LIVE` (DCP-04). |
+| All 52 indicators `LOADING`, parent pipeline `LOADING` | Pipeline → `LOADING` (DCP-04). |
 | Indicator absent from active set | Absent from both `indicators` and `indicator_lifecycle` (ILS-12). Dashboard does not render the row at all. |
 | `SignalStatus = Potential` on a `LOADING` indicator | Signal can still fire (`Potential`) but its confidence is computed against the ILS-14 modified confidence. The signal fires "tentatively"; UI shows it in muted color until the indicator reaches `LIVE`. |
 | `cascade_state = active` (Liquidity) | Unaffected by indicator lifecycle — `cascade_state` is its own axis per [02-12 §5](../../matrices/02-12-liquidity-matrix.md); the orthogonal axes rule from [03-03-06 IL-06](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) applies. |

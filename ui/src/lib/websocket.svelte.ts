@@ -318,8 +318,8 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     // Capture the per-TF MarketContext synthesis block (L1 LOCAL
     // 5-dimension + regime + overall score/label). Previously this
     // lived only inside `latestSnapshot` as an opaque record and was
-    // never surfaced. The MarketContextStrip in the redesigned Metrics
-    // view reads this directly.
+    // never surfaced. Consumed by the LayerHeader headline, the
+    // metrics-tab export (`market_context`), and the MTF grid.
     if (snapshot.context && typeof snapshot.context === 'object') {
         tf.context = snapshot.context;
     }

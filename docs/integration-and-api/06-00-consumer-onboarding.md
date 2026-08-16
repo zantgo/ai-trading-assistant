@@ -1,6 +1,6 @@
 # Consumer Onboarding Summary
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Single-page orientation for engineers integrating with the trading platform's data plane. Read this first; drill into the linked docs as needed.
 
@@ -71,7 +71,7 @@ The full per-instance envelope described in [02-07-metrics-matrix.md](../matrice
 | `bid_size` / `ask_size` | `string?` (Decimal) | Top-of-book depth at candle close (nullable). |
 | `funding_rate` / `open_interest` / `oi_delta_1h` / `prev_day_px` | `string?` (Decimal) | Derivatives context. |
 | `mark_price` / `index_price` / `mark_index_spread_pct` | `string?` / `string?` / `number?` | Mark/index context. The in-memory writers are live (AUDIT-AIU-091); the DB columns remain NULL until the persistence writer lands (AUDIT-V6-301, DB-persistence portion). |
-| `indicators` | `object` | Per-indicator values keyed by indicator name (51 indicators, 8 groups). **This is the canonical single source of truth for all indicator data.** All downstream consumers (UI, DB logger, export) read from this accumulated map — never from raw OHLCV or any secondary source. On shadow ticks the map carries tick-safe entries freshly recomputed via clone; the frontend accumulates via per-key spread-merge so close-dependent entries persist from the last completed candle. The `indicator_lifecycle` map is its operational sidecar. See [Metrics Matrix §2.1.1](../matrices/02-07-metrics-matrix.md). |
+| `indicators` | `object` | Per-indicator values keyed by indicator name (52 indicators, 8 groups). **This is the canonical single source of truth for all indicator data.** All downstream consumers (UI, DB logger, export) read from this accumulated map — never from raw OHLCV or any secondary source. On shadow ticks the map carries tick-safe entries freshly recomputed via clone; the frontend accumulates via per-key spread-merge so close-dependent entries persist from the last completed candle. The `indicator_lifecycle` map is its operational sidecar. See [Metrics Matrix §2.1.1](../matrices/02-07-metrics-matrix.md). |
 | `alignment` | `object` | Multi-TF alignment matrix (10 dimensions). |
 | `analysis` | `object` | L3 Analysis: state_confidence, market_quality, market_regime, market_phase, bias, 5 `*_assessment` fields. |
 | `risk` | `object` | L5 Risk: 8 sub-dimensions + `overall_risk`. |

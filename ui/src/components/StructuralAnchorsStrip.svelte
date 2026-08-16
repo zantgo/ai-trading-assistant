@@ -15,9 +15,11 @@
     //   - activeTf.liquidity       : LiquidityFlow (latest bar long/short liqs)
 
     import type {
+        ContextDimension,
         LiquidationCluster,
         LiquidationClusterMatrix,
         LiquidityFlow,
+        MarketContext,
         VolumeProfileBin,
         VolumeProfileSnapshot,
         TimeframeTelemetry,
@@ -35,9 +37,13 @@
         microTf: TimeframeTelemetry | undefined;
         /** Current price (number); comes from `priceText` of `tf`. */
         markPrice: number;
+        /** Per-TF L1 MarketContext — the LIQUIDITY tile renders the
+         *  `liquidity` dimension score (the one dimension without a group
+         *  card), same value as the export's `market_context` block. */
+        context?: MarketContext | null;
     }
 
-    let { tf, microTf, markPrice }: Props = $props();
+    let { tf, microTf, markPrice, context = null }: Props = $props();
 
     // ── Collapse state (default = collapsed summary) ──
     let vpOpen = $state(false);
@@ -228,12 +234,33 @@
         if (state === 'EXHAUSTED') return styles.cascadeCooling ?? '';
         return styles.cascadeNormal ?? '';
     }
+
+    // ── L1 synthesis liquidity dimension ──
+    // The one L1 dimension without a group card — its single screen home is
+    // this tile (export: `market_context.liquidity`). Same formatting as the
+    // GroupConfluenceGrid dimension chips.
+    const liqDim = $derived<ContextDimension | null>(
+        context?.liquidity && typeof context.liquidity.score === 'number' ? context.liquidity : null
+    );
+
+    function dimScore(n: number | undefined | null): string {
+        if (n == null || isNaN(n)) return '--';
+        const sign = n > 0 ? '+' : '';
+        return `${sign}${n.toFixed(2)}`;
+    }
+
+    function dimConf(pct: number | undefined | null): string {
+        if (pct == null || isNaN(pct)) return '--%';
+        return `${Math.round(pct * 100)}%`;
+    }
 </script>
 
 <section class={styles.strip} aria-label="Structural anchors">
     <header class={styles.header}>
         <span class={styles.title}>STRUCTURAL ANCHORS</span>
-        <span class={styles.subtitle}>Tier-2 structural context (always visible)</span>
+        <!-- v6.10.19d (E): the "Tier-2 structural context (always
+             visible)" subtitle was erased — the strip needs no
+             self-description. -->
     </header>
 
     <div class={styles.grid}>
@@ -399,6 +426,16 @@
                 <span class={styles.tileCaret}>{liqOpen ? '▾' : '▸'}</span>
             </button>
 
+            {#if liqDim}
+                <div
+                    class={styles.liqCtxRow}
+                    title={`LIQUIDITY ${dimScore(liqDim.score)} · ${dimConf(liqDim.confidence)} · ${liqDim.label ?? ''}`}
+                >
+                    <span class={styles.liqCtxLabel}>SYNTHESIS</span>
+                    <span class={styles.liqCtxValue}>{dimScore(liqDim.score)}</span>
+                </div>
+            {/if}
+
             {#if !cluster}
                 <div class={styles.placeholder}>Awaiting liquidation clusters…</div>
             {:else}
@@ -471,9 +508,6 @@
         </article>
     </div>
 
-    <footer class={styles.footer}>
-        <span class={styles.footerHint}>
-            Source: micro (volume profile) · {tf ? formatTimeframeLabel(tf.barDurationSec) : '—'} (fibonacci / clusters / flow)
-        </span>
-    </footer>
+    <!-- v6.10.19d (E): the "Source: …" footer line was erased — the
+         source mapping is documented in the export payload. -->
 </section>

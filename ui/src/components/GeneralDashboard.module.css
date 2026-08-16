@@ -58,7 +58,7 @@
 .runnerBar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 16px;
     flex-wrap: wrap;
     width: 100%;
@@ -73,15 +73,7 @@
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-}
-
-.caption {
-    margin-left: auto;
-    font-size: 10px;
-    color: #64748b;
-    letter-spacing: 0.04em;
-    font-weight: 400;
-    font-family: var(--mono, monospace);
+    justify-content: center;
 }
 
 .grid2 {

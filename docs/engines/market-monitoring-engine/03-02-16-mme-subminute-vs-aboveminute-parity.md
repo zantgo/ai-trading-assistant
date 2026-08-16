@@ -1,6 +1,6 @@
 # MME Sub-Minute vs Above-Minute Analytical Parity
 
-**Version:** 6.10.7 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Market Monitoring Engine (MME)
 **Owner:** market-analyzer + portfolio-supervisor + ui
@@ -9,7 +9,7 @@
 
 ## §1 Purpose
 
-The platform supports sub-minute timeframes (1 s / 3 s / 5 s / 15 s) and above-minute timeframes (≥ 60 s) on every slot of every instance. Historically the two regimes produced **different analytical behavior**: above-minute slots warm-started from exchange REST history (all 51 indicators, divergence trackers, S/R state, `history` buffer, and the `pipeline_is_live` gate satisfied at the first live close), while sub-minute slots booted cold at 0 bars and matured progressively — leaving indicator ribbons partial, the matrix-driven tabs empty for ~50 s, fib/S-R/pattern levels computed from a sparse history, and the liquidation cluster matrix degraded or absent on quiet markets.
+The platform supports sub-minute timeframes (1 s / 3 s / 5 s / 15 s) and above-minute timeframes (≥ 60 s) on every slot of every instance. Historically the two regimes produced **different analytical behavior**: above-minute slots warm-started from exchange REST history (all 52 indicators, divergence trackers, S/R state, `history` buffer, and the `pipeline_is_live` gate satisfied at the first live close), while sub-minute slots booted cold at 0 bars and matured progressively — leaving indicator ribbons partial, the matrix-driven tabs empty for ~50 s, fib/S-R/pattern levels computed from a sparse history, and the liquidation cluster matrix degraded or absent on quiet markets.
 
 This document defines the **parity contract**: after warmup, every item of the Analytical Input Universe (AIU) must behave identically on sub-minute and above-minute timeframes — same gates, same signals, same divergences, same matrices, same liquidity payloads — and every cadence/threshold must adapt to the chosen timeframe. It supersedes the informal behavior notes spread across `03-02-14-mme-sub-min-tf-feasibility.md` and the per-indicator specs where they conflict with this contract.
 
@@ -46,7 +46,7 @@ Regime rules (apply to every row):
 | Cluster refresh | slot-duration cadence (config-driven) | same |
 | History buffer | warm-seeded + fed by every real completion (PRI-06) | same |
 
-### §3.1 The 51 indicators
+### §3.1 The 52 indicators
 
 Legend: G1 = candle state machine (warmup via state replay, Group 1); G2 = history-fed (warmup via `history` seeding, Group 2); G3 = WS/event-fed (no warmup needed, Group 3). "Cold edge" = no history available anywhere → identical progressive behavior on both regimes.
 

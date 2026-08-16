@@ -31,7 +31,6 @@
         classifyLevelKey, parseLevelLabel, resolveLevelPriceText,
         type LevelKind,
     } from '../../lib/levelKind';
-    import type { FilterState } from '../../lib/filtering';
     import { confPct, dirColor, ageLabel } from '../../lib/scoreStyles';
     import { formatTimeframeLabel } from '../../lib/telemetry';
     import { fibStatusString, vpPositionLabel } from '../../lib/structuralStrings';
@@ -40,10 +39,9 @@
     interface Props {
         tf: TimeframeTelemetry;
         registry: IndicatorMeta[];
-        filters: FilterState;
     }
 
-    let { tf, registry, filters }: Props = $props();
+    let { tf, registry }: Props = $props();
 
     interface LevelRow {
         indicatorKey: string;
@@ -71,8 +69,6 @@
             const sigs = tf.indicators?.[meta.key]?.signals ?? [];
             for (const sig of sigs) {
                 if (sig.kind !== 'LevelTest') continue;
-                if (filters.confirmedPlusOnly && sig.status === 'Potential') continue;
-                if (filters.query && !sig.label?.toLowerCase().includes(filters.query.toLowerCase())) continue;
                 const parsed = parseLevelLabel(meta.key, sig.label);
                 const dto = tf.indicators?.[meta.key] as
                     { raw_value?: number | null; values?: Record<string, number> | null } | undefined;

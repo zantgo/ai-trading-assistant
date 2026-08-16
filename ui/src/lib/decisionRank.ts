@@ -22,6 +22,7 @@ import type {
     AnalysisMatrix,
     DecisionContext,
     MarketBias,
+    NeutralBracket,
     OpportunityMatrix,
     OpportunityProfile,
     PriceRange,
@@ -280,6 +281,34 @@ export function computeDecisionRank(inputs: DecisionRankInputs): DecisionRank {
         } else if (short === maxProb) {
             top = 'SHORT';
             topProb = short;
+        }
+    }
+
+    // v6.10.19b (B2 / G3): the verdict respects VALID SETUPS. When the
+    // probability split is hold-dominant (top HOLD — the bias is not
+    // decisive and the degenerate-rank guard did not fire a direction),
+    // a qualifying setup with a resolvable side provides the directional
+    // lean: the verdict becomes that side with its REAL (small)
+    // probability, while the readiness gate still governs execution. This
+    // is the "it should not say HOLD when a valid setup exists" rule —
+    // e.g. a 12/2/86 split with a qualifying LONG-side setup reads
+    // "LONG lean 12%" (badge consistent with the headline setup), never a
+    // bare HOLD next to a directional setup card.
+    if (top === 'HOLD') {
+        const qualifying = (opportunity?.profiles ?? [])
+            .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
+            .slice()
+            .sort((a, b) => b.score - a.score);
+        const leanProfile = qualifying.find((p) => {
+            const hasLong = p.long_entry_zone != null && p.long_entry_zone.low > 0;
+            const hasShort = p.short_entry_zone != null && p.short_entry_zone.low > 0;
+            return hasLong !== hasShort;
+        });
+        if (leanProfile) {
+            const hasLong = leanProfile.long_entry_zone != null && leanProfile.long_entry_zone.low > 0;
+            const lean: 'LONG' | 'SHORT' = hasLong ? 'LONG' : 'SHORT';
+            top = lean;
+            topProb = lean === 'LONG' ? long : short;
         }
     }
 
@@ -687,12 +716,18 @@ export interface ZoneRrResult {
  * `compute_side_rr_v2` (target_mid / entry_mid / invalidation, floor 0.1).
  * Used as the fallback when the wire R:R is missing or 0, so the fallback
  * always equals what the wire would have produced for the same bracket.
+ *
+ * v6.10.19b (A2): mirrors the remaining backend guards — the `SlAtEntry`
+ * zero-risk epsilon (1e-6 × price, NOT the old 0.01% which rejected real
+ * 1.5×ATR stops) and the close-aware `TargetOnWrongSide` check (guards
+ * legacy payloads whose target sits on the wrong side of the market).
  */
 export function geometricRrFromZones(
     entry: PriceRange,
     target: PriceRange,
     invalidation: number,
     side: 'LONG' | 'SHORT',
+    close?: number,
 ): ZoneRrResult {
     const entryMid = (entry.low + entry.high) / 2;
     const targetMid = (target.low + target.high) / 2;
@@ -700,6 +735,22 @@ export function geometricRrFromZones(
     // bracket (the backend emits R:R 0 for it — the fallback must too).
     if (invalidation >= entry.low && invalidation <= entry.high) {
         return { rr: null, reason: 'geometry_inverted' };
+    }
+    // Backend `SlAtEntry` guard (B1, v6.10.19b): only a genuinely
+    // zero-risk stop (sub-0.0001% of price) is degenerate.
+    const riskDir = side === 'LONG' ? entryMid - invalidation : invalidation - entryMid;
+    if (Math.abs(riskDir) < 1e-6 * Math.max(entryMid, 1)) {
+        return { rr: null, reason: 'geometry_inverted' };
+    }
+    // Backend `TargetOnWrongSide` guard — needs the close; skip when the
+    // caller has no market reference (legacy paths rely on the wire flag).
+    if (close != null && isFinite(close)) {
+        if (side === 'LONG' && targetMid <= close) {
+            return { rr: null, reason: 'geometry_inverted' };
+        }
+        if (side === 'SHORT' && targetMid >= close) {
+            return { rr: null, reason: 'geometry_inverted' };
+        }
     }
     const reward = side === 'LONG' ? targetMid - entryMid : entryMid - targetMid;
     const risk = side === 'LONG' ? entryMid - invalidation : invalidation - entryMid;
@@ -749,6 +800,8 @@ export function resolveActiveRr(
     analysis?: AnalysisMatrix | null,
     profileOverride?: OpportunityProfile | null,
     biasOverride?: MarketBias | null,
+    close?: number,
+    sideOverride?: 'LONG' | 'SHORT',
 ): ResolvedRr {
     const riskAdjusted =
         decisionContext?.expected_reward_risk_ratio != null && decisionContext.expected_reward_risk_ratio > 0
@@ -759,25 +812,43 @@ export function resolveActiveRr(
     }
     const bias = biasOverride ?? decisionContext?.bias ?? analysis?.bias ?? null;
     const top = profileOverride ?? topQualifyingProfile(opportunity);
-    const side = top
+    // v6.10.19b (B1): `sideOverride` forces the resolved side (the
+    // verdict-consistent headline) when the top qualifying profile's own
+    // side differs (countertrend setups under a directional verdict).
+    const side: 'LONG' | 'SHORT' | 'NEUTRAL' = sideOverride ?? (top
         ? selectProfileSide(top, bias)
         : bias === 'Bullish' || bias === 'StrongBullish'
           ? 'LONG'
           : bias === 'Bearish' || bias === 'StrongBearish'
             ? 'SHORT'
-            : 'NEUTRAL';
+            : 'NEUTRAL');
     if (side === 'NEUTRAL') {
         return { value: 0, available: false, reason: 'no directional bias', source: null, riskAdjusted };
     }
-    const wireRr =
+    const topVal = top
+        ? (side === 'LONG' ? top.long_expected_rr_internal : top.short_expected_rr_internal) ?? null
+        : null;
+    const matrixVal =
         side === 'LONG'
-            ? top?.long_expected_rr_internal ?? opportunity.long_expected_rr_internal ?? 0
-            : top?.short_expected_rr_internal ?? opportunity.short_expected_rr_internal ?? 0;
+            ? opportunity.long_expected_rr_internal ?? 0
+            : opportunity.short_expected_rr_internal ?? 0;
+    const wireRr = topVal ?? matrixVal;
+    const wireSource: 'profile_wire' | 'matrix_wire' = topVal != null ? 'profile_wire' : 'matrix_wire';
     if (wireRr >= RR_MEANINGFUL_FLOOR) {
-        return { value: wireRr, available: true, reason: null, source: top ? 'profile_wire' : 'matrix_wire', riskAdjusted };
+        return { value: wireRr, available: true, reason: null, source: wireSource, riskAdjusted };
     }
     if (wireRr > 0) {
-        return { value: 0, available: false, reason: 'below the 0.10 meaningfulness floor', source: top ? 'profile_wire' : 'matrix_wire', riskAdjusted };
+        return { value: 0, available: false, reason: 'below the 0.10 meaningfulness floor', source: wireSource, riskAdjusted };
+    }
+    // v6.10.19b (A2): respect the server's geometry verdict — a bracket the
+    // backend flagged GeometryInverted must NOT leak a locally-recomputed
+    // R:R (observed: "GEOMETRY INVERTED" cards displaying a bogus 0.75).
+    const serverConsistent =
+        side === 'LONG'
+            ? (top?.long_geometry_consistent ?? opportunity.long_geometry_consistent)
+            : (top?.short_geometry_consistent ?? opportunity.short_geometry_consistent);
+    if (serverConsistent === false) {
+        return { value: 0, available: false, reason: 'geometry inverted', source: 'zones', riskAdjusted };
     }
     const entry =
         side === 'LONG'
@@ -792,7 +863,7 @@ export function resolveActiveRr(
             ? (top?.long_invalidation_level ?? opportunity.long_invalidation_level)
             : (top?.short_invalidation_level ?? opportunity.short_invalidation_level);
     if (entry && target && entry.low > 0 && entry.high > 0 && target.low > 0 && target.high > 0 && inv > 0) {
-        const zone = geometricRrFromZones(entry, target, inv, side);
+        const zone = geometricRrFromZones(entry, target, inv, side, close);
         if (zone.rr != null) {
             return { value: zone.rr, available: true, reason: null, source: 'zones', riskAdjusted };
         }
@@ -832,6 +903,7 @@ export function riskAdjRrExplanation(geometricRr: number, riskAdjustedRr: number
 export function profileZones(
     profile: OpportunityProfile | null | undefined,
     side: 'LONG' | 'SHORT',
+    close?: number,
 ): ProfileZones | null {
     if (!profile) return null;
     const entry = side === 'LONG' ? profile.long_entry_zone : profile.short_entry_zone;
@@ -843,7 +915,7 @@ export function profileZones(
     // B3 (v6.10.12): the zones R:R uses the SAME mid-based formula as the
     // backend wire (`geometricRrFromZones`) — the legacy target.low-based
     // recomputation could disagree with the wire for the same bracket.
-    const zone = geometricRrFromZones(entry, target, inv, side);
+    const zone = geometricRrFromZones(entry, target, inv, side, close);
     // Prefer server-side geometry flag when present; fall back to local check.
     const serverConsistent =
         side === 'LONG' ? profile.long_geometry_consistent : profile.short_geometry_consistent;
@@ -861,6 +933,7 @@ export function profileZones(
 export function aggregateZones(
     opportunity: OpportunityMatrix | null | undefined,
     side: 'LONG' | 'SHORT',
+    close?: number,
 ): ProfileZones | null {
     if (!opportunity) return null;
     const entry = side === 'LONG' ? opportunity.long_entry_zone : opportunity.short_entry_zone;
@@ -887,7 +960,7 @@ export function aggregateZones(
         side === 'LONG' ? opportunity.long_geometry_consistent : opportunity.short_geometry_consistent;
     // B3 (v6.10.12): the consistency check uses the SAME mid-based formula
     // as the backend wire (delegated into profileZones → geometricRrFromZones).
-    const zone = geometricRrFromZones(entry, target, inv, side);
+    const zone = geometricRrFromZones(entry, target, inv, side, close);
     const geometry_consistent = serverConsistent ?? zone.reason !== 'geometry_inverted';
     return profileZones(
         {
@@ -910,7 +983,107 @@ export function aggregateZones(
             trade_viability: null,
         } as OpportunityProfile,
         side,
+        close,
     );
+}
+
+/**
+ * v6.10.21 (NBR): per-direction aggregated reference bracket for one
+ * folder — the matrix's per-side zones (`aggregateZones`) with the
+ * shared R:R resolver (`sideOverride` pins the resolved side). Emitted
+ * ONLY when the folder hosts zero qualifying setup cards, so the
+ * operator always sees valid reference geometry per direction.
+ * `below_floor` flags a sub-1.0 R:R (State D), `rr_reason` carries the
+ * N/A cause when the bracket is geometrically invalid (State D).
+ */
+export interface SideBracketSummary {
+    opportunity_type: 'AggregatedBracket';
+    direction: 'LONG' | 'SHORT' | 'NEUTRAL';
+    zones: ProfileZones | null;
+    rr: number | null;
+    /** Human-readable N/A reason, `null` when R:R is available. */
+    rr_reason: string | null;
+    below_floor: boolean;
+    rationale: string;
+}
+
+export function sideBracketSummary(
+    opportunity: OpportunityMatrix | null | undefined,
+    decisionContext?: DecisionContext | null,
+    analysis?: AnalysisMatrix | null,
+    side: 'LONG' | 'SHORT' = 'LONG',
+    close?: number,
+): SideBracketSummary | null {
+    if (!opportunity) return null;
+    const zones = aggregateZones(opportunity, side, close);
+    if (!zones) return null;
+    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, null, null, close, side);
+    const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+    return {
+        opportunity_type: 'AggregatedBracket',
+        direction: side,
+        zones,
+        rr,
+        rr_reason: resolvedRr.available ? null : resolvedRr.reason,
+        below_floor: resolvedRr.available && resolvedRr.value < 1.0,
+        rationale: `aggregated bracket (informational — no qualifying ${side === 'LONG' ? 'long' : 'short'} profile)`,
+    };
+}
+
+/**
+ * v6.10.21 (NBR): the backend-emitted direction-agnostic range reference
+ * bracket (`OpportunityMatrix.neutral_reference_bracket`) as a card
+ * summary for the Range folder. `rr` trusts the wire (the backend ran
+ * the same `compute_side_rr_v2` guards); `below_floor` flags a sub-1.0
+ * net R:R, `rr_reason` explains an invalid frame (State D). Returns
+ * `null` when the wire carries no neutral bracket.
+ */
+export interface NeutralBracketSummary {
+    opportunity_type: 'NeutralBracket';
+    direction: 'NEUTRAL';
+    zones: ProfileZones | null;
+    rr: number | null;
+    rr_reason: string | null;
+    below_floor: boolean;
+    rationale: string;
+}
+
+export function neutralBracketSummary(
+    opportunity: OpportunityMatrix | null | undefined,
+): NeutralBracketSummary | null {
+    const nb = opportunity?.neutral_reference_bracket;
+    if (!nb) return null;
+    if (
+        !nb.entry_zone
+        || !nb.target_zone
+        || nb.entry_zone.low <= 0
+        || nb.entry_zone.high <= 0
+        || nb.target_zone.low <= 0
+        || nb.target_zone.high <= 0
+        || nb.invalidation_level <= 0
+    ) {
+        return null;
+    }
+    const geometry_consistent = nb.geometry_consistent !== false;
+    const rrRaw = geometry_consistent && nb.expected_rr_internal > RR_MEANINGFUL_FLOOR
+        ? nb.expected_rr_internal
+        : null;
+    return {
+        opportunity_type: 'NeutralBracket',
+        direction: 'NEUTRAL',
+        zones: {
+            side: 'LONG',
+            entry: nb.entry_zone,
+            target: nb.target_zone,
+            invalidation: nb.invalidation_level,
+            rr: rrRaw,
+            geometry_consistent,
+        },
+        rr: rrRaw != null ? Math.round(rrRaw * 100) / 100 : null,
+        rr_reason: rrRaw != null ? null : geometry_consistent ? 'below the 0.10 meaningfulness floor' : 'geometry inverted',
+        below_floor: rrRaw != null && rrRaw < 1.0,
+        rationale: nb.rationale,
+    };
 }
 
 /**
@@ -933,6 +1106,10 @@ export function aggregateZones(
 export interface TopSetupSummary {
     opportunity_type: string;
     score: number;
+    /** v6.14: backend-emitted precondition-scaled score — the number the
+     *  operator sees everywhere (Opportunities panel, this card, exports).
+     *  `null` on legacy payloads / sentinel summaries — render `score`. */
+    display_score: number | null;
     preconditions_met: number;
     preconditions_total: number;
     direction: 'LONG' | 'SHORT' | 'NEUTRAL';
@@ -946,14 +1123,179 @@ export interface TopSetupSummary {
      *  1.0 actionable floor — levels stay visible but the card is demoted
      *  to "Reference Bracket (Below Actionable Floor)", never "Top Setup". */
     below_floor: boolean;
+    /** v6.10.19b (B1): qualifying setups that did NOT make the headline
+     *  (counter-bias under a directional verdict, or any qualifying setup
+     *  under a HOLD verdict) — surfaced as informational alternatives so
+     *  nothing the Opportunities panel shows is ever hidden from the
+     *  Recommendation. Empty when the headline already carries them. */
+    alternate_setups: AlternateSetupInfo[];
+    /** v6.10.19b (B3): the setup horizon (INTRADAY / SWING / POSITION). */
+    horizon: string | null;
+}
+
+/** v6.10.19b (B1): a qualifying setup surfaced as an alternative to the
+ *  verdict-consistent headline. */
+export interface AlternateSetupInfo {
+    opportunity_type: string;
+    side: 'LONG' | 'SHORT' | 'NEUTRAL';
+    score: number;
+    /** v6.14: backend-emitted precondition-scaled score (legacy: null). */
+    display_score: number | null;
+    preconditions_met: number;
+    preconditions_total: number;
 }
 
 export function topSetupSummary(
     opportunity: OpportunityMatrix | null | undefined,
     analysis: AnalysisMatrix | null | undefined,
     decisionContext?: DecisionContext | null,
+    verdictTop?: 'LONG' | 'SHORT' | 'HOLD',
+    close?: number,
 ): TopSetupSummary | null {
     if (!opportunity) return null;
+    const horizon = opportunity?.time_horizon ?? null;
+    const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
+    const qualifying = (opportunity.profiles ?? [])
+        .filter((p) => p.preconditions_met > 0 && p.opportunity_type !== 'NoClearOpportunity')
+        .slice()
+        .sort((a, b) => b.score - a.score);
+    const sideOf = (p: OpportunityProfile): 'LONG' | 'SHORT' | 'NEUTRAL' =>
+        selectProfileSide(p, macroBias);
+    const altOf = (p: OpportunityProfile): AlternateSetupInfo => ({
+        opportunity_type: p.opportunity_type,
+        side: sideOf(p),
+        score: p.score,
+        display_score: p.display_score ?? null,
+        preconditions_met: p.preconditions_met,
+        preconditions_total: p.preconditions_total,
+    });
+
+    // v6.10.19b (B1) + v6.10.19c (D3): the verdict-consistency path —
+    // used by the Recommendation panel/export (which always pass
+    // `verdictTop`). The headline ALWAYS mirrors what the panel should
+    // present:
+    //   - directional verdict → best qualifying profile ON that side, else
+    //     the verdict-side aggregated reference bracket (informational);
+    //   - HOLD verdict + qualifying profiles → the top qualifying profile
+    //     (any side, incl. NEUTRAL) headlines the container — a real
+    //     setup is never hidden behind a placeholder;
+    //   - HOLD verdict + no qualifying → the "No Active Setup" empty
+    //     container (fields null).
+    // Every qualifying profile that is not the headline rides in
+    // `alternate_setups` so valid setups are never lost.
+    if (verdictTop) {
+        if (verdictTop === 'HOLD') {
+            const headline = qualifying[0] ?? null;
+            if (!headline) {
+                return {
+                    opportunity_type: 'NoActiveSetup',
+                    score: 0,
+                    display_score: null,
+                    preconditions_met: 0,
+                    preconditions_total: 0,
+                    direction: 'NEUTRAL',
+                    viability: 'NoClear',
+                    zones: null,
+                    rr: null,
+                    rr_reason: 'no active setup',
+                    // v6.10.19d (D): the "fields are placeholders" caveat
+                    // was erased — the panel renders nothing extra.
+                    rationale: '',
+                    below_floor: false,
+                    alternate_setups: [],
+                    horizon,
+                };
+            }
+            // Case B (D3/D5): the headline setup — displayed side may be
+            // NEUTRAL, but the bracket (zones/R:R) comes from its
+            // populated side so a NEUTRAL card never blanks its R:R.
+            const displayedSide = sideOf(headline);
+            const bracketSide: 'LONG' | 'SHORT' | null =
+                profileZones(headline, 'LONG', close) != null
+                    ? 'LONG'
+                    : profileZones(headline, 'SHORT', close) != null
+                      ? 'SHORT'
+                      : null;
+            const zones = bracketSide ? profileZones(headline, bracketSide, close) : null;
+            const resolvedRr = bracketSide
+                ? resolveActiveRr(opportunity, decisionContext, analysis, headline, macroBias, close, bracketSide)
+                : { value: 0, available: false, reason: 'no active setup', source: null, riskAdjusted: null };
+            const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+            const rrReason = resolvedRr.available ? null : resolvedRr.reason;
+            const viability = normalizeViability(
+                headline.trade_viability ?? (headline.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
+            ) as TopSetupSummary['viability'];
+            const effectiveViability =
+                viability === 'Actionable' && (rr == null || rr < 1) ? 'Qualifying' : viability;
+            return {
+                opportunity_type: headline.opportunity_type,
+                score: headline.score,
+                display_score: headline.display_score ?? null,
+                preconditions_met: headline.preconditions_met,
+                preconditions_total: headline.preconditions_total,
+                direction: displayedSide,
+                viability: effectiveViability,
+                zones,
+                rr,
+                rr_reason: rrReason,
+                rationale: `${headline.opportunity_type}: preconditions ${headline.preconditions_met}/${headline.preconditions_total}`,
+                below_floor: false,
+                alternate_setups: qualifying.slice(1).map(altOf),
+                horizon,
+            };
+        }
+        const headline = qualifying.find((p) => sideOf(p) === verdictTop) ?? null;
+        if (!headline) {
+            const zones = aggregateZones(opportunity, verdictTop, close);
+            const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, null, macroBias, close, verdictTop);
+            const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+            const below_floor = resolvedRr.available && resolvedRr.value < 1.0;
+            return {
+                opportunity_type: 'AggregatedBracket',
+                score: 0,
+                display_score: null,
+                preconditions_met: 0,
+                preconditions_total: 0,
+                direction: verdictTop,
+                viability: 'NoClear',
+                zones,
+                rr,
+                rr_reason: resolvedRr.available ? null : resolvedRr.reason,
+                rationale: `aggregated bracket (informational — no qualifying ${verdictTop.toLowerCase()} profile)`,
+                below_floor,
+                alternate_setups: qualifying.map(altOf),
+                horizon,
+            };
+        }
+        const side = verdictTop;
+        const zones = profileZones(headline, side, close) ?? aggregateZones(opportunity, side, close);
+        const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, headline, macroBias, close, side);
+        const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+        const rrReason = resolvedRr.available ? null : resolvedRr.reason;
+        const viability = normalizeViability(
+            headline.trade_viability ?? (headline.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
+        ) as TopSetupSummary['viability'];
+        const effectiveViability =
+            viability === 'Actionable' && (rr == null || rr < 1) ? 'Qualifying' : viability;
+        return {
+            opportunity_type: headline.opportunity_type,
+            score: headline.score,
+            display_score: headline.display_score ?? null,
+            preconditions_met: headline.preconditions_met,
+            preconditions_total: headline.preconditions_total,
+            direction: side,
+            viability: effectiveViability,
+            zones,
+            rr,
+            rr_reason: rrReason,
+            rationale: `${headline.opportunity_type}: preconditions ${headline.preconditions_met}/${headline.preconditions_total}`,
+            below_floor: false,
+            alternate_setups: qualifying.filter((p) => p !== headline).map(altOf),
+            horizon,
+        };
+    }
+
+    // ── Legacy path (no verdictTop — unchanged behaviour) ───────────────
     const top = topQualifyingProfile(opportunity);
     if (!top) {
         // v6.10.17 (A3): no qualifying profile (e.g. No Clear — every
@@ -962,7 +1304,6 @@ export function topSetupSummary(
         // to work with, explicitly marked weak/informational. The side
         // resolves from the bias first, then net_bias_pct, then NEUTRAL —
         // fixing the legacy blind-LONG default at exactly 0.
-        const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
         let side: 'LONG' | 'SHORT' | 'NEUTRAL' =
             macroBias === 'Bullish' || macroBias === 'StrongBullish'
                 ? 'LONG'
@@ -973,8 +1314,8 @@ export function topSetupSummary(
             const net = decisionContext?.net_bias_pct ?? 0;
             side = net < 0 ? 'SHORT' : net > 0 ? 'LONG' : 'NEUTRAL';
         }
-        const zones = side === 'NEUTRAL' ? null : aggregateZones(opportunity, side);
-        const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, null, macroBias);
+        const zones = side === 'NEUTRAL' ? null : aggregateZones(opportunity, side, close);
+        const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, null, macroBias, close);
         const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
         // v6.10.19 (T3): a sub-1.0 bracket is NEVER framed as a trade —
         // levels remain visible for reference, but the card demotes.
@@ -982,6 +1323,7 @@ export function topSetupSummary(
         return {
             opportunity_type: 'AggregatedBracket',
             score: 0,
+            display_score: null,
             preconditions_met: 0,
             preconditions_total: 0,
             direction: side,
@@ -991,6 +1333,8 @@ export function topSetupSummary(
             rr_reason: resolvedRr.available ? null : resolvedRr.reason,
             rationale: 'aggregated bracket (informational — no qualifying profile)',
             below_floor,
+            alternate_setups: [],
+            horizon,
         };
     }
     // R4: the macro bias prefers the DecisionContext mirror (the
@@ -999,10 +1343,9 @@ export function topSetupSummary(
     // per frame, but partial frames / warmup can leave `analysis.bias`
     // one candle behind — which made the card direction contradict the
     // gauge (observed: NEUTRAL card under a +44% LONG gauge).
-    const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
     const side = selectProfileSide(top, macroBias);
     // Try per-profile zones first; fall back to aggregated.
-    let zones = side === 'NEUTRAL' ? null : profileZones(top, side);
+    let zones = side === 'NEUTRAL' ? null : profileZones(top, side, close);
     if (!zones) {
         // When no directional resolution, prefer the gauge direction
         // over a blind LONG default. This fixes the inversion bug where
@@ -1013,12 +1356,12 @@ export function topSetupSummary(
         const fallbackSide = side === 'NEUTRAL'
             ? (decisionContext?.net_bias_pct ?? 0) < 0 ? 'SHORT' : 'LONG'
             : side;
-        zones = aggregateZones(opportunity, fallbackSide);
+        zones = aggregateZones(opportunity, fallbackSide, close);
     }
     // R:R via the shared resolver (RR-002, v6.10.12): profile wire →
     // matrix wire → zones fallback with the exact backend formula. The
     // resolver carries the human-readable N/A reason.
-    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, top);
+    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, top, macroBias, close);
     const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
     const rrReason = resolvedRr.available ? null : resolvedRr.reason;
     // Viability — wire-side default to `NoClear` when missing, except
@@ -1037,6 +1380,7 @@ export function topSetupSummary(
     return {
         opportunity_type: top.opportunity_type,
         score: top.score,
+        display_score: top.display_score ?? null,
         preconditions_met: top.preconditions_met,
         preconditions_total: top.preconditions_total,
         direction: side,
@@ -1046,6 +1390,8 @@ export function topSetupSummary(
         rr_reason: rrReason,
         rationale,
         below_floor: false,
+        alternate_setups: [],
+        horizon,
     };
 }
 
@@ -1059,6 +1405,7 @@ export function profileSummary(
     opportunity: OpportunityMatrix | null | undefined,
     analysis: AnalysisMatrix | null | undefined,
     decisionContext?: DecisionContext | null,
+    close?: number,
 ): {
     side: 'LONG' | 'SHORT' | 'NEUTRAL';
     zones: ProfileZones | null;
@@ -1076,7 +1423,7 @@ export function profileSummary(
     // `topSetupSummary` for the rationale.
     const macroBias = decisionContext?.bias ?? analysis?.bias ?? null;
     const side = selectProfileSide(profile, macroBias);
-    let zones = side === 'NEUTRAL' ? null : profileZones(profile, side);
+    let zones = side === 'NEUTRAL' ? null : profileZones(profile, side, close);
     if (!zones) {
         // When no directional resolution, prefer the gauge direction
         // over a blind LONG default (same fix as topSetupSummary).
@@ -1084,12 +1431,12 @@ export function profileSummary(
         const fallbackSide = side === 'NEUTRAL'
             ? (decisionContext?.net_bias_pct ?? 0) < 0 ? 'SHORT' : 'LONG'
             : side;
-        zones = aggregateZones(opportunity, fallbackSide);
+        zones = aggregateZones(opportunity, fallbackSide, close);
     }
     // R:R via the shared resolver (RR-002, v6.10.12) — the same chain as
     // the Top Setup card: profile wire → matrix wire → zones fallback
     // with the exact backend formula.
-    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, profile);
+    const resolvedRr = resolveActiveRr(opportunity, decisionContext, analysis, profile, macroBias, close);
     const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
     const rr_reason = resolvedRr.available ? null : resolvedRr.reason;
     // v6.10.17 (P1): a profile with met preconditions but a null wire

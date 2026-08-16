@@ -4,7 +4,8 @@
 //!  - `MarkPriceEvent` / `LiquidationEvent` deserialization
 //!  - `LiquidityConfig` default values
 //!  - `hl_derivatives_poller::lookup_ctx` symbol matching
-//!  - `bitget_derivatives::ticker_to_mark_price` and `funding_to_event`
+//!  - `bitget_derivatives::ticker_to_mark_price` and
+//!    `ticker_to_derivatives_events` (V2 ticker funding)
 
 use rust_decimal_macros::dec;
 use core_domain::normalized::{
@@ -183,7 +184,7 @@ fn hl_derivatives_poller_lookup_ctx_handles_case_variants() {
 #[test]
 fn bitget_ticker_to_mark_price_extracts_fields() {
     use network_adapters::adapters::bitget_derivatives::{
-        funding_to_event, ticker_to_mark_price, BitgetFundingData, BitgetTickerData,
+        ticker_to_derivatives_events, ticker_to_mark_price, BitgetTickerData,
     };
 
     let d = BitgetTickerData {
@@ -215,14 +216,23 @@ fn bitget_ticker_to_mark_price_extracts_fields() {
     };
     assert!(ticker_to_mark_price("BTC-USDT", &d).is_none());
 
-    // Funding parser.
-    let fr = BitgetFundingData {
-        fundingRate: Some("0.0001".into()),
-        nextUpdate: Some(1700000000000),
+    // Funding rate via the V2 ticker payload (the legacy `funding-rate`
+    // channel helper was removed).
+    let d = BitgetTickerData {
+        mark_price: Some("50100.5".into()),
+        index_price: None,
+        open_24h: None,
+        holding_amount: None,
+        funding_rate: Some("0.0001".into()),
+        next_funding_time: None,
     };
-    let ev = funding_to_event("BTC-USDT", &fr).expect("rate present");
-    match ev {
-        NormalizedEvent::FundingRate(f) => assert_eq!(f.rate, dec!(0.0001)),
-        _ => panic!("expected FundingRate event"),
-    }
+    let events = ticker_to_derivatives_events("BTC-USDT", &d, None);
+    let fr = events
+        .iter()
+        .find_map(|e| match e {
+            NormalizedEvent::FundingRate(f) => Some(f),
+            _ => None,
+        })
+        .expect("ticker funding must emit a FundingRate event");
+    assert_eq!(fr.rate, dec!(0.0001));
 }

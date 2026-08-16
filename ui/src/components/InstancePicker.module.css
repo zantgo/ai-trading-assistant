@@ -1,6 +1,6 @@
 /* ─── Instance Picker — inline workspace selector ────────────────────────
    Mirrors the right-panel row design but lives inside the content area.
-   Uses the same design tokens as brutelist-grid.module.css.
+   Uses the same design tokens as brutalist-grid.module.css.
    ========================================================================== */
 
 .picker {
@@ -11,10 +11,20 @@
     overflow: hidden;
 }
 
+/* ─── Header (pinned) ──────────────────────────────────────────────────── */
 .header {
     padding: 20px 24px 16px;
     border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06));
     flex-shrink: 0;
+    background: var(--bg, #000000);
+}
+
+.headerTop {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
 }
 
 .title {
@@ -30,6 +40,107 @@
     font-size: 11px;
     font-weight: 500;
     color: #64748b;
+}
+
+.countChip {
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text-dim, rgba(245, 245, 247, 0.55));
+    background: var(--bg-elev-2, #0f0f0f);
+    border: 1px solid var(--line, rgba(255, 255, 255, 0.06));
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+    margin-top: 1px;
+}
+
+.countStrong {
+    color: var(--text, #f5f5f7);
+}
+
+/* ─── Search bar ───────────────────────────────────────────────────────── */
+.searchWrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.searchIcon {
+    position: absolute;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+    color: var(--text-dim, rgba(245, 245, 247, 0.45));
+    transition: color 0.15s ease;
+}
+
+.searchWrap:focus-within .searchIcon {
+    color: var(--text, #f5f5f7);
+}
+
+.searchInput {
+    width: 100%;
+    height: 38px;
+    padding: 0 34px 0 36px;
+    background: var(--bg-elev-2, #0f0f0f);
+    border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    color: var(--text, #f5f5f7);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.searchInput::placeholder {
+    color: rgba(245, 245, 247, 0.35);
+    font-family: var(--sans, 'Inter', system-ui, sans-serif);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+}
+
+.searchInput:focus {
+    border-color: rgba(255, 255, 255, 0.28);
+    background: var(--bg-elev-2, #0f0f0f);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+}
+
+.searchClear {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-dim, rgba(245, 245, 247, 0.55));
+    padding: 0;
+    transition: all 0.15s ease;
+}
+
+.searchClear:hover {
+    background: var(--hover, rgba(255, 255, 255, 0.04));
+    color: var(--text, #f5f5f7);
+}
+
+.error {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 69, 58, 0.35);
+    border-radius: 8px;
+    background: rgba(255, 69, 58, 0.08);
+    color: #ff453a;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    line-height: 1.5;
 }
 
 /* ─── Empty / loading state ────────────────────────────────────────────── */
@@ -58,10 +169,56 @@
     max-width: 360px;
 }
 
-/* ─── Instance list ────────────────────────────────────────────────────── */
+.emptyQuery {
+    color: var(--text, #f5f5f7);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-weight: 600;
+}
+
+.emptyReset {
+    margin-top: 4px;
+    padding: 7px 16px;
+    background: var(--bg-elev-2, #0f0f0f);
+    border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    color: var(--text-dim, rgba(245, 245, 247, 0.55));
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.emptyReset:hover {
+    color: var(--text, #f5f5f7);
+    border-color: rgba(255, 255, 255, 0.28);
+    background: var(--hover, rgba(255, 255, 255, 0.04));
+}
+
+/* ─── Instance list (scrollable) ───────────────────────────────────────── */
 .list {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    padding-bottom: 12px;
+}
+
+.list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+.list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .row {
@@ -81,6 +238,7 @@
     text-align: left;
     color: inherit;
     font-family: inherit;
+    position: relative;
 }
 
 .row:hover {
@@ -89,6 +247,11 @@
 
 .row:last-child {
     border-bottom: none;
+}
+
+.row:focus-visible {
+    outline: 1px solid rgba(255, 255, 255, 0.28);
+    outline-offset: -1px;
 }
 
 .rowInfo {
@@ -161,4 +324,28 @@
 .changeFlat {
     color: var(--text-dim, rgba(245, 245, 247, 0.55));
     background: rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Delete button ────────────────────────────────────────────────────── */
+.deleteBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    color: var(--text-dim, rgba(245, 245, 247, 0.4));
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.deleteBtn:hover {
+    background: rgba(255, 69, 58, 0.12);
+    color: #ff453a;
+}
+
+.deleteBtn:focus-visible {
+    outline: 1px solid rgba(255, 69, 58, 0.6);
+    color: #ff453a;
 }

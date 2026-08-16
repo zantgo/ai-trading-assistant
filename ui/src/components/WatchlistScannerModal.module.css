@@ -13,24 +13,53 @@
     gap: 14px;
 }
 
+.inputHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.inputTitle {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text, #fff);
+    margin: 0;
+}
+
+.inputSubtitle {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    line-height: 1.5;
+    color: var(--text-dim, #64748b);
+    margin: 0;
+}
+
 .inputBlock {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-.inputLabel {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-dim, #64748b);
+.visuallyHidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .inputField {
     width: 100%;
     min-height: 110px;
     resize: vertical;
+    box-sizing: border-box;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.08));
     border-radius: 8px;

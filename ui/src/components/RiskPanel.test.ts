@@ -63,23 +63,23 @@ afterEach(() => {
 });
 
 describe('RiskPanel — functional risk state (RK-A)', () => {
-  it('renders a non-Stable dimension state pill with the matching arrow', () => {
+  it('renders a RISING trend badge with the ↗ arrow (Scheme A, v6.10.19d C)', () => {
     const risk = makeRisk('Stable');
-    // The state pill lives on the dimension cards — elevate one dim.
-    risk.market_risk = { ...dim(60, 'Moderate'), state: 'Elevated' };
+    // Trend states win over the level token — elevate one dim's trend.
+    risk.market_risk = { ...dim(60, 'Moderate'), state: 'Increasing' };
     seed(risk);
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
-    // The pill renders "↑ ELEVATED" (stateArrow elevated → up arrow).
-    expect(screen.getByText('ELEVATED')).toBeTruthy();
-    expect(screen.getAllByText('↑').length).toBeGreaterThan(0);
+    expect(screen.getByText('RISING')).toBeTruthy();
+    expect(screen.getAllByText('↗').length).toBeGreaterThan(0);
     // The header sublabel carries the prettified overall state.
     expect(screen.getByText('Stable')).toBeTruthy();
   });
 
-  it('renders "→ STABLE" for stable states (unchanged, honest)', () => {
+  it('stable states fall back to the level token (Moderate → STEADY)', () => {
     seed(makeRisk('Stable'));
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
-    expect(screen.getAllByText('STABLE').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('STEADY').length).toBeGreaterThan(0);
+    expect(screen.queryByText('STABLE')).toBeNull();
   });
 });
 
@@ -96,11 +96,54 @@ describe('RiskPanel — warmup sentinel gate (RK-D)', () => {
     expect(screen.getByText(/Risk synthesis is initializing/)).toBeTruthy();
   });
 
-  it('a real matrix renders the hero ring and dimension cards', () => {
+  it('a real matrix renders the hero risk bar and dimension cards', () => {
     seed(makeRisk('Stable'));
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
-    expect(screen.getByText('/ 100')).toBeTruthy();
+    // The ring is gone — the hero leads with the risk progress bar
+    // (score rendered as "50 / 100").
+    expect(screen.getByText('50 / 100')).toBeTruthy();
     expect(screen.getAllByText('Moderate').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Risk Dimensions')).toBeTruthy();
+  });
+});
+
+describe('RiskPanel — v6.11 execution-friction gauge (volatility_to_spread_ratio)', () => {
+  it('renders the ATR-to-Spread field on the Execution Risk card', () => {
+    const risk = makeRisk('Stable');
+    risk.execution_risk = { ...dim(35, 'Low'), volatility_to_spread_ratio: 12.4 };
+    seed(risk);
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    const field = screen.getByTitle(
+      /ATR\(14\) ÷ top-of-book spread — execution-friction gauge/
+    );
+    expect(field.textContent?.trim()).toBe('12.4×');
+    expect(screen.getByText('ATR-to-Spread')).toBeTruthy();
+  });
+
+  it('v6.10.21: volatility-to-spread value is tinted by the L5 band tiers', () => {
+    // ≥ 10 favorable (green) · 3–10 neutral · 1.5–3 amber · < 1.5 red.
+    const tint = (ratio: number): string => {
+      const risk = makeRisk('Stable');
+      risk.execution_risk = { ...dim(35, 'Low'), volatility_to_spread_ratio: ratio };
+      cleanup();
+      seed(risk);
+      render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+      const field = screen.getByTitle(
+        /ATR\(14\) ÷ top-of-book spread — execution-friction gauge/
+      );
+      return field.className;
+    };
+    expect(tint(12.4)).toContain('execVolGood');
+    expect(tint(6.0)).toContain('execVolNeutral');
+    expect(tint(2.0)).toContain('execVolWarn');
+    expect(tint(1.2)).toContain('execVolBad');
+  });
+
+  it('hides the field when the ratio is absent (other dimensions)', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(
+      screen.queryByTitle(/ATR\(14\) ÷ top-of-book spread/)
+    ).toBeNull();
   });
 });

@@ -519,6 +519,8 @@
             activePair={resilientActivePair}
             activeTab={app.activeTab}
             {wssMap}
+            onrequestConfirm={requestRowConfirm}
+            errorMessage={panelDeleteError}
         />
 
         <!-- Bottom Console (Positions / Orders / History / Plan) -->

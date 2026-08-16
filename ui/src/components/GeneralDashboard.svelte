@@ -19,7 +19,8 @@
     //   7. Regime Distribution (ASCII bars)
     //   8. Asset Rankings table (11-column leaderboard incl. MTF cols)
     //   9. Bottom toolbar: [SCHEDULE SNAPSHOTS] [SCAN WATCHLIST] buttons
-    //      grouped left, explanatory caption right-aligned
+    //      grouped and centered; instructional copy lives inside the
+    //      watchlist scanner modal
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
     import LayerHeader from './LayerHeader.svelte';
@@ -132,9 +133,6 @@
                 <SnapshotSchedulerButton />
                 <WatchlistRunnerButton {wssMap} />
             </div>
-            <span class={styles.caption}>
-                Add a basket of pairs and keep only those with a clear decision.
-            </span>
         </div>
     </div>
 </div>

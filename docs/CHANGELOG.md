@@ -6,7 +6,144 @@
 
 
 
-## v6.10.19 (2026-08-15) — Trader-clarity layer (reviewer T1–T5 + Pitfalls A/B/C)
+## v6.10.26 (2026-08-16) — Precondition-scaled setup score emitted by the backend (v6.14 feature tag)
+
+**Backend + UI + docs.** The operator-facing setup score (`round(score × min(1, preconditions_met / preconditions_total))`) moves from a duplicated frontend rule into the backend as the additive `OpportunityProfile.display_score` field — the single source of truth for every surface that renders a setup score. The raw `score` stays untouched (the v6.10.1 fix that surfaces raw viability for inactive setups is preserved); the UI reads the wire value first and keeps its local `displayScore` rule only as a legacy-payload fallback.
+
+* **Backend (`core-domain::OpportunityProfile`, v6.14 field).** New `Option<f64>` `display_score` (`serde(default, skip_serializing_if = "Option::is_none")` — absent on legacy payloads, no wire break). Computed in `market-analyzer/src/synthesis.rs::compute_candidate_score` as `(score × min(1, ratio)).round()` (Rust `.round()` = JS `Math.round` half-up on non-negative values); threaded through the `scored` tuple and stamped onto every profile. `scoring_factors.precondition_ratio` stays serde-skipped telemetry.
+* **UI wire-first reads.** `OpportunitiesPanel.svelte` — new `wireDisplayScore(p)` accessor (backend value wins, local rule falls back); all 4 score-render sites switched. `decisionRank.ts` — `TopSetupSummary` / `AlternateSetupInfo` carry `display_score`; the Recommendation Top Setup card renders it (`(display_score ?? score)` on the card face and the section-meta caption). Exports: `opportunityTab.ts` `score_display` and `recommendationTab.ts` `top_setup.score_display` prefer the wire value (raw `score` emitted alongside).
+* **Tests.** Rust: `precondition_ratio_is_preserved_in_scoring_factors` extended with `display_score` parity; new `display_score_is_zero_for_dead_setups_but_raw_score_survives` locks the 0/N → display 0 + raw > 0 invariant and the NoClear 0/0 case. UI: drift-guard tests in `OpportunitiesPanel.test.ts` (wire 41 beats local 52; legacy falls back to 52), `opportunityTab.test.ts` (37 vs local 40 + fallback), `recommendationTab.test.ts` (33 + fallback); `exportConsistency` fixtures carry `display_score`.
+* **Docs.** `02-08-opportunity-matrix.md` — §2.2 `display_score` row + §4 "Activation vs viability" v6.14 note. `02-00-matrix-field-ownership.md` — L4 ownership row. `07-05-export-data-payload-schema.md` — wire-first `score_display` + `top_setup.score_display`.
+
+## v6.10.25 (2026-08-16) — Qualitative Assessment numbers clarified (v6.13 feature tag): rounded % badges + hover tooltips
+
+**UI + docs.** The Analysis panel's per-card dimension-score badges (Trend / Momentum / Structure / Volatility / Volume) now render as rounded integers with a `%` suffix (e.g. `77%` instead of `76.50`) — making explicit that each number is the **cross-timeframe agreement share** (0-100), not an indicator value or raw ratio — and every badge carries a hover `title` tooltip explaining its exact semantics. The Trend card's Sharpe badge (a different number family: annualized EMA-50 log-return Sharpe) gets its own tooltip so the two are never confused.
+
+* **Badge format (`AnalysisPanel.svelte`).** `formatScoreValue` → `Math.round(v) + '%'`; band tints (≥70 / ≥40 / <40) and ▲/▼ deltas (raw-float comparison) unchanged. `cursor: help` affordance on `.scoreBadge` / `.sharpeBadge` (`AnalysisPanel.module.css`).
+* **Tooltips.** Per-dimension `title` on each score badge ("Trend agreement across timeframes — % of weighted TF readings agreeing on the trend direction", …); the Sharpe badge carries "Trend stability Sharpe — annualized EMA-50 log-return Sharpe over a 300-bar window". UI-only — no backend state.
+* **Export parity (`analysisTab.ts::buildQualitativeBlock`).** `_display` strings mirror the screen verbatim: rounded integer + `%` (e.g. `"77%"`); raw `*_score` floats and the `"\u2014"` absent-sentinel unchanged.
+* **Tests.** `AnalysisPanel.test.ts` — badge texts updated to `N%`, the "no tooltips" assertion flipped to assert both tooltips exist. `analysisTab.test.ts` + `exportConsistency.test.ts` — `_display` expectations updated to the `%` form (parity locked against the rendered DOM).
+
+### Documentation
+- `02-02-analysis-matrix.md` — §3.4.1–3.7.1 rendering contract: `N%` format, tooltips, Sharpe badge tooltip.
+- `07-05-export-data-payload-schema.md` — `qualitative_assessment` note: `_display` is the verbatim screen string, rounded integer + `%` (v6.13).
+
+## v6.10.24 (2026-08-16) — Per-card dimension-score badges (v6.12 feature tag): every qualitative assessment carries its exact numeric input
+
+**Backend + UI + docs.** The Analysis Matrix's five qualitative assessments (Trend / Momentum / Structure / Volatility / Volume) now carry their exact 0-100 derivation inputs as numeric companions, and the Analysis panel renders each on the card face as a tinted badge with a ▲/▼ delta arrow. No tooltips — all numbers are always visible.
+
+* **Backend (`core-domain::AnalysisMatrix`, v6.12 fields).** Five new `Option<f64>` fields — `trend_score`, `momentum_score`, `structure_score`, `volatility_score`, `volume_score` — stamped inside `derive_analysis` from the same alignment dimension scores the §4.2 bands bucket (`trend_dim` / `mom_dim` / `struct_dim` / `vol_dim` / `volu_dim`). They are the **disaggregated siblings of `market_quality_score`**: L3-owned derivations from L2 on the allowed `L3 ← L2` edge — no L1 plumbing (unlike the v6.11 `trend_stability_sharpe` traceability stamp). `Some` whenever `timeframes_present ≥ 1`; `None` (omitted from the wire) on the empty sentinel. All 7 construction sites updated (`decision_context.rs`, `state_matrix.rs`, `risk.rs`, `portfolio-supervisor` evaluator/engine, `risk_confidence.rs`, `analysis.rs` test builder).
+* **Analysis panel badges (`AnalysisPanel.svelte` + `.module.css`).** Every qualitative card renders its score as a monospace badge on the card face (`62.35`, 2-dp), tinted by coarse band heat (≥70 green / ≥40 amber / <40 red) and carrying a ▲/▼ delta arrow against the previous frame's score (UI-side memo over the WS stream — no backend state; no arrow on the first frame or when unchanged). The Trend card shows **both** badges: the `trend_score` badge and the v6.11 `trend_stability_sharpe` badge (the `title` tooltip was removed — the Sharpe is now permanently visible). Cycle Phase remains numberless (not a dimension score).
+* **Export parity (`analysisTab.ts::buildQualitativeBlock`).** `qualitative_assessment` gains `{trend,momentum,structure,volatility,volume}_score` + `_display` pairs (2-dp verbatim screen strings, `"\u2014"` when absent) alongside `trend_stability_sharpe`.
+* **Doc-consistency backfill (governance).** `02-00-matrix-field-ownership.md` §2.3 — the L3 ownership table now includes the five v6.12 fields **and backfills the previously-missing** `trend_stability_sharpe`, `market_phase`, `representative_bbwp` / `representative_adx`; §5 gains the **L1→L3 traceability-evidence exception** (evidence copies vs. computation edges). `03-02-04-mme-layer3-analysis.md` — new §4.1 "Numeric companions (v6.12)" documenting the badges/tints/deltas and the two number families (L3-from-L2 dimension scores vs. L1 Sharpe evidence).
+* **Tests.** `AnalysisPanel.test.ts` +6: all-five-cards badges (2-dp), band tint classes, dual Trend badges (score + Sharpe, no tooltip), ▲ and ▼ delta arrows (rise / fall vs. previous frame, unchanged → no arrow). `analysisTab.test.ts` +2 (scores carry + em-dash absent). `exportConsistency` — fixture carries the five scores; Analysis-tab assertions lock badge/export parity for every card.
+
+### Documentation
+- `02-02-analysis-matrix.md` — §2.1 five field rows; new §3.4.1–3.7.1 numeric-companion spec; §4.2 v6.12 invariant note; §5 JSON sample; §6 empty-state rows.
+- `02-00-matrix-field-ownership.md` — §2.3 backfill + five new fields; §5 L1→L3 traceability-evidence exception.
+- `03-02-04-mme-layer3-analysis.md` — §4.1 numeric companions + Sharpe backfill.
+- `07-05-export-data-payload-schema.md` — `qualitative_assessment` block + per-card score note.
+- `01-01-ontology.md` — Appendix A.3 JSON sample + Appendix C "Dimension Score (v6.12)" glossary entry.
+
+## v6.10.23 (2026-08-16) — Opportunities panel refactor: per-folder reference brackets, unified state-driven card language, quality pills
+
+**UI + backend.** The Opportunities Trade Setups panel is rebuilt around the folder-nesting + state-driven visual standard. Every long setup/reference mounts in **BULLISH**, every short in **BEARISH**, every neutral in **RANGE SETUPS**; the standalone reference container at the bottom of the section is removed.
+
+* **Per-direction reference brackets (NBR).** Each folder mounts its own aggregated reference bracket (`sideBracketSummary` over the matrix's per-side zones, `ui/src/lib/decisionRank.ts`) **only when it hosts zero qualifying setup cards**; the folder counter counts setups + reference cards; the empty-state placeholder (`no bullish setups`, …) is suppressed while a reference card occupies the folder. The Recommendation-parity invariant holds (verdict-side bracket identical via the shared `aggregateZones` + `resolveActiveRr(sideOverride)` chain — test-locked zone-for-zone).
+* **Neutral range bracket (backend, `core-domain::opportunity::NeutralBracket`).** `OpportunityMatrix.neutral_reference_bracket` is emitted by L4 (`market-analyzer/src/synthesis.rs::derive_neutral_bracket`) only when `primary == NoClearOpportunity && is_range` — a range-fade frame (entry ±0.2×ATR around close, target at the upper range-bound proxy, invalidation below the lower proxy; R:R gated by `compute_side_rr_v2` + `NetCostModel`; informational only, never `Actionable`, `NoClearOpportunity` sentinel untouched). Rides in the RANGE SETUPS folder (`neutralBracketSummary`).
+* **Unified 4-state card language.** All cards share a very-dark background + thin outer border; state is signalled by a 3px left-edge accent + badge + text contrast: **A Actionable** (bright green/red accent, `ACTIONABLE` badge — `TOP · ACTIONABLE` for the top-ranked card; the old `rank.top !== 'HOLD'` verdict gate is removed so card visuals are purely card-state-driven, **every** Actionable card is badged), **B Qualifying** (amber accent, `QUALIFYING` / `RANGE · NEUTRAL`), **C Reference** (grey accent, `INFORMATIONAL`), **D Warning** (dashed border ×4, red accent, `GEOMETRY INVERTED` / `BELOW ACTIONABLE FLOOR` + red-flagged coordinates keyed on the resolver's N/A reason). `DirectionalNeutral` maps to State B (`RANGE · NEUTRAL`, replacing `RANGE · HOLD`); the conviction-bar label is `RANGE` (was `HOLD`).
+* **Quality Level Badges.** Every setup card renders a compact outlined pill (`PRIME` ≥85 / `STRONG` 70–84 / `MODERATE` 50–69 / `MARGINAL` 30–49 desaturated-orange / `NONE` <30 — same half-open intervals as `setup_quality_band`) immediately left of the raw numeric score, banded on the **displayed** (precondition-scaled) score so pill and number always agree.
+* **Export parity.** `trade_setup_sections` rows carry per-folder reference rows + the neutral frame (`opportunity_type: "Neutral Reference Bracket"`), new `quality` (per-row pill band, `null` on references) and `below_floor` fields, and the new badge policy (`ACTIONABLE` for every actionable card, `GEOMETRY INVERTED` for any geometry-broken card, `BELOW ACTIONABLE FLOOR` for sub-1.0 references).
+* **CSS.** `OpportunitiesPanel.module.css` rewritten for the 4 state variants (solid/dashed borders, green/amber/grey/red accents), outlined quality pills, red-flagged coordinates, desaturated State C text; dead classes removed (`setupBadgeTop`, `setupBadgeNeutral`, `setupCardMuted`, `referenceCard`, `scenarioNote`, `noClearStrip`, `directionalGrid`/`sideCard*`, `setupStatus`, `geometryWarn`, …); the missing `setupBadgeNoClear` reference is replaced by defined `setupBadgeReference` / `setupBadgeInverted`.
+* **Tests.** `OpportunitiesPanel.test.ts` +9 (24 total): quality-pill banding (boundaries 85/70/50/30/29), every-actionable badged, HOLD-gate removal, per-direction folder references + counter/empty-state suppression, neutral range bracket, below-floor State D, geometry-inverted card, `RANGE · NEUTRAL`. Backend: `neutral_bracket_emitted_only_for_noclear_range`, `neutral_bracket_absent_outside_noclear_range`, `derive_neutral_bracket_guards_invalid_inputs` (`market-analyzer`). Export: `opportunityTab.test.ts` + `exportConsistency.test.ts` updated for the new badges/fields.
+
+### Documentation
+- `02-08-opportunity-matrix.md` — `neutral_reference_bracket` field (§2.1), per-folder reference contract, 4-state card language table, quality pills, updated parity invariant.
+- `07-05-export-data-payload-schema.md` — per-folder reference rows, `quality`/`below_floor` fields, badge policy, `BELOW ACTIONABLE FLOOR` wording.
+- `02-00-matrix-field-ownership.md` — panel-composition note extended to per-folder brackets + pure-L4 `neutral_reference_bracket`.
+- `02-04-decision-matrix.md` — unchanged (Recommendation `top_setup` untouched; folder references are panel composition).
+
+## v6.10.22 (2026-08-16) — Alignment consensus hero: two-container redesign, "Polarization" retired
+
+**UI.** The Alignment panel's header-container consensus row is rebuilt as two side-by-side containers. The flat progress bar + horizontal chip row is gone; the "Polarization" term is completely retired — the system unifies on the single word **Consensus**.
+
+* **Container 1 — consensus dial.** A minimalist circular SVG ring (stroke-dasharray gauge, tier-colored: green ≥75% / amber ≥50% / red <50% / grey no-data) with the agreement percentage centered in bold white monospace. To its right, vertically centered: the tier verdict as a bold colored header (`Strong Consensus` / `Partial Consensus` / `Mixed Consensus`) with a desaturated grey sub-label (`Timeframes are aligned.` / `Mixed signals across timeframes.` / `Timeframes are not aligned.`). The old one-string verdict (`Strong consensus — timeframes aligned`) is split into header + sub-label.
+* **Container 2 — consensus details.** Labeled `CONSENSUS` (tracked-out uppercase). The four blend axes render as a 2×2 grid of low-contrast bordered cards — label on top, sign-prefixed value below (`|v| > 0.2` high-contrast green/red, `0.05 < |v| ≤ 0.2` subtle green/red, `|v| ≤ 0.05` neutral grey). The TIMEFRAME MISALIGNMENT banner renders under the grid.
+* **Export mirror.** `consensus.polarization` → `consensus.axes`; `consensus.label_display` now mirrors the dial verdict header verbatim (`"Strong Consensus"`) — the sub-label is DOM-only. (`07-05-export-data-payload-schema.md` §3.3 + notes updated; `layerHeader.ts` comment updated.)
+* **Tests.** `AlignmentPanel.test.ts` locks the two-container structure (dial SVG, 4 axis cards, term retirement, sentinel em-dash); `exportConsistency.test.ts` + `alignmentTab.test.ts` updated for the `axes` rename and header-only `label_display`.
+
+## v6.10 (2026-08-16) — Four production ratios (52-indicator registry, three-tier candle doctrine)
+
+**v6.11 feature tag.** Adds the four consolidated ratio specifications to the Market Monitoring Engine — closing every analytical layer mathematically (Layer 1 → 7).
+
+* **L1 `price_trend_sharpe` (52nd registry entry, Regime group).** Annualized Sharpe of price log returns over the trailing 300-bar window — `mean(ln(c_t/c_{t-1})) ÷ σ(ln(c_t/c_{t-1})) × sqrt((86400/timeframe_secs) × 365)`. Injected in `crates/market-analyzer/src/analyzer/normalize.rs::inject_sharpe_ratios` from the pipeline's rolling `close_history`; `bars_required = 300` — the indicator-tier floor (`INDICATORS_MAX_BARS_REQUIRED`), well below the canonical `[candle_buffer] size = 500`, so it goes `Live` at its own 300-bar requirement (no lifecycle lock). Banded state labels `STRONG_POSITIVE_SHARPE / POSITIVE_SHARPE / NEGATIVE_SHARPE / STRONG_NEGATIVE_SHARPE`; normalized `(v/3).clamp(-1,1)`; data-only (no signals — 101-declaration total unchanged).
+
+* **L3 `trend_stability_sharpe` (AnalysisMatrix).** Same Sharpe math over EMA-50 log returns (300-bar window) — the noise-stripped trend-slope stability proof behind the Trend assessment card. Computed in `market-analyzer` (rolling `ema_medium_history`), stamped onto `AnalysisMatrix.trend_stability_sharpe` during cross-TF synthesis; rendered as the high-contrast monospace badge in the Trend qualitative card + `qualitative_assessment` export block.
+
+* **L5 `volatility_to_spread_ratio` (RiskMatrix.execution_risk).** `ATR(14) ÷ (ask − bid)` execution-friction gauge, computed in `crates/core-domain/src/risk.rs::assess_execution_risk` (the spread indicator is only available post-normalization). Scoring rules on the baseline-25 additive model: `+15` ratio < 1.5, `+5` ratio < 3.0, `−5` ratio > 10.0; rendered on the Execution Risk card + `execution_extras` export block.
+
+* **L6 `quality_to_risk_ratio` (AdvisoryMatrix).** Setup-efficiency metric `market_quality_score ÷ overall_risk.score` (both unipolar 0-100; `None` when risk = 0), computed in `compute_advisory`; rendered as the **Quality/Risk** KPI chip next to Entry Danger + `environment`/`safety_flags` export blocks.
+
+* **Three-tier candle doctrine (300 / 500 / 1000).** The candle universe is governed by three **independent** numbers: `INDICATORS_MAX_BARS_REQUIRED = 300` (indicator calculation floor, carried by `price_trend_sharpe`), `[candle_buffer] size = 500` (historical warmup depth fetched from REST — unchanged; `default_candle_buffer_size()` stays 500), and `HIST_BUFFER_MAX = 1000` (absolute in-memory cap — never more than 1000 candles, sub-minute and above-minute, same behavior). `config.toml` + `config.default.toml` carry the canonical `[candle_buffer]` block; the legacy `analysis_limit = 500` ghost key is removed from `config.toml`.
+
+* **Registry invariant.** `INDICATORS_MAX_BARS_REQUIRED` 200 → 300 (carried by `price_trend_sharpe`); BBWP's registry gate stays 200 below its 272-bar true warmup (doc note updated).
+
+### Documentation
+- `02-07-metrics-matrix.md` §3.3.1 — `price_trend_sharpe` dual-representation wire format; counts 51 → 52.
+- `02-02-analysis-matrix.md` §2.1 + §3.3.1 — `trend_stability_sharpe`.
+- `02-11-risk-matrix.md` §2.2 + §4.7 — `volatility_to_spread_ratio` + scoring rules.
+- `02-04-decision-matrix.md` §2.1 + §6 — `quality_to_risk_ratio` + worked example.
+- `01-01-ontology.md` — Appendix C glossary (4 entries), Appendix A.3/A.5/A.6 JSON, Appendix B.1/B.2 (52 entries, 5 Regime).
+- `07-05-export-data-payload-schema.md` — metrics/risk/analysis/recommendation export blocks (G17 parity).
+- New `04-02-52-price-trend-sharpe.md` per-indicator doc; `04-02-00-indicator-index.md` row 52.
+- Buffer-default docs re-expressed as the three-tier doctrine (300 floor / 500 warmup / 1000 cap) across `08-08`, `01-04`, `01-07`, `01-08`, `03-01-04`, `03-01-06`, `03-02-15`, `03-02-16`, `08-01`.
+
+### Hotfixes (same release — post-live-capture audit of the ratio wire)
+
+Audited against the first live export dump (2026-08-16 14:02 UTC, BTC-USDC). Three defects fixed:
+
+* **L5 unit bug — `volatility_to_spread_ratio` mixed percent and price units.** The `spread` indicator's `raw_value` is a **percentage** of mid (`(ask − bid)/mid × 100`); `assess_execution_risk` divided ATR-14 (price units) by the percentage scalar directly. A real BTC-USDC spread of `0.000568 %` produced a meaningless `2659.5×` on the Execution Risk card / export (and fired the −5 "Favorable" scoring tier on garbage). Fix: convert via close price (`spread / 100 × close`, threading `close` from `compute_risk`) — the live case now reads ≈ `4.2×`. Regression test: `execution_risk_converts_spread_percent_to_price_units`.
+* **L1/L3 Sharpe `σ → 0` pathology.** Near-flat series (e.g. the EMA-50 line on a quiet market) produced annualized values like −117.45 on the Trend card badge and `price_trend_sharpe` raws down to −10.42. Fix in `crates/market-analyzer/src/indicators/ratio.rs`: `SHARPE_STDDEV_FLOOR = 1e-9` (numerically-flat → `None`) and `SHARPE_MAX_ABS = 20` (output clamp). New tests: `extremely_smooth_series_clamps_at_max_abs`, `numerically_flat_series_below_stddev_floor_yields_none`; `annualization_scales_with_timeframe` moved to a noise-bounded series that stays inside the clamp band. UI display also clamps (`formatSharpeValue` in AnalysisPanel; `_display` in the analysis export) as belt-and-suspenders.
+* **L3 traceability — rationale vs representative mismatch.** The pair-level analysis mirror is per-slot last-writer-wins, so the rationale quoted FAST's `BBWP=53.0 ADX=35.3` while the export's `representative_bbwp/adx` read the micro map (11.55/26.68). Fix: `AnalysisMatrix` now carries `representative_bbwp` / `representative_adx` pinned by `derive_analysis` from the exact inputs the rationale uses; the export prefers these matrix pins and falls back to the micro map only for older frames. (Docs: 02-02 §2.1, 07-05 §3.6.)
+
+### UI polish round (same release — ratio readability)
+
+* **Raw-cell tint (Metrics tab).** `price_trend_sharpe`'s Raw cell is now color-coded via `normColor(normalized)` (bearish red / bullish green / extreme purple) so the unbounded annualized number reads at a glance without cross-referencing Norm/State. (`IndicatorsView.svelte`.)
+* **Trend Stability Sharpe badge bands (Analysis tab).** The Trend-card badge is tinted by the stability band — `≥ +2` strong green, `> 0` light green, `≤ −2` red, else light red — mirroring the L1 state-label bands, with the tooltip updated. (`AnalysisPanel.svelte` / `.module.css`.)
+* **Volatility-to-Spread band tint (Risks tab).** The Execution Risk card's `Volatility/Spread` value is tinted by the L5 scoring tiers — `≥ 10` green (favorable), `3–10` neutral, `1.5–3` amber (moderate friction), `< 1.5` red (spread friction dominates); tooltip documents the bands. (`RiskPanel.svelte` / `.module.css`.)
+* **Close-only `feed_state: Live` (backend).** `build_indicator_lifecycle_map` reports `feed_state: Live` for close-only rows preserved across shadow ticks (`is_close_only_on_shadow_live`) — `WaitingFeed` is now reserved for rows whose upstream feed genuinely hasn't delivered. Applies to `price_trend_sharpe`, fibonacci, ichimoku, support_resistance, etc. (`crates/market-analyzer/src/analyzer/mod.rs`; e2e pin added.)
+
+Doc updates: `02-11` §4.7 unit-fix note, `02-07` §3.3.1 + `02-02` §3.3.1 clamp notes, `04-02-52` shadow-lifecycle + hardening notes.
+
+---
+
+## v6.10 (2026-08-16) — Alignment panel: Volume/Volatility key fix + no abbreviations
+
+The Alignment panel's weight chips, polarization chips, breakdown caption, and export all rendered the blend keys as abbreviations (`Vt Volume` / `Vm Volatility`) that **bound Volume/Volatility swapped vs. the spec** ([02-01 §4.2](matrices/02-01-alignment-matrix.md): `V_t` = volatility alignment, `V_m` = volume alignment — the backend's `blend_weights` emitted `"Vt"` on `mtf_volume_alignment` and `"Vm"` on `mtf_volatility_alignment`). The composite math was unaffected (the weights are symmetric), but the labels contradicted the documented convention. The fix removes the ambiguity entirely:
+
+**Full-word blend keys (`core-domain`).** `compute_alignment` (and the `analysis.rs` / `overview.rs` fallback matrices) now emit `blend_weights` keys as the full dimension names: `"Trend"` / `"Momentum"` / `"Volume"` / `"Volatility"` — each key binds to exactly one `mtf_*_alignment` field, so Volume can never be labeled Volatility (or an abbreviation of it) again. Unit tests assert the key set and the thin-participation reweight under the new names.
+
+**No abbreviations anywhere (`ui`).** The Alignment panel replaces every abbreviated token with its full word: breakdown caption (`Trend:0.45 Momentum:0.30 Volume:0.10 Volatility:-0.20`), polarization chips, weight-chip key badges, and the per-timeframe chips (`Mom` → `Momentum`, `Ov` → `Overall`). The Alignment export (`07-05` §3.3) mirrors the panel 1:1 with the same full-word keys. Consumers still normalize legacy payloads (`"Vt"` → Volume, `"Vm"` → Volatility, matching the legacy wire's actual bindings).
+
+**Verification.** core-domain blend-key unit tests; UI export-consistency + export-builder tests updated (legacy-key normalization covered); full `./manage.sh test-core` / `test-engine` / `test-ui` + `bun run check` green.
+
+## v6.10.19d (2026-08-15) — Trader-clarity polish round 4 (UI cleanup, zero Rust)
+
+Fourth and final polish pass over the trader-clarity layer. **UI-only** — no crate changes, no wire-field changes; every matrix producer is untouched (dashboard panels are composed views, per `docs/matrices/02-00` §5).
+
+**Alignment (`ui`).** The header's `Agreement` chip was removed; the Timeframe Consensus meter (percentage + bar + label) and the Polarization chips moved into the panel's header container as one hero row (the TIMEFRAME MISALIGNMENT banner sits beside the chips). The blend formula line (`(0.5 * (…) …) × 100 = …`) was erased — the weight chips stay. The duplicate `Trend:0.45 Momentum:0.30 …` breakdown caption was removed with its `breakdown_meta` export field. Exports mirror the panel: `score_calculation.weights` only, no `formula`, no Agreement chip.
+
+**Metrics & MTF (`ui`).** The filter pill bars (`Active only` / `Confirmed+` / `Hide gates` / `Hide overlays` / `Clear`) were removed from both views — the grids always run on the platform default filters (everything visible). The top-level `filter_state` block was removed from both exports (per-row `visible` flags stay, always `true` under the defaults).
+
+**Risk (`ui`).** The hero ring was replaced by a **risk progress bar** (score `43 / 100`, level-colored, tooltip "Overall risk — lower is safer"); **Assessment Confidence is now a small badge** next to the score (tooltip "Confidence of the risk assessment — higher is more trustworthy"); `peak:` was renamed **`Top risk:`**; the "Lower is safer. …" caption was removed (no `hero.hint` in the export). Every dimension card now uses the **Scheme-A state badge**: trend states win (`INCREASING → RISING ↗`, `IMPROVING → IMPROVING ↘`), otherwise the level maps to its token (`Extreme→CRITICAL ⚠`, `High→ELEVATED ↑`, `Moderate→STEADY →`, `Low→COMPOSED →`, `VeryLow→MINIMAL →`); the level name keeps its wording tinted by the token color. `state_display` in the export mirrors the `{icon} {TOKEN}` badges. Display-only — the backend's risk states are unchanged.
+
+**Recommendation (`ui`).** The `Risk-Adj R:R` header chip was removed — the Safety-Flags KPI row is the single surface (the header keeps Confidence + Stance). The Strategy section is retitled **"Environment Guidance"** (export key `strategy` unchanged). The "no active setup — fields are placeholders" caveat was erased (`NoActiveSetup.rationale` → `''`; `hold_placeholder` → `'No active setup.'`).
+
+**Metrics Structural Anchors (`ui`).** The "Tier-2 structural context (always visible)" subtitle and the "Source: …" footer line were erased from the strip.
+
+**Verification.** `bun run check` 0 errors; UI suite (export-consistency, alignment/metrics/risk/recommendation/layerHeader builders + panel tests) green; `test-core` / `test-engine` / `test-doc` green.
+
+## v6.10 (2026-08-16) — Trader-clarity layer (reviewer T1–T5 + Pitfalls A/B/C)
 
 External professional-trader review of the v6.10.18 build surfaced five UI/logic frictions (inactive setups flatlining at 58; a 0% needle beside "Bullish bias" text; a lethal 1:0.16 R:R framed as Top Setup; "FORMING" beside "NO CLEAR SETUP"; a playbook with entry instructions under a HOLD verdict) plus three structural pitfalls (gross 1:1 R:R is net-negative after fees; the forced lean floor hides the boost; micro-tier noise could fire the PME systemic veto). All are addressed:
 
@@ -28,7 +165,7 @@ External professional-trader review of the v6.10.18 build surfaced five UI/logic
 
 **Open item (fast-follow v6.10.20, per reviewer):** dynamic slippage — scale `slippage_bps` by the active L5 execution/volatility risk (`effective_slippage = base × (1 + execution_risk/100)`) once the net-cost config is plumbed into the analyzer.
 
-## v6.10.18 (2026-08-15) — Institutional coherence: P0 unit fix + TF-average L7 + trader-exact brackets
+## v6.10 (2026-08-16) — Institutional coherence: P0 unit fix + TF-average L7 + trader-exact brackets
 
 Fresh live-export audit (13:25 UTC, BTC-USDC, all 11 panels): the v6.10.17 sensitivity machinery was visible and working, but the audit surfaced one P0 regression (the §3.1 risk gate was silently dead), a systemic cross-panel contradiction (L7 aggregated the slow-300s TF while every panel showed the 60s frame), and several trader-visible cohesion gaps (a 4.5×ATR-stop scalp badged ACTIONABLE at R:R 0.55; "SHORT" tags on a long's profit zones; a hero that counted a COMPRESSION window as a vote; an L5 volatility dimension that said LOW beside an EXPANSION_CLIMAX window).
 
@@ -54,7 +191,7 @@ Fresh live-export audit (13:25 UTC, BTC-USDC, all 11 panels): the v6.10.17 sensi
 
 **Verification:** core-domain 162 lib; market-analyzer 304 lib + 7 contract + 24 golden + 44 pipeline e2e; UI 889 (62 files); full `./manage.sh test` + `test-doc` + `bun run build` green.
 
-## v6.10.17 (2026-08-15) — Production sensitivity: LEAN tier + graded verdicts + P0 sign corrections
+## v6.10 (2026-08-16) — Production sensitivity: LEAN tier + graded verdicts + P0 sign corrections
 
 Full MME audit (five-layer sweep + two institutional reviews) + fresh live-capture verification (03:40 UTC 2026-08-15, BTC-USDC): the pipeline was internally consistent, but two classes of problems blocked professional usability — (1) value-correctness: MFI / Stochastic / Williams %R normalized signs were inverted vs their own labels (feeding wrong L4 votes), and (2) sensitivity: a minimal bearish/bullish confirmation (composite 2.6 with a 3:1 TF vote) still produced a flat NEUTRAL + **96% HOLD** — useless for a discretionary trader. This release makes the verdict engine continuously graded (LONG/SHORT/HOLD percentages with floors), decouples the directional read from the execution gate, and corrects every audit finding (P0-P2).
 
@@ -86,7 +223,7 @@ Full MME audit (five-layer sweep + two institutional reviews) + fresh live-captu
 
 **Verification:** UI 888 tests (62 files); core-domain 158 lib + 27 property tests; market-analyzer 304 lib + sign-consistency suite; full `./manage.sh test` green; `test-doc` green; `bun run build` green.
 
-## v6.10.16 (2026-08-15) — Sensitivity lever (L3 bias grace band) + cross-layer consistency
+## v6.10 (2026-08-16) — Sensitivity lever (L3 bias grace band) + cross-layer consistency
 
 Live-capture audit (2026-08-15 00:03–00:05 UTC, BTC-USDC): the system answered **HOLD (77%)** to a market showing 4/4 TFs aligned (100% agreement), 33 cross-TF signals, trend 77 / structure 100, and all four TF scores positive — the ±20 composite threshold (score 19.1) zeroed the signed confluence and the whole pipeline went blind, not conservative. The readiness gate (WATCH) already guarded execution; the fix makes the system *hear* consensus without weakening that gate.
 

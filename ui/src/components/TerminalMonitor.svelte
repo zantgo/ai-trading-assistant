@@ -7,13 +7,13 @@
     // belongs architecturally — this tab is pure per-TF observation.
     //
     // Layout:
-    //   Row 1: MarketContextStrip       — per-TF LOCAL synthesis (5 dimensions + regime + overall)
-    //   Row 2: GroupConfluenceGrid      — 8 functional-group cards with directional bias summary
-    //   Row 3: StructuralAnchorsStrip   — Volume Profile / Fibonacci / Liquidity ladder
-    //   Row 4: FacetTabs + body         — 6-tab pivoted exploration
+    //   Row 1: GroupConfluenceGrid      — 8 functional-group cards with directional bias summary
+    //   Row 2: StructuralAnchorsStrip   — Volume Profile / Fibonacci / Liquidity ladder
+    //   Row 3: FacetTabs + body         — 6-tab pivoted exploration
     //
     // Header includes the timeframe selector.
-    // Cross-cutting controls (search, filter pills) live above the facet tabs.
+    // v6.11: all filtering was removed — every facet and the MTF grid show
+    // every indicator and every signal, unfiltered, by construction.
 
     import { useAppStore } from '../state.svelte';
     import type {
@@ -21,8 +21,6 @@
         SignalKind, MarketContext,
     } from '../types';
     import type { WsState } from '../lib/websocket.svelte';
-    import { defaultFilters, filterSignals, type FilterState } from '../lib/filtering';
-    import MarketContextStrip from './MarketContextStrip.svelte';
     import GroupConfluenceGrid from './GroupConfluenceGrid.svelte';
     import StructuralAnchorsStrip from './StructuralAnchorsStrip.svelte';
     import FacetTabs, { type FacetId } from './facets/FacetTabs.svelte';
@@ -83,25 +81,20 @@
     // ── Facet state ───────────────────────────────────────────────────
     let activeFacet = $state<FacetId>('indicators');
     let focusGroup: string | null = $state(null);
-
-    // ── Filters ───────────────────────────────────────────────────────
-    let filters: FilterState = $state(defaultFilters());
-
-    function toggleActiveOnly() { filters = { ...filters, activeOnly: !filters.activeOnly }; }
-    function toggleConfirmed() { filters = { ...filters, confirmedPlusOnly: !filters.confirmedPlusOnly }; }
-    function toggleHideGates() { filters = { ...filters, hideGates: !filters.hideGates }; }
-    function toggleHideOverlays() { filters = { ...filters, hideOverlays: !filters.hideOverlays }; }
-    function clearFilters() { filters = defaultFilters(); }
+    // v6.10.19d (B): the filter pill bars were removed. v6.11: the filter
+    // plumbing itself was removed — the facet renderers and export builders
+    // take no filter state at all, so every indicator and every signal is
+    // ALWAYS shown, unfiltered, by construction.
 
     // ── Per-facet counts ──────────────────────────────────────────────
-    // M-2 (v6.10.11): the badges count the FILTERED result (same
-    // `filterSignals` the facet lists apply) so the tab badge and the
-    // strip's "N signals" badge always match the rows the operator sees.
+    // M-2 (v6.10.11): the badges count the shown result (the Signals facet
+    // lists every signal raw, so the badge is the raw count) — tab badge
+    // and facet rows always agree.
     function countActiveSignals(): number {
         if (!activeTfObj) return 0;
         let n = 0;
         for (const k in activeTfObj.indicators ?? {}) {
-            n += filterSignals(activeTfObj.indicators[k]?.signals ?? [], filters).length;
+            n += (activeTfObj.indicators[k]?.signals ?? []).length;
         }
         return n;
     }
@@ -151,6 +144,9 @@
     }
 
     // ── Header context extraction ─────────────────────────────────────
+    // Per-TF L1 MarketContext — distributed to the owning surfaces (group
+    // cards + LIQUIDITY tile) so the export's `market_context` block is
+    // fully mirrored on screen, each fact exactly once.
     const context = $derived<MarketContext | null | undefined>(activeTfObj?.context);
     const snapshotTs = $derived<number | null>(
         activeTfObj?.latestSnapshot && typeof (activeTfObj.latestSnapshot as any).timestamp === 'number'
@@ -185,7 +181,6 @@
             timestamp: snapshotTs,
             markPrice,
             headerSpec,
-            filters,
             // EMA ribbon periods — single source of truth with the dashboard
             // settings UI (state.svelte.ts:419-422). Drives the `period` field
             // on each line of the `body.ema` block in the export JSON.
@@ -218,7 +213,6 @@
                 macroTerm: pair.macroTerm,
             },
             registry,
-            filters,
             markPrice: parseFloat(pair.microTerm?.priceText ?? '') || 0,
             tfSecs: activeTfEntry?.secs ?? null,
             timestamp: snapshotTs,
@@ -290,41 +284,7 @@
             </LayerHeader>
 
             {#if activeTf === 'Mtf'}
-                <!-- SEARCH + FILTER PILLS (Directly applied to the MTF Grid) -->
-                <div class={styles.controls}>
-                    <div class={styles.pillBar}>
-                        <button
-                            class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
-                            onclick={toggleActiveOnly}
-                        >
-                            Active only
-                        </button>
-                        <button
-                            class="{styles.pill} {filters.confirmedPlusOnly ? styles.pillActive : ''}"
-                            onclick={toggleConfirmed}
-                        >
-                            Confirmed+
-                        </button>
-                        <button
-                            class="{styles.pill} {filters.hideGates ? styles.pillActive : ''}"
-                            onclick={toggleHideGates}
-                        >
-                            Hide gates
-                        </button>
-                        <button
-                            class="{styles.pill} {filters.hideOverlays ? styles.pillActive : ''}"
-                            onclick={toggleHideOverlays}
-                            title="Hide price overlays / price levels / marker rows — they live on the chart and in the Structural Anchors Strip"
-                        >
-                            Hide overlays
-                        </button>
-                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates || filters.hideOverlays}
-                            <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
-                        {/if}
-                    </div>
-                </div>
-
-                <!-- Dedicated Cross-Timeframe Grid Workspace -->
+                <!-- Dedicated Cross-Timeframe Grid Workspace (v6.11: unfiltered — every indicator and every signal across all 4 TFs) -->
                 <div class={styles.facetBody}>
                     <MtfView
                         pair={{
@@ -334,29 +294,21 @@
                             macroTerm: pair.macroTerm,
                         }}
                         registry={registry}
-                        filters={filters}
                     />
                 </div>
             {:else if activeTfObj}
                 <!-- SINGLE TIMEFRAME WORKSPACE -->
 
-                <!-- ROW 1 — MarketContext -->
-                <MarketContextStrip
-                    context={context ?? null}
-                    timestamp={snapshotTs}
-                    barDurationSec={activeTfEntry.secs ?? undefined}
-                    signalCount={countActiveSignals()}
-                />
-
-                <!-- ROW 2 — Group Confluence Grid -->
+                <!-- ROW 1 — Group Confluence Grid -->
                 <GroupConfluenceGrid
                     registry={registry}
                     indicators={activeTfObj.indicators ?? {}}
                     activeGroup={focusGroup}
                     onGroupClick={handleGroupClick}
+                    context={context ?? null}
                 />
 
-                <!-- ROW 2.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
+                <!-- ROW 1.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
                 <!-- M-3 (v6.10.11): read the SNAPSHOT-path liquidity (the
                      tf-level `liquidity` retains the last non-null value
                      across shadow ticks — the RiskPanel documents the same
@@ -382,60 +334,26 @@
                     tf={activeTfObj}
                     microTf={(pair as any)?.microTerm}
                     markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
+                    context={context ?? null}
                 />
-
-                <!-- SEARCH + FILTER PILLS -->
-                <div class={styles.controls}>
-                    <div class={styles.pillBar}>
-                        <button
-                            class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
-                            onclick={toggleActiveOnly}
-                        >
-                            Active only
-                        </button>
-                        <button
-                            class="{styles.pill} {filters.confirmedPlusOnly ? styles.pillActive : ''}"
-                            onclick={toggleConfirmed}
-                        >
-                            Confirmed+
-                        </button>
-                        <button
-                            class="{styles.pill} {filters.hideGates ? styles.pillActive : ''}"
-                            onclick={toggleHideGates}
-                        >
-                            Hide gates
-                        </button>
-                        <button
-                            class="{styles.pill} {filters.hideOverlays ? styles.pillActive : ''}"
-                            onclick={toggleHideOverlays}
-                            title="Hide price overlays / price levels / marker rows — they live on the chart and in the Structural Anchors Strip"
-                        >
-                            Hide overlays
-                        </button>
-                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates || filters.hideOverlays}
-                            <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
-                        {/if}
-                    </div>
-                </div>
 
                 <!-- ROW 3 — Facet Tabs -->
                 <FacetTabs active={activeFacet} facets={facets} onChange={(id) => activeFacet = id} />
 
-                <!-- ROW 4 — Facet Body -->
+                <!-- ROW 4 — Facet Body (v6.11: unfiltered — every signal is always shown) -->
                 <div class={styles.facetBody}>
                     {#if activeFacet === 'indicators'}
                         <IndicatorsView
                             tf={activeTfObj}
                             registry={registry}
-                            filters={filters}
                             focusGroup={focusGroup}
                         />
                     {:else if activeFacet === 'signals'}
-                        <SignalsView tf={activeTfObj} registry={registry} filters={filters} />
+                        <SignalsView tf={activeTfObj} registry={registry} />
                     {:else if activeFacet === 'divergences'}
-                        <DivergencesView tf={activeTfObj} registry={registry} filters={filters} />
+                        <DivergencesView tf={activeTfObj} registry={registry} />
                     {:else if activeFacet === 'levels'}
-                        <LevelsView tf={activeTfObj} registry={registry} filters={filters} />
+                        <LevelsView tf={activeTfObj} registry={registry} />
                     {/if}
                 </div>
             {/if}

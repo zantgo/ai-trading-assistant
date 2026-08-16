@@ -1,6 +1,6 @@
 # Portfolio Management Engine — Overview Specification
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — **WIP**; backend code is implemented (safety manager, position/exposure/capital/portfolio layers, registry, veto loop, all wired in `execution-daemon`), but the dedicated `PortfolioDashboard` is a hardcoded placeholder. Full wiring and dashboard wiring land in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A + C.
 **Engine:** Portfolio Management Engine (PME)
 **Purpose:** This document specifies the boundaries, ledger model, margin/leverage restrictions, and safety architecture of the Portfolio Management Engine — the engine responsible for capital preservation, position tracking, exposure control, and the systemic safety veto.

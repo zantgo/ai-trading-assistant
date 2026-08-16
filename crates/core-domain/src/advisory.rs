@@ -125,6 +125,12 @@ pub struct AdvisoryMatrix {
     /// Synthesized from L3 `market_quality` and the L4 opportunity type —
     /// lower score = more favorable environment.
     pub environment_favorability: RiskDimension,
+    /// Setup-efficiency metric: `analysis.market_quality_score ÷
+    /// risk.overall_risk.score` (both unipolar 0-100). Higher = the setup's
+    /// quality mathematically justifies the risk. `None` when overall risk
+    /// is 0 (division guard).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_to_risk_ratio: Option<f64>,
     pub final_recommendation: String,
 }
 
@@ -144,6 +150,7 @@ impl AdvisoryMatrix {
             stop_loss_distance_pct: 0.0,
             cascade_risk_score: 30.0,
             environment_favorability: RiskDimension::default(),
+            quality_to_risk_ratio: None,
             final_recommendation: "Insufficient data to provide guidance.".into(),
         }
     }
@@ -446,6 +453,15 @@ pub fn compute_advisory(
     // `opportunity_score`, so we reference the parameter directly.
     let environment_favorability = compute_environment_favorability(analysis, opp_matrix);
 
+    // Quality-to-Risk ratio — setup efficiency. Both inputs are unipolar
+    // [0, 100] with opposite semantics (high quality good, high risk bad);
+    // the ratio is higher = better. `None` when overall risk is 0.
+    let quality_to_risk_ratio = if risk.overall_risk.score > 0.0 {
+        Some((analysis.market_quality_score / risk.overall_risk.score * 100.0).round() / 100.0)
+    } else {
+        None
+    };
+
     // Confidence: analysis.state_confidence × (1 - risk.overall/100)
     let confidence = (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
         .clamp(0.0, 100.0);
@@ -586,6 +602,7 @@ pub fn compute_advisory(
         stop_loss_distance_pct,
         cascade_risk_score: risk.cascade_risk.score,
         environment_favorability,
+        quality_to_risk_ratio,
         final_recommendation: recommendation,
     }
 }
@@ -662,5 +679,43 @@ mod tests {
         );
         assert!(adv.final_recommendation.contains("% confidence"));
         assert!(adv.final_recommendation.contains("Entry:"));
+    }
+
+    #[test]
+    fn quality_to_risk_ratio_computed_from_quality_and_overall_risk() {
+        use crate::analysis::{MarketBias, QualityLevel};
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::StrongBullish;
+        analysis.market_quality = QualityLevel::Good;
+        analysis.market_quality_score = 80.0;
+        let mut risk = RiskMatrix::empty("BTC-USD");
+        risk.overall_risk.score = 20.0;
+        let adv = compute_advisory(&analysis, &risk, None, None);
+        assert_eq!(adv.quality_to_risk_ratio, Some(4.0));
+    }
+
+    #[test]
+    fn quality_to_risk_ratio_none_when_overall_risk_zero() {
+        use crate::analysis::MarketBias;
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::StrongBullish;
+        analysis.market_quality_score = 90.0;
+        let mut risk = RiskMatrix::empty("BTC-USD");
+        risk.overall_risk.score = 0.0;
+        let adv = compute_advisory(&analysis, &risk, None, None);
+        assert_eq!(adv.quality_to_risk_ratio, None);
+    }
+
+    #[test]
+    fn advisory_serde_skips_none_quality_to_risk_ratio() {
+        let analysis = AnalysisMatrix::empty("BTC-USD");
+        let risk = RiskMatrix::empty("BTC-USD");
+        let adv = compute_advisory(&analysis, &risk, None, None);
+        let json = serde_json::to_string(&adv).unwrap();
+        assert!(!json.contains("quality_to_risk_ratio"));
+        let back: AdvisoryMatrix = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.quality_to_risk_ratio, None);
     }
 }

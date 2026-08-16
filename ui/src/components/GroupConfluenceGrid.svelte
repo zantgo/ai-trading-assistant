@@ -14,7 +14,7 @@
     // body — communication is via the `onGroupClick` callback so this
     // component stays generic.
 
-    import type { IndicatorDto, IndicatorMeta } from '../types';
+    import type { ContextDimension, IndicatorDto, IndicatorMeta, MarketContext } from '../types';
     import { GROUP_ORDER, GROUP_META } from '../lib/groupMeta';
     import styles from './GroupConfluenceGrid.module.css';
 
@@ -34,9 +34,45 @@
         indicators: Record<string, IndicatorDto>;
         activeGroup?: string | null;
         onGroupClick?: (group: string) => void;
+        /** Per-TF L1 MarketContext — the 4 owning group cards render their
+         *  matching dimension score (same values as the export's
+         *  `market_context` block, exactly once each). */
+        context?: MarketContext | null;
     }
 
-    let { registry, indicators, activeGroup = null, onGroupClick }: Props = $props();
+    let { registry, indicators, activeGroup = null, onGroupClick, context = null }: Props = $props();
+
+    // 1:1 mapping of the 5 L1 synthesis dimensions onto the surfaces that
+    // own the same concept (liquidity lives on the Structural Anchors
+    // LIQUIDITY tile — it has no group card).
+    type DimKey = 'trend' | 'momentum' | 'volatility' | 'volume';
+    const DIM_BY_GROUP: Record<string, DimKey | undefined> = {
+        Trend: 'trend',
+        Momentum: 'momentum',
+        Volatility: 'volatility',
+        Volume: 'volume',
+    };
+
+    function dimFor(group: string): ContextDimension | null {
+        if (!context) return null;
+        const key = DIM_BY_GROUP[group];
+        if (!key) return null;
+        const d = context[key];
+        return d && typeof d.score === 'number' ? d : null;
+    }
+
+    /** Sign-prefixed 2-decimal score — identical formatting to the export
+     *  consumer contract (`market_context.*.score` rendered on screen). */
+    function dimScore(n: number | undefined | null): string {
+        if (n == null || isNaN(n)) return '--';
+        const sign = n > 0 ? '+' : '';
+        return `${sign}${n.toFixed(2)}`;
+    }
+
+    function dimConf(pct: number | undefined | null): string {
+        if (pct == null || isNaN(pct)) return '--%';
+        return `${Math.round(pct * 100)}%`;
+    }
 
     const BULL_THRESHOLD = 0.1;
     const BEAR_THRESHOLD = -0.1;
@@ -105,6 +141,7 @@
         {@const dom = dominantKind(s)}
         {@const dots = buildDots(s)}
         {@const isActive = activeGroup === s.group}
+        {@const ctxDim = dimFor(s.group)}
         <button
             class="{styles.card} {isActive ? styles.cardActive : ''}"
             style="--accent: {meta.accent}"
@@ -135,6 +172,14 @@
                     <span class={styles.signalDot}></span>
                     {s.activeSignals} signal{s.activeSignals > 1 ? 's' : ''}
                 </div>
+            {/if}
+            {#if ctxDim}
+                <span
+                    class={styles.cardCtx}
+                    title={`${meta.label.toUpperCase()} ${dimScore(ctxDim.score)} · ${dimConf(ctxDim.confidence)} · ${ctxDim.label ?? ''}`}
+                >
+                    {dimScore(ctxDim.score)}
+                </span>
             {/if}
             <div class="{styles.cardBias} {styles[`bias_${dom}`]}"></div>
         </button>

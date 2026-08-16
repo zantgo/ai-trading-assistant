@@ -1,6 +1,6 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4
@@ -63,7 +63,7 @@ The startup cascade (invoked from `crates/portfolio-supervisor/src/registry/boot
 2. The pipeline is constructed with an **empty buffer** and enters `CandlePipelineState::LOADING` (see [03-01-06-die-candle-pipeline-states.md §DCP-04](03-01-06-die-candle-pipeline-states.md) and [08-08 §CB-05](../../operations-and-compliance/08-08-candle-buffer-spec.md)).
 3. Live tick ingestion begins immediately; candles accumulate one-by-one as their buckets close.
 4. Indicators report `IndicatorLifecycleState::Loading` until each one reaches its `bars_required` (see [03-02-15-mme-indicator-lifecycle-states.md](../market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)). The pipeline transitions `LOADING → LIVE` after the buffer reaches `candle_buffer.size` entries (DCP-04).
-5. **Cold-start duration:** `candle_buffer.size × timeframe_secs` of wall-clock time from cold start (e.g. 500 × 15 s = 125 minutes for a 15-second micro TF). This is **expected behavior** and is visible to operators via the `tf.pipeline_state` field on every emitted `MarketSnapshot`.
+5. **Cold-start duration:** `candle_buffer.size × timeframe_secs` of wall-clock time from cold start (e.g. 300 × 15 s = 75 minutes for a 15-second micro TF). This is **expected behavior** and is visible to operators via the `tf.pipeline_state` field on every emitted `MarketSnapshot`.
 
 The behavior is intentionally distinct from the v6.4 implementation, which silently requested 1m exchange candles and warmed sub-minute pipelines with mismatched `duration_ms` values — a structural correctness bug documented in [08-08 §1](../../operations-and-compliance/08-08-candle-buffer-spec.md) and fixed by HFP-03.
 

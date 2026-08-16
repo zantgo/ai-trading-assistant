@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildOpportunityTabExport } from './opportunityTab';
+import { buildRecommendationTabExport } from './recommendationTab';
 import type { LayerHeaderSpec } from '../layerHeader';
 import type { OpportunityMatrix, AnalysisMatrix, DecisionContext } from '../../types';
 
@@ -133,7 +134,7 @@ describe('buildOpportunityTabExport', () => {
     expect(p.directional_bars.sort).toBe('desc');
   });
 
-  it('confluent sources are abbreviated (FIB, VP, ATR)', () => {
+  it('confluent sources render full names (FIBONACCI, VOLUME PROFILE, ATR)', () => {
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
@@ -142,23 +143,9 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    expect(p.confluent_entry_levels[0].sources).toEqual(['FIB']);
-    expect(p.confluent_entry_levels[1].sources).toEqual(['VP']);
+    expect(p.confluent_entry_levels[0].sources).toEqual(['FIBONACCI']);
+    expect(p.confluent_entry_levels[1].sources).toEqual(['VOLUME PROFILE']);
     expect(p.confluent_target_levels[0].sources).toEqual(['ATR']);
-  });
-
-  it('no_clear_strip surfaces from the NoClearOpportunity profile', () => {
-    const p = JSON.parse(buildOpportunityTabExport({
-      opportunity: makeOpportunity(),
-      analysis: makeAnalysis(),
-      decisionContext: makeDecisionContext(),
-      symbol: 'BTC-USDC',
-      markPrice: 63369,
-      headerSpec,
-    }));
-    expect(p.no_clear_strip).not.toBeNull();
-    expect(p.no_clear_strip.badge).toBe('NO CLEAR OPPORTUNITY');
-    expect(p.no_clear_strip.preconditions_met).toBe(1);
   });
 
   it('rr_internal uses available/value/reason triple', () => {
@@ -172,6 +159,58 @@ describe('buildOpportunityTabExport', () => {
     }));
     expect(typeof p.rr_internal.expected_rr_available).toBe('boolean');
     expect('expected_rr_value' in p.rr_internal).toBe(true);
+  });
+
+  it('v6.14: score_display prefers the backend display_score (drift guard)', () => {
+    // A 2/3-precondition profile: the local legacy rule would compute
+    // round(60.12 × 2/3) = 40, but the wire carries the authoritative 37
+    // — the export must mirror the wire value (single source of truth).
+    const opp = makeOpportunity();
+    opp.profiles = [
+      {
+        ...opp.profiles[0],
+        score: 60.12,
+        preconditions_met: 2,
+        preconditions_total: 3,
+        display_score: 37,
+      },
+    ];
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp,
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.trade_setups[0].score_display).toBe(37);
+    expect(p.trade_setups[0].score).toBe(60.12);
+    expect(p.evaluated_setups[0].score_display).toBe(37);
+    expect(p.evaluated_setups[0].score).toBe(60.12);
+  });
+
+  it('v6.14: legacy payloads without display_score fall back to the local rule', () => {
+    // No `display_score` on the wire → the export reproduces the legacy
+    // displayScore rule: round(60.12 × 2/3) = 40.
+    const opp = makeOpportunity();
+    opp.profiles = [
+      {
+        ...opp.profiles[0],
+        score: 60.12,
+        preconditions_met: 2,
+        preconditions_total: 3,
+        display_score: null,
+      },
+    ];
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp,
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.trade_setups[0].score_display).toBe(40);
   });
 
   it('FIX-O4: a DirectionalNeutral card reports no_directional_bias, not no_actionable_geometry', () => {
@@ -267,7 +306,7 @@ describe('buildOpportunityTabExport', () => {
     expect(p.evaluated_setups[0].viability).toBe('Actionable');
   });
 
-  it('environment includes the display string for TFs considered', () => {
+  it('environment includes the display string for Timeframes considered', () => {
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
@@ -277,7 +316,7 @@ describe('buildOpportunityTabExport', () => {
       headerSpec,
     }));
     expect(p.environment.timeframes_considered).toBe(4);
-    expect(p.environment.timeframes_considered_display).toBe('4/4 TFs considered');
+    expect(p.environment.timeframes_considered_display).toBe('4/4 Timeframes considered');
   });
 
   it('trade_setups carry badge_text mirroring screen badges', () => {
@@ -294,7 +333,7 @@ describe('buildOpportunityTabExport', () => {
     // edge to act on), never "TOP · ACTIONABLE".
     expect(p.trade_setups.length).toBeGreaterThan(0);
     const first = p.trade_setups[0];
-    expect(['TOP · ACTIONABLE', 'QUALIFYING', 'ACTIONABLE', 'NEUTRAL · HOLD', 'GEOMETRY INVERTED', 'Actionable', 'Qualifying', 'DirectionalNeutral', 'GeometryInverted', 'NoClear'])
+    expect(['TOP · ACTIONABLE', 'QUALIFYING', 'ACTIONABLE', 'RANGE · NEUTRAL', 'GEOMETRY INVERTED', 'Actionable', 'Qualifying', 'DirectionalNeutral', 'GeometryInverted', 'NoClear'])
       .toContain(first.badge_text);
     expect(first.viability).toBeDefined();
   });
@@ -325,10 +364,11 @@ describe('buildOpportunityTabExport', () => {
     expect(p.evaluated_setups[0].notes).toBe('pullback_to_EMA20');
   });
 
-  it('directional_bars always emit — mirror the L6 split, 0/0/100 only without probabilities', () => {
-    // v6.10.18 (I-4): the L4 bars mirror the L6 verdict split whenever a
-    // decision context carries probabilities (the panel rule) — the
-    // 0/0/100 shape survives only for probability-less legacy payloads.
+  it('directional_bars always emit — L4 bracket conviction only (never the L6 split)', () => {
+    // v7.1: the L4 bars read ONLY the opportunity matrix (score ×
+    // active-side R:R). The L6 decision probabilities never shape them —
+    // with no matrix the bars are 0/0/100 even when the decision context
+    // carries a directional split (30/40/30 here).
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: null,
       analysis: makeAnalysis(),
@@ -337,8 +377,9 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    expect(p.directional_bars).toEqual({ bullish_pct: 30, bearish_pct: 40, hold_pct: 30, sort: 'desc', lean_floor_applied: false });
+    expect(p.directional_bars).toEqual({ bullish_pct: 0, bearish_pct: 0, hold_pct: 100, sort: 'desc' });
 
+    // Probability-less legacy payloads behave identically.
     const legacy = JSON.parse(buildOpportunityTabExport({
       opportunity: null,
       analysis: makeAnalysis(),
@@ -347,7 +388,7 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    expect(legacy.directional_bars).toEqual({ bullish_pct: 0, bearish_pct: 0, hold_pct: 100, sort: 'desc', lean_floor_applied: false });
+    expect(legacy.directional_bars).toEqual({ bullish_pct: 0, bearish_pct: 0, hold_pct: 100, sort: 'desc' });
   });
 
   it('expected R:R of 0 with a non-HOLD top renders available:true value:0 ("0.00" on screen)', () => {
@@ -366,7 +407,7 @@ describe('buildOpportunityTabExport', () => {
     expect(p.rr_internal.expected_rr_reason).toBeNull();
   });
 
-  it('empty states render "—" placeholders (header class, horizon, market position)', () => {
+  it('empty states render "—" placeholders (horizon, market position)', () => {
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: null,
       analysis: null,
@@ -375,11 +416,135 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    expect(p.header_block.opportunity_class).toBe('—');
     expect(p.rr_internal.time_horizon).toBe('—');
     expect(p.market_position.bias).toBe('—');
     expect(p.market_position.regime).toBe('—');
     expect(p.market_position.trend).toBe('—');
     expect(p.market_position.quality).toBe('—');
+  });
+
+  it('C2 (v6.10.19b): trade_setup_sections mirror the sectioned panel — three always-present sections with full per-setup values', () => {
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.trade_setup_sections.length).toBe(3);
+    // v7.1: folders are RANKED by content (the populated folder first —
+    // same relevance ordering as the conviction bars), then by the top
+    // setup's score; the fixed RANGE → BULL → BEAR fallback only applies
+    // to empty ties. Here BULL hosts the qualifying Breakout, BEAR hosts
+    // its reference bracket, NEUTRAL is empty.
+    expect(p.trade_setup_sections[0]).toMatchObject({ section: 'BULL', label: 'BULLISH' });
+    expect(p.trade_setup_sections[1]).toMatchObject({ section: 'BEAR', label: 'BEARISH' });
+    expect(p.trade_setup_sections[2]).toMatchObject({ section: 'NEUTRAL', label: 'RANGE' });
+    // The qualifying LONG Breakout rides in BULL with EVERY value.
+    const setup = p.trade_setup_sections[0].setups[0];
+    expect(setup).toBeTruthy();
+    expect(setup.opportunity_type).toBe('Breakout');
+    expect(setup.entry_zone).toEqual({ low: 63320, high: 63340 });
+    expect(setup.tp1).toBeGreaterThan(0);
+    expect(setup.tp2).toBeGreaterThan(0);
+    expect(setup.invalidation).toBe(63327);
+    // The fixture's Breakout carries long_geometry_consistent: false —
+    // the A2 fix respects the server flag (R:R N/A, never a leaked value).
+    expect(setup.rr_value).toBeNull();
+    expect(setup.rr_reason).toBe('geometry inverted');
+    expect(setup.preconditions_met).toBe(2);
+    expect(setup.preconditions_total).toBe(2);
+    expect(setup.geometry_consistent).toBe(false);
+    // v6.10.21: a card whose geometry is inconsistent always renders the
+    // State D warning badge — never a Qualifying badge (panel parity).
+    expect(setup.badge_text).toBe('GEOMETRY INVERTED');
+    expect(setup.notes).toBe('Breakout');
+    expect(setup.section).toBe('BULL');
+    // The BEAR folder hosts the SHORT aggregated reference bracket
+    // (informational — the folder's content count includes it).
+    expect(p.trade_setup_sections[1].setups.length).toBe(1);
+    expect(p.trade_setup_sections[1].setups[0].opportunity_type).toBe('Aggregated Bracket');
+    expect(p.trade_setup_sections[1].setups[0].badge_text).toBe('INFORMATIONAL');
+    // Empty sections stay present.
+    expect(p.trade_setup_sections[2].setups).toEqual([]);
+  });
+
+  it('C1 (v6.10.19b, parity invariant): the SHORT-verdict reference bracket the Recommendation headlines rides in the BEAR section with the SAME zones', () => {
+    // The 20:42 shape: SHORT verdict (54%) with only a LONG countertrend
+    // MeanReversion qualifying. The Recommendation headlines the SHORT
+    // aggregated reference bracket; the Opportunities export must carry
+    // that exact bracket (BEAR section) AND the LONG qualifying profile
+    // (BULL section) — nothing is lost.
+    const opp = makeOpportunity();
+    opp.primary_opportunity = 'MeanReversion';
+    opp.opportunity_score = 52.7;
+    opp.long_entry_zone = { low: 62558.5, high: 63023.9 };
+    opp.long_target_zone = { low: 63134.4, high: 63416.2 };
+    opp.long_invalidation_level = 62558.2;
+    opp.long_expected_rr_internal = 1.14;
+    opp.long_geometry_consistent = true;
+    opp.short_entry_zone = { low: 63071, high: 63416.2 };
+    opp.short_target_zone = { low: 62978.6, high: 63030 };
+    opp.short_invalidation_level = 63416.4;
+    opp.short_expected_rr_internal = 1.12;
+    opp.short_geometry_consistent = true;
+    opp.profiles = [{
+      opportunity_type: 'MeanReversion',
+      score: 52.7,
+      preconditions_met: 2,
+      preconditions_total: 2,
+      notes: 'MeanReversion',
+      direction_family: 'CounterTrend',
+      long_entry_zone: { low: 62558.5, high: 63023.9 },
+      long_target_zone: { low: 63134.4, high: 63416.2 },
+      long_invalidation_level: 62558.2,
+      long_expected_rr_internal: 1.14,
+      long_geometry_consistent: true,
+      short_entry_zone: null,
+      short_target_zone: null,
+      short_invalidation_level: null,
+      short_expected_rr_internal: null,
+      short_geometry_consistent: false,
+      trade_viability: 'Actionable',
+    }];
+    const dc = {
+      ...makeDecisionContext(),
+      bias: 'Bearish',
+      long_probability: 2,
+      short_probability: 54,
+      hold_probability: 44,
+      net_bias_pct: -52,
+    } as unknown as DecisionContext;
+    const analysis = makeAnalysis({ bias: 'Bearish' });
+    const oppExport = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp, analysis, decisionContext: dc, symbol: 'BTC-USDC', markPrice: 63047, headerSpec,
+    }));
+    const recExport = JSON.parse(buildRecommendationTabExport({
+      advisory: { directional_guidance: 'Short', market_stance: 'Cautious', strategy_environment: 'MeanReversion', opportunity_classification: 'MeanReversion', confidence_assessment: 18.6 } as any,
+      decisionContext: dc, opportunity: opp, analysis, symbol: 'BTC-USDC', markPrice: 63047, headerSpec,
+    }));
+    // The Recommendation headlines the verdict-consistent SHORT bracket.
+    expect(recExport.top_setup.direction_label).toBe('SHORT');
+    expect(recExport.top_setup.opportunity_type).toBe('Aggregated Bracket');
+    // The identical bracket rides in the BEAR section of Opportunities.
+    // v7.1: sections are RANKED — BULL (the qualifying LONG MeanReversion)
+    // first, then BEAR (its reference bracket), then empty NEUTRAL — so
+    // find the BEAR section by key instead of by fixed index.
+    const bearSection = oppExport.trade_setup_sections.find((s: any) => s.section === 'BEAR');
+    const bearRef = bearSection.setups.find((r: any) => r.opportunity_type === 'Aggregated Bracket');
+    expect(bearRef).toBeTruthy();
+    expect(bearRef!.entry_zone.low).toBeCloseTo(recExport.top_setup.entry_zone.low, 1);
+    expect(bearRef!.entry_zone.high).toBeCloseTo(recExport.top_setup.entry_zone.high, 1);
+    expect(bearRef!.invalidation).toBeCloseTo(recExport.top_setup.invalidation, 1);
+    expect(bearRef!.badge_text).toBe('INFORMATIONAL');
+    // The LONG qualifying profile stays in the BULL section.
+    const bullSection = oppExport.trade_setup_sections.find((s: any) => s.section === 'BULL');
+    expect(bullSection.setups[0].opportunity_type).toBe('Mean Reversion');
+    // BULL ranks first (content tie with BEAR, top score wins).
+    expect(oppExport.trade_setup_sections[0].section).toBe('BULL');
+    // And the Recommendation surfaces it as an alternate.
+    expect(recExport.top_setup.alternate_qualifying_setups.length).toBe(1);
+    expect(recExport.top_setup.alternate_qualifying_setups[0].side).toBe('LONG');
   });
 });

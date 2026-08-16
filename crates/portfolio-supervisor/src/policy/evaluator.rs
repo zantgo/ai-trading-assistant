@@ -394,6 +394,7 @@ mod tests {
             state: RiskState::Stable,
             confidence: 80.0,
             evidence: vec![],
+            volatility_to_spread_ratio: None,
         };
 
         MarketSnapshot {
@@ -428,6 +429,14 @@ mod tests {
                 opportunity_analysis: OpportunityType::Breakout,
                 market_quality: QualityLevel::Good,
                 market_quality_score: 70.0,
+                trend_stability_sharpe: None,
+                trend_score: None,
+                momentum_score: None,
+                structure_score: None,
+                volatility_score: None,
+                volume_score: None,
+                representative_bbwp: None,
+                representative_adx: None,
                 market_phase: MarketPhase::Markup,
                 market_interpretation: "Test".into(),
                 rationale: String::new(),
@@ -461,6 +470,7 @@ mod tests {
                 stop_loss_distance_pct: 2.0,
                 cascade_risk_score: 30.0,
                 environment_favorability: RiskDimension::default(),
+                quality_to_risk_ratio: None,
                 final_recommendation: "Test reco".into(),
             }),
             open_interest: None, oi_delta_1h: None,

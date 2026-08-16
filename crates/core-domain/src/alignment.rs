@@ -123,14 +123,18 @@ pub struct AlignmentMatrix {
     pub mtf_overall_score: f64,
     pub mtf_overall_label: String,
     /// Effective blend weights applied to `mtf_overall_score`
-    /// (`[(key, weight)]` over T / M / Vt / Vm). Always populated by
-    /// `compute_alignment` so consumers (the Alignment export's
-    /// score_calculation block, docs) mirror the EXACT formula used.
-    /// v6.10.16: under thin participation (volume dimension < 25) the
-    /// volume weight drops 0.10 → 0.05 and the freed weight moves to
-    /// Trend/Momentum (0.50/0.30 → 0.55/0.35) so four aligned timeframes
-    /// can no longer be vetoed below threshold by a low-participation
-    /// volume read.
+    /// (`[(key, weight)]` over Trend / Momentum / Volume / Volatility).
+    /// Always populated by `compute_alignment` so consumers (the
+    /// Alignment export's score_calculation block, docs) mirror the EXACT
+    /// formula used. v6.10.16: under thin participation (volume dimension
+    /// < 25) the volume weight drops 0.10 → 0.05 and the freed weight
+    /// moves to Trend/Momentum (0.50/0.30 → 0.55/0.35) so four aligned
+    /// timeframes can no longer be vetoed below threshold by a
+    /// low-participation volume read. v6.10.18: keys are the full
+    /// dimension names — the legacy "Vt"/"Vm" abbreviations labeled
+    /// Volume/Volatility swapped vs. the spec (`V_t` = volatility,
+    /// `V_m` = volume, 02-01 §4.2); full-word keys make each weight bind
+    /// to exactly one `mtf_*_alignment` field with no ambiguity.
     #[serde(default)]
     pub blend_weights: Vec<(String, f64)>,
     pub timeframe_alignments: Vec<TfAlignmentInfo>,
@@ -384,28 +388,31 @@ pub fn compute_alignment(
     // dimension reads THIN/VERY_THIN (score < 25) the volume vote is a
     // participation qualifier, not a directional signal — a 10%-weight
     // dimension must not be able to veto four aligned timeframes into
-    // NEUTRAL. The effective weights shift Vt 0.10 → 0.05 with the freed
-    // weight re-distributed to Trend/Momentum (0.50/0.30 → 0.55/0.35).
-    // The applied weights ride on `blend_weights` so the export's
-    // score_calculation mirrors the exact formula (02-01 §blend).
+    // NEUTRAL. The effective weights shift the volume weight 0.10 → 0.05
+    // with the freed weight re-distributed to Trend/Momentum (0.50/0.30 →
+    // 0.55/0.35). The applied weights ride on `blend_weights` so the
+    // export's score_calculation mirrors the exact formula (02-01 §blend).
+    // v6.10.18: keys are full dimension names ("Volume"/"Volatility") —
+    // the legacy "Vt"/"Vm" keys were bound to Volume/Volatility swapped
+    // vs. the spec, mislabeling the alignment panel's weight chips.
     let volume_dim = AlignmentDimension::from_signed(mtf_volume_alignment);
     let thin_participation = volume_dim.score < 25.0;
-    let (wt, wm, wvt, wvm): (f64, f64, f64, f64) = if thin_participation {
+    let (wt, wm, wvol, wvola): (f64, f64, f64, f64) = if thin_participation {
         (0.55, 0.35, 0.05, 0.05)
     } else {
         (0.5, 0.3, 0.1, 0.1)
     };
     let blend_weights: Vec<(String, f64)> = vec![
-        ("T".into(), wt),
-        ("M".into(), wm),
-        ("Vt".into(), wvt),
-        ("Vm".into(), wvm),
+        ("Trend".into(), wt),
+        ("Momentum".into(), wm),
+        ("Volume".into(), wvol),
+        ("Volatility".into(), wvola),
     ];
 
     let mtf_blend = mtf_trend_alignment * wt
         + mtf_momentum_alignment * wm
-        + mtf_volume_alignment * wvt
-        + mtf_volatility_alignment * wvm;
+        + mtf_volume_alignment * wvol
+        + mtf_volatility_alignment * wvola;
     let mtf_overall_score = (mtf_blend * 100.0).max(-100.0).min(100.0);
 
     let total_tf = tf_data.len() as f64;
@@ -633,17 +640,23 @@ mod tests {
         );
         assert_eq!(c.blend_weights.len(), 4);
         let w = |k: &str| c.blend_weights.iter().find(|(kk, _)| kk == k).map(|(_, v)| *v).unwrap();
-        assert_eq!(w("T"), 0.5);
-        assert_eq!(w("M"), 0.3);
-        assert_eq!(w("Vt"), 0.1);
-        assert_eq!(w("Vm"), 0.1);
+        assert_eq!(w("Trend"), 0.5);
+        assert_eq!(w("Momentum"), 0.3);
+        assert_eq!(w("Volume"), 0.1);
+        assert_eq!(w("Volatility"), 0.1);
+        // v6.10.18: keys are full dimension names — no "Vt"/"Vm"
+        // abbreviations (legacy keys mislabeled Volume/Volatility).
+        assert!(c.blend_weights.iter().all(|(k, _)| {
+            k == "Trend" || k == "Momentum" || k == "Volume" || k == "Volatility"
+        }));
     }
 
     #[test]
     fn thin_participation_reweights_volume_down() {
         // v6.10.16 (FIX-H2): THIN volume (dim score < 25) shifts the blend
-        // to T 0.55 / M 0.35 / Vt 0.05 / Vm 0.05 so a low-participation
-        // volume read cannot veto four aligned timeframes into NEUTRAL.
+        // to Trend 0.55 / Momentum 0.35 / Volume 0.05 / Volatility 0.05
+        // so a low-participation volume read cannot veto four aligned
+        // timeframes into NEUTRAL.
         let bull = build_map(70.0, 0.8, 30.0, 60.0, 1.5);
         let mut ctx = bull_ctx(70);
         ctx.volume = ContextDimension {
@@ -662,10 +675,10 @@ mod tests {
         );
         assert!(c.dimensions[2].score < 25.0, "volume dim must read THIN");
         let w = |k: &str| c.blend_weights.iter().find(|(kk, _)| kk == k).map(|(_, v)| *v).unwrap();
-        assert_eq!(w("T"), 0.55);
-        assert_eq!(w("M"), 0.35);
-        assert_eq!(w("Vt"), 0.05);
-        assert_eq!(w("Vm"), 0.05);
+        assert_eq!(w("Trend"), 0.55);
+        assert_eq!(w("Momentum"), 0.35);
+        assert_eq!(w("Volume"), 0.05);
+        assert_eq!(w("Volatility"), 0.05);
         // With the drag reweighted (0.10 → 0.05) the composite reads
         // materially higher than the standard blend would give.
         let standard_blend = c.mtf_trend_alignment * 0.5

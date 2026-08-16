@@ -155,8 +155,8 @@ pub struct IndicatorMeta {
     /// Minimum number of input bars the calculator needs before it can emit
     /// a non-`None` reading. Drives the per-indicator `Loading → Live`
     /// transition in [03-02-15 ILS-11](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md).
-    /// For 50 indicators at the canonical `[candle_buffer] size = 500`,
-    /// every `bars_required ≤ 200` so a fully-warmed pipeline is `Live`
+    /// For 52 indicators at the canonical `[candle_buffer] size = 500`,
+    /// every `bars_required ≤ 300` so a fully-warmed pipeline is `Live`
     /// across all indicators (DCP-04 / ILS-05). Note: `ema_stack` carries
     /// `bars_required = 1` — its per-line availability is gated by period
     /// inside `inject_ema_values` (AUDIT-V8-001).
@@ -867,7 +867,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         key: "bbwp",
         display_name: "BBWP",
         // AUDIT-AIU-080: real warmup is period + lookback = 272; the gate
-        // stays 200 (the INDICATORS_MAX_BARS_REQUIRED invariant) and the
+        // stays 200 (well below the INDICATORS_MAX_BARS_REQUIRED = 300
+        // invariant, which is carried by price_trend_sharpe) and the
         // lifecycle doc notes BBWP shows WARMING from 200→272.
         group: Volatility,
         class: Leading,
@@ -1459,6 +1460,36 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         updates_on_shadow: false,
         signal_capability: SignalCapability::DataOnly,
     },
+    // ── PRICE-TREND SHARPE (L1 regime statistical proof) ──
+    // Annualized Sharpe of price log returns over the trailing 300-bar
+    // window. Computed by the pipeline from the rolling `close_history`
+    // buffer (see `indicators/ratio.rs`); injected into the indicator map
+    // in `analyzer/normalize.rs` after `normalize_all`. `bars_required`
+    // (300) is well below the canonical `[candle_buffer] size` (500), so
+    // the indicator reaches `Live` at its own 300-bar requirement,
+    // independent of the buffer-fill gate — no lifecycle lock.
+    IndicatorMeta {
+        key: "price_trend_sharpe",
+        display_name: "Price Trend Sharpe",
+        group: Regime,
+        class: Lagging,
+        render: Pane,
+        directional: true,
+        supports_divergence: false,
+        signal_types: &[],
+        default_weight: 1.0,
+        default_enabled: true,
+        config_params: &[],
+        value_format: "ratio2",
+        value_source: "raw",
+        color: "#facc15",
+        guide_section: "24",
+        bars_required: 300,
+        data_source: Some(CandleBased),
+        normalization_mode: None,
+        updates_on_shadow: false,
+        signal_capability: SignalCapability::AlwaysActive,
+    },
 ];
 
 /// Return the full manifest as an owned vector (for API serialization).
@@ -1468,12 +1499,18 @@ pub fn all() -> Vec<IndicatorMeta> {
 
 /// Maximum `bars_required` across all indicators in the registry.
 /// Every candle-based indicator is mathematically correct once the buffer
-/// holds at least this many bars (200 = Hull MA / BBWP).  Used as
-/// the lower-tier mathematical-gate (Layer 1); the higher-tier system-gate
-/// (Layer 2) is `[candle_buffer] size` (default 500).
+/// holds at least this many bars (300 = the L1 `price_trend_sharpe` window).
+/// This is the **indicator-tier floor** — one of three independent candle
+/// numbers: 300 here (calculation minimum), `[candle_buffer] size` (default
+/// 500, the historical warmup), and `HIST_BUFFER_MAX` (1000, the absolute
+/// in-memory cap — never more than 1000 candles, sub-minute and
+/// above-minute, same behavior). Used as the lower-tier mathematical-gate
+/// (Layer 1); the higher-tier system-gate (Layer 2) is `[candle_buffer]
+/// size` (default 500).
 /// (AUDIT-V8-001: ema_stack dropped to 1 — per-line period gating replaced
-/// the whole-ribbon 200-bar gate; the constant stays 200 via BBWP/Hull MA.)
-pub const INDICATORS_MAX_BARS_REQUIRED: u32 = 200;
+/// the whole-ribbon 200-bar gate; BBWP's registry gate stays 200 below the
+/// 272-bar true warmup — see 03-02-15.)
+pub const INDICATORS_MAX_BARS_REQUIRED: u32 = 300;
 
 /// Look up an indicator's metadata by key.
 pub fn get(key: &str) -> Option<&'static IndicatorMeta> {
@@ -1585,7 +1622,7 @@ mod tests {
     }
 
     #[test]
-    fn test_max_bars_required_is_200() {
+    fn test_max_bars_required_is_300() {
         let max_bars = INDICATORS
             .iter()
             .map(|m| m.bars_required)
@@ -1595,6 +1632,11 @@ mod tests {
             max_bars, INDICATORS_MAX_BARS_REQUIRED,
             "INDICATORS_MAX_BARS_REQUIRED must match the actual maximum bars_required"
         );
+        // The invariant is the price_trend_sharpe window — equal to the
+        // canonical [candle_buffer] size (300) so the indicator goes Live
+        // exactly when the pipeline buffer fills.
+        let sharpe = get("price_trend_sharpe").expect("price_trend_sharpe registered");
+        assert_eq!(sharpe.bars_required as u32, INDICATORS_MAX_BARS_REQUIRED);
     }
 
     #[test]

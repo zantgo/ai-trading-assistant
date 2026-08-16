@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:**  6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -1299,6 +1299,13 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
   "volatility_assessment": "EXPANDING",
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
+  "market_quality_score": 72.0,
+  "trend_stability_sharpe": 3.85,
+  "trend_score": 76.5,
+  "momentum_score": 83.2,
+  "structure_score": 81.4,
+  "volatility_score": 55.0,
+  "volume_score": 78.8,
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, expanding volatility, and strong volume participation. Favors trend continuation.",
   "rationale": "MTF overall score 40/100 → BULLISH. Majority of 4 timeframes agree (75%). 3 signals across multiple timeframes.",
   "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
@@ -1389,7 +1396,7 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
   "structure_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "momentum_risk": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "signal_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
-  "execution_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
+  "execution_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "volatility_to_spread_ratio": 8.4 },
   "cascade_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "overall_risk": { "score": 28.3, "level": "LOW", "state": "STABLE", "confidence": 50.0 }
 }
@@ -1404,7 +1411,7 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 | `structure_risk` | Weak or damaged price structure |
 | `momentum_risk` | Exhausted / diverging momentum |
 | `signal_risk` | Conflicting or unreliable signals |
-| `execution_risk` | Practical difficulty (spread, slippage, thin book) |
+| `execution_risk` | Practical difficulty (spread, slippage, thin book). **v6.11:** carries the optional `volatility_to_spread_ratio` (`ATR(14) ÷ top-of-book spread`, execution-friction gauge; absent on the other eight dimensions). |
 | `cascade_risk` | Forced liquidation cascade danger (Phase 3) |
 | `overall_risk` | Weighted aggregate: `0.14M + 0.14V + 0.14L_ex + 0.10S + 0.14Mo + 0.10Sig + 0.10E + 0.14C` |
 
@@ -1432,6 +1439,7 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
     "trade_readiness": "FORMING",
     "entry_danger": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
     "expected_reward_risk_ratio": 1.79,
+    "quality_to_risk_ratio": 3.53,
     "confidence_assessment": 46.61,
     "final_recommendation": "Long bias forming: BULLISH with 46.6% confidence; PRIME setup; await confirmation before full sizing."
   },
@@ -1454,6 +1462,7 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 >
 > - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(25, 15) = 20.0` (GOOD quality ⇒ `quality_penalty = 25`)
 > - `expected_reward_risk_ratio = (active-side R:R) × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 1.79`
+> - `quality_to_risk_ratio = market_quality_score ÷ overall_risk.score = 100 ÷ 28.3 ≈ 3.53` (v6.11 setup-efficiency metric; `None` when risk = 0)
 > - `confidence_assessment = state_confidence × (1 − overall_risk / 100) × 100 = 0.65 × 0.717 × 100 = 46.61`
 >
 > See [Decision Matrix §6](../matrices/02-04-decision-matrix.md) for the corresponding worked calculation.
@@ -1507,13 +1516,13 @@ $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penal
 
 ## Appendix B — Complete Indicator, Signal, and SignalKind Manifest
 
-This appendix provides the definitive registry-verified manifest of all 51 indicators, **101 signal-kind declarations** (post-v6.6 — the historical 101 → 100 transition is documented in §B.3's editor's note and §B.2's count row, and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry), and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/market-analyzer/src/indicators/registry.rs`.
+This appendix provides the definitive registry-verified manifest of all **52** indicators, **101 signal-kind declarations** (post-v6.6 — the historical 101 → 100 transition is documented in §B.3's editor's note and §B.2's count row, and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry), and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 
-### B.1 Complete Indicator Registry (51 entries, 8 groups)
+### B.1 Complete Indicator Registry (52 entries, 8 groups)
 
-> **51, not 50.** The registry contains 51 entries (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + **8** Derivatives). The previous "50" count predates v6.6's `mark_index_spread` registry tagging — the row is listed in the Derivatives table below. The canonical count is registry-verified at every commit (`crates/market-analyzer/src/indicators/registry.rs`).
+> **52, not 50/51.** The registry contains 52 entries (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + **5** Regime + 4 Institutional + 8 Derivatives). The "50" count predates v6.6's `mark_index_spread` registry tagging (51) and v6.11's `price_trend_sharpe` (52) — both rows are listed in their group tables below. The canonical count is registry-verified at every commit (`crates/market-analyzer/src/indicators/registry.rs`).
 
 #### TREND (10)
 
@@ -1575,7 +1584,7 @@ This appendix provides the definitive registry-verified manifest of all 51 indic
 | `patterns` | Patterns | Leading | Y | PatternForming×2 |
 | `candlestick` | Candlestick | Leading | Y | PatternForming×2 |
 
-#### REGIME (4)
+#### REGIME (5)
 
 | Key | Display Name | Class | Dir | SignalKinds |
 |-----|-------------|-------|-----|-------------|
@@ -1583,6 +1592,7 @@ This appendix provides the definitive registry-verified manifest of all 51 indic
 | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease |
 | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 |
 | `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross |
+| `price_trend_sharpe` | Price Trend Sharpe | Lagging | Y | — (data-only, v6.11) |
 
 > **Aroon Crossover removed.** Aroon's `Crossover` signals were reclassified to `TrendFlip`. The `TrendFlip` multiplicity is unchanged at `×2` (the existing bullish/bearish flip pair absorbs the dropped crossover events). See `04-02-36-aroon.md §4` and `05-02-02-crossover.md §2`. The registry verifies `Crossover = 10` and `TrendFlip = 10` in the current count (post-v6.6, after the `mark_index_spread` Threshold addition).
 
@@ -1614,8 +1624,8 @@ This appendix provides the definitive registry-verified manifest of all 51 indic
 
 | Metric | Count |
 |--------|-------|
-| Total Registry Entries | **51** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives) |
-| Directional (scoring contributors) | **41** |
+| Total Registry Entries | **52** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional + 8 Derivatives) |
+| Directional (scoring contributors) | **42** |
 | Non-Directional Gates | **10** (`volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`, `open_interest`, `mark_index_spread`) |
 | Indicators Supporting Divergence | **8** (`rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) |
 | Total Signal-Kind × Indicator Declarations | **101** (one declaration per `(indicator, SignalKind)` pair; `×N` in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Registry-verified. The earlier "100 → 101" transition reflects the v6.6 `mark_index_spread` registry entry; the historical `101 → 100` reduction is preserved in Appendix B §B.3 editor's note. |
@@ -1647,7 +1657,7 @@ Canonical counts — registry-verified against `crates/market-analyzer/src/indic
 
 > The registry is the authoritative source of truth (`crates/market-analyzer/src/indicators/registry.rs`). Any disagreement between this table and the registry is resolved in favor of the registry.
 
-**×N notation.** The `×N` suffix on per-indicator manifest rows (e.g. `PatternForming×2` for `patterns` and `candlestick`) counts **internal event multiplicity within a single declaration**, not declaration count. For example, `patterns` has exactly one `(patterns, PatternForming)` declaration in the registry, but emits multiple PatternForming event subtypes — the `×2` reflects that internal multiplicity. It does **not** mean "2 declarations of `(patterns, PatternForming)`". The 101-declaration total above is the sum of distinct `(indicator, SignalKind)` pairs across all 51 indicators.
+**×N notation.** The `×N` suffix on per-indicator manifest rows (e.g. `PatternForming×2` for `patterns` and `candlestick`) counts **internal event multiplicity within a single declaration**, not declaration count. For example, `patterns` has exactly one `(patterns, PatternForming)` declaration in the registry, but emits multiple PatternForming event subtypes — the `×2` reflects that internal multiplicity. It does **not** mean "2 declarations of `(patterns, PatternForming)`". The 101-declaration total above is the sum of distinct `(indicator, SignalKind)` pairs across all 52 indicators.
 
 ---
 
@@ -1702,6 +1712,11 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
 *   **Market Regime:** The underlying environmental behavior of an asset, defining the structural context (e.g., `EXPANSION`, `RANGE`).
 *   **Matrix:** The structured, immutable output produced by an analytical layer, serving as the interface contract between stages.
 *   **Opportunity Score:** A numeric representation from 0 to 100 expressing the density of high-probability entry criteria present in the market.
+*   **Price-Trend Sharpe Ratio (v6.11):** The annualized Sharpe ratio of raw price log returns over the trailing 300-bar window (L1 `price_trend_sharpe` indicator, Regime group). It quantifies the relative smoothness and return consistency of the price series on a single timeframe: `mean(ln(c_t/c_{t−1})) ÷ σ(ln(c_t/c_{t−1})) × sqrt((86400/timeframe_secs) × 365)`. A high positive value (e.g. `+2.40`) indicates a highly consistent, low-noise price trend suitable for trend-riding.
+*   **Quality-to-Risk Ratio (v6.11):** The setup-efficiency metric on the L6 Advisory Matrix (`quality_to_risk_ratio`): `AnalysisMatrix.market_quality_score ÷ RiskMatrix.overall_risk.score`, both unipolar `[0, 100]`. It tells the trader whether the risk is mathematically justified by the setup's quality — high quality with low risk yields a high ratio (favorable entry environment); low quality with high risk yields a low ratio (avoid). `None` when the risk score is zero.
 *   **Risk Score:** A numeric representation from 0 to 100 expressing the structural, technical, and execution dangers inherent in the current market environment, independent of directional bias.
 *   **Slippage:** The difference between the targeted execution price of an automation policy and the actual filled price on an exchange.
 *   **Trade Readiness:** A classification status indicating whether technical and structural conditions have sufficiently matured to support an entry attempt.
+*   **Trend Stability Sharpe (v6.11):** The annualized Sharpe ratio of the 50-period EMA's logarithmic returns over the trailing 300-bar window (L3 `AnalysisMatrix.trend_stability_sharpe`). It measures the directional stability of the trend's slope with high-frequency price noise (wicks, bid-ask spread bounce) stripped away: a steadily rising EMA-50 line has almost zero return variance, yielding an exceptionally high, stable Sharpe (e.g. `+3.85`) that mathematically validates the qualitative Trend assessment.
+*   **Dimension Score (v6.12):** The 0-100 alignment dimension score each qualitative assessment is bucketed from, carried on the matrix as `AnalysisMatrix.trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` — L3-owned numeric companions (the disaggregated siblings of `market_quality_score`), rendered as tinted badges with ▲/▼ deltas on the Analysis panel. The label never disagrees with its score: the label IS the band.
+*   **Volatility-to-Spread Ratio (v6.11):** The execution-friction gauge on the L5 `execution_risk` dimension (`volatility_to_spread_ratio`): `ATR(14) ÷ (best ask − best bid)` in raw price units. A high ratio (e.g. `> 10`) means the average candle range is much larger than the transaction cost (favorable for short-term scalping); a low ratio (e.g. `< 1.5`) warns that bid-ask spread friction and slippage will consume potential profits even with a perfect setup.

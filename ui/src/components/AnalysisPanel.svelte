@@ -7,7 +7,7 @@
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
-    import { computeAnalysisLean, isVotingTfLine } from '../lib/analysisLean';
+    import { computeAnalysisLean } from '../lib/analysisLean';
     import styles from './AnalysisPanel.module.css';
 
     const app = useAppStore();
@@ -43,15 +43,19 @@
         // tab read) — the snapshot's raw map is the transient wire shape
         // and produced null traceability fields on live exports.
         const snapInd = (microTerm?.indicators ?? {}) as Record<string, { raw_value?: number | null }>;
+        // v6.10.21 (traceability fix): the matrix mirror is per-slot
+        // last-writer-wins, so the rationale's quoted BBWP/ADX can come
+        // from a non-micro slot. The matrix now carries the exact
+        // representative inputs it used — prefer them; fall back to the
+        // micro term map for older frames.
+        const bbwp = analysis?.representative_bbwp ?? snapInd['bbwp']?.raw_value ?? null;
+        const adx = analysis?.representative_adx ?? snapInd['adx']?.raw_value ?? null;
         return buildAnalysisTabExport({
             analysis,
             alignment,
             // v6.10.18 (I-9): the representative L3 regime inputs (the
             // rationale's BBWP/ADX) for traceability.
-            representative: {
-                bbwp: snapInd['bbwp']?.raw_value ?? null,
-                adx: snapInd['adx']?.raw_value ?? null,
-            },
+            representative: { bbwp, adx },
             symbol: pairKey,
             tfSecs: microTerm?.barDurationSec ?? null,
             timestamp,
@@ -79,6 +83,92 @@
         // Shared prettifier with the export builder — both surfaces must
         // render the identical string for the same wire token.
         return prettifyPhase(p);
+    }
+
+    /** v6.10.21: Trend Stability Sharpe display — 2-dp, clamped to the
+     *  ±20 wire band (backed by the backend clamp; belt-and-suspenders for
+     *  stale snapshots so a pathological raw value can never render). */
+    function formatSharpeValue(v: number): string {
+        const clamped = Math.max(-20, Math.min(20, v));
+        return clamped.toFixed(2);
+    }
+
+    /** v6.10.21: band tint mirroring the L1 state-label bands (≥ +2 strong
+     *  positive, > 0 positive, ≤ −2 strong negative, else negative) so the
+     *  Trend badge is self-explanatory without cross-referencing. */
+    function sharpeBand(v: number): string {
+        if (v >= 2) return styles.sharpeStrongPos;
+        if (v > 0) return styles.sharpePos;
+        if (v <= -2) return styles.sharpeStrongNeg;
+        return styles.sharpeNeg;
+    }
+
+    /** v6.12: coarse 3-level heat for the per-card 0-100 dimension-score
+     *  badges, mirroring the assessment band vocabularies (02-02 §4.2):
+     *  ≥70 top-tier (STRONG / HEALTHY / INCREASING / EXCEPTIONAL /
+     *  EXPANDING+), ≥40 mid-tier (DEVELOPING / STABLE / NORMAL / WEAK),
+     *  <40 bottom-tier (EXHAUSTED / REVERSING / BROKEN / COMPRESSED). */
+    function scoreTint(v: number): string {
+        if (v >= 70) return styles.scoreStrong;
+        if (v >= 40) return styles.scoreMid;
+        return styles.scoreWeak;
+    }
+
+    function formatScoreValue(v: number): string {
+        return Math.round(v) + '%';
+    }
+
+    // v6.13: hover tooltips qualify each badge — the number is the
+    // cross-timeframe agreement share (0-100) that the qualitative label
+    // is bucketed from, not an indicator value or raw ratio.
+    function scoreTitle(key: 'trend' | 'momentum' | 'structure' | 'volatility' | 'volume'): string {
+        const dims: Record<typeof key, string> = {
+            trend: 'Trend agreement across timeframes — % of weighted TF readings agreeing on the trend direction',
+            momentum: 'Momentum agreement across timeframes — % of weighted TF readings agreeing on the momentum direction',
+            structure: 'Structure agreement across timeframes — % of TFs sharing the same support/resistance label',
+            volatility: 'Volatility agreement across timeframes — % of weighted TF readings agreeing on the volatility regime direction',
+            volume: 'Volume agreement across timeframes — % of weighted TF readings agreeing on the volume participation direction',
+        };
+        return dims[key];
+    }
+
+    // ── v6.12 delta arrows ──
+    // UI-side (no backend change): the WS stream delivers every frame, so
+    // the panel remembers the last-seen per-symbol scores and renders
+    // ▲/▼ against them. No arrow on the first frame (no baseline) or when
+    // the score is unchanged. The previous-frame map is a plain (non-
+    // reactive) memo updated inside the derived — it exists only to hold
+    // the previous frame's baseline, and mutation there cannot trigger a
+    // reactive loop because the derived's only reactive deps are
+    // `analysis` and `pairKey`.
+    let prevScores: Record<string, Record<string, number | null | undefined>> = {};
+    const scoreDeltas = $derived.by(() => {
+        const prev = prevScores[pairKey] ?? {};
+        const cur: Record<string, number | null> = {
+            trend: analysis?.trend_score ?? null,
+            momentum: analysis?.momentum_score ?? null,
+            structure: analysis?.structure_score ?? null,
+            volatility: analysis?.volatility_score ?? null,
+            volume: analysis?.volume_score ?? null,
+        };
+        const out: Record<string, number | null> = {};
+        for (const k of Object.keys(cur)) {
+            const v = cur[k];
+            const p = prev[k];
+            out[k] = v != null && typeof p === 'number' ? v - p : null;
+        }
+        prevScores[pairKey] = cur;
+        return out;
+    });
+    function deltaArrow(key: string): string {
+        const d = scoreDeltas[key];
+        if (d == null || d === 0) return '';
+        return d > 0 ? '▲' : '▼';
+    }
+    function deltaCls(key: string): string {
+        const d = scoreDeltas[key];
+        if (d == null || d === 0) return '';
+        return d > 0 ? styles.deltaUp : styles.deltaDown;
     }
 
     /** Parse signal text for (bullish/bearish/neutral) direction indicator. */
@@ -181,13 +271,15 @@
         metaHtml: string;
     } => {
         const allTexts = [...(analysis?.supporting_signals ?? []), ...(analysis?.contradicting_signals ?? [])];
-        // v6.10.18 (I-7): the hero vote uses the bias machinery's filter —
-        // COMPRESSION windows and flat TFs (|score| ≤ 10) do not vote.
-        const voteTexts = allTexts.filter(isVotingTfLine);
+        // v6.10.19c (C): the hero counts ALL timeframe lines present — a
+        // display choice over the raw data. The bias engine's LEAN-tier
+        // vote definition (COMPRESSION/flat excluded) is unchanged; the
+        // hero intentionally shows every TF that reported.
+        const voteTexts = allTexts;
         const bull = voteTexts.filter(t => signalDirection(t) === 'bullish').length;
         const bear = voteTexts.filter(t => signalDirection(t) === 'bearish').length;
         // Placeholder logic keys on the RAW presence (AN-2), counts on the
-        // filtered vote (I-7).
+        // full TF list (C).
         const lean = computeAnalysisLean(analysis?.bias, bull, bear, allTexts.length);
         return {
             label: lean.label,
@@ -277,9 +369,6 @@
     <div class={styles.section}>
         <div class={styles.signalsHeader}>
             <span class={styles.sectionTitle}>Signals</span>
-            <span class="{styles.signalLeanChip} {signalLean.tone === 'bull' ? styles.signalLeanBull : signalLean.tone === 'bear' ? styles.signalLeanBear : styles.signalLeanSplit}">
-                {signalLean.label}
-            </span>
         </div>
         {#if sortedSignals.length > 0}
             <div class={styles.signalList}>
@@ -343,22 +432,72 @@
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Trend</span>
                 <span class={styles.assessValue}>{analysis?.trend_assessment ?? '—'}</span>
+                <div class={styles.assessBadges}>
+                    {#if analysis?.trend_score != null}
+                        <span class="{styles.scoreBadge} {scoreTint(analysis.trend_score)}" title={scoreTitle('trend')}>
+                            {formatScoreValue(analysis.trend_score)}
+                            {#if deltaArrow('trend')}
+                                <span class="{styles.deltaArrow} {deltaCls('trend')}">{deltaArrow('trend')}</span>
+                            {/if}
+                        </span>
+                    {/if}
+                    {#if analysis?.trend_stability_sharpe != null}
+                        <span
+                            class="{styles.sharpeBadge} {sharpeBand(analysis.trend_stability_sharpe)}"
+                            title="Trend stability Sharpe — annualized Sharpe of EMA-50 log returns over a 300-bar window"
+                        >
+                            {formatSharpeValue(analysis.trend_stability_sharpe)}
+                        </span>
+                    {/if}
+                </div>
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Momentum</span>
                 <span class={styles.assessValue}>{analysis?.momentum_assessment ?? '—'}</span>
+                {#if analysis?.momentum_score != null}
+                    <span class="{styles.scoreBadge} {scoreTint(analysis.momentum_score)}" title={scoreTitle('momentum')}>
+                        {formatScoreValue(analysis.momentum_score)}
+                        {#if deltaArrow('momentum')}
+                            <span class="{styles.deltaArrow} {deltaCls('momentum')}">{deltaArrow('momentum')}</span>
+                        {/if}
+                    </span>
+                {/if}
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Structure</span>
                 <span class={styles.assessValue}>{analysis?.structure_assessment ?? '—'}</span>
+                {#if analysis?.structure_score != null}
+                    <span class="{styles.scoreBadge} {scoreTint(analysis.structure_score)}" title={scoreTitle('structure')}>
+                        {formatScoreValue(analysis.structure_score)}
+                        {#if deltaArrow('structure')}
+                            <span class="{styles.deltaArrow} {deltaCls('structure')}">{deltaArrow('structure')}</span>
+                        {/if}
+                    </span>
+                {/if}
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Volatility</span>
                 <span class={styles.assessValue}>{analysis?.volatility_assessment ?? '—'}</span>
+                {#if analysis?.volatility_score != null}
+                    <span class="{styles.scoreBadge} {scoreTint(analysis.volatility_score)}" title={scoreTitle('volatility')}>
+                        {formatScoreValue(analysis.volatility_score)}
+                        {#if deltaArrow('volatility')}
+                            <span class="{styles.deltaArrow} {deltaCls('volatility')}">{deltaArrow('volatility')}</span>
+                        {/if}
+                    </span>
+                {/if}
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Volume</span>
                 <span class={styles.assessValue}>{analysis?.volume_assessment ?? '—'}</span>
+                {#if analysis?.volume_score != null}
+                    <span class="{styles.scoreBadge} {scoreTint(analysis.volume_score)}" title={scoreTitle('volume')}>
+                        {formatScoreValue(analysis.volume_score)}
+                        {#if deltaArrow('volume')}
+                            <span class="{styles.deltaArrow} {deltaCls('volume')}">{deltaArrow('volume')}</span>
+                        {/if}
+                    </span>
+                {/if}
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Cycle Phase</span>

@@ -160,6 +160,16 @@ pub struct NormalizeParams<'a> {
     /// RVOL institutional/climax thresholds from config (AUDIT-AIU-071).
     pub rvol_institutional_threshold: f64,
     pub rvol_climax_threshold: f64,
+    /// Annualized Sharpe of price log returns over the trailing 300-bar
+    /// window (v6.11, L1 `price_trend_sharpe`). `None` until the window
+    /// fills; computed by the pipeline from its rolling `close_history`.
+    pub price_trend_sharpe: Option<f64>,
+    /// Annualized Sharpe of EMA-50 log returns over the trailing 300-bar
+    /// window (v6.11, L3 `trend_stability_sharpe`). `None` until the window
+    /// fills; computed by the pipeline from its rolling
+    /// `ema_medium_history`. Carried as an unregistered map key and stamped
+    /// onto `AnalysisMatrix` during cross-TF synthesis.
+    pub trend_stability_sharpe: Option<f64>,
 }
 
 /// Convert a generic series-divergence direction into a (potential) engine
@@ -472,6 +482,7 @@ pub fn build_indicator_map(
         od2f(p.ema_long),
     );
     inject_volume(&mut map, od2f(p.volume), od2f(p.average_volume));
+    inject_sharpe_ratios(&mut map, p.price_trend_sharpe, p.trend_stability_sharpe, bar_count, shadow);
 
     // v6.10 (Phase 5 / E1): CA-06 enforcement. Disabled indicators are
     // absent from the returned map. No downstream layer (L2 alignment,
@@ -610,6 +621,54 @@ fn inject_volume(
             ));
         }
         map.insert("volume".into(), niv);
+    }
+}
+
+/// Inject the L1 `price_trend_sharpe` and the L3 `trend_stability_sharpe`
+/// carrier key (v6.11). Both are gated on the canonical 300-bar window
+/// (equal to `[candle_buffer] size` — the indicator goes `Live` exactly
+/// when the pipeline buffer fills). Injection runs after the
+/// `bars_required` gate and before the CA-06 retain, so a disabled
+/// `price_trend_sharpe` is filtered like every other indicator, and the
+/// shadow path (close-only) never overwrites the last completed value.
+///
+/// `price_trend_sharpe` is a registered indicator (normalized =
+/// `(sharpe / 3.0).clamp(-1, 1)` with banded state labels);
+/// `trend_stability_sharpe` is an unregistered carrier consumed by the
+/// synthesis layer to stamp `AnalysisMatrix.trend_stability_sharpe`.
+const SHARPE_WINDOW_BARS: u32 = 300;
+
+fn inject_sharpe_ratios(
+    map: &mut HashMap<String, NormalizedIndicatorValue>,
+    price_trend_sharpe: Option<f64>,
+    trend_stability_sharpe: Option<f64>,
+    bar_count: u32,
+    shadow: bool,
+) {
+    if shadow || bar_count < SHARPE_WINDOW_BARS {
+        return;
+    }
+    if let Some(sharpe) = price_trend_sharpe {
+        let normalized = (sharpe / 3.0).clamp(-1.0, 1.0);
+        let state_label = if sharpe >= 2.0 {
+            "STRONG_POSITIVE_SHARPE"
+        } else if sharpe > 0.0 {
+            "POSITIVE_SHARPE"
+        } else if sharpe <= -2.0 {
+            "STRONG_NEGATIVE_SHARPE"
+        } else {
+            "NEGATIVE_SHARPE"
+        };
+        map.insert(
+            "price_trend_sharpe".into(),
+            NormalizedIndicatorValue::scalar(sharpe, normalized, state_label),
+        );
+    }
+    if let Some(stability) = trend_stability_sharpe {
+        map.insert(
+            "trend_stability_sharpe".into(),
+            NormalizedIndicatorValue::scalar(stability, (stability / 3.0).clamp(-1.0, 1.0), "TREND_STABILITY_SHARPE"),
+        );
     }
 }
 

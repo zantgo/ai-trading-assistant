@@ -2,10 +2,8 @@ pub mod symbol_mapper;
 
 pub use symbol_mapper::SymbolMapper;
 
-use async_trait::async_trait;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Exchange {
@@ -182,9 +180,7 @@ pub enum ReconstructionMethod {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedCandle {
     /// Originating venue (e.g. "Hyperliquid", "Bitget").
-    /// Populated from trade events at L2 candle generation; may be absent
-    /// in legacy payloads or synthetic candles synthesized before the
-    /// exchange source was recorded.
+    /// Populated from trade events at L2 candle generation.
     pub exchange: Exchange,
     pub symbol: String,
     pub start_time_ms: u64,
@@ -224,18 +220,6 @@ impl NormalizedCandle {
         }
         Ok(())
     }
-}
-
-#[async_trait]
-pub trait ExchangeAdapter: Send + Sync {
-    fn exchange(&self) -> Exchange;
-
-    async fn start(
-        &self,
-        symbols: Vec<String>,
-        event_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
-        mapper: Arc<SymbolMapper>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
 #[cfg(test)]

@@ -10,10 +10,12 @@
     // Replaces the previous TelemetryTable.svelte, which grouped rows by
     // IndicatorClass (Leading/Hybrid/Lagging) — a developer taxonomy that
     // doesn't match how a trader thinks about the market.
+    //
+    // v6.11: filtering was removed entirely — every registered indicator
+    // row and every signal is ALWAYS shown, unfiltered, by construction.
 
     import type { IndicatorDto, IndicatorMeta, IndicatorNormalizationMode, IndicatorSignal, TimeframeTelemetry } from '../../types';
     import { GROUP_ORDER, GROUP_META } from '../../lib/groupMeta';
-    import { filterRegistry, filterSignals, type FilterState } from '../../lib/filtering';
     import { effectiveLifecycleState } from '../../lib/lifecycleDisplay';
     import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn, buildEmaRibbonCellView } from '../../lib/telemetry';
     import { confPct, normColor, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
@@ -23,12 +25,11 @@
     interface Props {
         tf: TimeframeTelemetry;
         registry: IndicatorMeta[];
-        filters: FilterState;
         /** When set, this group is expanded by default (used by GroupConfluenceGrid scroll-to). */
         focusGroup?: string | null;
     }
 
-    let { tf, registry, filters, focusGroup = null }: Props = $props();
+    let { tf, registry, focusGroup = null }: Props = $props();
 
     const SIGNAL_ABBR: Record<string, string> = {
         Divergence: 'DIV', Crossover: 'CRO', Threshold: 'TH', Breakout: 'BO',
@@ -37,9 +38,8 @@
         StackChange: 'STK', PatternForming: 'PAT',
     };
 
-    const filteredRegistry = $derived(
-        filterRegistry(registry, filters, (k) => tf.indicators?.[k]?.signals ?? []),
-    );
+    /** v6.11: the full registry is shown unfiltered — every row always renders. */
+    const filteredRegistry = $derived(registry);
 
     /** Build the on-screen micro-grid for the `ema_stack` collapsed
      *  `raw_value` cell. Reads the SAME record (`tf.indicators["ema_stack"].values.*`)
@@ -105,8 +105,9 @@
         return tf.indicators?.[key]?.signals ?? [];
     }
 
+    /** v6.11: no filtering — every signal the snapshot carries is shown. */
     function filteredSignalsFor(key: string): IndicatorSignal[] {
-        return filterSignals(signalsFor(key), filters);
+        return signalsFor(key);
     }
 
     function rawVal(meta: IndicatorMeta): number | null {
@@ -407,7 +408,7 @@
 <div class={styles.view}>
     {#if filteredRegistry.length === 0}
         <div class={styles.placeholder}>
-            No indicators match the current filters.
+            No indicators in the registry yet. Awaiting indicator registry…
         </div>
     {:else}
         {#each groups as g (g.group)}
@@ -450,7 +451,13 @@
                                         {#if m.supports_divergence}<span class={styles.divMarker} title="Supports divergence">△</span>{/if}
                                     </span>
                                     <span class="{styles.colClass} {styles[`class_${m.class}`]}">{m.class}</span>
-                                    <span class={styles.colRaw}>
+                                    <span
+                                        class={styles.colRaw}
+                                        style="color: {m.key === 'price_trend_sharpe' && mode === 'Directional' && !Number.isNaN(n) ? normColor(n) : undefined}"
+                                        title={m.key === 'price_trend_sharpe'
+                                            ? 'Price-Trend Sharpe — annualized Sharpe of RAW price log returns over the trailing 300-bar window (trend smoothness on this timeframe). Distinct from the Analysis card\'s Trend Stability Sharpe, which uses EMA-50 log returns.'
+                                            : undefined}
+                                    >
                                         {#if m.key === 'ema_stack'}
                                             <span class={styles.emaRibbon}
                                                   title={emaRibbonCell.ready

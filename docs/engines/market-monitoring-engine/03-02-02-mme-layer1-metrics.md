@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -28,7 +28,7 @@ Implementation: `analyzer/mod.rs::run_single()`, `analyzer/normalize.rs::build_i
 
 ## 2. Stage 1 — Indicator Computation
 
-Every registry-enabled indicator calculator runs against the current candle buffers, producing a native `raw_value` (and auxiliary component lines for multi-line indicators such as MACD, Bollinger, ADX). The 51 indicators span eight functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives — see [`01-01-ontology.md` Appendix B §B.2](../../conceptual-foundations/01-01-ontology.md)):
+Every registry-enabled indicator calculator runs against the current candle buffers, producing a native `raw_value` (and auxiliary component lines for multi-line indicators such as MACD, Bollinger, ADX). The 52 indicators span eight functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives — see [`01-01-ontology.md` Appendix B §B.2](../../conceptual-foundations/01-01-ontology.md)):
 
 | Group | Examples |
 |-------|----------|

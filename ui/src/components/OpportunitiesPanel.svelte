@@ -7,8 +7,8 @@
     import LayerHeader from './LayerHeader.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, resolveActiveRr } from '../lib/decisionRank';
-import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } from '../lib/opportunityBars';
+    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, resolveActiveRr, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
+    import { computeOpportunityBars, rankSectionsByCount, type DirectionalBars } from '../lib/opportunityBars';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -59,28 +59,22 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
     // side → macro bias → argmax R:R), capped by opportunity_score so
     // the remaining uncertainty remains visible as a Hold buffer.
     //
-    // The previous implementation exp-weighted BOTH sides' raw R:R with
-    // no bias/viability awareness — a countertrend long bracket with a
-    // larger ratio lit the bars BULLISH under a bearish panel, and an
-    // inverted-geometry setup collapsed the bars to 100% HOLD even when
-    // the panel's chip said "Bullish setups dominate".
+    // L4 data only: the bracket-conviction math never reads the L6
+    // decision-context probabilities (the L6 verdict split belongs to
+    // the Recommendation gauge — two panels, two different stories).
     //
-    // All three bars (BULLISH/BEARISH/HOLD) are ALWAYS rendered, even at
+    // All three bars (BULLISH/BEARISH/RANGE) are ALWAYS rendered, even at
     // 0%. The previous behaviour filtered out zero-value bars which hid
-    // the dominant-HOLD case (the chart showed only a single HOLD=100%
+    // the dominant-RANGE case (the chart showed only a single RANGE=100%
     // bar and operators couldn't see that bullish/bearish were genuinely
     // zero). Showing all three explicitly communicates the full split.
-    // v6.10.18 (I-4): the L4 bars mirror the L6 verdict split whenever a
-    // decision context exists — one conviction number across panels; the
-    // bracket-conviction math is the legacy fallback only.
     const directionBars = $derived.by((): DirectionalBars =>
-        directionBarsFromRank(decisionContext) ??
-        computeOpportunityBars(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null),
+        computeOpportunityBars(opportunity, analysis?.bias ?? null),
     );
     const sortedBars = $derived.by(() => [
         { id: 'bullish', label: 'BULLISH', value: directionBars.bullish, cls: 'bullish' },
         { id: 'bearish', label: 'BEARISH', value: directionBars.bearish, cls: 'bearish' },
-        { id: 'hold', label: 'HOLD', value: directionBars.hold, cls: 'hold' },
+        { id: 'range', label: 'RANGE', value: directionBars.hold, cls: 'range' },
     ]
         .sort((a, b) => b.value - a.value));
 
@@ -114,10 +108,15 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         tp2: number;
         invalidation: number;
         rr: number | null;
+        /** Human-readable N/A reason from the shared resolver (State D
+         *  red-flagging keyed on this). */
+        rr_reason: string | null;
         geometry_consistent: boolean;
         score: number;
         preconditions_met: number;
         preconditions_total: number;
+        /** v6.14: backend-emitted scaled score; `null` on legacy payloads. */
+        display_score: number | null;
         notes: string;
         viability: Viability;
         rankIdx: number;
@@ -140,7 +139,7 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         const macroBias = analysis?.bias ?? null;
         const out: ActiveSetup[] = [];
         qualifying.forEach((p, idx) => {
-            const s = profileSummary(p, opportunity, analysis, decisionContext);
+            const s = profileSummary(p, opportunity, analysis, decisionContext, markPrice);
             // Even when zones are null we still emit a card — the
             // operator sees the viability tag and the missing-zone
             // indicator (we render `—` for empty zones).
@@ -163,10 +162,12 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
                 tp2: sortedTp.length > 1 ? sortedTp[1] : sortedTp[0] ?? 0,
                 invalidation: z?.invalidation ?? 0,
                 rr: s.rr,
+                rr_reason: s.rr_reason,
                 geometry_consistent: z?.geometry_consistent ?? false,
                 score: p.score,
                 preconditions_met: p.preconditions_met,
                 preconditions_total: p.preconditions_total,
+                display_score: p.display_score ?? null,
                 notes: p.notes,
                 viability: s.viability,
                 rankIdx: idx,
@@ -180,13 +181,81 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
             return b.score - a.score;
         });
     });
-    const topSetup = $derived(activeSetups[0] ?? null);
+    // v6.10.21: index of the top-ranked Actionable card (the `TOP ·
+    // ACTIONABLE` holder) — computed after the viability-tier sort.
+    const firstActionableIdx = $derived(activeSetups.findIndex((s) => s.viability === 'Actionable'));
 
-    // NoClearOpportunity profile → muted placeholder strip (NOT a
-    // Trade Setup card). Shown only when it exists in the profiles.
-    const noClearProfile = $derived(
-        (opportunity?.profiles ?? []).find((p) => p.opportunity_type === 'NoClearOpportunity') ?? null,
+    // v6.10.21 (NBR): per-direction reference brackets. Each folder
+    // mounts its own aggregated bracket derived from the matrix's
+    // per-side zones (`sideBracketSummary` — the verdict-side data is
+    // identical to what the Recommendation headlines via `topSetupSummary`,
+    // preserving the parity invariant) plus the backend-emitted neutral
+    // range bracket (`neutralBracketSummary`). A reference card renders
+    // inside a folder ONLY when that folder hosts zero qualifying setup
+    // cards — informational geometry is never redundant next to live
+    // setups. The standalone reference container at the bottom of the
+    // section is removed; references are fully integrated into folders.
+    const folderReferences = $derived.by(
+        (): Record<'NEUTRAL' | 'BULL' | 'BEAR', SideBracketSummary | NeutralBracketSummary | null> => ({
+            NEUTRAL: neutralBracketSummary(opportunity),
+            BULL: sideBracketSummary(opportunity, decisionContext, analysis, 'LONG', markPrice),
+            BEAR: sideBracketSummary(opportunity, decisionContext, analysis, 'SHORT', markPrice),
+        }),
     );
+
+    // The three always-rendered sections in RANKED order — the same
+    // relevance ordering as the directional bars (most relevant first):
+    // folders rank by their content count (setups + reference), then by
+    // the top setup's score, falling back to RANGE → BULLISH → BEARISH
+    // when everything is empty. Top-ranked first within each section.
+    // Each folder carries its reference bracket when it hosts no setups.
+    const sections = $derived.by(() => {
+        const base = [
+            {
+                key: 'NEUTRAL' as const,
+                label: 'RANGE',
+                empty: 'range',
+                tone: 'neutral' as const,
+                setups: activeSetups.filter((s) => s.side === 'NEUTRAL').sort((a, b) => b.score - a.score),
+            },
+            {
+                key: 'BULL' as const,
+                label: 'BULLISH',
+                empty: 'bullish',
+                tone: 'bull' as const,
+                setups: activeSetups.filter((s) => s.side === 'LONG').sort((a, b) => b.score - a.score),
+            },
+            {
+                key: 'BEAR' as const,
+                label: 'BEARISH',
+                empty: 'bearish',
+                tone: 'bear' as const,
+                setups: activeSetups.filter((s) => s.side === 'SHORT').sort((a, b) => b.score - a.score),
+            },
+        ];
+        return rankSectionsByCount(
+            base.map((s) => ({
+                key: s.key,
+                label: s.label,
+                empty: s.empty,
+                tone: s.tone,
+                setups: s.setups,
+                hasReference: s.setups.length === 0 && folderReferences[s.key] != null,
+                scoreOf: (setup: ActiveSetup) => setup.score,
+            })),
+        ).map((s) => ({
+            key: s.key,
+            label: s.label,
+            empty: s.empty,
+            tone: s.tone,
+            setups: s.setups,
+            reference: s.setups.length === 0 ? folderReferences[s.key] : null,
+        }));
+    });
+
+    // v6.10.19c (A3): the NO CLEAR placeholder strip was removed — the
+    // RANGE/BULLISH/BEARISH sections are the container for the empty
+    // state ("no range setups", etc.).
 
     // Active-side R:R (per-side, gated on the panel's own effective
     // direction). RR-002 (v6.10.12): the value flows through the shared
@@ -268,16 +337,26 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         }
     }
 
-    const oppScore = $derived<number>(opportunity?.opportunity_score ?? 0);
-
-    const q = $derived(setupQuality(oppScore));
-
     // v6.10.19 (T1): the operator-facing score scales by precondition
     // ratio (0/3 → 0 muted, 2/3 → scaled, 3/3 → full). Mirrors the
     // export's displayScore rule so screen and clipboard agree.
     function displayScore(score: number, met: number, total: number): number {
         if (total <= 0) return 0;
         return Math.round(score * Math.min(1, met / total));
+    }
+    // v6.14: the backend now emits the scaled score as
+    // `display_score` (single source of truth). This accessor is
+    // wire-first with the local rule as the legacy-payload fallback, so
+    // screen, export, and wire can never disagree.
+    function wireDisplayScore(p: {
+        score: number;
+        preconditions_met: number;
+        preconditions_total: number;
+        display_score?: number | null;
+    }): number {
+        return p.display_score != null
+            ? p.display_score
+            : displayScore(p.score, p.preconditions_met, p.preconditions_total);
     }
     function fmtScore(n: number): string {
         if (n >= 1) return n.toFixed(0);
@@ -295,18 +374,10 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         buildL4OpportunityHeader(opportunity, (decisionContext?.bias ?? analysis?.bias) ?? null)
     );
 
-    // ── Lean (bullish / bearish / neutral) derived from the rank.
-    // Reading from `rank.top` keeps the lean chip aligned with the verdict
-    // hero and the geometry of the Trade Setups cards below. The header
-    // itself has absorbed the previous `PULLBACK + bullish-dominate`
-    // dual-badge block — `lean` here only powers the lean chip and the
-    // HOLD scenario note below.
-    const lean = $derived.by((): { label: string; tone: 'bull' | 'bear' | 'neutral' } => {
-        if (rank.top === 'LONG') return { label: 'Bullish setups dominate', tone: 'bull' };
-        if (rank.top === 'SHORT') return { label: 'Bearish setups dominate', tone: 'bear' };
-        return { label: 'Lean: neutral', tone: 'neutral' };
-    });
-
+    // ── Lean (bullish / bearish / neutral) derived from the rank. The
+    // header itself has absorbed the previous `PULLBACK + bullish-dominate`
+    // dual-badge block — the recommendation panel owns the directional
+    // narrative; this panel leads with the setup leaderboard.
     function fmtPx(n: number | undefined | null, mp: number = 0): string {
         if (n == null || !isFinite(n) || n <= 0) return '—';
         if (mp >= 1000) return n.toFixed(0);
@@ -321,19 +392,31 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
     }
     function fmtSource(s: string): string {
         switch (s) {
-            case 'FIBONACCI': return 'FIB';
-            case 'VOLUME_PROFILE': return 'VP';
-            case 'PIVOT_POINTS': return 'PP';
-            case 'SUPPORT_RESISTANCE': return 'SR';
-            case 'LIQUIDITY_CLUSTER': return 'LIQ';
+            case 'FIBONACCI': return 'FIBONACCI';
+            case 'VOLUME_PROFILE': return 'VOLUME PROFILE';
+            case 'PIVOT_POINTS': return 'PIVOT POINTS';
+            case 'SUPPORT_RESISTANCE': return 'SUPPORT AND RESISTANCE';
+            case 'LIQUIDITY_CLUSTER': return 'LIQUIDITY CLUSTER';
             default: return 'ATR';
         }
     }
 
     // ── Trade Setups helpers ─────────────────────────────────────────────
-    function setupHeaderClass(side: 'LONG' | 'SHORT' | 'NEUTRAL'): string {
-        if (side === 'LONG') return styles.setupHeaderLong ?? '';
-        if (side === 'SHORT') return styles.setupHeaderShort ?? '';
+    // v6.10.21: the left-edge accent is STATE-driven (State A = bright
+    // directional green/red, State B = amber, State C = grey, State D =
+    // red) — direction stays readable via the colored title text.
+    function setupHeaderCls(setup: ActiveSetup): string {
+        if (!setup.geometry_consistent || setup.viability === 'GeometryInverted') {
+            return styles.setupHeaderInverted ?? '';
+        }
+        if (setup.viability === 'Actionable') {
+            if (setup.side === 'LONG') return styles.setupHeaderLong ?? '';
+            if (setup.side === 'SHORT') return styles.setupHeaderShort ?? '';
+            return '';
+        }
+        if (setup.viability === 'Qualifying' || setup.viability === 'DirectionalNeutral') {
+            return styles.setupHeaderQualifying ?? '';
+        }
         return '';
     }
     function fmtPxDecimal(n: number, mp: number): string {
@@ -350,6 +433,74 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         if (rr >= 1.0) return styles.amber;
         return styles.red;
     }
+
+    // ── v6.10.21: unified state-driven card language ────────────────────
+    // State A (Actionable): solid thin border + bright edge accent.
+    // State B (Qualifying / Range-neutral): same chrome, amber edge.
+    // State D (GeometryInverted / below-floor): dashed border, red edge.
+    // A card whose zones are geometrically inconsistent is ALWAYS
+    // rendered as State D regardless of its wire viability token.
+    function setupCardStateCls(viability: Viability, geometryConsistent: boolean): string {
+        if (!geometryConsistent || viability === 'GeometryInverted') return styles.setupCardInverted;
+        if (viability === 'Actionable') return styles.setupCardActive;
+        if (viability === 'Qualifying' || viability === 'DirectionalNeutral') return styles.setupCardQualifying;
+        return styles.setupCardHypo;
+    }
+
+    // Badge policy (v6.10.21): EVERY Actionable card carries the
+    // actionable badge — `TOP · ACTIONABLE` for the top-ranked one, plain
+    // `ACTIONABLE` for the rest. The old `rank.top !== 'HOLD'` verdict
+    // gate is gone: a card's visuals are driven purely by card state.
+    function setupBadgeCls(setup: ActiveSetup, firstActionableIdx: number): { text: string; cls: string } {
+        if (!setup.geometry_consistent || setup.viability === 'GeometryInverted') {
+            return { text: 'GEOMETRY INVERTED', cls: styles.setupBadgeInverted };
+        }
+        switch (setup.viability) {
+            case 'Actionable':
+                return setup.rankIdx === firstActionableIdx
+                    ? { text: 'TOP · ACTIONABLE', cls: styles.setupBadgeActionable }
+                    : { text: 'ACTIONABLE', cls: styles.setupBadgeActionable };
+            case 'Qualifying':
+                return { text: 'QUALIFYING', cls: styles.setupBadgeAmber };
+            case 'DirectionalNeutral':
+                return { text: 'RANGE · NEUTRAL', cls: styles.setupBadgeAmber };
+            default:
+                return { text: 'NO CLEAR', cls: styles.setupBadgeReference };
+        }
+    }
+
+    // State D coordinate red-flagging — keyed on the shared resolver's
+    // N/A reason so the operator sees WHICH part of the bracket is broken.
+    function flaggedRowKeys(reason: string | null): Set<'entry' | 'tp' | 'sl' | 'rr'> {
+        const out = new Set<'entry' | 'tp' | 'sl' | 'rr'>();
+        if (!reason) return out;
+        if (reason.includes('inverted')) out.add('entry').add('tp').add('sl');
+        if (reason.includes('floor')) out.add('rr');
+        if (reason.includes('no valid bracket') || reason.includes('no directional bias')) out.add('rr');
+        return out;
+    }
+
+    // Reference card warning state — State D when the bracket's R:R is
+    // below the 1.0 actionable floor OR its geometry is inconsistent.
+    function referenceIsWarn(summary: SideBracketSummary | NeutralBracketSummary | null): boolean {
+        if (!summary) return false;
+        if (summary.zones && summary.zones.geometry_consistent === false) return true;
+        return summary.below_floor === true;
+    }
+
+    // Quality Level Badge (v6.10.21): banded on the DISPLAYED
+    // (precondition-scaled) score so pill and number always agree.
+    // Outlined compact pill per band — MARGINAL uses desaturated orange
+    // per spec (the hero's fill-style badge keeps its own palette).
+    function qualityPill(setup: ActiveSetup): { label: string; cls: string } {
+        const { label } = setupQuality(wireDisplayScore(setup));
+        const cls = label === 'PRIME' ? styles.pillPrime
+            : label === 'STRONG' ? styles.pillStrong
+            : label === 'MODERATE' ? styles.pillModerate
+            : label === 'MARGINAL' ? styles.pillMarginal
+            : styles.pillNone;
+        return { label, cls };
+    }
 </script>
 
 <div class={styles.panel}>
@@ -361,184 +512,139 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         {/snippet}
     </LayerHeader>
 
-    <!-- Directional conviction bars — mirror the L6 verdict split (I-4).
-         v6.10.19 (P6): when the graded-lean floors boosted the split, a
-         LEAN marker + pattern fill tells the operator this is a
-         structurally adjusted low-confidence read, not a deep consensus. -->
+    <!-- Directional conviction bars — L4 bracket conviction only
+         (opportunity_score × active-side R:R). The L6 verdict split is
+         the Recommendation gauge's story; this panel never reads it. -->
     <div class={styles.dirBarRow}>
         {#each sortedBars as bar (bar.id)}
             <div class={styles.dirBarCell}>
-                <div class="{styles.dirBarFill} {styles[bar.cls]} {decisionContext?.lean_floor_applied ? styles.dirBarFillLean : ''}" style="width: {bar.value.toFixed(1)}%"></div>
+                <div class="{styles.dirBarFill} {styles[bar.cls]}" style="width: {bar.value.toFixed(1)}%"></div>
                 <span class={styles.dirBarLabel}>{bar.label}</span>
                 <span class={styles.dirBarPct}>{bar.value}%</span>
             </div>
         {/each}
-        {#if decisionContext?.lean_floor_applied}
-            <span class={styles.leanFloorTag}>LEAN — floor-boosted split</span>
-        {/if}
     </div>
 
-    <div class={styles.section}>
-            <div class={styles.topSetupLabel}>TOP SETUP</div>
-            <div class={styles.headerRow}>
-                <span class="{styles.oppBadge} {opportunity ? oppClass(opportunity.primary_opportunity) : styles.oppNone}">
-                    {opportunity ? oppLabel(opportunity.primary_opportunity) : '—'}
-                </span>
-                <span class="{styles.leanChip} {lean.tone === 'bull' ? styles.leanBull : lean.tone === 'bear' ? styles.leanBear : styles.leanNeutral}">
-                    {lean.label}
-                </span>
-            </div>
-
-            <div class={styles.scoreRow}>
-                <span class={styles.scoreLabel}>Setup Score</span>
-                <div class={styles.scoreBar}>
-                    <div class={styles.scoreFill}
-                         style="width: {oppScore.toFixed(1)}%; background: {scoreColor(oppScore)}"></div>
-                </div>
-                <span class={styles.scoreVal} style="color: {scoreColor(oppScore)}">{fmtScore(oppScore)}</span>
-            </div>
-            <div style="margin-top: 6px;">
-                <span class="{styles.qualityBadge} {q.cls}">{q.label}</span>
-            </div>
-        </div>
-
-        <!-- ── Trade Setups (one card per qualifying profile) ── -->
+        <!-- ── Trade Setups — v6.10.21 (NBR): ALL opportunities, always.
+             Three always-rendered folders in RANKED order (the folder
+             with the most setups first — same relevance ordering as the
+             conviction bars), top-ranked first within each. Reference
+             brackets are fully integrated into their directional
+             folders: a folder
+             mounts its aggregated bracket (long → BULLISH, short →
+             BEARISH, backend neutral range frame → RANGE) ONLY when it
+             hosts zero qualifying setup cards, the folder counter counts
+             references, and the empty-state placeholder is suppressed
+             while a reference card occupies the folder. -->
         <div class={styles.section}>
             <div class={styles.sectionTitle}>
                 Trade Setups
                 <span class={styles.sectionMeta}>
                     {activeSetups.length === 0
-                        ? 'no qualifying setup yet'
-                        : `${activeSetups.length} candidate${activeSetups.length === 1 ? '' : 's'}`}
+                        ? 'no qualifying profile — reference brackets shown'
+                        : `${activeSetups.length} candidate${activeSetups.length === 1 ? '' : 's'} · all opportunities`}
                 </span>
             </div>
-            {#if rank.top === 'HOLD'}
-                <div class={styles.scenarioNote}>
-                    <span class={styles.scenarioBadge}>HOLD / NO CLEAR</span>
-                    <span>No directional call. The cards below show each qualifying profile's aggregated bracket — when geometry is inverted (entry/target/SL on the wrong side of close, or zero-bound contamination), R:R reads N/A and the bracket is non-actionable. None are active.</span>
-                </div>
-            {/if}
-            {#if activeSetups.length === 0}
-                <div class={styles.noProfiles}>Awaiting qualifying profile (preconditions_met &gt; 0).</div>
-            {:else}
-                <div class={styles.setupList}>
-                    {#each activeSetups as setup (setup.opportunity_type)}
-                        <div class="{styles.setupCard} {setup.viability === 'Actionable' && rank.top !== 'HOLD' ? styles.setupCardActive : styles.setupCardHypo} {!setup.geometry_consistent ? styles.setupCardInverted : ''} {setup.viability === 'DirectionalNeutral' ? styles.setupCardMuted : ''}">
-                            <div class="{styles.setupHeader} {setupHeaderClass(setup.side)}">
-                                <span class={styles.setupHeaderTitle}>{`${oppLabel(setup.opportunity_type)} · ${setup.side}`}</span>
-                                <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{fmtScore(displayScore(setup.score, setup.preconditions_met, setup.preconditions_total))}</span>
-                            </div>
-                            {#if setup.viability === 'Actionable' && setup.rankIdx === 0 && rank.top !== 'HOLD'}
-                                <div class={styles.setupBadgeTop}>TOP · ACTIONABLE</div>
-                            {:else if setup.viability === 'Qualifying'}
-                                <!-- v6.10.17 (P1): a qualifying profile is a
-                                     real bracket — never a "no clear setup". -->
-                                <div class={styles.setupBadgeNeutral}>QUALIFYING</div>
-                            {:else if setup.viability === 'DirectionalNeutral'}
-                                <div class={styles.setupBadgeNeutral}>NEUTRAL · HOLD</div>
-                            {:else if setup.viability === 'GeometryInverted'}
-                                <div class={styles.setupBadgeInverted}>GEOMETRY INVERTED</div>
+            {#each sections as section (section.key)}
+                <div class={styles.setupSection}>
+                    <div class="{styles.setupSectionHeader} {section.tone === 'bull' ? styles.setupSectionBull : section.tone === 'bear' ? styles.setupSectionBear : styles.setupSectionNeutral}">
+                        <span class={styles.setupSectionLabel}>{section.label}</span>
+                        <span class={styles.setupSectionCount}>{section.setups.length + (section.reference ? 1 : 0)}</span>
+                    </div>
+                    {#if section.setups.length === 0 && !section.reference}
+                        <div class={styles.setupSectionEmpty}>no {section.empty} setups</div>
+                    {:else}
+                        <div class={styles.setupList}>
+                            {#each section.setups as setup (setup.opportunity_type)}
+                                {@const badge = setupBadgeCls(setup, firstActionableIdx)}
+                                {@const flagged = flaggedRowKeys(setup.rr_reason)}
+                                {@const quality = qualityPill(setup)}
+                                <div class="{styles.setupCard} {setupCardStateCls(setup.viability, setup.geometry_consistent)}">
+                                    <div class="{styles.setupHeader} {setupHeaderCls(setup)}">
+                                        <span class={styles.setupHeaderTitle}>{`${oppLabel(setup.opportunity_type)} · ${setup.side}`}</span>
+                                        <span class={styles.setupHeaderRight}>
+                                            <span class="{styles.setupQualityPill} {quality.cls}">{quality.label}</span>
+                                            <span class={styles.setupScoreInline} style="color: {scoreColor(setup.score)}">{fmtScore(wireDisplayScore(setup))}</span>
+                                        </span>
+                                    </div>
+                                    <div class={badge.cls}>{badge.text}</div>
+                                    <div class={styles.setupBody}>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>ENTRY</span>
+                                            <span class="{styles.setupRowValue} {flagged.has('entry') ? styles.setupRowFlagged : ''}">
+                                                {setup.entryMid > 0 ? fmtPxDecimal(setup.entryMid, markPrice) : '—'}
+                                            </span>
+                                        </div>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>TAKE-PROFIT 1</span>
+                                            <span class="{styles.setupRowValue} {flagged.has('tp') ? styles.setupRowFlagged : ''}">{setup.tp1 > 0 ? fmtPxDecimal(setup.tp1, markPrice) : '—'}</span>
+                                        </div>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>STOP-LOSS</span>
+                                            <span class="{styles.setupRowValue} {styles.setupRowStop} {flagged.has('sl') ? styles.setupRowFlagged : ''}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
+                                        </div>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>REWARD-TO-RISK RATIO</span>
+                                            <span class="{styles.setupRowValue} {flagged.has('rr') ? styles.setupRowFlagged : ''}">
+                                                {#if setup.rr != null}
+                                                    <span class={rrCls(setup.rr)}>{setup.rr.toFixed(2)}</span>
+                                                {:else}
+                                                    —
+                                                {/if}
+                                            </span>
+                                        </div>
+                                        <div class={styles.setupRowMeta}>
+                                            {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {fmtScore(wireDisplayScore(setup))}
+                                        </div>
+                                    </div>
+                                </div>
+                            {/each}
+                            {#if section.reference}
+                                {@const refWarn = referenceIsWarn(section.reference)}
+                                {@const refFlagged = flaggedRowKeys(section.reference.rr_reason)}
+                                <div class="{styles.setupCard} {refWarn ? styles.setupCardInverted : styles.setupCardReference}">
+                                    <div class="{styles.setupHeader} {refWarn ? styles.setupHeaderInverted : styles.setupHeaderReference}">
+                                        <span class={styles.setupHeaderTitle}>{`Reference Bracket · ${section.reference.direction === 'NEUTRAL' ? 'RANGE' : section.reference.direction}`}</span>
+                                        <span class={styles.setupScoreInline}>REFERENCE</span>
+                                    </div>
+                                    <div class={refWarn ? styles.setupBadgeInverted : styles.setupBadgeReference}>
+                                        {refWarn ? 'BELOW ACTIONABLE FLOOR' : 'INFORMATIONAL'}
+                                    </div>
+                                    <div class={styles.setupBody}>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>ENTRY</span>
+                                            <span class="{styles.setupRowValue} {refFlagged.has('entry') ? styles.setupRowFlagged : ''}">
+                                                {section.reference.zones ? fmtPxDecimal((section.reference.zones.entry.low + section.reference.zones.entry.high) / 2, markPrice) : '—'}
+                                            </span>
+                                        </div>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>TAKE-PROFIT 1</span>
+                                            <span class="{styles.setupRowValue} {refFlagged.has('tp') ? styles.setupRowFlagged : ''}">
+                                                {section.reference.zones ? fmtPxDecimal((section.reference.zones.target.low + section.reference.zones.target.high) / 2, markPrice) : '—'}
+                                            </span>
+                                        </div>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>STOP-LOSS</span>
+                                            <span class="{styles.setupRowValue} {styles.setupRowStop} {refFlagged.has('sl') ? styles.setupRowFlagged : ''}">
+                                                {section.reference.zones ? fmtPxDecimal(section.reference.zones.invalidation, markPrice) : '—'}
+                                            </span>
+                                        </div>
+                                        <div class={styles.setupRow}>
+                                            <span class={styles.setupRowLabel}>REWARD-TO-RISK RATIO</span>
+                                            <span class="{styles.setupRowValue} {refFlagged.has('rr') ? styles.setupRowFlagged : ''}">
+                                                {section.reference.rr != null ? section.reference.rr.toFixed(2) : '—'}
+                                            </span>
+                                        </div>
+                                        <div class={styles.setupRowMeta}>
+                                            {section.reference.rationale}
+                                        </div>
+                                    </div>
+                                </div>
                             {/if}
-                            <div class={styles.setupBody}>
-                                <div class={styles.setupRow}>
-                                    <span class={styles.setupRowLabel}>ENTRY</span>
-                                    <span class={styles.setupRowValue}>
-                                        {setup.entryMid > 0 ? fmtPxDecimal(setup.entryMid, markPrice) : '—'}
-                                    </span>
-                                </div>
-                                <div class={styles.setupRow}>
-                                    <span class={styles.setupRowLabel}>TP1</span>
-                                    <span class={styles.setupRowValue}>{setup.tp1 > 0 ? fmtPxDecimal(setup.tp1, markPrice) : '—'}</span>
-                                </div>
-                                <div class={styles.setupRow}>
-                                    <span class={styles.setupRowLabel}>SL</span>
-                                    <span class="{styles.setupRowValue} {styles.setupRowStop}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
-                                </div>
-                                <div class={styles.setupRow}>
-                                    <span class={styles.setupRowLabel}>R:R</span>
-                                    <span class={styles.setupRowValue}>
-                                        {#if setup.rr != null}
-                                            <span class={rrCls(setup.rr)}>{setup.rr.toFixed(2)}</span>
-                                        {:else}
-                                            —
-                                        {/if}
-                                    </span>
-                                </div>
-                                <div class={styles.setupRowMeta}>
-                                    {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {fmtScore(displayScore(setup.score, setup.preconditions_met, setup.preconditions_total))}
-                                </div>
-                            </div>
                         </div>
-                    {/each}
-                </div>
-            {/if}
-            {#if noClearProfile}
-                <div class={styles.noClearStrip}>
-                    <span class={styles.noClearBadge}>NO CLEAR OPPORTUNITY</span>
-                    <span class={styles.noClearMeta}>{noClearProfile.preconditions_met}/{noClearProfile.preconditions_total} preconditions met · informational only</span>
-                </div>
-            {/if}
-        </div>
-
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>R:R (Internal)</div>
-            <div class={styles.zoneGrid}>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Expected R:R</span>
-                    <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}
-                          title={rrInternalDisplay.reason ?? undefined}>
-                        {rrInternalDisplay.value}
-                    </span>
-                    {#if rrInternalDisplay.isNA && rrInternalDisplay.reason}
-                        <span class={styles.rrReason}>{rrInternalDisplay.reason}</span>
                     {/if}
                 </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Horizon</span>
-                    <span class={styles.zoneValue}>{opportunity?.time_horizon ?? '—'}</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Invalidation note ── -->
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Invalidation Note</div>
-            <div class={styles.noteBox}>
-                {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
-            </div>
-        </div>
-
-        <!-- ── Evaluated profiles ── -->
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Evaluated Setups</div>
-            {#if opportunity?.profiles && opportunity.profiles.length > 0}
-                <div class={styles.profileList}>
-                    {#each (opportunity?.profiles ?? []).filter((p) => p.opportunity_type !== 'NoClearOpportunity') as profile (profile.opportunity_type)}
-                        <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
-                            <div class={styles.profileHeader}>
-                                <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
-                                <span class={styles.profileScore} style="color: {scoreColor(displayScore(profile.score, profile.preconditions_met, profile.preconditions_total))}; {profile.preconditions_met === 0 ? 'opacity: 0.45' : ''}">{fmtScore(displayScore(profile.score, profile.preconditions_met, profile.preconditions_total))}</span>
-                            </div>
-                            <div class={styles.profilePreconditions}>
-                                <span class={styles.profilePreLabel}>Preconditions</span>
-                                <span class={styles.profilePreValue}>{profile.preconditions_met}/{profile.preconditions_total} met</span>
-                                <div class={styles.profilePreBar}>
-                                    <div class={styles.profilePreFill}
-                                         style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
-                                </div>
-                            </div>
-                            {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
-                                <div class={styles.profileViability}>{profile.trade_viability}</div>
-                            {/if}
-                            {#if profile.notes}
-                                <div class={styles.profileNotes}>{profile.notes}</div>
-                            {/if}
-                        </div>
-                    {/each}
-                </div>
-            {:else}
-                <div class={styles.noProfiles}>No setup profiles evaluated yet</div>
-            {/if}
+            {/each}
         </div>
 
         <!-- ── Confluent Levels ── -->
@@ -591,6 +697,25 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
         </div>
 
         <div class={styles.section}>
+            <div class={styles.sectionTitle}>Expected Reward-to-Risk Ratio</div>
+            <div class={styles.zoneGrid}>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Expected Reward-to-Risk Ratio</span>
+                    <span class={rrInternalDisplay.isNA ? styles.rrValueNA : styles.rrValue}
+                          title={rrInternalDisplay.reason ?? undefined}>
+                        {rrInternalDisplay.value}
+                    </span>
+                    {#if rrInternalDisplay.isNA && rrInternalDisplay.reason}
+                        <span class={styles.rrReason}>{rrInternalDisplay.reason}</span>
+                    {/if}
+                </div>
+                <div class={styles.zoneCard}>
+                    <span class={styles.zoneLabel}>Horizon</span>
+                    <span class={styles.zoneValue}>{opportunity?.time_horizon ?? '—'}</span>
+                </div>
+            </div>
+        </div>
+        <div class={styles.section}>
             <div class={styles.sectionTitle}>Market Position</div>
             <div class={styles.zoneGrid}>
                 <div class={styles.zoneCard}>
@@ -612,10 +737,51 @@ import { computeOpportunityBars, directionBarsFromRank, type DirectionalBars } f
             </div>
         </div>
 
+        <!-- ── Evaluated profiles ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Evaluated Setups</div>
+            {#if opportunity?.profiles && opportunity.profiles.length > 0}
+                <div class={styles.profileList}>
+                    {#each (opportunity?.profiles ?? []).filter((p) => p.opportunity_type !== 'NoClearOpportunity') as profile (profile.opportunity_type)}
+                        <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
+                            <div class={styles.profileHeader}>
+                                <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
+                                <span class={styles.profileScore} style="color: {scoreColor(wireDisplayScore(profile))}; {profile.preconditions_met === 0 ? 'opacity: 0.45' : ''}">{fmtScore(wireDisplayScore(profile))}</span>
+                            </div>
+                            <div class={styles.profilePreconditions}>
+                                <span class={styles.profilePreLabel}>Preconditions</span>
+                                <span class={styles.profilePreValue}>{profile.preconditions_met}/{profile.preconditions_total} met</span>
+                                <div class={styles.profilePreBar}>
+                                    <div class={styles.profilePreFill}
+                                         style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
+                                </div>
+                            </div>
+                            {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
+                                <div class={styles.profileViability}>{profile.trade_viability}</div>
+                            {/if}
+                            {#if profile.notes}
+                                <div class={styles.profileNotes}>{profile.notes}</div>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            {:else}
+                <div class={styles.noProfiles}>No setup profiles evaluated yet</div>
+            {/if}
+        </div>
+
+        <!-- ── Invalidation note ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>Invalidation Note</div>
+            <div class={styles.noteBox}>
+                {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
+            </div>
+        </div>
+
         <div class={styles.section}>
             <div class={styles.sectionTitle}>Environment</div>
             <div class={styles.infoRow}>
-                <span class={styles.infoBadge}>{analysis?.timeframes_considered ?? 0}/4 TFs considered</span>
+                <span class={styles.infoBadge}>{analysis?.timeframes_considered ?? 0}/4 Timeframes considered</span>
                 <span class={styles.infoBadge}>Confidence: {analysis ? (analysis.confidence * 100).toFixed(0) : '—'}%</span>
             </div>
         </div>

@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:**  6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -128,7 +128,7 @@ This rule is shared by [Alignment Matrix §4.1](../matrices/02-01-alignment-matr
 
 ## 5. Warm-Up & History
 
-Each timeframe pipeline bootstraps from historical candle data before subscribing to live broadcasts. The canonical lookback depth is **`[candle_buffer] size`** (default: **500**) — see [08-08-candle-buffer-spec.md](../operations-and-compliance/08-08-candle-buffer-spec.md) CB-01. The previous `analysis_limit` field on `TimeframeConfig` is **removed** (v6.5 migration; legacy keys are logged as warnings and ignored).
+Each timeframe pipeline bootstraps from historical candle data before subscribing to live broadcasts. The canonical lookback depth is **`[candle_buffer] size`** (default: **500** — the historical warmup; independent of the indicator floor `INDICATORS_MAX_BARS_REQUIRED = 300` and the absolute cap `HIST_BUFFER_MAX = 1000`) — see [08-08-candle-buffer-spec.md](../operations-and-compliance/08-08-candle-buffer-spec.md) CB-01. The previous `analysis_limit` field on `TimeframeConfig` is **removed** (v6.5 migration; legacy keys are logged as warnings and ignored).
 
 The per-TF bootstrap behavior is binary on `timeframe_secs`:
 
@@ -145,7 +145,7 @@ Both behaviors are uniform across exchanges — Hyperliquid and Bitget implement
 
 | Metric | Target |
 |--------|--------|
-| Per-pipeline indicator computation (51 indicators) | < 10 ms |
+| Per-pipeline indicator computation (52 indicators) | < 10 ms |
 | Cross-TF synthesis (L2–L6) | < 5 ms |
 | End-to-end observation loop (DIE + MME) | < 25 ms |
 

@@ -2,9 +2,11 @@
 //
 // v7.0-audit: rewrites the payload to use the new shared envelope (no
 // filter_state in `meta`, single current_price, structured header chrome).
-// v7.0-verify: adds a top-level `filter_state` block + per-row `visible`
-// flags so the on-screen row set is reconstructible from the JSON (the
-// payload rows themselves remain the unfiltered superset). Adds:
+// v7.0-verify: per-row `visible` flags (v6.10.19d B: the top-level
+// `filter_state` block was removed with the filter pills).
+// v6.11: filtering was removed entirely — every registry row is exported
+// and every `visible` flag is always `true` (the payload IS the shown set).
+// Adds:
 //   - GROUP_META label mapping and indicator key/period separation
 //   - per-TF state humanization (matches the single-TF Metrics export)
 //   - per-TF raw_display / state_display (display parity with screen)
@@ -34,7 +36,7 @@ import {
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
-import { filterRegistry, type FilterState } from '../filtering';
+import { type FilterState } from '../filtering';
 import { fibStatusString, vpPositionLabel } from '../structuralStrings';
 import {
   buildGroupConfluence as buildGroupConfluenceShared,
@@ -117,9 +119,8 @@ export interface MtfIndicatorEntry {
   label: string;
   class: string;
   directional: boolean;
-  /** Whether the row is visible under the applied filters (mirrors
-   *  `MtfView.svelte::filteredRegistry` — `filterRegistry` semantics with
-   *  signals counted across all 4 slots). */
+  /** v6.11: filtering was removed — always `true` (the full registry is
+   *  the shown set; kept for payload-schema stability). */
   visible: boolean;
   normalized_available: boolean;
   confidence_pct: number;
@@ -133,29 +134,17 @@ export interface MtfGroupEntry {
   key: string;
   label: string;
   accent: string;
-  /** Count of visible (filtered) indicators — mirrors the on-screen
-   *  `g.items.length` section count. */
+  /** Count of visible indicators (v6.11: always equals
+   *  `total_indicator_count` — no filtering). */
   indicator_count: number;
-  /** Count of all registry indicators in the group (pre-filter). */
+  /** Count of all registry indicators in the group. */
   total_indicator_count: number;
-}
-
-export interface MtfFilterStateBlock {
-  active_only: boolean;
-  confirmed_plus_only: boolean;
-  hide_gates: boolean;
-  hide_overlays: boolean;
-  query: string;
 }
 
 export interface MtfPayload {
   source_tab: 'mtf';
   meta: MetaEnvelope & { timesframes?: string[] };
   header: HeaderBlock;
-  /** Filter state at export time — lets consumers reconstruct exactly which
-   *  rows are visible on screen (the payload rows themselves are the
-   *  unfiltered superset, each flagged with `visible`). */
-  filter_state: MtfFilterStateBlock;
   groups: MtfGroupEntry[];
   indicators: MtfIndicatorEntry[];
   /** Aggregated across all 4 TFs (same shape as the Metrics single-TF export). */
@@ -512,9 +501,9 @@ export interface MtfTabInputs {
     macroTerm: TimeframeTelemetry;
   };
   registry: IndicatorMeta[];
-  /** Filter state at export time — drives per-row `visible` flags and the
-   *  `filter_state` block (mirrors the pills above the MTF grid). When
-   *  omitted, every row is treated as visible. */
+  /** v6.11: filtering was removed entirely — every registry row is always
+   *  exported and every `visible` flag is always `true` (superset = shown
+   *  set). The field is kept for payload-schema stability. */
   filters?: FilterState;
   /**
    * The full `BTC-USDC` / `BTC-USDT` exchange-symbol. Callers MUST pass
@@ -556,14 +545,8 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     buildTimeframeEntry(label, tf, args.registry, markPrice),
   );
 
-  // Visible row set — same filterRegistry semantics as MtfView (signals
-  // counted across all 4 slots so "Active only" behaves identically).
-  const filters = args.filters ?? undefined;
-  const visibleKeys = new Set(
-    filterRegistry(args.registry, filters ?? ({} as FilterState), (key) =>
-      slotDefs.flatMap(({ tf }) => (tf.indicators ?? {})[key]?.signals ?? []),
-    ).map((m) => m.key),
-  );
+  // v6.11: filtering was removed — the shown row set IS the full registry.
+  const visibleKeys = new Set(args.registry.map((m) => m.key));
 
   // Per-TF per-indicator row (one per registry entry × 4 TFs).
   const indicators: MtfIndicatorEntry[] = args.registry.map((m) => {
@@ -709,21 +692,6 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     source_tab: 'mtf',
     meta: { ...meta, timesframes: ['Micro', 'Fast', 'Slow', 'Macro'] },
     header: buildHeaderBlock(args.headerSpec),
-    filter_state: filters
-      ? {
-          active_only: filters.activeOnly ?? false,
-          confirmed_plus_only: filters.confirmedPlusOnly ?? false,
-          hide_gates: filters.hideGates ?? false,
-          hide_overlays: filters.hideOverlays ?? false,
-          query: filters.query ?? '',
-        }
-      : {
-          active_only: false,
-          confirmed_plus_only: false,
-          hide_gates: false,
-          hide_overlays: false,
-          query: '',
-        },
     groups,
     indicators,
     group_confluence: groupConfluence,

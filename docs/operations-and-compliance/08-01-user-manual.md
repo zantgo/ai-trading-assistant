@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 6.10 (2026-08-15) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -143,7 +143,7 @@ A value of `0` disables the cleanup loop for that table (rows accumulate indefin
 |---------|--------------|-----|
 | Engine panics on startup with "config not found" | No `config.toml` (and no legacy `config.json` fallback) at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.toml`. |
 | WebSocket frames never arrive | `ui/dist/` is missing or empty | Rebuild frontend (`cd ui && bun run build`). |
-| All values `null` in dashboard | Initial warm-up not finished | Wait `analysis_limit × duration_seconds` (default 500 × 60 s ≈ 8 h on micro); reduce `analysis_limit` for faster warm-up at the cost of less history. |
+| All values `null` in dashboard | Initial warm-up not finished | Wait `[candle_buffer] size × duration_seconds` (default 500 × 60 s ≈ 8 h 20 m on micro); reduce `[candle_buffer] size` for faster warm-up at the cost of less history. |
 | `margin_usage_ratio > 95%` warning | Position size too large for current equity | Reduce `max_position_size_usd` in policy or close a position. |
 | Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.toml` `[indicators.*]`; check the indicator rulebook via `GET /api/rules`. |
 | Connectivity warning on a specific exchange | Adapter is in backoff after repeated disconnects | Check `/api/system/status`; permanent disable after 5 consecutive failed cycles (a cycle = a full backoff sequence; a failure = one attempt), shown as "5 consecutive failures" (supervisor must be restarted). |

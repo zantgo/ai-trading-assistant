@@ -594,7 +594,8 @@ describe('buildMtfExportJson — cross-timeframe grid payload', () => {
         expect(parsed.timeframes[0].timestamp).toBe(100);
         expect(parsed.timeframes[0].is_completed).toBe(true);
         expect(parsed.timeframes[0].pipeline_state).toBe('LIVE');
-        expect(parsed.filter_state.active_only).toBe(false);
+        // v6.10.19d B: the filter pills were removed — no filter_state block.
+        expect('filter_state' in parsed).toBe(false);
     });
 
     it('captures per-TF indicator values + classifies agreement', () => {
