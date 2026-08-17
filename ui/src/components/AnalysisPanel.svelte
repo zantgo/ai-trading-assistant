@@ -6,6 +6,7 @@
     import { prettifyPhase, highlightKeywords as importedHighlightKeywords } from '../lib/prettifyPhase';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
+    import SummaryCard from './SummaryCard.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import { computeAnalysisLean } from '../lib/analysisLean';
     import { biasColor } from '../lib/dashboardColors';
@@ -349,6 +350,44 @@
         {/snippet}
     </LayerHeader>
 
+    <!-- ── ANALYSIS SUMMARY (v7.0): the unified Interpretation card moved
+         from the bottom of the panel into the head-badge zone. The full
+         container travels — prose + divider + 5-column quantitative grid. -->
+    <SummaryCard label="ANALYSIS SUMMARY">
+        <div class={styles.interpretText}>{@html highlightKeywords(analysis?.market_interpretation || '')}</div>
+        <div class={styles.interpretDivider}></div>
+        <div class={styles.rationaleGrid}>
+            <div class={styles.rationaleCell} title={rationaleGrid.lifted ? 'Bias lifted by TF-vote margin (grace/lean band)' : undefined}>
+                <span class={styles.rationaleLabel}>Overall Score</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.score != null ? `${Math.round(rationaleGrid.score)} / 100` : '—'}</span>
+                <span class={styles.rationaleSub} style={rationaleGrid.bias ? `color: ${biasColor(rationaleGrid.bias)}` : ''}>
+                    {rationaleGrid.bias ? `(${rationaleGrid.bias})` : '—'}
+                </span>
+            </div>
+            <div class={styles.rationaleCell}>
+                <span class={styles.rationaleLabel}>Timeframe Agreement</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.agreement != null ? `${Math.round(rationaleGrid.agreement)}%` : '—'}</span>
+                <span class={styles.rationaleSub}>
+                    {rationaleGrid.agreement != null && rationaleGrid.tfs != null
+                        ? `${rationaleGrid.tfs}/4 timeframes aligned`
+                        : '—'}
+                </span>
+            </div>
+            <div class={styles.rationaleCell} title="Bollinger Band Width Percentile">
+                <span class={styles.rationaleLabel}>Volatility Percentile</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.bbwp != null ? `${rationaleGrid.bbwp.toFixed(1)}%` : '—'}</span>
+            </div>
+            <div class={styles.rationaleCell} title="Average Directional Index">
+                <span class={styles.rationaleLabel}>Trend Strength</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.adx != null ? rationaleGrid.adx.toFixed(1) : '—'}</span>
+            </div>
+            <div class={styles.rationaleCell}>
+                <span class={styles.rationaleLabel}>Total Signals</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.signals != null ? `${rationaleGrid.signals} Signals` : '—'}</span>
+            </div>
+        </div>
+    </SummaryCard>
+
     <!-- ── Signal Lean Hero (now lives below the canonical header — the
             bias badge + regime badge + quality badge previously in the
             header have all been absorbed into the LayerHeader) ── -->
@@ -556,45 +595,6 @@
                     </div>
                 </div>
             {/each}
-        </div>
-    </div>
-
-    <!-- ── Interpretation & Rationale ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Interpretation</div>
-        <div class={styles.interpretCard}>
-            <div class={styles.interpretText}>{@html highlightKeywords(analysis?.market_interpretation || '')}</div>
-            <div class={styles.interpretDivider}></div>
-            <div class={styles.rationaleGrid}>
-                <div class={styles.rationaleCell} title={rationaleGrid.lifted ? 'Bias lifted by TF-vote margin (grace/lean band)' : undefined}>
-                    <span class={styles.rationaleLabel}>Overall Score</span>
-                    <span class={styles.rationaleValue}>{rationaleGrid.score != null ? `${Math.round(rationaleGrid.score)} / 100` : '—'}</span>
-                    <span class={styles.rationaleSub} style={rationaleGrid.bias ? `color: ${biasColor(rationaleGrid.bias)}` : ''}>
-                        {rationaleGrid.bias ? `(${rationaleGrid.bias})` : '—'}
-                    </span>
-                </div>
-                <div class={styles.rationaleCell}>
-                    <span class={styles.rationaleLabel}>Timeframe Agreement</span>
-                    <span class={styles.rationaleValue}>{rationaleGrid.agreement != null ? `${Math.round(rationaleGrid.agreement)}%` : '—'}</span>
-                    <span class={styles.rationaleSub}>
-                        {rationaleGrid.agreement != null && rationaleGrid.tfs != null
-                            ? `${rationaleGrid.tfs}/4 timeframes aligned`
-                            : '—'}
-                    </span>
-                </div>
-                <div class={styles.rationaleCell} title="Bollinger Band Width Percentile">
-                    <span class={styles.rationaleLabel}>Volatility Percentile</span>
-                    <span class={styles.rationaleValue}>{rationaleGrid.bbwp != null ? `${rationaleGrid.bbwp.toFixed(1)}%` : '—'}</span>
-                </div>
-                <div class={styles.rationaleCell} title="Average Directional Index">
-                    <span class={styles.rationaleLabel}>Trend Strength</span>
-                    <span class={styles.rationaleValue}>{rationaleGrid.adx != null ? rationaleGrid.adx.toFixed(1) : '—'}</span>
-                </div>
-                <div class={styles.rationaleCell}>
-                    <span class={styles.rationaleLabel}>Total Signals</span>
-                    <span class={styles.rationaleValue}>{rationaleGrid.signals != null ? `${rationaleGrid.signals} Signals` : '—'}</span>
-                </div>
-            </div>
         </div>
     </div>
 </div>

@@ -19,9 +19,16 @@
 .zoneValue { font-size: 12px; font-weight: 600; color: #e2e8f0; font-variant-numeric: tabular-nums; }
 .zoneGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 @media (max-width: 720px) { .zoneGrid { grid-template-columns: 1fr; } }
+/* v7.0: the Expected Reward-to-Risk section spans the FULL content width
+   (the old 2-col zoneGrid capped each side card at ~50%). One row per
+   side, aligned with the EVALUATED SETUPS card below it. */
+.rrFullGrid { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .bullish { color: #22c55e; }
 .bearish { color: #ef4444; }
 .rrValue { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+
+/* ── OPPORTUNITY SUMMARY prose (v7.0) ── */
+.opportunitySummaryText { font-size: 12.5px; color: #cbd5e1; line-height: 1.6; margin: 0; }
 
 /* ── Expected R:R card (v6.15): header row + 0→10x magnitude bar ── */
 .rrCardHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

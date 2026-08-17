@@ -66,6 +66,11 @@ export interface HeaderBlock {
   badge: HeaderBadgeBlock;
   chips: HeaderChipBlock[];
   status: 'live' | 'stale' | 'error' | 'loading';
+  /** v7.0: the [Subject] Summary card label rendered on the panel
+   *  ("ALIGNMENT SUMMARY", "ANALYSIS SUMMARY", "RISK SUMMARY",
+   *  "OPPORTUNITY SUMMARY", "VERDICT & RATIONALE") — null when the tab
+   *  has no summary card (e.g. Metrics/MTF/Overview). */
+  summary_label: string | null;
 }
 
 /**
@@ -86,6 +91,7 @@ export function buildHeaderBlock(spec: LayerHeaderSpec): HeaderBlock {
       value: parseChipValue(c.value),
     })),
     status: spec.status,
+    summary_label: null,
   };
 }
 

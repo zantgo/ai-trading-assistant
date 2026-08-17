@@ -1,0 +1,28 @@
+.summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 16px;
+    background: #16202b;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 10px;
+    box-sizing: border-box;
+}
+
+.summary-label {
+    font-family: var(--mono, 'JetBrains Mono', monospace);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: #94a3b8;
+    line-height: 1;
+}
+
+.summary-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}

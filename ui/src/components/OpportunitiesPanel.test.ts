@@ -966,21 +966,36 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         expect(screen.getAllByText('SHORT').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('clamps the magnitude bar at 100% and renders 10x+ for ratios at or above 10x', () => {
+    it('clamps the magnitude bar at 100% and renders 10R+ for ratios at or above 10x', () => {
         const opp = makeOpportunity() as any;
-        // reward 6000 / risk 300 → 20x — far past the 10x cap.
+        // reward 6000 / risk 300 → 20x — far past the 10R cap.
         opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         opp.confluent_target_levels = [{ price: 69100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         opp.confluent_invalidation_levels = [{ price: 62800, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        expect(screen.getByText('10x+')).toBeTruthy();
+        expect(screen.getByText('10R+')).toBeTruthy();
         const fills = Array.from(document.querySelectorAll('[class*="rrBarFill"]')) as HTMLElement[];
         expect(fills.length).toBe(1);
         expect(fills[0].style.width).toBe('100%');
-        // Anchor tick labels render on the 0→10x grid.
+        // v7.0: the whole scale is R-multiplier notation — the far-right
+        // anchor reads 10R, never the mixed-unit "10x".
         expect(screen.getByText('1R')).toBeTruthy();
-        expect(screen.getByText('10x')).toBeTruthy();
+        expect(screen.getByText('10R')).toBeTruthy();
+        expect(screen.queryByText('10x')).toBeNull();
+    });
+
+    it('v7.0: the risk-basis caption is erased — the basis rides the value tooltip', () => {
+        const opp = makeOpportunity() as any;
+        opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_target_levels = [{ price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_invalidation_levels = [{ price: 62400, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // The caption text is gone from the card…
+        expect(screen.queryByText('risk = confluent invalidation average')).toBeNull();
+        // …the tooltip carries the basis instead.
+        expect(screen.getByTitle('risk = confluent invalidation average')).toBeTruthy();
     });
 
     it('falls back to market-distance risk and labels it when a side has no invalidation levels', () => {
@@ -992,7 +1007,9 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // reward 3000 / risk |63100 − 64000| = 900 → 3.33
         expect(screen.getAllByText('3.33R').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText('risk = distance to market — no confluent invalidation levels')).toBeTruthy();
+        // v7.0: the basis label rides the value's tooltip, never a caption.
+        expect(screen.getByTitle('risk = distance to market — no confluent invalidation levels')).toBeTruthy();
+        expect(screen.queryByText('risk = distance to market — no confluent invalidation levels')).toBeNull();
     });
 
     it('renders the direction-aware invalidation thesis inside each directional setup card', () => {
@@ -1078,5 +1095,26 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         const second = cards[1].textContent ?? '';
         expect(second).toContain('Pullback'); // 50 second
         expect(cards[2].textContent).toContain('Breakout'); // 43 last
+    });
+});
+
+describe('OpportunitiesPanel — v7.0 OPPORTUNITY SUMMARY head card', () => {
+    it('renders the generated prose in the summary card above the conviction bars', () => {
+        const opp = makeOpportunity() as any;
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        const card = screen.getByLabelText('OPPORTUNITY SUMMARY');
+        expect(card).toBeTruthy();
+        expect(card.textContent).toContain('strong-conviction');
+        expect(card.textContent).toContain('trend-continuation phase');
+        const bars = document.querySelector('[class*="dirBarRow"]')!;
+        expect(card.compareDocumentPosition(bars) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('renders the awaiting fallback prose when the opportunity is absent', () => {
+        seedSnapshot('BTC-USDT', null as any, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        const card = screen.getByLabelText('OPPORTUNITY SUMMARY');
+        expect(card.textContent).toContain('Awaiting opportunity data');
     });
 });

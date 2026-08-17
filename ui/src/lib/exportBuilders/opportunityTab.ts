@@ -34,6 +34,7 @@ import type { LayerHeaderSpec } from '../layerHeader';
 import { computeOpportunityBars, rankSectionsByCount } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 import { confluenceStrengthLabel } from '../confluenceStrength';
+import { buildOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../opportunitySummary';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -146,6 +147,11 @@ export interface OpportunityPayload {
   source_tab: 'opportunity';
   meta: MetaEnvelope;
   header: HeaderBlock;
+  /** v7.0: the OPPORTUNITY SUMMARY natural-language paragraph — the same
+   *  string the panel's top summary card renders (shared generator). */
+  summary: string;
+  /** v7.0: the [Subject] Summary label rendered on the panel card. */
+  summary_label: string;
   directional_bars: DirectionalBarsBlock;
   trade_setups: TradeSetupRow[];
   /** v6.10.19b (C2): the nested sections view — NEUTRAL / BULL / BEAR,
@@ -513,6 +519,10 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     source_tab: 'opportunity',
     meta,
     header: buildHeaderBlock(args.headerSpec),
+    // v7.0: shared generator — the exact paragraph the panel's OPPORTUNITY
+    // SUMMARY card renders (parity invariant).
+    summary: buildOpportunitySummary(opp),
+    summary_label: OPPORTUNITY_SUMMARY_LABEL,
     // L4 bracket conviction only — the bias arg comes from Analysis (L3),
     // never from the L6 decision context.
     directional_bars: buildDirectionalBars(opp, args.analysis?.bias ?? null),

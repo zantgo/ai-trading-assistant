@@ -1,0 +1,155 @@
+.drawer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 10px;
+    background: #16202b;
+    animation: drawerIn 0.18s ease-out;
+}
+
+@keyframes drawerIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.drawerHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.drawerTitle {
+    font-family: var(--mono, monospace);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: #94a3b8;
+    line-height: 1;
+}
+
+.drawerSetup {
+    font-family: var(--mono, monospace);
+    font-size: 10px;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drawerFields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.fieldLabel {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.fieldRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.fieldPrefix {
+    font-family: var(--mono, monospace);
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.fieldInput {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: #e2e8f0;
+    font-family: var(--mono, monospace);
+    font-size: 12px;
+    padding: 5px 8px;
+    box-sizing: border-box;
+    font-variant-numeric: tabular-nums;
+}
+
+.fieldInput:focus {
+    outline: 1px solid rgba(34, 211, 238, 0.5);
+    outline-offset: 1px;
+    border-color: rgba(34, 211, 238, 0.4);
+}
+
+.fieldSuffix {
+    font-family: var(--mono, monospace);
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.drawerGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.resultItem {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    min-width: 0;
+}
+
+.resultLabel {
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.resultValue {
+    font-family: var(--mono, monospace);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    font-weight: 700;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.resultValuePos { color: #22c55e; }
+.resultValueNeg { color: #ef4444; }
+
+.drawerNote {
+    font-size: 10px;
+    color: #64748b;
+    line-height: 1.5;
+    font-style: italic;
+    margin: 0;
+}
+
+@media (max-width: 720px) {
+    .drawerFields { grid-template-columns: 1fr; }
+    .drawerGrid { grid-template-columns: 1fr 1fr; }
+}

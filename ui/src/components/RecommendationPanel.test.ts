@@ -849,8 +849,10 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
             net_bias_pct: 50,
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // The single section title replaces the two old ones.
-        expect(screen.getByText('Verdict & Rationale')).toBeTruthy();
+        // v7.0: the card lives inside the VERDICT & RATIONALE summary card
+        // (the standalone section title is gone — the card label is the
+        // kicker, and the old "Final Verdict"/"Why" titles never existed).
+        expect(screen.getByLabelText('VERDICT & RATIONALE')).toBeTruthy();
         expect(screen.queryByText('Final Verdict')).toBeNull();
         expect(screen.queryByText('Why')).toBeNull();
         // Verdict quote + guidance + divider + bullets all live in the card.
@@ -930,5 +932,70 @@ describe('RecommendationPanel — STAND ASIDE with a directional verdict (v6.10.
         expect(screen.getByText(/HOLD — no directional call/)).toBeTruthy();
         // The center-bottom dial label mirrors the neutral needle: 0%.
         expect(screen.getByText(/0%/)).toBeTruthy();
+    });
+});
+
+describe('RecommendationPanel — v7.0 VERDICT & RATIONALE head card', () => {
+    it('renders the verdict inside the summary card above the directional gauge', () => {
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        const card = screen.getByLabelText('VERDICT & RATIONALE');
+        expect(card).toBeTruthy();
+        expect(card.textContent).toContain('HOLD — no directional call');
+        const gauge = document.querySelector('[class*="gaugeCard"]')!;
+        expect(card.compareDocumentPosition(gauge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('v7.0: the old bottom "Verdict & Rationale" section title is gone', () => {
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry);
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        // The standalone section title element is gone — the summary card
+        // kicker renders "VERDICT & RATIONALE" (uppercase label) instead.
+        expect(screen.queryAllByText('Verdict & Rationale').length).toBe(0);
+        expect(screen.getByText('VERDICT & RATIONALE')).toBeTruthy();
+    });
+});
+
+describe('RecommendationPanel — v7.0 Project Risk and Return drawer', () => {
+    it('the header action toggles the drawer with the setup geometry', async () => {
+        const entry = seedPair('BTC-USDT');
+        // Directional LONG verdict so a qualifying top setup exists.
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        const button = screen.getByText('Project Risk and Return');
+        expect(button).toBeTruthy();
+        await button.click();
+        const drawer = screen.getByLabelText('Project Risk and Return');
+        expect(drawer).toBeTruthy();
+        expect(screen.getByText('Capital Allocation')).toBeTruthy();
+        expect(screen.getByText('Leverage')).toBeTruthy();
+        expect(drawer.textContent).toContain('LONG');
+        // Toggling again closes the drawer.
+        await button.click();
+        expect(screen.queryByLabelText('Project Risk and Return')).toBeNull();
+    });
+
+    it('the export carries the empty projection until the drawer is configured', async () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        const button = screen.getByText('Project Risk and Return');
+        await button.click();
+        const drawer = screen.getByLabelText('Project Risk and Return');
+        expect(drawer).toBeTruthy();
+        // The drawer prefills the LONG setup geometry into its header line.
+        expect(drawer.textContent).toContain('LONG');
     });
 });

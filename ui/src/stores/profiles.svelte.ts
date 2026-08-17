@@ -78,12 +78,24 @@ export class ProfileStore {
         try { await fetch(`/api/risk-profiles/${id}`, { method: 'DELETE' }); await this.fetchRiskProfiles(); } catch (_) {}
     }
 
-    async calculateRisk() {
+    async calculateRisk(overrides?: { capital?: number; leverage?: number; commissionPct?: number }) {
         this.riskCalculating = true;
         try {
+            const body: Record<string, unknown> = {
+                profile_id: this.activeRiskProfileId, direction: this.riskDirection,
+                entry_price: parseFloat(this.riskEntryPrice) || 0,
+                stop_loss: parseFloat(this.riskStopLoss) || 0,
+                take_profit: parseFloat(this.riskTakeProfit) || 0,
+            };
+            // v7.0: the Project Risk and Return drawer passes stateless
+            // what-if overrides; the backend prefers them over the saved
+            // profile without mutating the stored configuration.
+            if (overrides?.capital != null && isFinite(overrides.capital)) body.capital = overrides.capital;
+            if (overrides?.leverage != null && isFinite(overrides.leverage)) body.leverage = overrides.leverage;
+            if (overrides?.commissionPct != null && isFinite(overrides.commissionPct)) body.commission_pct = overrides.commissionPct;
             const res = await fetch('/api/risk/calculate', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ profile_id: this.activeRiskProfileId, direction: this.riskDirection, entry_price: parseFloat(this.riskEntryPrice) || 0, stop_loss: parseFloat(this.riskStopLoss) || 0, take_profit: parseFloat(this.riskTakeProfit) || 0 }),
+                body: JSON.stringify(body),
             });
             if (res.ok) { this.riskCalculation = await res.json(); }
         } catch (_) {} finally { this.riskCalculating = false; }

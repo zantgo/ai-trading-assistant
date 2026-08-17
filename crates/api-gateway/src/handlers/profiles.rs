@@ -269,16 +269,22 @@ pub async fn serve_risk_calculate(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RiskCalculateRequest>,
 ) -> impl IntoResponse {
+    // v7.0: the Project Risk and Return drawer runs stateless "what-if"
+    // scenarios — explicit payload overrides (capital / leverage /
+    // commission / funding / spread) take precedence over the saved
+    // database profile so the operator can model alternatives without
+    // mutating their stored configuration. The core risk math is
+    // untouched; this is pure input-resolution plumbing.
     let (capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread) = {
         let pid = payload.profile_id;
         if let Some(profile) = database_storage::risk_profile_by_id(&state.pool, pid).await {
             (
-                profile.capital,
-                profile.max_risk_pct,
-                profile.leverage,
-                profile.commission_pct,
-                profile.funding_rate_8h,
-                profile.spread,
+                payload.capital.unwrap_or(profile.capital),
+                payload.max_risk_pct.unwrap_or(profile.max_risk_pct),
+                payload.leverage.unwrap_or(profile.leverage),
+                payload.commission_pct.unwrap_or(profile.commission_pct),
+                payload.funding_rate_8h.unwrap_or(profile.funding_rate_8h),
+                payload.spread.unwrap_or(profile.spread),
             )
         } else {
             (

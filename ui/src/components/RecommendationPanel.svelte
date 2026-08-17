@@ -5,7 +5,10 @@
     import { buildRecommendationTabExport, verdictAwareGuidance } from '../lib/exportBuilders/recommendationTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
+    import SummaryCard from './SummaryCard.svelte';
+    import ProjectRiskDrawer from './ProjectRiskDrawer.svelte';
     import { buildL6DecisionHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { emptyProjection, type ProjectionSetup, type ProjectionState } from '../lib/projection';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
     import { computeDecisionRank, entryDangerLevel, selectProfileSide, profileZones, topSetupSummary, buildVerdictSentence } from '../lib/decisionRank';
@@ -144,6 +147,7 @@
             markPrice,
             overallRisk: instance?.risk?.overall_risk?.score ?? null,
             headerSpec,
+            projection,
             terms: {
                 microTerm: instance?.microTerm as any,
                 fastTerm: instance?.fastTerm as any,
@@ -152,6 +156,28 @@
             },
         });
     }
+
+    // ── Project Risk and Return drawer (v7.0) ────────────────────────────
+    // On-demand, stateless what-if calculator. Auto-pulls the top setup's
+    // geometry (entry / take-profit midpoints, stop-loss), defaults capital
+    // to the active risk profile ($100 fallback) and leverage to the saved
+    // profile, and lifts the derived projection so the export JSON mirrors
+    // the drawer (empty/`configured: false` until the operator runs one).
+    let drawerOpen = $state(false);
+    let projection = $state<ProjectionState>(emptyProjection());
+    const drawerSetup = $derived.by((): ProjectionSetup | null => {
+        if (!topSetup?.zones || topSetup.direction === 'NEUTRAL') return null;
+        const z = topSetup.zones;
+        if (!(z.entry.low > 0 && z.entry.high > 0 && z.invalidation > 0)) return null;
+        const direction = topSetup.direction as 'LONG' | 'SHORT';
+        const entry = (z.entry.low + z.entry.high) / 2;
+        const tpMid = (z.target.low + z.target.high) / 2;
+        const tp =
+            direction === 'LONG'
+                ? tpMid > entry ? tpMid : z.target.high > entry ? z.target.high : entry
+                : tpMid > 0 && tpMid < entry ? tpMid : z.target.low > 0 && z.target.low < entry ? z.target.low : entry;
+        return { direction, entry, stopLoss: z.invalidation, takeProfit: tp };
+    });
 
     // Keep deriveTradePlan wired so BottomConsole / TradePlanStrip stay fed.
     const tradePlan = $derived(deriveTradePlan({
@@ -279,9 +305,51 @@
     <LayerHeader spec={headerSpec}>
         {#snippet trailing()}
             <h2 class={styles.title}>Recommendation</h2>
-            <ExportDataButton onExport={buildExport} title="Copy all Recommendation data as JSON" />
+            <div class={styles.headerActions}>
+                <button
+                    type="button"
+                    class="{styles.projectBtn} {drawerOpen ? styles.projectBtnActive : ''}"
+                    title="Project the setup's risk and return with your capital and leverage"
+                    onclick={() => { drawerOpen = !drawerOpen; }}
+                >
+                    Project Risk and Return
+                </button>
+                <ExportDataButton onExport={buildExport} title="Copy all Recommendation data as JSON" />
+            </div>
         {/snippet}
     </LayerHeader>
+
+    <!-- ── VERDICT & RATIONALE (v7.0): moved from the bottom of the panel
+         into the head-badge zone — the terminal execution exception of the
+         [Subject] Summary naming scheme. The verdict-consistent accent
+         (green LONG / red SHORT / amber HOLD) rides the inner block. ── -->
+    <SummaryCard label="VERDICT & RATIONALE">
+        <div class="{styles.verdictCard} {verdictAccent}">
+            <blockquote class={styles.verdictQuote}>{buildVerdictSentence(rank, dangerDisplay)}</blockquote>
+            {#if verdictAwareGuidance(advisory, rank.top, rank.top_prob)}
+                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top, rank.top_prob)}</div>
+            {/if}
+            <div class={styles.verdictDivider}></div>
+            {#if rank.top === 'HOLD'}
+                <div class={styles.whyNote}>
+                    No directional edge — these bullets read the same across all three arms (Long/Short/Hold). They trace the data, not a trade call.
+                </div>
+            {/if}
+            <ul class={styles.why}>
+                {#each rank.rationale.slice(0, 3) as line, i (i)}
+                    <li class={styles.whyItem}>{line}</li>
+                {/each}
+            </ul>
+        </div>
+    </SummaryCard>
+
+    {#if drawerOpen}
+        <ProjectRiskDrawer
+            setup={drawerSetup}
+            markPrice={markPrice}
+            onProjection={(state: ProjectionState) => { projection = state; }}
+        />
+    {/if}
 
     <!-- Unified directional gauge — net bias from Long% − Short%,
          shown as a semi-circular dial. Center = Neutral, right = Long (green),
@@ -518,37 +586,6 @@
                 <span class={styles.cardLabel}>Target</span>
                 <span class={styles.cardValue}>{rank.top === 'HOLD' ? '—' : prettifyEnum(advisory?.target_strategy ?? '')}</span>
             </div>
-        </div>
-    </div>
-
-    <!-- ── Final Verdict ──
-         R6 + FIX-4 (v6.10.15) + v6.10.17: the verdict hero is the
-         authoritative call. Under a genuine HOLD it reads "no directional
-         call"; under a directional lean it carries the graded percentage
-         AND the readiness gate ("SHORT lean 38% — Stand Aside (readiness:
-         Stand Aside, Entry Danger HIGH)") — the operator always sees what
-         the market says and when it can be acted on. The advisory's
-         `final_recommendation` renders as verdict-consistent environment
-         guidance below (v6.17: it leads with the verdict's own read). -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Verdict & Rationale</div>
-        <div class="{styles.verdictCard} {verdictAccent}">
-            <blockquote class={styles.verdictQuote}>{buildVerdictSentence(rank, dangerDisplay)}</blockquote>
-            {#if verdictAwareGuidance(advisory, rank.top, rank.top_prob)}
-                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top, rank.top_prob)}</div>
-            {/if}
-            <div class={styles.verdictDivider}></div>
-            <!-- ── Why (top-3 rationale, gated by rank consistency) ── -->
-            {#if rank.top === 'HOLD'}
-                <div class={styles.whyNote}>
-                    No directional edge — these bullets read the same across all three arms (Long/Short/Hold). They trace the data, not a trade call.
-                </div>
-            {/if}
-            <ul class={styles.why}>
-                {#each rank.rationale.slice(0, 3) as line, i (i)}
-                    <li class={styles.whyItem}>{line}</li>
-                {/each}
-            </ul>
         </div>
     </div>
 </div>

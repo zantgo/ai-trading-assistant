@@ -179,11 +179,13 @@ describe('RiskPanel — v7.1 five-tone level palette (summary tiles + overall ba
     expect(bar.className).not.toContain('riskExtreme');
   });
 
-  it('tints the Risk Summary border + background by the overall level', () => {
+  it('v7.0: the RISK SUMMARY prose is always-gray — no level tint class', () => {
     seed(makeRisk('Stable'));
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
     const interp = document.querySelector('[class*="interpretation"]')!;
-    expect(interp.className).toContain('riskModerate');
+    expect(interp.className).not.toContain('riskModerate');
+    expect(interp.className).not.toContain('riskLow');
+    expect(interp.className).not.toContain('riskHigh');
   });
 
   it('the header trailing slot carries no dimension-count headline', () => {
@@ -194,20 +196,22 @@ describe('RiskPanel — v7.1 five-tone level palette (summary tiles + overall ba
   });
 });
 
-describe('RiskPanel — v6.16 segmented weight strip + label polish', () => {
-  it('renders eight weight segments with full-name tooltips inside the Risk Summary', () => {
+describe('RiskPanel — v7.0 RISK SUMMARY head card (weight strip erased)', () => {
+  it('the summary card renders under the header, above the risk progress bar', () => {
     seed(makeRisk('Stable'));
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
-    const strip = document.querySelector('[aria-label="Overall risk weight breakdown"]')!;
-    const segs = Array.from(strip.querySelectorAll('div'));
-    expect(segs).toHaveLength(8);
-    // Segment width = weight; tooltip = full name + weight.
-    expect(segs[0].getAttribute('style')).toContain('width: 14%');
-    expect(segs[0].getAttribute('title')).toBe('Market Risk: 14% Weight');
-    expect(segs[2].getAttribute('title')).toBe('Execution Liquidity Risk: 14% Weight');
-    expect(segs[3].getAttribute('title')).toBe('Structure Risk: 10% Weight');
-    // The caption survives as the transparency note.
-    expect(screen.getByText(/weighted sum of the eight dimension scores/)).toBeTruthy();
+    const card = screen.getByLabelText('RISK SUMMARY');
+    expect(card).toBeTruthy();
+    const hero = document.querySelector('[class*="heroRiskRow"]')!;
+    expect(card.compareDocumentPosition(hero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the segmented weight strip and its caption are erased', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(document.querySelector('[aria-label="Overall risk weight breakdown"]')).toBeNull();
+    expect(screen.queryByText(/weighted sum of the eight dimension scores/)).toBeNull();
+    expect(screen.queryByText(/Hover a segment/)).toBeNull();
   });
 
   it('the accordion and its 8-chip grid are gone', () => {
@@ -231,14 +235,5 @@ describe('RiskPanel — v6.16 segmented weight strip + label polish', () => {
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
     expect(screen.getAllByText('Execution Liquidity Risk').length).toBeGreaterThan(0);
     expect(screen.queryByText('Exec Liquidity Risk')).toBeNull();
-  });
-
-  it('the weight strip renders even while awaiting (def-order, fixed)', () => {
-    seed(makeSentinelRisk());
-    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
-    const strip = document.querySelector('[aria-label="Overall risk weight breakdown"]')!;
-    const segs = Array.from(strip.querySelectorAll('div'));
-    expect(segs).toHaveLength(8);
-    expect(segs[7].getAttribute('title')).toBe('Cascade Risk: 14% Weight');
   });
 });

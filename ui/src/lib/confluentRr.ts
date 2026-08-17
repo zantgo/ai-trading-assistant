@@ -159,9 +159,11 @@ export function fmtConfluentRr(rr: number): string {
     return rr.toFixed(2);
 }
 
-/** Trader-vernacular magnitude: `3.32R`, capped at `10x+` for rr ≥ 10. */
+/** Trader-vernacular magnitude: `3.32R`, capped at `10R+` for rr ≥ 10.
+ *  v7.0: the cap reads `10R+` — the whole scale is R-multiplier
+ *  notation (`1R…3R…10R`), never a mixed `x` unit. */
 export function fmtConfluentRrMagnitude(rr: number): string {
-    return rr >= 10 ? '10x+' : `${rr.toFixed(2)}R`;
+    return rr >= 10 ? '10R+' : `${rr.toFixed(2)}R`;
 }
 
 /**

@@ -5,6 +5,7 @@
     import { buildRiskTabExport, isAwaitingRiskMatrix } from '../lib/exportBuilders/riskTab';
     import ExportDataButton from './ExportDataButton.svelte';
     import LayerHeader from './LayerHeader.svelte';
+    import SummaryCard from './SummaryCard.svelte';
     import { buildL5RiskHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './RiskPanel.module.css';
 
@@ -137,20 +138,6 @@
 
     type NamedDim = { name: string; key: string; weight: number; data: RiskDimension | undefined };
 
-    // Def-order weight breakdown (v6.16): feeds the segmented strip inside
-    // the Risk Summary card. Fixed — the strip renders even while awaiting,
-    // mirroring the old disclosure accordion's always-visible grid.
-    const WEIGHT_DEFS: ReadonlyArray<{ name: string; pct: number }> = [
-        { name: 'Market Risk', pct: 14 },
-        { name: 'Volatility Risk', pct: 14 },
-        { name: 'Execution Liquidity Risk', pct: 14 },
-        { name: 'Structure Risk', pct: 10 },
-        { name: 'Momentum Risk', pct: 14 },
-        { name: 'Signal Risk', pct: 10 },
-        { name: 'Execution Risk', pct: 10 },
-        { name: 'Cascade Risk', pct: 14 },
-    ];
-
     const namedDims = $derived<NamedDim[]>(
         risk ? [
             { name: 'Market Risk', key: 'market_risk', weight: 0.14, data: risk.market_risk },
@@ -242,6 +229,33 @@
             <ExportDataButton onExport={buildExport} title="Copy all Risk data as JSON" />
         {/snippet}
     </LayerHeader>
+
+    <!-- ── RISK SUMMARY (v7.0): the interpretation moved from the bottom
+         into the head-badge zone, right under the header and before the
+         risk progress bar. Always-gray premium card — the level-tinted
+         background is gone; the segmented weight strip and its caption
+         are erased (weights live on the dimension cards). -->
+    <SummaryCard label="RISK SUMMARY">
+        <div class={styles.interpretation}>
+            {#if risk}
+                {#if dimCounts.extreme > 0 || dimCounts.high > 0}
+                    <strong>Elevated risk environment.</strong>
+                    {dimCounts.extreme > 0 ? ` ${dimCounts.extreme} dimension${dimCounts.extreme > 1 ? 's' : ''} at extreme levels.` : ''}
+                    {dimCounts.high > 0 ? ` ${dimCounts.high} dimension${dimCounts.high > 1 ? 's' : ''} at high levels.` : ''}
+                    {' '}Consider reduced position sizing and wider stops. Monitor the highest-severity dimensions for evidence of improvement before committing capital.
+                {:else if dimCounts.moderate > 0}
+                    <strong>Moderate risk environment.</strong> {dimCounts.moderate} dimension{dimCounts.moderate > 1 ? 's' : ''} at moderate levels.
+                    {' '}Standard position sizing applies, but stay alert to dimensions trending toward higher severity.
+                {:else}
+                    <strong>Low risk environment.</strong> All dimensions are within acceptable bounds.
+                    {' '}Favorable conditions for disciplined execution with standard risk parameters.
+                {/if}
+                {' '}Overall composite score is <strong>{risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}</strong> at {risk.overall_risk.confidence.toFixed(0)}% confidence.
+            {:else}
+                Risk synthesis is initializing — this section will provide a human-readable summary of the overall risk environment, highlighting which dimensions require attention and suggesting position-sizing guidance.
+            {/if}
+        </div>
+    </SummaryCard>
 
     <!-- v6.10.19d (C): the hero is a RISK PROGRESS BAR (the ring is
          gone). Confidence moved into the L5 header as a chip between
@@ -407,46 +421,4 @@
             </div>
         {/if}
     </section>
-
-    <!-- ── Interpretation ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Risk Summary</div>
-        <div class="{styles.interpretation} {risk ? levelClass(risk.overall_risk.level) : ''}">
-            {#if risk}
-                {#if dimCounts.extreme > 0 || dimCounts.high > 0}
-                    <strong>Elevated risk environment.</strong>
-                    {dimCounts.extreme > 0 ? ` ${dimCounts.extreme} dimension${dimCounts.extreme > 1 ? 's' : ''} at extreme levels.` : ''}
-                    {dimCounts.high > 0 ? ` ${dimCounts.high} dimension${dimCounts.high > 1 ? 's' : ''} at high levels.` : ''}
-                    {' '}Consider reduced position sizing and wider stops. Monitor the highest-severity dimensions for evidence of improvement before committing capital.
-                {:else if dimCounts.moderate > 0}
-                    <strong>Moderate risk environment.</strong> {dimCounts.moderate} dimension{dimCounts.moderate > 1 ? 's' : ''} at moderate levels.
-                    {' '}Standard position sizing applies, but stay alert to dimensions trending toward higher severity.
-                {:else}
-                    <strong>Low risk environment.</strong> All dimensions are within acceptable bounds.
-                    {' '}Favorable conditions for disciplined execution with standard risk parameters.
-                {/if}
-                {' '}Overall composite score is <strong>{risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}</strong> at {risk.overall_risk.confidence.toFixed(0)}% confidence.
-            {:else}
-                Risk synthesis is initializing — this section will provide a human-readable summary of the overall risk environment, highlighting which dimensions require attention and suggesting position-sizing guidance.
-            {/if}
-        </div>
-        <!-- v6.16: segmented weight strip — the accordion + 8-chip grid are
-             gone. Segment width = weight; hover shows the full dimension
-             name + weight. The export keeps the structured `disclosure`
-             block for data consumers. -->
-        <div class={styles.weightStripWrap}>
-            <div class={styles.weightStrip} aria-label="Overall risk weight breakdown">
-                {#each WEIGHT_DEFS as d}
-                    <div
-                        class={styles.weightSeg}
-                        style="width: {d.pct}%"
-                        title="{d.name}: {d.pct}% Weight"
-                    ></div>
-                {/each}
-            </div>
-            <p class={styles.weightStripCaption}>
-                Overall risk is a weighted sum of the eight dimension scores. Hover a segment for its full name and weight.
-            </p>
-        </div>
-    </div>
 </div>

@@ -29,6 +29,7 @@ import {
   type RrBlock,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
+import { emptyProjection, type ProjectionState } from '../projection';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -175,6 +176,11 @@ export interface RecommendationPayload {
   final_verdict: string;
   /** Advisory environment guidance rendered below the verdict under HOLD. */
   final_verdict_guidance: string | null;
+  /** v7.0: Project Risk and Return drawer state — `configured: false`
+   *  with null numerics until the operator runs a what-if calculation on
+   *  the Recommendation panel; populated verbatim from the drawer once
+   *  configured (export/screen parity). */
+  projection: ProjectionState;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -557,6 +563,9 @@ export interface RecommendationTabInputs {
   /** v6.10.19c (D4): the L5 overall risk for the bracket-aware Risk-Adj
    *  R:R fallback (instance risk matrix). */
   overallRisk?: number | null;
+  /** v7.0: Project Risk and Return drawer state. Omit / leave unset to
+   *  export the empty (`configured: false`) projection block. */
+  projection?: ProjectionState | null;
   isCompleted?: boolean;
   terms?: import('./shared').InstanceTermsLike;
   headerSpec: LayerHeaderSpec;
@@ -595,7 +604,7 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
   // gated by STAND ASIDE carries a real (graded) read whose sentence
   // reports both the lean and the gate.
   const noActiveCall = rank.top === 'HOLD';
-  const header = buildHeaderBlock(args.headerSpec);
+  const header = { ...buildHeaderBlock(args.headerSpec), summary_label: 'VERDICT & RATIONALE' };
   const score = readEntryDangerScore(args.decisionContext);
   // v6.17: the verdict sentence is the shared builder (same string as the
   // panel — readiness in sentence case, `Entry Danger <level>` spelled).
@@ -634,6 +643,9 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     // `top_setup.alternate_qualifying_setups` + the panel's note, so the
     // export mirrors the screen 1:1).
     why: rank.rationale.slice(0, 3),
+    // v7.0: empty (`configured: false`) until the drawer runs a
+    // calculation; then a verbatim copy of the drawer's projection grid.
+    projection: args.projection ?? emptyProjection(),
   };
   return JSON.stringify(payload, null, 2);
 }

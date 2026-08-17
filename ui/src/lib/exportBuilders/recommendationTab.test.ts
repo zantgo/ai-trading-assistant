@@ -681,3 +681,55 @@ describe('buildRecommendationTabExport', () => {
     expect(p.safety_flags.risk_adj_rr_explanation).toBeNull();
   });
 });
+
+describe('buildRecommendationTabExport — v7.0 projection block', () => {
+  it('exports the empty (configured: false) projection when the drawer was never used', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.projection.configured).toBe(false);
+    expect(p.projection.capital).toBeNull();
+    expect(p.projection.roi_pct).toBeNull();
+    expect(p.projection.position_size_units).toBeNull();
+  });
+
+  it('populates the projection block verbatim once configured', () => {
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory(),
+      decisionContext: makeDecisionContext(),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+      projection: {
+        configured: true,
+        capital: 100,
+        leverage: 10,
+        direction: 'LONG',
+        entry_price: 75.55,
+        stop_loss: 74.0,
+        take_profit: 80.0,
+        position_size_units: 0.12,
+        position_notional_usd: 1000,
+        entry_fee_usd: 0.6,
+        exit_fee_usd: 0.6,
+        total_fees_usd: 1.2,
+        liquidation_price: 72.5,
+        net_profit_usd: 55.0,
+        roi_pct: 55.0,
+      },
+    }));
+    expect(p.projection.configured).toBe(true);
+    expect(p.projection.capital).toBe(100);
+    expect(p.projection.leverage).toBe(10);
+    expect(p.projection.direction).toBe('LONG');
+    expect(p.projection.roi_pct).toBe(55.0);
+  });
+});

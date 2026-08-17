@@ -163,3 +163,124 @@ async fn risk_profile_insert_then_read_returns_text_columns() {
     assert_eq!(row.1, "2.5");
     assert_eq!(row.2, "0.06");
 }
+
+/// v7.0 regression lock: `/api/risk/calculate` must prefer explicit
+/// payload overrides (capital / leverage / commission / funding / spread)
+/// over the saved profile values — the Project Risk and Return drawer's
+/// stateless what-if modelling depends on it. No server math changes.
+async fn setup_override_state() -> (Arc<AppState>, String, i64) {
+    let pool = SqlitePool::connect("sqlite::memory:")
+        .await
+        .expect("Failed to connect to in-memory SQLite database");
+
+    database_storage::run_migrations(&pool)
+        .await
+        .expect("migrations should succeed on fresh in-memory db");
+
+    let symbol_mapper = Arc::new(SymbolMapper::new());
+    symbol_mapper
+        .register(core_domain::normalized::Exchange::Hyperliquid, "BTC", "BTC")
+        .await;
+
+    let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
+    let logger_pool = pool.clone();
+    tokio::spawn(async move {
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90).await;
+    });
+
+    let profile_id = database_storage::risk_profile_insert(
+        &pool,
+        "override-test-profile",
+        Decimal::from_str("12345.678901234567890123456789").unwrap(),
+        Decimal::from_str("2.5").unwrap(),
+        20,
+        Decimal::from_str("0.06").unwrap(),
+        Decimal::from_str("0.01").unwrap(),
+        Decimal::from_str("0.05").unwrap(),
+    )
+    .await;
+
+    let state = Arc::new(AppState {
+        workspace: portfolio_supervisor::workspace_state::WorkspaceState::empty(),
+        platform: Arc::new(RwLock::new(config_models::PlatformConfig::default())),
+        session: Arc::new(portfolio_supervisor::session::SessionState::new()),
+        pool: pool.clone(),
+        symbol_mapper,
+        telemetry_tx,
+        connection_quality: Arc::new(
+            network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new(),
+        ),
+        ws_url: "ws://127.0.0.1:1".to_string(),
+        bitget_ws_url: "".to_string(),
+        clock_monitor: None,
+        reliability: Arc::new(ReliabilityTracker::new()),
+        exchange_status: Arc::new(ExchangeStatusTracker::new()),
+        latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+        overview: Arc::new(RwLock::new(None)),
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
+        snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+    });
+
+    let router = api_gateway::build_router(state.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    (state, format!("http://{}", addr), profile_id)
+}
+
+#[tokio::test]
+async fn risk_calculate_prefers_payload_overrides_over_profile() {
+    let (_state, base_url, profile_id) = setup_override_state().await;
+
+    // Profile: capital 12345.68, leverage 20. Payload overrides: capital
+    // $100, leverage 10x. If the overrides win: risk_capital 2.5 (2.5% of
+    // 100), distance 5 (100→95), size 0.5 units, notional $50, margin
+    // 50/10 = 5, leverage_selected 10.
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("{}/api/risk/calculate", base_url))
+        .json(&serde_json::json!({
+            "profile_id": profile_id,
+            "direction": "LONG",
+            "entry_price": 100,
+            "stop_loss": 95,
+            "take_profit": 110,
+            "capital": 100,
+            "leverage": 10,
+        }))
+        .send()
+        .await
+        .expect("POST /api/risk/calculate");
+
+    assert!(res.status().is_success(), "expected 200, got {}", res.status());
+    let body: serde_json::Value = res.json().await.expect("response is JSON");
+
+    assert_eq!(body["leverage_selected"], 10, "payload leverage must win");
+    let num = |k: &str| -> f64 {
+        body[k].as_str().unwrap_or_default().parse::<f64>().unwrap_or(f64::NAN)
+    };
+    assert!(
+        (num("position_notional") - 50.0).abs() < 1e-9,
+        "capital override must win: notional = 2.5 / 5 × 100, got {}",
+        num("position_notional")
+    );
+    assert!(
+        (num("position_size_units") - 0.5).abs() < 1e-9,
+        "size derives from the overridden capital"
+    );
+    assert!(
+        (num("margin_required") - 5.0).abs() < 1e-9,
+        "margin = notional / overridden leverage"
+    );
+    assert!(
+        (num("risk_capital") - 2.5).abs() < 1e-9,
+        "risk capital = 2.5% of the overridden $100"
+    );
+}

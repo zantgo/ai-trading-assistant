@@ -168,11 +168,11 @@ describe('formatting helpers', () => {
         expect(fmtConfluentRr(3.333)).toBe('3.33');
     });
 
-    it('renders trader-vernacular magnitude with an R suffix and a 10x+ cap', () => {
+    it('renders trader-vernacular magnitude with an R suffix and a 10R+ cap (v7.0 unified scale)', () => {
         expect(fmtConfluentRrMagnitude(3.32)).toBe('3.32R');
         expect(fmtConfluentRrMagnitude(0.95)).toBe('0.95R');
-        expect(fmtConfluentRrMagnitude(10)).toBe('10x+');
-        expect(fmtConfluentRrMagnitude(12.5)).toBe('10x+');
+        expect(fmtConfluentRrMagnitude(10)).toBe('10R+');
+        expect(fmtConfluentRrMagnitude(12.5)).toBe('10R+');
     });
 
     it('maps R:R to the 0→10x bar fill (0% = 0R, 100% = 10x) with clamping', () => {

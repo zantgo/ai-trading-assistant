@@ -445,7 +445,7 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
   const payload: RiskPayload = {
     source_tab: 'risk',
     meta,
-    header: buildHeaderBlock(args.headerSpec),
+    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'RISK SUMMARY' },
     hero,
     summary_counts: buildSummaryCounts(risk),
     dimensions: buildDimensionsBlock(risk, args.flow, args.cluster),

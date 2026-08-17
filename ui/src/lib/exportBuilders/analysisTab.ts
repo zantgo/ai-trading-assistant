@@ -394,7 +394,7 @@ export function buildAnalysisTabExport(args: AnalysisTabInputs): string {
   const payload: AnalysisPayload = {
     source_tab: 'analysis',
     meta,
-    header: buildHeaderBlock(args.headerSpec),
+    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'ANALYSIS SUMMARY' },
     body: buildAnalysisBodyBlock(analysis),
     signal_lean_hero: buildSignalLeanHero(analysis),
     signals: buildSignalsBlock(analysis),

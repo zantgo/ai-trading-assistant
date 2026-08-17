@@ -562,3 +562,31 @@ describe('buildOpportunityTabExport', () => {
     expect(recExport.top_setup.alternate_qualifying_setups[0].side).toBe('LONG');
   });
 });
+describe('buildOpportunityTabExport — v7.0 summary block', () => {
+  it('emits the OPPORTUNITY SUMMARY paragraph + label (panel parity)', () => {
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDT',
+      markPrice: 64000,
+      headerSpec,
+    }));
+    expect(p.summary_label).toBe('OPPORTUNITY SUMMARY');
+    // Fixture: primary Breakout, opportunity_score 60.12 → moderate band.
+    expect(p.summary).toContain('moderate-conviction breakout phase');
+    expect(p.header.summary_label).toBeNull();
+  });
+
+  it('emits the awaiting fallback paragraph when the matrix is null', () => {
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: null,
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDT',
+      markPrice: 64000,
+      headerSpec,
+    }));
+    expect(p.summary).toContain('Awaiting opportunity data');
+  });
+});

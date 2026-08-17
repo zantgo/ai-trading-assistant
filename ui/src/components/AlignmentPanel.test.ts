@@ -223,45 +223,25 @@ describe('AlignmentPanel — NEUTRAL composite wording (AL-9)', () => {
   });
 });
 
-describe('AlignmentPanel — composition strip + whisper footnote (AL-10)', () => {
-  it('renders four segments with live weights and directional colors', () => {
-    seed(makeAlignment()); // fallback weights 50/30/10/10, axes all positive
-    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    const segs = document.querySelectorAll(`.${styles.consensusSeg}`);
-    expect(segs.length).toBe(4);
-    const widths = Array.from(segs).map((s) => (s as HTMLElement).style.width);
-    expect(widths).toEqual(['50%', '30%', '10%', '10%']);
-    // All-positive axes render every segment in bull green (#22c55e).
-    for (const s of segs) expect(s.getAttribute('style')).toContain('rgb(34, 197, 94)');
-  });
-
-  it('bearish and flat axes color their segments red and grey', () => {
-    seed(makeAlignment({ mtf_trend_alignment: -0.6, mtf_volume_alignment: 0 }));
-    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    const segs = document.querySelectorAll(`.${styles.consensusSeg}`);
-    // Trend -0.6 → bear red (#ef4444).
-    expect(segs[0].getAttribute('style')).toContain('rgb(239, 68, 68)');
-    // Momentum +0.6 → bull green (#22c55e).
-    expect(segs[1].getAttribute('style')).toContain('rgb(34, 197, 94)');
-    // Volume 0 → flat grey (#475569) at the fixed flat opacity.
-    expect(segs[2].getAttribute('style')).toContain('rgb(71, 85, 105)');
-    expect((segs[2] as HTMLElement).style.opacity).toBe('0.35');
-    // Volatility +0.4 → bull green.
-    expect(segs[3].getAttribute('style')).toContain('rgb(34, 197, 94)');
-  });
-
-  it('whisper footnote spells the weights in full words', () => {
+describe('AlignmentPanel — ALIGNMENT SUMMARY head card (v7.0)', () => {
+  it('renders the prose inside the ALIGNMENT SUMMARY card above the dial hero', () => {
     seed(makeAlignment());
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    expect(screen.getByText(
-      'Composition weights: Trend (fifty percent), Momentum (thirty percent), Volatility (ten percent), and Volume (ten percent).'
-    )).toBeTruthy();
+    const card = screen.getByLabelText('ALIGNMENT SUMMARY');
+    expect(card).toBeTruthy();
+    // The interpretation prose lives inside the summary card…
+    expect(card.querySelector(`.${styles.interpretation}`)!.textContent).toContain('strong directional consensus');
+    // …and the card sits ABOVE the dial hero in the head-badge zone.
+    const dialHero = document.querySelector(`.${styles.alignmentHero}`)!;
+    expect(card.compareDocumentPosition(dialHero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('sentinel hides the strip and the footnote', () => {
-    seed(makeSentinelAlignment());
+  it('the green/red composition strip and the whisper footnote are erased', () => {
+    seed(makeAlignment());
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
     expect(document.querySelectorAll(`.${styles.consensusSeg}`).length).toBe(0);
+    expect(document.querySelectorAll(`.${styles.consensusStrip}`).length).toBe(0);
+    expect(document.querySelectorAll(`.${styles.interpretationWhisper}`).length).toBe(0);
     expect(screen.queryByText(/Composition weights:/)).toBeNull();
   });
 });

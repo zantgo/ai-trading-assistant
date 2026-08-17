@@ -314,6 +314,18 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
 // the alignment matrix (score / agreement / signals) and the analysis
 // matrix's pinned representative inputs (BBWP / ADX).
 describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
+    it('v7.0: renders the grid inside the ANALYSIS SUMMARY card above the Signal Lean hero', () => {
+        seed(makeAnalysis({ bias: 'Bullish', representative_bbwp: 9.2, representative_adx: 36.5 }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment();
+        render(AnalysisPanel, { props: {} });
+        const card = screen.getByLabelText('ANALYSIS SUMMARY');
+        expect(card).toBeTruthy();
+        expect(card.querySelector('[class*="rationaleGrid"]')).toBeTruthy();
+        const hero = document.querySelector('[class*="signalLeanHero"]')!;
+        expect(card.compareDocumentPosition(hero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it('renders the unified card with all 5 rationale columns', () => {
         seed(makeAnalysis({
             bias: 'Bullish',

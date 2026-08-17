@@ -219,10 +219,13 @@ describe('export consistency — Risks tab', () => {
     expect(p.interpretation_full).toContain('at 74% confidence');
     expect(c.dom).toContain('Overall composite score is');
 
-    // Disclosure weights + note (v6.16: screen caption + export note share
-    // the exact "weighted sum of the eight dimension scores" sentence).
+    // Disclosure weights + note — v7.0: the caption was erased from the
+    // panel (RISK SUMMARY is prose-only now); the disclosure note
+    // survives in the JSON only, for data consumers.
     expect(p.disclosure.weights).toHaveLength(8);
-    expectInDomAndJson(c, 'Overall risk is a weighted sum of the eight dimension scores.');
+    expect(c.jsonText).toContain('Overall risk is a weighted sum of the eight dimension scores.');
+    expect(c.dom).not.toContain('Overall risk is a weighted sum of the eight dimension scores.');
+    expect(c.dom).not.toContain('Hover a segment for its full name and weight.');
   });
 });
 

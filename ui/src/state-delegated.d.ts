@@ -90,7 +90,7 @@ declare module './state.svelte' {
         fetchRiskProfiles(): Promise<void>;
         createRiskProfile(name: string, capital: number, riskPct: number, leverage: number): Promise<void>;
         deleteRiskProfile(id: number): Promise<void>;
-        calculateRisk(): Promise<void>;
+        calculateRisk(overrides?: { capital?: number; leverage?: number; commissionPct?: number }): Promise<void>;
         fetchFeeTable(): Promise<void>;
         calculateCommissionProjection(): Promise<void>;
         fetchExchangeKeys(): Promise<void>;
