@@ -67,20 +67,20 @@ updates_on_shadow: false
 
 The registry-wide `INDICATORS_MAX_BARS_REQUIRED` invariant is carried by this entry (300) — see the BBWP warmup note in `03-02-15-mme-indicator-lifecycle-states.md` for why BBWP's own gate stays at 200.
 
-## Companion ratios (v6.11)
+## Companion ratios
 
 | Ratio | Layer | Home | Formula |
 |-------|-------|------|---------|
-| `trend_stability_sharpe` | L3 Analysis | `AnalysisMatrix.trend_stability_sharpe` | Same Sharpe math over the **EMA-50** log returns (300-bar window) — noise-stripped trend-slope stability. |
 | `volatility_to_spread_ratio` | L5 Risk | `RiskMatrix.execution_risk.volatility_to_spread_ratio` | `ATR(14) ÷ (ask − bid)` — execution-friction gauge. |
 | `quality_to_risk_ratio` | L6 Advisory | `AdvisoryMatrix.quality_to_risk_ratio` | `market_quality_score ÷ overall_risk.score` — setup-efficiency metric. |
+
+> **v6.14:** the v6.11 companion `trend_stability_sharpe` (EMA-50 log-return Sharpe) was **removed** with its L3 matrix field, Trend-card badge, and export pair. This indicator is now the sole Sharpe family member on the wire.
 
 ---
 
 ## Cross-References
 
 - [Metrics Matrix §3.3.1](../../../matrices/02-07-metrics-matrix.md) — dual-representation wire format.
-- [Analysis Matrix §3.3.1](../../../matrices/02-02-analysis-matrix.md) — `trend_stability_sharpe`.
 - [Risk Matrix §4.7](../../../matrices/02-11-risk-matrix.md) — `volatility_to_spread_ratio` scoring rules.
 - [Decision Matrix §2.1](../../../matrices/02-04-decision-matrix.md) — `quality_to_risk_ratio`.
 - [Candle Buffer Spec](../../../operations-and-compliance/08-08-candle-buffer-spec.md) — the 300-bar canonical window (CB-01).

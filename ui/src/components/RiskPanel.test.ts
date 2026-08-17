@@ -108,16 +108,16 @@ describe('RiskPanel — warmup sentinel gate (RK-D)', () => {
 });
 
 describe('RiskPanel — v6.11 execution-friction gauge (volatility_to_spread_ratio)', () => {
-  it('renders the ATR-to-Spread field on the Execution Risk card', () => {
+  it('renders the Average True Range to Spread field on the Execution Risk card', () => {
     const risk = makeRisk('Stable');
     risk.execution_risk = { ...dim(35, 'Low'), volatility_to_spread_ratio: 12.4 };
     seed(risk);
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
     const field = screen.getByTitle(
-      /ATR\(14\) ÷ top-of-book spread — execution-friction gauge/
+      /Average True Range\(14\) ÷ top-of-book spread — execution-friction gauge/
     );
-    expect(field.textContent?.trim()).toBe('12.4×');
-    expect(screen.getByText('ATR-to-Spread')).toBeTruthy();
+    expect(field.textContent?.trim()).toBe('12.4');
+    expect(screen.getByText('Average True Range to Spread')).toBeTruthy();
   });
 
   it('v6.10.21: volatility-to-spread value is tinted by the L5 band tiers', () => {
@@ -129,7 +129,7 @@ describe('RiskPanel — v6.11 execution-friction gauge (volatility_to_spread_rat
       seed(risk);
       render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
       const field = screen.getByTitle(
-        /ATR\(14\) ÷ top-of-book spread — execution-friction gauge/
+        /Average True Range\(14\) ÷ top-of-book spread — execution-friction gauge/
       );
       return field.className;
     };
@@ -143,7 +143,102 @@ describe('RiskPanel — v6.11 execution-friction gauge (volatility_to_spread_rat
     seed(makeRisk('Stable'));
     render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
     expect(
-      screen.queryByTitle(/ATR\(14\) ÷ top-of-book spread/)
+      screen.queryByTitle(/Average True Range\(14\) ÷ top-of-book spread/)
     ).toBeNull();
+  });
+});
+
+describe('RiskPanel — v7.1 five-tone level palette (summary tiles + overall bar + Risk Summary)', () => {
+  it('lights each summary tile (level token + tint) only when its count is above zero', () => {
+    // makeRisk: Low=4, Moderate=4; VeryLow/High/Extreme = 0.
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    const section = document.querySelector('[aria-label="Dimension severity distribution"]')!;
+    const tile = (label: string): Element =>
+      Array.from(section.querySelectorAll('div')).find((el) =>
+        Array.from(el.querySelectorAll('span')).some((s) => s.textContent === label)
+      )!;
+    expect(tile('Low').className).toContain('summaryTileActive');
+    expect(tile('Low').className).toContain('riskLow');
+    expect(tile('Moderate').className).toContain('summaryTileActive');
+    expect(tile('Moderate').className).toContain('riskModerate');
+    // Zero-count levels keep the dimmed neutral container — no token.
+    expect(tile('Very Low').className).not.toContain('summaryTileActive');
+    expect(tile('Very Low').className).not.toContain('riskVeryLow');
+    expect(tile('High').className).not.toContain('summaryTileActive');
+    expect(tile('Extreme').className).not.toContain('summaryTileActive');
+  });
+
+  it('colors the overall-risk progress bar with the overall level token', () => {
+    seed(makeRisk('Stable')); // overall = Moderate
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    const bar = document.querySelector('[class*="heroRiskFill"]')!;
+    expect(bar.className).toContain('riskModerate');
+    // The Level class must not leak a stale token (VeryLow → blue, etc.)
+    expect(bar.className).not.toContain('riskVeryLow');
+    expect(bar.className).not.toContain('riskExtreme');
+  });
+
+  it('tints the Risk Summary border + background by the overall level', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    const interp = document.querySelector('[class*="interpretation"]')!;
+    expect(interp.className).toContain('riskModerate');
+  });
+
+  it('the header trailing slot carries no dimension-count headline', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.queryByText(/· overall moderate/)).toBeNull();
+    expect(screen.queryByText(/4 moderate/)).toBeNull();
+  });
+});
+
+describe('RiskPanel — v6.16 segmented weight strip + label polish', () => {
+  it('renders eight weight segments with full-name tooltips inside the Risk Summary', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    const strip = document.querySelector('[aria-label="Overall risk weight breakdown"]')!;
+    const segs = Array.from(strip.querySelectorAll('div'));
+    expect(segs).toHaveLength(8);
+    // Segment width = weight; tooltip = full name + weight.
+    expect(segs[0].getAttribute('style')).toContain('width: 14%');
+    expect(segs[0].getAttribute('title')).toBe('Market Risk: 14% Weight');
+    expect(segs[2].getAttribute('title')).toBe('Execution Liquidity Risk: 14% Weight');
+    expect(segs[3].getAttribute('title')).toBe('Structure Risk: 10% Weight');
+    // The caption survives as the transparency note.
+    expect(screen.getByText(/weighted sum of the eight dimension scores/)).toBeTruthy();
+  });
+
+  it('the accordion and its 8-chip grid are gone', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.queryByText('How is overall risk computed?')).toBeNull();
+    expect(screen.queryByText('ExecLiq')).toBeNull();
+    expect(screen.queryByText('Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend')).toBeNull();
+  });
+
+  it('row headers spell out the weight: "(14% Weight)", never "% wt"', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.getAllByText('(14% Weight)').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('(10% Weight)').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/% wt/)).toBeNull();
+  });
+
+  it('the execution-liquidity dimension is written in full everywhere', () => {
+    seed(makeRisk('Stable'));
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.getAllByText('Execution Liquidity Risk').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Exec Liquidity Risk')).toBeNull();
+  });
+
+  it('the weight strip renders even while awaiting (def-order, fixed)', () => {
+    seed(makeSentinelRisk());
+    render(RiskPanel, { props: { pairKey: 'BTC-USDT' } });
+    const strip = document.querySelector('[aria-label="Overall risk weight breakdown"]')!;
+    const segs = Array.from(strip.querySelectorAll('div'));
+    expect(segs).toHaveLength(8);
+    expect(segs[7].getAttribute('title')).toBe('Cascade Risk: 14% Weight');
   });
 });

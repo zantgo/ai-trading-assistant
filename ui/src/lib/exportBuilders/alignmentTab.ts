@@ -99,6 +99,10 @@ export interface AlignmentPayload {
   per_timeframe: AlignmentPerTimeframeRow[];
   score_calculation: AlignmentScoreCalcBlock;
   interpretation: string;
+  /** v7.1: the whisper footnote under the interpretation paragraph —
+   *  composition weights spelled in full words (data-auditing parity with
+   *  the panel's footnote). Null when no alignment data exists yet. */
+  composition_note: string | null;
   consensus_conflict_banner: string;
 }
 
@@ -276,16 +280,21 @@ function buildInterpretation(alignment: AlignmentMatrix | null): string {
     return 'Awaiting alignment data — this section will synthesize a human-readable interpretation of multi-timeframe consensus once indicators populate.';
   }
   const pct = alignment.trend_agreement_pct;
-  const overall = alignment.mtf_overall_score.toFixed(1);
+  // v7.1: the prose prints the EXACT signed score string the SCORE dial
+  // renders (signed integer) — the old unsigned `toFixed(1)` ("8.1"
+  // beside the dial's "+8") was read as score drift.
+  const overall = signedStr(alignment.mtf_overall_score, 0);
   const present = alignment.timeframes_present;
   const crossTf = alignment.signal_cross_tf_count;
   const label = mLabel(alignment.mtf_overall_label).toUpperCase();
   if (pct >= 75) {
-    // AL-4: "signal votes" — the cross-TF count is a scaled proxy
-    // (signals × 0.3), not a literal signal count.
-    // v6.10.16 (FIX-O6): when the composite classifies NEUTRAL the votes
-    // cannot "reinforce" it (the capture: 4/4 positive TFs + NEUTRAL
-    // composite) — the wording describes what the votes actually do.
+    // v7.1: a NEUTRAL composite can never show "strong directional
+    // consensus" — neutral is directionless by definition, so the copy
+    // reads "moderate consensus" instead.
+    const consensusPhrase = label === 'NEUTRAL' ? 'moderate consensus' : 'strong directional consensus';
+    const scoreSentence = label === 'NEUTRAL'
+      ? `The composite score of ${overall} is classified as <strong>NEUTRAL</strong> — the dimensions offset into a flat composite.`
+      : `The composite score of ${overall} is classified as <strong>${label}</strong>.`;
     const crossLine = crossTf > 0
       ? label === 'NEUTRAL'
         ? `${crossTf} cross-timeframe signal votes detected across the aligned timeframes.`
@@ -293,12 +302,39 @@ function buildInterpretation(alignment: AlignmentMatrix | null): string {
       : 'No cross-timeframe signal votes detected.';
     // Mirrors the screen paragraph verbatim — the label is the REAL
     // mtf_overall_label, never a hardcoded token.
-    return `Multi-timeframe alignment shows <strong>strong directional consensus</strong> (${pct.toFixed(0)}% agreement across ${present}/4 timeframes). The composite score of ${overall} is classified as <strong>${label}</strong>. ${crossLine}`;
+    return `Multi-timeframe alignment shows <strong>${consensusPhrase}</strong> (${pct.toFixed(0)}% agreement across ${present}/4 timeframes). ${scoreSentence} ${crossLine}`;
   }
   if (pct >= 50) {
     return `Alignment shows <strong>partial consensus</strong> (${pct.toFixed(0)}% agreement). The composite score of ${overall} reflects <strong>${label}</strong> conditions with mixed input from ${present} timeframes.`;
   }
   return `Timeframes are in <strong>conflict</strong> (${pct.toFixed(0)}% agreement). Exercise caution — different time horizons are pulling in opposite directions. Wait for re-alignment before committing to directional bias.`;
+}
+
+// v7.1: the whisper footnote — composition weights spelled in full words,
+// mirroring the panel's footnote (order Trend, Momentum, Volatility,
+// Volume per the review prose). Percentages come from the live wire
+// `blend_weights` (thin-participation reweight included), never stale
+// constants.
+const FOOTNOTE_ORDER: Record<string, number> = { Trend: 0, Momentum: 1, Volatility: 2, Volume: 3 };
+const PCT_WORDS: Record<number, string> = {
+  5: 'five', 10: 'ten', 30: 'thirty', 35: 'thirty-five', 50: 'fifty', 55: 'fifty-five',
+};
+function pctWord(pct: number): string {
+  return PCT_WORDS[pct] ?? String(pct);
+}
+function buildCompositionNote(alignment: AlignmentMatrix): string | null {
+  if (!alignment || alignment.timeframes_present === 0) return null;
+  const wire = alignment.blend_weights ?? [];
+  const eff = SCORE_CALC_WEIGHTS.map((w) => {
+    const found = wire.find(([k]) => (WEIGHT_KEY_CANON[k] ?? k) === w.key);
+    return { label: w.label, key: w.key, pct: Math.round((found ? found[1] : w.pct / 100) * 100) };
+  });
+  const sorted = eff.slice().sort((a, b) => (FOOTNOTE_ORDER[a.key] ?? 9) - (FOOTNOTE_ORDER[b.key] ?? 9));
+  const parts = sorted.map((w) => `${w.label} (${pctWord(w.pct)} percent)`);
+  const body = parts.length > 1
+    ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`
+    : parts.join('');
+  return `Composition weights: ${body}.`;
 }
 
 // ── Public builder ───────────────────────────────────────────────────────
@@ -375,6 +411,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
       })),
     },
     interpretation: buildInterpretation(null),
+    composition_note: null,
     consensus_conflict_banner: '',
   };
   if (!hasAlignment) {
@@ -390,6 +427,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
     per_timeframe: buildPerTimeframeBlock(alignment),
     score_calculation: buildScoreCalcBlock(alignment),
     interpretation: buildInterpretation(alignment),
+    composition_note: buildCompositionNote(alignment),
     consensus_conflict_banner: buildConflictBanner(alignment),
   };
   return JSON.stringify(payload, null, 2);

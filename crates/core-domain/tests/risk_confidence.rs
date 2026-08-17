@@ -31,7 +31,6 @@ fn make_analysis(state_confidence: f64) -> AnalysisMatrix {
         volume_assessment: core_domain::analysis::VolumeAssessment::Normal,
         opportunity_analysis: core_domain::analysis::OpportunityType::NoClearOpportunity,
         market_quality: core_domain::analysis::QualityLevel::Average,
-        trend_stability_sharpe: None,
         trend_score: None,
         momentum_score: None,
         structure_score: None,

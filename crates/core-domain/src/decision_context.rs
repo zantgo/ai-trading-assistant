@@ -505,7 +505,6 @@ mod tests {
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: q,
             market_quality_score: 0.0,
-            trend_stability_sharpe: None,
             trend_score: None,
             momentum_score: None,
             structure_score: None,

@@ -17,6 +17,7 @@ import {
   riskAdjRrExplanation,
   topSetupSummary,
   entryDangerLevel,
+  buildVerdictSentence,
   type AlternateSetupInfo,
 } from '../../lib/decisionRank';
 import {
@@ -179,42 +180,67 @@ export interface RecommendationPayload {
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /**
- * v6.10.19 (T2 + T5): verdict-aware environment guidance. Under a genuine
- * HOLD top the guidance sentence must say exactly what the 0% needle
- * means — no "Long bias: …" claim leading the sentence, no "Entry: ….
- * Stop: …." execution instructions. Shared by the panel and the export so
- * screen and clipboard can never disagree. Non-HOLD verdicts pass the
- * advisory sentence through unchanged.
+ * v6.10.19 (T2 + T5) + v6.17: verdict-consistent environment guidance.
+ * Under a genuine HOLD top the guidance sentence must say exactly what the
+ * 0% needle means — no "Long bias: …" claim leading the sentence, no
+ * "Entry: …. Stop: …." execution instructions. v6.17: under a DIRECTIONAL
+ * verdict the guidance leads with the verdict's own read — same direction
+ * and the same probability as the headline (`rank.top_prob`) — so the
+ * guidance line can never contradict the verdict quote; the advisory's
+ * environment tail survives verbatim, and "Entry:/Stop:" clauses are
+ * stripped under every verdict. Shared by the panel and the export so
+ * screen and clipboard can never disagree.
  */
 export function verdictAwareGuidance(
   advisory: AdvisoryMatrix | null,
   top: 'LONG' | 'SHORT' | 'HOLD',
+  verdictPct: number,
 ): string | null {
   if (!advisory?.final_recommendation) return null;
-  if (top !== 'HOLD') return advisory.final_recommendation;
   let g = advisory.final_recommendation;
-  // Strip any residual "Entry: …. Stop: …." clauses (server-side already
-  // omits them under Neutral/Avoid — this is the defensive layer for
-  // legacy payloads and directional-guidance HOLD states).
+  // Execution instructions are never environment guidance — strip them
+  // under every verdict (v6.17; previously HOLD-only).
   g = g.replace(/\s*Entry: [^.]*\.?\s*Stop: [^.]*\.?\s*$/i, '');
   g = g.replace(/\s*Entry: [^.]*\.?\s*$/i, '');
-  // Reword the leading directional claim — under HOLD the read exists
-  // but the edge does not.
-  const guidance = advisory.directional_guidance ?? '';
-  const conf = Math.round(advisory.confidence_assessment ?? 0);
-  g = g
-    .replace(/^Strong long bias:/i, `${guidance} bias at ${conf}% — no actionable directional edge;`)
-    .replace(/^Long bias:/i, `BULLISH bias at ${conf}% — no actionable directional edge;`)
-    .replace(/^Strong short bias:/i, `${guidance} bias at ${conf}% — no actionable directional edge;`)
-    .replace(/^Short bias:/i, `BEARISH bias at ${conf}% — no actionable directional edge;`);
-  // Drop the duplicated "… bias with N% confidence" fragment that follows
-  // the reworded claim (the confidence already lives in the new claim).
-  g = g.replace(/,?\s*[A-Za-z]+ bias with \d+% confidence/i, '');
-  // v6.10.19a (D2a): the strip can leave an orphaned ":," behind
-  // ("…no actionable directional edge:, cautious…") — collapse both.
-  g = g.replace(/:\s*,\s*/g, ', ');
-  g = g.replace(/\s*:\s*$/g, '');
-  return g.trim();
+  if (top === 'HOLD') {
+    // Reword the leading directional claim — under HOLD the read exists
+    // but the edge does not.
+    const guidance = advisory.directional_guidance ?? '';
+    const conf = Math.round(advisory.confidence_assessment ?? 0);
+    g = g
+      .replace(/^Strong long bias:/i, `${guidance} bias at ${conf}% — no actionable directional edge;`)
+      .replace(/^Long bias:/i, `BULLISH bias at ${conf}% — no actionable directional edge;`)
+      .replace(/^Strong short bias:/i, `${guidance} bias at ${conf}% — no actionable directional edge;`)
+      .replace(/^Short bias:/i, `BEARISH bias at ${conf}% — no actionable directional edge;`);
+    // Drop the duplicated "… bias with N% confidence" fragment that follows
+    // the reworded claim (the confidence already lives in the new claim).
+    g = g.replace(/,?\s*[A-Za-z]+ bias with \d+% confidence/i, '');
+    // v6.10.19a (D2a): the strip can leave an orphaned ":," behind
+    // ("…no actionable directional edge:, cautious…") — collapse both.
+    g = g.replace(/:\s*,\s*/g, ', ');
+    g = g.replace(/\s*:\s*$/g, '');
+    return g.trim();
+  }
+
+  // ── Directional verdict (v6.17): lead with the verdict's own read ──
+  const claim = top === 'LONG' ? 'Bullish' : 'Bearish';
+  const tail = g
+    // legacy directional claim head: "Strong long bias:", "Long bias:", …
+    .replace(/^(Strong\s+)?(Long|Short|Bearish|Bullish)\s+bias\s*:\s*/i, '')
+    // neutral claim head: "Neutral — no directional edge: …"
+    .replace(/^Neutral\s*—\s*no directional edge\s*:?\s*/i, '')
+    // duplicated "X bias with N% confidence" fragment right after the head
+    .replace(/^[A-Za-z]+\s+bias\s+with\s+\d+%\s+confidence\s*[,.]?\s*/i, '')
+    // bare "N% confidence," fragment right after the head
+    .replace(/^\d+%\s+confidence\s*[,.]?\s*/i, '')
+    // v6.10.19a (D2a) artifact collapse
+    .replace(/:\s*,\s*/g, ', ')
+    .replace(/\s*:\s*$/g, '')
+    .trim()
+    .replace(/^[\s,.;]+/, '');
+  const pct = Math.round(verdictPct);
+  const head = `${claim} market bias with ${pct}% confidence`;
+  return tail ? `${head}, ${tail}` : `${head}.`;
 }
 
 function sanitizeLabel(s: string): string {
@@ -468,7 +494,7 @@ function buildWhyNote(
   // No Clear explanation card) has real directional meaning and must
   // never carry the "no directional edge" disclaimer.
   if (rank.top === 'HOLD') {
-    return 'No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.';
+    return 'No directional edge — these bullets read the same across all three arms (Long/Short/Hold). They trace the data, not a trade call.';
   }
   return null;
 }
@@ -571,13 +597,9 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
   const noActiveCall = rank.top === 'HOLD';
   const header = buildHeaderBlock(args.headerSpec);
   const score = readEntryDangerScore(args.decisionContext);
-  const verdictSentence = noActiveCall
-    ? `HOLD — no directional call (readiness: ${rank.headline.state}).`
-    : rank.headline.state === 'STAND_ASIDE'
-      ? `${rank.top} lean ${Math.round(rank.top_prob)}% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger ${entryDangerLevel(score)}).`
-      : rank.headline.state === 'READY'
-        ? `${rank.top} ${Math.round(rank.top_prob)}% — READY (readiness: READY).`
-        : `${rank.top} lean ${Math.round(rank.top_prob)}% — awaiting confirmation (readiness: ${rank.headline.state}).`;
+  // v6.17: the verdict sentence is the shared builder (same string as the
+  // panel — readiness in sentence case, `Entry Danger <level>` spelled).
+  const verdictSentence = buildVerdictSentence(rank, score);
   const payload: RecommendationPayload = {
     source_tab: 'recommendation',
     meta,
@@ -599,11 +621,13 @@ export function buildRecommendationTabExport(args: RecommendationTabInputs): str
     // lean it carries the graded percentage AND the gate. The advisory
     // text is carried separately as environment guidance.
     final_verdict: verdictSentence,
-    // v6.10.19 (T2/T5): verdict-aware — under a HOLD top the guidance is
-    // reworded and stripped of execution instructions.
+    // v6.10.19 (T2/T5) + v6.17: verdict-aware — under a HOLD top the
+    // guidance is reworded and stripped of execution instructions; under
+    // a directional verdict it leads with the verdict's own read
+    // (direction + probability), never a stale neutral claim.
     final_verdict_guidance:
-      verdictAwareGuidance(args.advisory, rank.top) != null
-        ? `Environment guidance: ${verdictAwareGuidance(args.advisory, rank.top)}`
+      verdictAwareGuidance(args.advisory, rank.top, rank.top_prob) != null
+        ? `Environment guidance: ${verdictAwareGuidance(args.advisory, rank.top, rank.top_prob)}`
         : null,
     why_note: buildWhyNote(rank),
     // Top-3 bullets (panel parity — qualifying alternatives surface in

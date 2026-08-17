@@ -132,28 +132,16 @@ describe('buildAnalysisTabExport', () => {
     expect(p.qualitative_assessment.cycle_phase).toBe('MARK UP');
   });
 
-  it('v6.11: qualitative_assessment carries the trend-stability Sharpe', () => {
+  it('v6.14: qualitative_assessment no longer carries the trend-stability Sharpe', () => {
     const p = JSON.parse(buildAnalysisTabExport({
-      analysis: { ...makeAnalysis(), trend_stability_sharpe: 3.85 },
+      analysis: makeAnalysis(),
       alignment: makeAlignment(),
       symbol: 'BTC-USDT',
       markPrice: 63390,
       headerSpec,
     }));
-    expect(p.qualitative_assessment.trend_stability_sharpe).toBeCloseTo(3.85, 2);
-    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBe('3.85');
-  });
-
-  it('v6.11: null trend-stability Sharpe renders an em-dash display', () => {
-    const p = JSON.parse(buildAnalysisTabExport({
-      analysis: { ...makeAnalysis(), trend_stability_sharpe: null },
-      alignment: makeAlignment(),
-      symbol: 'BTC-USDT',
-      markPrice: 63390,
-      headerSpec,
-    }));
-    expect(p.qualitative_assessment.trend_stability_sharpe).toBeNull();
-    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBe('\u2014');
+    expect(p.qualitative_assessment.trend_stability_sharpe).toBeUndefined();
+    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBeUndefined();
   });
 
   it('v6.12: qualitative_assessment carries the per-card dimension scores', () => {

@@ -8,6 +8,7 @@
     import LayerHeader from './LayerHeader.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import { computeAnalysisLean } from '../lib/analysisLean';
+    import { biasColor } from '../lib/dashboardColors';
     import styles from './AnalysisPanel.module.css';
 
     const app = useAppStore();
@@ -23,6 +24,25 @@
         rawAnalysis && (rawAnalysis.timeframes_considered ?? 0) > 0 ? rawAnalysis : null
     );
     const alignment = $derived<AlignmentMatrix | null>(instance?.alignment ?? null);
+    // v6.15: the unified Interpretation card renders the mathematical
+    // evidence as a 5-column metadata grid instead of the raw backend
+    // rationale line (which stays in JSON exports only). Values come from
+    // the alignment matrix (score / agreement / signal count) and the
+    // analysis matrix's pinned representative inputs (BBWP / ADX) — the
+    // exact numbers the rationale quotes.
+    const rationaleGrid = $derived.by(() => {
+        const aln = alignment;
+        const score = aln?.mtf_overall_score ?? null;
+        const bias = analysis?.bias ?? null;
+        const agreement = aln?.trend_agreement_pct ?? null;
+        const tfs = aln?.timeframes_present ?? analysis?.timeframes_considered ?? null;
+        const bbwp = analysis?.representative_bbwp ?? null;
+        const adx = analysis?.representative_adx ?? null;
+        const signals = aln?.signal_cross_tf_count ?? null;
+        const lifted =
+            bias != null && bias !== 'Neutral' && score != null && Math.abs(score) <= 20;
+        return { score, bias, agreement, tfs, bbwp, adx, signals, lifted };
+    });
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
     const markPrice = $derived(parseFloat(microTerm?.priceText ?? '0') || 0);
@@ -83,24 +103,6 @@
         // Shared prettifier with the export builder — both surfaces must
         // render the identical string for the same wire token.
         return prettifyPhase(p);
-    }
-
-    /** v6.10.21: Trend Stability Sharpe display — 2-dp, clamped to the
-     *  ±20 wire band (backed by the backend clamp; belt-and-suspenders for
-     *  stale snapshots so a pathological raw value can never render). */
-    function formatSharpeValue(v: number): string {
-        const clamped = Math.max(-20, Math.min(20, v));
-        return clamped.toFixed(2);
-    }
-
-    /** v6.10.21: band tint mirroring the L1 state-label bands (≥ +2 strong
-     *  positive, > 0 positive, ≤ −2 strong negative, else negative) so the
-     *  Trend badge is self-explanatory without cross-referencing. */
-    function sharpeBand(v: number): string {
-        if (v >= 2) return styles.sharpeStrongPos;
-        if (v > 0) return styles.sharpePos;
-        if (v <= -2) return styles.sharpeStrongNeg;
-        return styles.sharpeNeg;
     }
 
     /** v6.12: coarse 3-level heat for the per-card 0-100 dimension-score
@@ -442,17 +444,6 @@
                         </span>
                     {/if}
                 </div>
-                {#if analysis?.trend_stability_sharpe != null}
-                    <div class={styles.sharpeBox}>
-                        <span class={styles.sharpeLabel}>Trend Stability (Sharpe)</span>
-                        <span
-                            class="{styles.sharpeBadge} {sharpeBand(analysis.trend_stability_sharpe)}"
-                            title="Trend stability Sharpe — annualized Sharpe of EMA-50 log returns over a 300-bar window"
-                        >
-                            {formatSharpeValue(analysis.trend_stability_sharpe)}
-                        </span>
-                    </div>
-                {/if}
             </div>
             <div class={styles.assessCard}>
                 <span class={styles.assessLabel}>Momentum</span>
@@ -568,11 +559,42 @@
         </div>
     </div>
 
-    <!-- ── Interpretation & Summary ── -->
+    <!-- ── Interpretation & Rationale ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Interpretation</div>
-        <div class={styles.interpretation}>{@html highlightKeywords(analysis?.market_interpretation || '')}</div>
+        <div class={styles.interpretCard}>
+            <div class={styles.interpretText}>{@html highlightKeywords(analysis?.market_interpretation || '')}</div>
+            <div class={styles.interpretDivider}></div>
+            <div class={styles.rationaleGrid}>
+                <div class={styles.rationaleCell} title={rationaleGrid.lifted ? 'Bias lifted by TF-vote margin (grace/lean band)' : undefined}>
+                    <span class={styles.rationaleLabel}>Overall Score</span>
+                    <span class={styles.rationaleValue}>{rationaleGrid.score != null ? `${Math.round(rationaleGrid.score)} / 100` : '—'}</span>
+                    <span class={styles.rationaleSub} style={rationaleGrid.bias ? `color: ${biasColor(rationaleGrid.bias)}` : ''}>
+                        {rationaleGrid.bias ? `(${rationaleGrid.bias})` : '—'}
+                    </span>
+                </div>
+                <div class={styles.rationaleCell}>
+                    <span class={styles.rationaleLabel}>Timeframe Agreement</span>
+                    <span class={styles.rationaleValue}>{rationaleGrid.agreement != null ? `${Math.round(rationaleGrid.agreement)}%` : '—'}</span>
+                    <span class={styles.rationaleSub}>
+                        {rationaleGrid.agreement != null && rationaleGrid.tfs != null
+                            ? `${rationaleGrid.tfs}/4 timeframes aligned`
+                            : '—'}
+                    </span>
+                </div>
+                <div class={styles.rationaleCell} title="Bollinger Band Width Percentile">
+                    <span class={styles.rationaleLabel}>Volatility Percentile</span>
+                    <span class={styles.rationaleValue}>{rationaleGrid.bbwp != null ? `${rationaleGrid.bbwp.toFixed(1)}%` : '—'}</span>
+                </div>
+                <div class={styles.rationaleCell} title="Average Directional Index">
+                    <span class={styles.rationaleLabel}>Trend Strength</span>
+                    <span class={styles.rationaleValue}>{rationaleGrid.adx != null ? rationaleGrid.adx.toFixed(1) : '—'}</span>
+                </div>
+                <div class={styles.rationaleCell}>
+                    <span class={styles.rationaleLabel}>Total Signals</span>
+                    <span class={styles.rationaleValue}>{rationaleGrid.signals != null ? `${rationaleGrid.signals} Signals` : '—'}</span>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <div class={styles.rationale}>{analysis?.rationale || '—'}</div>
 </div>

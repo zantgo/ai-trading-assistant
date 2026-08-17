@@ -24,9 +24,13 @@
 //                                              reason 'below the 0.10
 //                                              meaningfulness floor'
 //
-// The floor and the formatting vocabulary are shared with the rest of
-// the panel (`RR_MEANINGFUL_FLOOR`, `1:X.XX` chip format) so the section
-// can never disagree with the header or the setup cards.
+// The floor is shared with the rest of the panel (`RR_MEANINGFUL_FLOOR`)
+// so the section can never disagree with the header or the setup cards.
+//
+// Display vocabulary (v6.15): the section shows the bare R-multiple
+// (`3.32R`) — no `1:` prefix — on a 0→10x magnitude bar where the fill
+// is `rr / 10 × 100`% (100% = 10x = 1000% return). Ratios at or above
+// 10x render as `10x+` with the fill clamped at 100%.
 
 import type { ConfluentLevel, OpportunityMatrix } from '../types';
 import { RR_MEANINGFUL_FLOOR } from './decisionRank';
@@ -150,9 +154,23 @@ export function computeConfluentRr(
     return { sides: out, reason: null };
 }
 
-/** The `1:X.XX` chip format shared with the L4 header rail. */
+/** Bare R-multiple format (`3.32`) — the `1:` prefix is gone (v6.15). */
 export function fmtConfluentRr(rr: number): string {
-    return `1:${rr.toFixed(2)}`;
+    return rr.toFixed(2);
+}
+
+/** Trader-vernacular magnitude: `3.32R`, capped at `10x+` for rr ≥ 10. */
+export function fmtConfluentRrMagnitude(rr: number): string {
+    return rr >= 10 ? '10x+' : `${rr.toFixed(2)}R`;
+}
+
+/**
+ * Fill percentage for the 0→10x magnitude bar: 0% = 0R, 100% = 10x
+ * (1000% return). Anything at or above 10x clamps to 100%.
+ */
+export function rrBarPct(rr: number): number {
+    if (!isFinite(rr) || rr <= 0) return 0;
+    return Math.min(100, Math.max(0, (rr / 10) * 100));
 }
 
 /** Human-readable risk-basis label for the per-side card sub-line. */

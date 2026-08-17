@@ -48,7 +48,7 @@ function makeSentinelRisk(): RiskMatrix {
 }
 
 describe('buildRiskTabExport', () => {
-  it('emits structured headline_parts (counts separate from words)', () => {
+  it('v7.1: the header trailing headline is gone from the panel AND the export (summary_counts carries the distribution)', () => {
     const p = JSON.parse(buildRiskTabExport({
       risk: makeRisk(),
       flow: null,
@@ -57,12 +57,11 @@ describe('buildRiskTabExport', () => {
       markPrice: 63390,
       headerSpec,
     }));
-    expect(p.headline_parts).not.toBeNull();
-    expect(p.headline_parts.very_low_count).toBe(0);
-    expect(p.headline_parts.low_count).toBe(4);
-    expect(p.headline_parts.moderate_count).toBe(4);
-    expect(p.headline_parts.overall_level).toBe('Moderate');
-    expect(p.interpretation_headline).toContain('4 moderate');
+    expect('headline_parts' in p).toBe(false);
+    expect('interpretation_headline' in p).toBe(false);
+    // The per-level distribution still rides in summary_counts (the tiles).
+    expect(p.summary_counts.low.count).toBe(4);
+    expect(p.summary_counts.moderate.count).toBe(4);
   });
 
   it('interpretation_full mirrors the screen paragraph', () => {
@@ -127,7 +126,7 @@ describe('buildRiskTabExport', () => {
       awaiting_badge: 'AWAITING',
       not_active: false,
     });
-    expect(p.dimensions[2].name).toBe('Exec Liquidity Risk');
+    expect(p.dimensions[2].name).toBe('Execution Liquidity Risk');
     expect(p.dimensions.every((d: { awaiting: boolean }) => d.awaiting)).toBe(true);
     expect(p.interpretation_full).toContain('Risk synthesis is initializing');
     expect(p.meta.pair).toBe('BTC-USDT');
@@ -146,9 +145,14 @@ describe('buildRiskTabExport', () => {
     expect(p.disclosure.weights).toHaveLength(8);
     expect(p.disclosure.weights[0]).toHaveProperty('label');
     expect(p.disclosure.weights[0]).toHaveProperty('pct');
-    expect(p.disclosure.note).toContain('weighted sum of the 8 dimension scores');
+    expect(p.disclosure.note).toContain('weighted sum of the eight dimension scores');
+    expect(p.disclosure.note).toContain('Hover a segment for its full name and weight');
     expect(p.disclosure.note).toContain('state chip describes the risk trend');
     expect(p.disclosure.note).not.toContain('modify each dimension');
+    // v6.16: the ExecLiq contraction is gone from the export labels —
+    // the execution-liquidity dimension is written in full.
+    expect(p.disclosure.weights[2].label).toBe('Execution Liquidity');
+    expect(JSON.stringify(p.disclosure)).not.toContain('ExecLiq');
     expect(p.hero).toBeDefined();
     // v6.10.19d C: the "Lower is safer." caption was removed from the
     // hero — the bar carries the guidance as a tooltip only.
@@ -156,7 +160,7 @@ describe('buildRiskTabExport', () => {
     expect(p.awaiting_dimensions_text).toContain('Awaiting risk assessment');
   });
 
-  it('RK-C: all-below-moderate headline reads "below moderate", not "calm"', () => {
+  it('RK-C: all-below-moderate interpretation reads "Low risk environment", never "calm"', () => {
     const risk = makeRisk();
     risk.market_risk = dim(15, 'VeryLow');
     risk.volatility_risk = dim(20, 'Low');
@@ -174,8 +178,8 @@ describe('buildRiskTabExport', () => {
       markPrice: 63390,
       headerSpec,
     }));
-    expect(p.interpretation_headline).toContain('all dimensions below moderate');
-    expect(p.interpretation_headline).not.toContain('all dimensions calm');
+    expect(p.interpretation_full).toContain('<strong>Low risk environment.</strong>');
+    expect(p.interpretation_full).not.toContain('calm');
   });
 
   it('RK-D: the warmup sentinel matrix renders as AWAITING (hero null, awaiting rows, init interpretation)', () => {

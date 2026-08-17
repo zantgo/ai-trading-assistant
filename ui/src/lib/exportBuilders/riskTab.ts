@@ -2,8 +2,12 @@
 //
 // v7.0-audit: rewrites the payload to use the new shared envelope (no
 // filter_state, single current_price, structured header chrome). Adds
-// `headline_parts` as a structured block, `interpretation_full` as the
-// screen paragraph, and reformats cascade telemetry into typed fields.
+// `interpretation_full` as the screen paragraph, and reformats cascade
+// telemetry into typed fields.
+// v7.1: the header trailing headline ("1 extreme · 1 high · …") was
+// removed from the panel (title-only header, like every other tab) and
+// therefore stripped from the export too — `summary_counts` carries the
+// per-level distribution for data consumers.
 
 import type {
   RiskMatrix,
@@ -81,15 +85,6 @@ export interface RiskDimensionExport {
   execution_extras: { volatility_to_spread_ratio: number | null } | null;
 }
 
-export interface RiskHeadlineParts {
-  very_low_count: number;
-  low_count: number;
-  moderate_count: number;
-  high_count: number;
-  extreme_count: number;
-  overall_level: string;
-}
-
 export interface RiskDisclosureBlock {
   weights: Array<{ label: string; pct: number }>;
   note: string;
@@ -102,8 +97,6 @@ export interface RiskPayload {
   hero: RiskHeroBlock | null;
   summary_counts: RiskSummaryCountsBlock;
   dimensions: RiskDimensionExport[];
-  headline_parts: RiskHeadlineParts | null;
-  interpretation_headline: string;
   interpretation_full: string | null;
   disclosure: RiskDisclosureBlock;
   awaiting_dimensions_text: string;
@@ -119,7 +112,7 @@ const RISK_DIMENSION_DEFS: ReadonlyArray<{
 }> = [
   { name: 'Market Risk',              key: 'market_risk',              weight: 0.14, isCascade: false },
   { name: 'Volatility Risk',          key: 'volatility_risk',          weight: 0.14, isCascade: false },
-  { name: 'Exec Liquidity Risk',      key: 'execution_liquidity_risk', weight: 0.14, isCascade: false },
+  { name: 'Execution Liquidity Risk', key: 'execution_liquidity_risk', weight: 0.14, isCascade: false },
   { name: 'Structure Risk',           key: 'structure_risk',           weight: 0.10, isCascade: false },
   { name: 'Momentum Risk',            key: 'momentum_risk',            weight: 0.14, isCascade: false },
   { name: 'Signal Risk',              key: 'signal_risk',              weight: 0.10, isCascade: false },
@@ -172,6 +165,20 @@ function normalizeLevelKey(l: string): string {
   return l ? l.toLowerCase().replace(/_/g, '') : 'moderate';
 }
 
+/** Count dimensions per severity level (lowercase keys). */
+function countLevels(risk: RiskMatrix): Record<string, number> {
+  const counts: Record<string, number> = {
+    verylow: 0, low: 0, moderate: 0, high: 0, extreme: 0,
+  };
+  for (const def of RISK_DIMENSION_DEFS) {
+    const dim = (risk as unknown as Record<string, RiskDimension | undefined>)[def.key];
+    if (!dim) continue;
+    const key = normalizeLevelKey(dim.level);
+    if (key in counts) counts[key]++;
+  }
+  return counts;
+}
+
 // v6.10.19d (C): unified Scheme-A state tokens shared with RiskPanel —
 // trend states win when present, otherwise the LEVEL maps to its token
 // (Extreme→CRITICAL / High→ELEVATED / Moderate→STEADY / Low→COMPOSED /
@@ -192,15 +199,7 @@ function riskToken(level: string | undefined, state: string | undefined): { toke
 
 function buildHeroBlock(risk: RiskMatrix): RiskHeroBlock {
   const overall = risk.overall_risk;
-  const dimCounts: Record<string, number> = {
-    verylow: 0, low: 0, moderate: 0, high: 0, extreme: 0,
-  };
-  for (const def of RISK_DIMENSION_DEFS) {
-    const dim = (risk as unknown as Record<string, RiskDimension | undefined>)[def.key];
-    if (!dim) continue;
-    const key = normalizeLevelKey(dim.level);
-    if (key in dimCounts) dimCounts[key]++;
-  }
+  const dimCounts = countLevels(risk);
   let topSeverity: RiskLevel | null = null;
   if (dimCounts.extreme > 0) topSeverity = 'Extreme';
   else if (dimCounts.high > 0) topSeverity = 'High';
@@ -229,16 +228,12 @@ function buildSummaryCounts(risk: RiskMatrix | null): RiskSummaryCountsBlock {
     extreme:  { label: 'Extreme',  count: 0 },
   };
   if (!risk) return counts;
-  for (const def of RISK_DIMENSION_DEFS) {
-    const dim = (risk as unknown as Record<string, RiskDimension | undefined>)[def.key];
-    if (!dim) continue;
-    const key = normalizeLevelKey(dim.level);
-    if (key === 'verylow') counts.very_low.count++;
-    else if (key === 'low') counts.low.count++;
-    else if (key === 'moderate') counts.moderate.count++;
-    else if (key === 'high') counts.high.count++;
-    else if (key === 'extreme') counts.extreme.count++;
-  }
+  const c = countLevels(risk);
+  counts.very_low.count = c.verylow;
+  counts.low.count = c.low;
+  counts.moderate.count = c.moderate;
+  counts.high.count = c.high;
+  counts.extreme.count = c.extreme;
   return counts;
 }
 
@@ -364,62 +359,29 @@ function buildDimensionsBlock(
   }));
 }
 
-function buildHeadlineParts(risk: RiskMatrix | null): RiskHeadlineParts | null {
-  if (!risk) return null;
-  const overall = risk.overall_risk;
-  const dimCounts: Record<string, number> = {
-    verylow: 0, low: 0, moderate: 0, high: 0, extreme: 0,
-  };
-  for (const def of RISK_DIMENSION_DEFS) {
-    const dim = (risk as unknown as Record<string, RiskDimension | undefined>)[def.key];
-    if (!dim) continue;
-    const key = normalizeLevelKey(dim.level);
-    if (key in dimCounts) dimCounts[key]++;
-  }
-  return {
-    very_low_count: dimCounts.verylow,
-    low_count: dimCounts.low,
-    moderate_count: dimCounts.moderate,
-    high_count: dimCounts.high,
-    extreme_count: dimCounts.extreme,
-    overall_level: overall.level,
-  };
-}
-
-function buildInterpretationHeadline(headline: RiskHeadlineParts | null): string {
-  if (!headline) return '';
-  const parts: string[] = [];
-  if (headline.extreme_count > 0) parts.push(`${headline.extreme_count} extreme`);
-  if (headline.high_count > 0) parts.push(`${headline.high_count} high`);
-  if (headline.moderate_count > 0) parts.push(`${headline.moderate_count} moderate`);
-  if (parts.length === 0) return `all dimensions below moderate · overall ${headline.overall_level.toLowerCase()}`;
-  return `${parts.join(' · ')} · overall ${headline.overall_level.toLowerCase()}`;
-}
-
 function buildInterpretationFull(risk: RiskMatrix | null): string | null {
   if (!risk) {
     // Verbatim screen copy — the empty-state interpretation paragraph the
     // panel renders when no risk matrix has arrived yet.
     return 'Risk synthesis is initializing — this section will provide a human-readable summary of the overall risk environment, highlighting which dimensions require attention and suggesting position-sizing guidance.';
   }
-  const headline = buildHeadlineParts(risk);
-  if (!headline) return null;
+  const c = countLevels(risk);
   const overall = risk.overall_risk;
   const overallLevel = overall.level.toLowerCase().replace(/_/g, ' ');
   const confidence = Math.round(overall.confidence);
   let body: string;
-  if (headline.extreme_count > 0 || headline.high_count > 0) {
+  if (c.extreme > 0 || c.high > 0) {
     // Zero-count sentences are omitted on screen — mirror that exactly.
     body = `<strong>Elevated risk environment.</strong>`;
-    if (headline.extreme_count > 0) {
-      body += ` ${headline.extreme_count} dimension${headline.extreme_count === 1 ? '' : 's'} at extreme levels.`;
+    if (c.extreme > 0) {
+      body += ` ${c.extreme} dimension${c.extreme === 1 ? '' : 's'} at extreme levels.`;
     }
-    if (headline.high_count > 0) {
-      body += ` ${headline.high_count} dimension${headline.high_count === 1 ? '' : 's'} at high levels.`;
+    if (c.high > 0) {
+      body += ` ${c.high} dimension${c.high === 1 ? '' : 's'} at high levels.`;
     }
     body += ` Consider reduced position sizing and wider stops. Monitor the highest-severity dimensions for evidence of improvement before committing capital.`;
-  } else if (headline.moderate_count > 0) {
-    body = `<strong>Moderate risk environment.</strong> ${headline.moderate_count} dimension${headline.moderate_count === 1 ? '' : 's'} at moderate levels. Standard position sizing applies, but stay alert to dimensions trending toward higher severity.`;
+  } else if (c.moderate > 0) {
+    body = `<strong>Moderate risk environment.</strong> ${c.moderate} dimension${c.moderate === 1 ? '' : 's'} at moderate levels. Standard position sizing applies, but stay alert to dimensions trending toward higher severity.`;
   } else {
     body = `<strong>Low risk environment.</strong> All dimensions are within acceptable bounds. Favorable conditions for disciplined execution with standard risk parameters.`;
   }
@@ -459,19 +421,21 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
   // mirror the panel's gate so the export can never claim real
   // "Moderate" data from the backend's empty matrix.
   const risk = isAwaitingRiskMatrix(args.risk) ? null : args.risk;
-  const headline = buildHeadlineParts(risk);
+  // v6.16: labels mirror the segmented weight strip's full names (the
+  // screen renders segment widths + hover tooltips; the export keeps the
+  // structured weights for data consumers).
   const disclosure: RiskDisclosureBlock = {
     weights: [
       { label: 'Market', pct: 14 },
       { label: 'Volatility', pct: 14 },
-      { label: 'ExecLiq', pct: 14 },
+      { label: 'Execution Liquidity', pct: 14 },
       { label: 'Structure', pct: 10 },
       { label: 'Momentum', pct: 14 },
       { label: 'Signal', pct: 10 },
       { label: 'Execution', pct: 10 },
       { label: 'Cascade', pct: 14 },
     ],
-    note: 'Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.',
+    note: 'Overall risk is a weighted sum of the eight dimension scores. Hover a segment for its full name and weight. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.',
   };
   const baseHero = risk ? buildHeroBlock(risk) : null;
   // v6.10.19d (C): the "Lower is safer." caption was removed from the
@@ -485,8 +449,6 @@ export function buildRiskTabExport(args: RiskTabInputs): string {
     hero,
     summary_counts: buildSummaryCounts(risk),
     dimensions: buildDimensionsBlock(risk, args.flow, args.cluster),
-    headline_parts: headline,
-    interpretation_headline: buildInterpretationHeadline(headline),
     interpretation_full: buildInterpretationFull(risk),
     disclosure,
     awaiting_dimensions_text: 'Awaiting risk assessment — this dimension will populate once market data stabilizes.',

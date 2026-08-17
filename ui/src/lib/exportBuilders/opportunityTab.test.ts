@@ -148,6 +148,20 @@ describe('buildOpportunityTabExport', () => {
     expect(p.confluent_target_levels[0].sources).toEqual(['ATR']);
   });
 
+  it('v6.15: confluent rows carry the qualitative strength_label pill band', () => {
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.confluent_entry_levels[0].strength_label).toBe('VERY STRONG');
+    expect(p.confluent_entry_levels[1].strength_label).toBe('MODERATE');
+    expect(p.confluent_target_levels[0].strength_label).toBe('MODERATE');
+  });
+
   it('rr_internal uses available/value/reason triple', () => {
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: makeOpportunity(),

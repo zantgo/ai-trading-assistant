@@ -33,6 +33,7 @@ import {
 import type { LayerHeaderSpec } from '../layerHeader';
 import { computeOpportunityBars, rankSectionsByCount } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
+import { confluenceStrengthLabel } from '../confluenceStrength';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -111,6 +112,9 @@ export interface ConfluentLevelRow {
   price: number;
   sources: string[];
   strength: number;
+  /** v6.15: qualitative band mirroring the panel pill (WEAK/MODERATE/
+   *  STRONG/VERY STRONG) — the screen no longer renders the raw %. */
+  strength_label: string;
   /** v6.10.17 (F23): LONG / SHORT / null — which side the level serves. */
   side: 'LONG' | 'SHORT' | null;
 }
@@ -408,6 +412,8 @@ function buildConfluentLevels(
     // Screen `fmtSource` defaults unknown tokens to "ATR" — mirror it.
     sources: l.sources.map((s) => LEVEL_SOURCE_ABBREV[s] ?? 'ATR'),
     strength: l.strength,
+    // Panel pill band via the shared helper — screen and export agree.
+    strength_label: confluenceStrengthLabel(l.strength),
     side: l.side ?? null,
   }));
 }

@@ -181,5 +181,13 @@
 .interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 10px 12px; background: rgba(255,255,255,0.015); border-radius: 6px; border-left: 3px solid #334155; }
 .interpretation :global(strong) { color: #e2e8f0; font-weight: 700; }
 
+/* ── Consensus Composition Strip + whisper footnote (v7.1) ── */
+.consensusStripWrap { margin-top: 10px; }
+.consensusStrip { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; }
+.consensusSeg { height: 100%; min-width: 2px; border-radius: 2px; transition: opacity 0.15s, box-shadow 0.15s; cursor: help; }
+.consensusSeg:hover { box-shadow: 0 0 6px rgba(148, 163, 184, 0.5); }
+.interpretationRule { border: 0; border-top: 1px solid rgba(100, 116, 139, 0.25); margin: 10px 0 6px; }
+.interpretationWhisper { font-size: 10px; color: #64748b; line-height: 1.5; margin: 0; }
+
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
 .noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; }

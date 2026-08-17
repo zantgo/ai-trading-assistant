@@ -246,6 +246,53 @@
         scoreVal == null ? '\u2014'
         : (scoreVal >= 0 ? '+' : '') + scoreVal.toFixed(0)
     );
+    // v7.1 (P): the interpretation prose prints the EXACT signed score
+    // string the SCORE dial renders (`scoreCenter`) — same $derived
+    // source, same format. The old unsigned `toFixed(1)` prose ("8.1")
+    // beside the dial's signed integer ("+8") was read as a data-drift
+    // bug; the two surfaces can no longer disagree.
+    const scoreText = $derived(scoreCenter);
+
+    // v7.1: the Consensus Composition Strip + whisper footnote.
+    // Segment width = blend weight (live wire `blend_weights`), color =
+    // axis direction (bull #22c55e / bear #ef4444 / flat #475569),
+    // opacity = |axis| intensity so a 0.70 trend burns bright while a
+    // −0.10 momentum dims. Rendered only when real data exists
+    // (`hasAlignment`) — the sentinel hides it with the awaiting copy.
+    const DIRECTION_EPS = 0.05;
+    function segTone(val: number): 'bull' | 'bear' | 'flat' {
+        if (val > DIRECTION_EPS) return 'bull';
+        if (val < -DIRECTION_EPS) return 'bear';
+        return 'flat';
+    }
+    function segColor(tone: 'bull' | 'bear' | 'flat'): string {
+        if (tone === 'bull') return '#22c55e';
+        if (tone === 'bear') return '#ef4444';
+        return '#475569';
+    }
+    function segOpacity(val: number): string {
+        const a = Math.abs(val);
+        if (a <= DIRECTION_EPS) return '0.35';
+        return (0.25 + 0.75 * Math.min(a, 1)).toFixed(2);
+    }
+    // Whisper footnote order follows the review prose (Trend, Momentum,
+    // Volatility, Volume); the strip keeps the chip-grid wire order.
+    const FOOTNOTE_ORDER: Record<string, number> = { Trend: 0, Momentum: 1, Volatility: 2, Volume: 3 };
+    const PCT_WORDS: Record<number, string> = {
+        5: 'five', 10: 'ten', 30: 'thirty', 35: 'thirty-five', 50: 'fifty', 55: 'fifty-five',
+    };
+    function pctWord(pct: number): string {
+        return PCT_WORDS[pct] ?? String(pct);
+    }
+    const compositionNote = $derived.by(() => {
+        if (!hasAlignment) return '';
+        const sorted = weights.slice().sort((a, b) => (FOOTNOTE_ORDER[a.key] ?? 9) - (FOOTNOTE_ORDER[b.key] ?? 9));
+        const parts = sorted.map((w) => `${w.label} (${pctWord(w.pct)} percent)`);
+        const body = parts.length > 1
+            ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`
+            : parts.join('');
+        return `Composition weights: ${body}.`;
+    });
     function scoreHeaderCls(): string {
         if (scoreTone === 'bull') return styles.scoreDialHeaderBull;
         if (scoreTone === 'bear') return styles.scoreDialHeaderBear;
@@ -433,8 +480,13 @@
         <div class={styles.interpretation}>
             {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
-                    Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
-                    The composite score of {alignment.mtf_overall_score.toFixed(1)} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
+                    {#if mLabel(alignment.mtf_overall_label).toUpperCase() === 'NEUTRAL'}
+                        Multi-timeframe alignment shows <strong>moderate consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
+                        The composite score of {scoreText} is classified as <strong>NEUTRAL</strong> — the dimensions offset into a flat composite.
+                    {:else}
+                        Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
+                        The composite score of {scoreText} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
+                    {/if}
                     {#if alignment.signal_cross_tf_count > 0}
                         {mLabel(alignment.mtf_overall_label).toUpperCase() !== 'NEUTRAL'
                             ? `${alignment.signal_cross_tf_count} cross-timeframe signal votes reinforce the current bias.`
@@ -444,7 +496,7 @@
                     {/if}
                 {:else if alignment.trend_agreement_pct >= 50}
                     Alignment shows <strong>partial consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement).
-                    The composite score of {alignment.mtf_overall_score.toFixed(1)} reflects <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong> conditions with mixed input from {alignment.timeframes_present} timeframes.
+                    The composite score of {scoreText} reflects <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong> conditions with mixed input from {alignment.timeframes_present} timeframes.
                 {:else}
                     Timeframes are in <strong>conflict</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement).
                     Exercise caution — different time horizons are pulling in opposite directions. Wait for re-alignment before committing to directional bias.
@@ -453,5 +505,22 @@
                 Awaiting alignment data — this section will synthesize a human-readable interpretation of multi-timeframe consensus once indicators populate.
             {/if}
         </div>
+        {#if hasAlignment}
+            <div class={styles.consensusStripWrap}>
+                <div class={styles.consensusStrip} aria-label="Composite score weight composition">
+                    {#each weights as w}
+                        {@const val = getRawValue(w.key)}
+                        {@const tone = segTone(val)}
+                        <div
+                            class={styles.consensusSeg}
+                            style="width: {w.pct}%; background: {segColor(tone)}; opacity: {segOpacity(val)};"
+                            title="{w.label} — {w.pct}% — {(val >= 0 ? '+' : '') + val.toFixed(2)}"
+                        ></div>
+                    {/each}
+                </div>
+            </div>
+            <hr class={styles.interpretationRule} />
+            <p class={styles.interpretationWhisper}>{compositionNote}</p>
+        {/if}
     </div>
 </div>

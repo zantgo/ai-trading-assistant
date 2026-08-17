@@ -22,7 +22,7 @@
     letter-spacing: 0;
 }
 .noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; margin-bottom: 12px; }
-.whyNote { font-size: 10px; color: rgba(255, 255, 255, 0.45); font-style: italic; margin-bottom: 8px; }
+.whyNote { font-size: 10px; color: rgba(255, 255, 255, 0.45); font-style: italic; }
 
 /* ── Environment header (directional family colour-coded) ─────────── */
 .envHeader {
@@ -178,17 +178,15 @@
 .gaugeNetShort   { color: #ef4444; }
 .gaugeNetNeutral { color: #f59e0b; }
 
-/* ── Why (top-3 rationale list) ───────────────────────────────────────── */
+/* ── Why (top-3 rationale list — inside the unified Verdict & Rationale
+     card, v6.17: borderless + desaturated; the card is the container) ── */
 .why {
     margin: 0;
-    padding: 8px 10px 8px 26px;
+    padding: 2px 0 0 18px;
     list-style: disc;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.55);
     font-size: 11px;
     line-height: 1.55;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    border-radius: 6px;
 }
 .whyItem {
     margin-bottom: 2px;
@@ -240,22 +238,37 @@
 .cardLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
 .cardValue { font-size: 12px; font-weight: 600; color: #e2e8f0; }
 
-/* ── Final Verdict (quote block) ──────────────────────────────────────── */
+/* ── Verdict & Rationale (unified card, v6.17) — the verdict quote,
+     the verdict-consistent environment guidance, and the Why bullets
+     share ONE card; the left accent line lives on the card
+     (green LONG, red SHORT, amber HOLD) and a thin divider separates
+     the verdict half from the rationale ledger. ── */
+.verdictCard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+}
+.verdictCardLong  { border-left-color: #22c55e; }
+.verdictCardShort { border-left-color: #ef4444; }
+.verdictDivider {
+    height: 1px;
+    margin: 4px 0 2px;
+    background: rgba(255, 255, 255, 0.06);
+}
 .verdictQuote {
     margin: 0;
     font-size: 12px;
     font-style: italic;
     color: #cbd5e1;
     line-height: 1.55;
-    background: rgba(255, 255, 255, 0.02);
-    padding: 12px 14px;
-    border-radius: 6px;
-    border-left: 4px solid #f59e0b;
 }
-.verdictQuoteLong { border-left-color: #22c55e; }
-.verdictQuoteShort { border-left-color: #ef4444; }
 .verdictGuidance {
-    margin-top: 6px;
+    margin-top: 0;
     font-size: 10px;
     color: rgba(255, 255, 255, 0.50);
     line-height: 1.5;
@@ -336,6 +349,13 @@
     color: rgba(255, 255, 255, 0.55);
     line-height: 1.45;
     font-style: italic;
+}
+.profileCardInvalidation {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.50);
+    line-height: 1.45;
+    font-style: italic;
+    margin-top: 6px;
 }
 .noClearCard {
     padding: 12px 14px;

@@ -659,11 +659,10 @@ pub async fn run_single(
         mut vwap_sum_vol,
         mut last_day_index,
         mut volume_history,
-        // v6.11: rolling 300-sample windows for the L1 price-trend and L3
-        // trend-stability Sharpe ratios. Real completed candles only
-        // (PRI-06 — synthetic doji/idle buckets never enter).
+        // v6.11: rolling 300-sample window for the L1 price-trend Sharpe
+        // ratio. Real completed candles only (PRI-06 — synthetic doji/idle
+        // buckets never enter).
         mut close_history,
-        mut ema_medium_history,
         mut pivot_points_indicator,
         mut candlestick_indicator,
         mut ichimoku_indicator,
@@ -742,7 +741,6 @@ pub async fn run_single(
         last_day_index = w.last_day_index;
         volume_history = w.volume_history;
         close_history = w.close_history;
-        ema_medium_history = w.ema_medium_history;
         sr_tracker = w.sr_tracker;
         pivot_points_indicator = w.pivot_points_indicator;
         candlestick_indicator = w.candlestick_indicator;
@@ -850,7 +848,6 @@ pub async fn run_single(
         volume_history =
             VecDeque::with_capacity(active_indicators.volume_average_period.max(1));
         close_history = VecDeque::with_capacity(crate::indicators::ratio::SHARPE_WINDOW);
-        ema_medium_history = VecDeque::with_capacity(crate::indicators::ratio::SHARPE_WINDOW);
         pivot_points_indicator = PivotPoints::new(PivotMethod::from_str_lenient(&active_indicators.pivot_points_method)); // AUDIT-AIU-072
         candlestick_indicator = Candlestick::new(CandlestickConfig::default());
         ichimoku_indicator = Ichimoku::new(
@@ -1260,7 +1257,6 @@ pub async fn run_single(
                             &history,
                             &mut volume_history,
                             &mut close_history,
-                            &mut ema_medium_history,
                             &mut adx_slope_history,
                             &divergence_detector,
                             &mut sr_tracker,
@@ -1455,9 +1451,8 @@ pub async fn run_single(
                                 derive_pipeline_state(bar_count as usize, buffer_size),
                                 avg_vol,
                                 rvol,
-                                // Synthetic doji: Sharpe windows only accept
-                                // real closes (PRI-06), so the ratios are None.
-                                None,
+                                // Synthetic doji: Sharpe window only accepts
+                                // real closes (PRI-06), so the ratio is None.
                                 None,
                             );
                             let _ = broadcast_tx.send(doji_snap.clone());
@@ -1605,7 +1600,6 @@ pub async fn run_single(
                                     rvol,
                                     // Synthetic idle heartbeat: no Sharpe
                                     // contribution (real closes only).
-                                    None,
                                     None,
                                 );
                                 let _ = broadcast_tx.send(idle_snap.clone());
@@ -1905,39 +1899,21 @@ pub async fn run_single(
                                     _ => None,
                                 };
                                 // v6.11: reconstructed gap candles are REAL
-                                // closes — roll the Sharpe windows (PRI-06
-                                // history continuity) and derive the ratios.
-                                let (gap_price_sharpe, gap_stability_sharpe) = {
+                                // closes — roll the Sharpe window (PRI-06
+                                // history continuity) and derive the ratio.
+                                let gap_price_sharpe = {
                                     let close_f_gap = gap_candle.close.to_f64().unwrap_or(0.0);
-                                    let ema_f_gap = gap_readings
-                                        .final_ema_medium
-                                        .to_f64()
-                                        .unwrap_or(close_f_gap);
                                     close_history.push_back(close_f_gap);
-                                    ema_medium_history.push_back(ema_f_gap);
                                     while close_history.len()
                                         > crate::indicators::ratio::SHARPE_WINDOW
                                     {
                                         close_history.pop_front();
                                     }
-                                    while ema_medium_history.len()
-                                        > crate::indicators::ratio::SHARPE_WINDOW
-                                    {
-                                        ema_medium_history.pop_front();
-                                    }
                                     let closes: Vec<f64> =
                                         close_history.iter().copied().collect();
-                                    let ema_mediums: Vec<f64> =
-                                        ema_medium_history.iter().copied().collect();
-                                    (
-                                        crate::indicators::sharpe_ratio_annualized(
-                                            &closes,
-                                            timeframe_secs,
-                                        ),
-                                        crate::indicators::sharpe_ratio_annualized(
-                                            &ema_mediums,
-                                            timeframe_secs,
-                                        ),
+                                    crate::indicators::sharpe_ratio_annualized(
+                                        &closes,
+                                        timeframe_secs,
                                     )
                                 };
                                 let gap_snap = build_completed_snapshot_from_readings(
@@ -1963,7 +1939,6 @@ pub async fn run_single(
                                     avg_vol,
                                     rvol,
                                     gap_price_sharpe,
-                                    gap_stability_sharpe,
                                 );
                                 let _ = broadcast_tx.send(gap_snap.clone());
                                 // AUDIT-V8-004: keep the in-memory snapshot
@@ -2142,7 +2117,6 @@ pub async fn run_single(
                         &history,
                         &mut volume_history,
                         &mut close_history,
-                        &mut ema_medium_history,
                         &mut adx_slope_history,
                         &divergence_detector,
                         &mut sr_tracker,
@@ -2466,11 +2440,8 @@ async fn synthesize_completed_candle(
     volume_history: &mut VecDeque<Decimal>,
     // v6.11: rolling 300-close window backing the L1 `price_trend_sharpe`.
     // Real completed candles only (PRI-06 — synthetic doji/idle buckets
-    // never enter the Sharpe windows either).
+    // never enter the Sharpe window either).
     close_history: &mut VecDeque<f64>,
-    // v6.11: rolling 300-value window of the EMA-50 line backing the L3
-    // `trend_stability_sharpe`.
-    ema_medium_history: &mut VecDeque<f64>,
     adx_slope_history: &mut VecDeque<Decimal>,
     divergence_detector: &Arc<tokio::sync::Mutex<DivergenceDetector>>,
     sr_tracker: &mut SrRoleTracker,
@@ -2568,25 +2539,17 @@ async fn synthesize_completed_candle(
         final_zscore,
     } = readings;
 
-    // v6.11: roll the Sharpe windows with this real completed close. Only
-    // real candles enter the buffers (synthetic doji/idle buckets go
+    // v6.11: roll the Sharpe window with this real completed close. Only
+    // real candles enter the buffer (synthetic doji/idle buckets go
     // through `build_completed_snapshot_from_readings` with `None` ratios),
     // matching the PRI-06 history-continuity convention.
     close_history.push_back(close_f);
-    ema_medium_history.push_back(final_ema_medium.to_f64().unwrap_or(close_f));
     while close_history.len() > crate::indicators::ratio::SHARPE_WINDOW {
         close_history.pop_front();
     }
-    while ema_medium_history.len() > crate::indicators::ratio::SHARPE_WINDOW {
-        ema_medium_history.pop_front();
-    }
-    let (price_trend_sharpe, trend_stability_sharpe) = {
+    let price_trend_sharpe = {
         let closes: Vec<f64> = close_history.iter().copied().collect();
-        let ema_mediums: Vec<f64> = ema_medium_history.iter().copied().collect();
-        (
-            crate::indicators::sharpe_ratio_annualized(&closes, timeframe_secs),
-            crate::indicators::sharpe_ratio_annualized(&ema_mediums, timeframe_secs),
-        )
+        crate::indicators::sharpe_ratio_annualized(&closes, timeframe_secs)
     };
 
     // ── Generalized divergence detection ──
@@ -2902,7 +2865,6 @@ async fn synthesize_completed_candle(
                 .rvol_threshold_institutional,
             rvol_climax_threshold: active_indicators.rvol_threshold_climax,
             price_trend_sharpe,
-            trend_stability_sharpe,
         },
         *bar_count,
         false,
@@ -4250,11 +4212,10 @@ pub(super) fn build_completed_snapshot_from_readings(
     pipeline_state: CandlePipelineState,
     avg_vol: Option<Decimal>,
     rvol: Option<Decimal>,
-    // v6.11: L1/L3 Sharpe ratios for this completed candle. `None` for
+    // v6.11: L1 Sharpe ratio for this completed candle. `None` for
     // synthetic doji/idle buckets (only real closes enter the Sharpe
-    // windows — PRI-06); `Some` for real/force-close/gap candles.
+    // window — PRI-06); `Some` for real/force-close/gap candles.
     price_trend_sharpe: Option<f64>,
-    trend_stability_sharpe: Option<f64>,
 ) -> MarketSnapshot {
     let close_f = readings.close_f;
     let ema_stack_str = readings.ema_stack_state.as_deref();
@@ -4338,7 +4299,6 @@ pub(super) fn build_completed_snapshot_from_readings(
             rvol_institutional_threshold: 1.5,
             rvol_climax_threshold: 3.0,
             price_trend_sharpe,
-            trend_stability_sharpe,
         },
         bar_count,
         false,
@@ -4713,10 +4673,9 @@ fn broadcast_live_snapshot(
             rvol_institutional_threshold: 1.5,
             rvol_climax_threshold: 3.0,
             // Close-only (updates_on_shadow: false): shadow ticks never
-            // carry the Sharpe values — the frontend preserves the last
+            // carry the Sharpe value — the frontend preserves the last
             // completed-candle reading via its per-key merge.
             price_trend_sharpe: None,
-            trend_stability_sharpe: None,
         },
         bar_count as u32,
         true,

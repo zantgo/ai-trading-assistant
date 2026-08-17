@@ -14,6 +14,7 @@ import {
     profileSummary,
     resolveActiveRr,
     geometricRrFromZones,
+    buildVerdictSentence,
 } from './decisionRank';
 import type {
     AdvisoryMatrix,
@@ -251,9 +252,71 @@ describe('computeDecisionRank', () => {
             analysis: makeAnalysis(),
         });
         const joined = rank.rationale.join(' | ');
-        expect(joined).toContain('STAND_ASIDE');
-        expect(joined).toContain('entry_danger');
-        expect(joined).toContain('TrendContinuation');
+        expect(joined).toContain('Stand aside');
+        expect(joined).toContain('Entry Danger');
+        expect(joined).toContain('Trend Continuation');
+    });
+
+    it('v6.17: rationale bullets use polished prose — no L-tokens, no raw identifiers, clean colons', () => {
+        const rank = computeDecisionRank({
+            advisory: makeAdvisory({ confidence_assessment: 60 }),
+            decisionContext: makeDecisionContext({
+                score: 83,
+                bias: 'Bullish',
+                entry_danger: makeDanger(32),
+                trade_readiness: 'WATCH',
+                expected_reward_risk_ratio: 2.5,
+            }),
+            opportunity: makeOpportunity(),
+            analysis: makeAnalysis(),
+        });
+        const joined = rank.rationale.join(' | ');
+        // Bullet 1 — spelled-out layer names, no "L2 tradability_dim".
+        expect(joined).toContain('Bullish market bias: confluence score of 83');
+        expect(joined).toContain('Layer 2 Tradability Dimension, Layer 3 Quality Score, and Layer 4 Opportunity Score');
+        expect(joined).not.toContain('tradability_dim');
+        expect(joined).not.toContain('L2 tradability');
+        // Bullet 2 — "Active setup", no raw "L4 score".
+        expect(joined).toContain('Active setup: Trend Continuation (Layer 4 Opportunity Score of 50, classified as Average quality)');
+        expect(joined).not.toContain('L4 score');
+        // Bullet 3 — sentence-cased readiness + "Entry Danger", no "=".
+        expect(joined).toContain('Trade readiness is Watch: Entry Danger of 32 (Low) requires additional confirmation before full execution');
+        expect(joined).not.toContain('Trade readiness =');
+        expect(joined).not.toContain('entry_danger');
+        // Bullet 4 — spelled-out R:R.
+        expect(joined).toContain('Risk-adjusted reward-to-risk: 2.50');
+        expect(joined).not.toContain('R:R 2.50');
+    });
+
+    it('v6.17: buildVerdictSentence renders sentence-cased gates for every state', () => {
+        const hold = computeDecisionRank({
+            advisory: makeAdvisory(),
+            decisionContext: makeDecisionContext({ trade_readiness: 'FORMING' }),
+            opportunity: makeOpportunity(),
+            analysis: makeAnalysis(),
+        });
+        expect(buildVerdictSentence(hold, 32)).toBe('HOLD — no directional call (readiness: Forming).');
+        const watch = computeDecisionRank({
+            advisory: makeAdvisory(),
+            decisionContext: makeDecisionContext({ trade_readiness: 'WATCH', long_probability: 71, short_probability: 10, hold_probability: 19, net_bias_pct: 61 }),
+            opportunity: makeOpportunity(),
+            analysis: makeAnalysis(),
+        });
+        expect(buildVerdictSentence(watch, 32)).toBe('LONG lean 71% — awaiting confirmation (readiness: Watch).');
+        const ready = computeDecisionRank({
+            advisory: makeAdvisory(),
+            decisionContext: makeDecisionContext({ trade_readiness: 'READY', long_probability: 60, short_probability: 10, hold_probability: 30, net_bias_pct: 50 }),
+            opportunity: makeOpportunity(),
+            analysis: makeAnalysis(),
+        });
+        expect(buildVerdictSentence(ready, 35)).toBe('LONG 60% — Ready (readiness: Ready).');
+        const aside = computeDecisionRank({
+            advisory: makeAdvisory(),
+            decisionContext: makeDecisionContext({ trade_readiness: 'STAND_ASIDE', long_probability: 62, short_probability: 2, hold_probability: 36, net_bias_pct: 60 }),
+            opportunity: makeOpportunity(),
+            analysis: makeAnalysis(),
+        });
+        expect(buildVerdictSentence(aside, 60)).toBe('LONG lean 62% — Stand Aside (readiness: Stand Aside, Entry Danger High).');
     });
 
     it('low R:R (< 1.0) reduces long score relative to healthy R:R', () => {

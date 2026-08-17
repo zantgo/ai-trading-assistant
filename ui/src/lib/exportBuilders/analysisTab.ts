@@ -65,11 +65,6 @@ export interface QualitativeAssessmentBlock {
   volatility: string;
   volume: string;
   cycle_phase: string;
-  /** v6.11: annualized Sharpe of EMA-50 log returns (trailing 300-bar
-   *  window) — the statistical proof behind the Trend card. `null`
-   *  until the window fills. */
-  trend_stability_sharpe: number | null;
-  trend_stability_sharpe_display: string;
   /** v6.12: numeric companions — the exact 0-100 alignment dimension
    *  scores each assessment is bucketed from (the badges on the
    *  Analysis cards; the disaggregated siblings of `market_quality_score`).
@@ -294,7 +289,6 @@ function buildSignalsBlock(analysis: AnalysisMatrix | null): AnalysisSignalsBloc
 }
 
 function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAssessmentBlock {
-  const stability = analysis?.trend_stability_sharpe ?? null;
   // v6.12: per-card numeric companions — mirror the panel badges'
   // rounded-integer + '%' formatting; '\u2014' when absent (empty sentinel).
   const scorePairs = (v: number | null | undefined): { score: number | null; display: string } => ({
@@ -315,10 +309,6 @@ function buildQualitativeBlock(analysis: AnalysisMatrix | null): QualitativeAsse
     volume: analysis?.volume_assessment ?? '\u2014',
     // Screen renders "—" when the analysis is absent, prettified otherwise.
     cycle_phase: analysis ? prettifyPhase(analysis.market_phase ?? '') : '\u2014',
-    // v6.11: Trend-card numeric badge — same 2-dp format as the screen.
-    trend_stability_sharpe: stability,
-    trend_stability_sharpe_display:
-      stability != null ? `${Math.max(-20, Math.min(20, stability)).toFixed(2)}` : '\u2014',
     // v6.12: per-card dimension-score badges.
     trend_score: trendScore.score,
     trend_score_display: trendScore.display,

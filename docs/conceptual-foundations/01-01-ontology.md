@@ -1300,7 +1300,6 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
   "market_quality_score": 72.0,
-  "trend_stability_sharpe": 3.85,
   "trend_score": 76.5,
   "momentum_score": 83.2,
   "structure_score": 81.4,
@@ -1355,7 +1354,7 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
     }
   ],
   "contributing_signals": ["squeeze:COMPRESSION_RELEASE", "donchian:BREAKOUT_UP"],
-  "invalidation_note": "A close below 63440.0 invalidates the trend-continuation setup.",
+  "invalidation_note": "A close below 63440.0 on the completed candle invalidates the TrendContinuation thesis.",
   "entry_zone":  { "low": 64000.0, "high": 64200.0 },
   "target_zone": { "low": 65500.0, "high": 66000.0 },
   "invalidation_level": 63440.0,
@@ -1717,6 +1716,6 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
 *   **Risk Score:** A numeric representation from 0 to 100 expressing the structural, technical, and execution dangers inherent in the current market environment, independent of directional bias.
 *   **Slippage:** The difference between the targeted execution price of an automation policy and the actual filled price on an exchange.
 *   **Trade Readiness:** A classification status indicating whether technical and structural conditions have sufficiently matured to support an entry attempt.
-*   **Trend Stability Sharpe (v6.11):** The annualized Sharpe ratio of the 50-period EMA's logarithmic returns over the trailing 300-bar window (L3 `AnalysisMatrix.trend_stability_sharpe`). It measures the directional stability of the trend's slope with high-frequency price noise (wicks, bid-ask spread bounce) stripped away: a steadily rising EMA-50 line has almost zero return variance, yielding an exceptionally high, stable Sharpe (e.g. `+3.85`) that mathematically validates the qualitative Trend assessment.
+*   **Trend Stability Sharpe (v6.11, removed v6.14):** The annualized Sharpe ratio of the 50-period EMA's logarithmic returns over the trailing 300-bar window. It measured the directional stability of the trend's slope with high-frequency price noise stripped away. **Removed in v6.14** with the `AnalysisMatrix` field, Trend-card badge, and export pair — the L1→L3 traceability-evidence exception was reverted to keep L3's derived state strictly `L3 ← L2`; the L1 `price_trend_sharpe` indicator is now the sole Sharpe family member.
 *   **Dimension Score (v6.12):** The 0-100 alignment dimension score each qualitative assessment is bucketed from, carried on the matrix as `AnalysisMatrix.trend_score` / `momentum_score` / `structure_score` / `volatility_score` / `volume_score` — L3-owned numeric companions (the disaggregated siblings of `market_quality_score`), rendered as tinted badges with ▲/▼ deltas on the Analysis panel. The label never disagrees with its score: the label IS the band.
 *   **Volatility-to-Spread Ratio (v6.11):** The execution-friction gauge on the L5 `execution_risk` dimension (`volatility_to_spread_ratio`): `ATR(14) ÷ (best ask − best bid)` in raw price units. A high ratio (e.g. `> 10`) means the average candle range is much larger than the transaction cost (favorable for short-term scalping); a low ratio (e.g. `< 1.5`) warns that bid-ask spread friction and slippage will consume potential profits even with a perfect setup.

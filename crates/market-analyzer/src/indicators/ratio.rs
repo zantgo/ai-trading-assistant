@@ -2,16 +2,15 @@
 //!
 //! These helpers back the four production ratios added in v6.11:
 //!   - `price_trend_sharpe` (L1 metrics) — Sharpe of raw price log returns
-//!   - `trend_stability_sharpe` (L3 analysis) — Sharpe of EMA-50 log returns
 //!   - `volatility_to_spread_ratio` (L5 risk, computed in `core-domain`)
 //!   - `quality_to_risk_ratio` (L6 advisory, computed in `core-domain`)
 //!
-//! Both Sharpe forms share the same annualization convention as the rest of
+//! The Sharpe form shares the same annualization convention as the rest of
 //! the platform (crypto-native, 365-day continuous market — see
 //! `04-02-29-hv.md`): `sqrt(candles_per_day * 365)` where
 //! `candles_per_day = 86_400 / timeframe_secs`.
 
-/// Canonical trailing window for both Sharpe ratios — equals
+/// Canonical trailing window for the Sharpe ratio — equals
 /// `[candle_buffer] size` (300) so `price_trend_sharpe` reaches `Live`
 /// exactly when the pipeline buffer fills (no lifecycle lock).
 pub const SHARPE_WINDOW: usize = 300;

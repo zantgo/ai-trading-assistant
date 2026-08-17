@@ -353,7 +353,10 @@ describe('OpportunitiesPanel — per-profile Trade Setups', () => {
         app.instancesMap['BTC-USDT'].microTerm.priceText = '64000';
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         expect(screen.getByText(/Trade Setups/i)).toBeTruthy();
-        expect(screen.getByText(/Assessment conditions forming/)).toBeTruthy();
+        expect(screen.getByText('no qualifying profile — reference brackets shown')).toBeTruthy();
+        // The invalidation thesis lives inside the setup cards — with no
+        // matrix there are no cards, and the standalone note is gone.
+        expect(screen.queryByText('Invalidation Note')).toBeNull();
     });
 });
 
@@ -421,7 +424,8 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
 
         expect(screen.getByText(/Trade Setups/i)).toBeTruthy();
-        expect(screen.getByText(/Assessment conditions forming/)).toBeTruthy();
+        expect(screen.getByText('no qualifying profile — reference brackets shown')).toBeTruthy();
+        expect(screen.queryByText('Invalidation Note')).toBeNull();
     });
 
     it('renders the evaluated setup profiles when pair.opportunity.profiles is non-empty', () => {
@@ -485,6 +489,11 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
         expect(screen.getAllByText('FIBONACCI').length).toBeGreaterThan(0);
         expect(screen.getAllByText('VOLUME PROFILE').length).toBeGreaterThan(0);
         expect(screen.getAllByText('PIVOT POINTS').length).toBeGreaterThan(0);
+        // v6.15: confluent strength renders as a qualitative pill band —
+        // 78 → STRONG, 64 → STRONG — not a raw percentage.
+        expect(screen.getAllByText('STRONG').length).toBeGreaterThan(0);
+        expect(screen.queryByText('78%')).toBeNull();
+        expect(screen.queryByText('64%')).toBeNull();
     });
 });
 
@@ -915,15 +924,15 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         expect(screen.queryByText(/Timeframes considered/)).toBeNull();
     });
 
-    it('renders the confluent-level Expected R:R with a LONG badge and 1:X.XX value', () => {
+    it('renders the confluent-level Expected R:R with a LONG badge and bare R-multiple value', () => {
         const opp = makeOpportunity() as any;
         opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         opp.confluent_target_levels = [{ price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         opp.confluent_invalidation_levels = [{ price: 62400, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        // reward 3000 / risk 700 → 4.29 in the shared 1:X.XX chip format.
-        expect(screen.getAllByText('1:4.29').length).toBeGreaterThanOrEqual(1);
+        // reward 3000 / risk 700 → 4.29 as a bare R-multiple (no `1:`).
+        expect(screen.getAllByText('4.29R').length).toBeGreaterThanOrEqual(1);
         // The header bracket R:R (top profile wire 2.5) stays on its own
         // chip — the two surfaces never merge.
         expect(screen.getByText('1:2.50')).toBeTruthy();
@@ -946,11 +955,32 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // Both sides compute the same 4.29 — two cards, two badges.
-        expect(screen.getAllByText('1:4.29').length).toBe(2);
+        expect(screen.getAllByText('4.29R').length).toBe(2);
+        // The magnitude bars carry the matching fill: 4.29/10 → 42.9%.
+        const fills = Array.from(document.querySelectorAll('[class*="rrBarFill"]')) as HTMLElement[];
+        expect(fills.length).toBe(2);
+        for (const f of fills) expect(f.style.width).toBe('42.9%');
         // LONG / SHORT badges exist (abundant elsewhere too — the two
         // zone-card badges are what matter; the value count pins them).
         expect(screen.getAllByText('LONG').length).toBeGreaterThanOrEqual(3);
         expect(screen.getAllByText('SHORT').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('clamps the magnitude bar at 100% and renders 10x+ for ratios at or above 10x', () => {
+        const opp = makeOpportunity() as any;
+        // reward 6000 / risk 300 → 20x — far past the 10x cap.
+        opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_target_levels = [{ price: 69100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_invalidation_levels = [{ price: 62800, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        expect(screen.getByText('10x+')).toBeTruthy();
+        const fills = Array.from(document.querySelectorAll('[class*="rrBarFill"]')) as HTMLElement[];
+        expect(fills.length).toBe(1);
+        expect(fills[0].style.width).toBe('100%');
+        // Anchor tick labels render on the 0→10x grid.
+        expect(screen.getByText('1R')).toBeTruthy();
+        expect(screen.getByText('10x')).toBeTruthy();
     });
 
     it('falls back to market-distance risk and labels it when a side has no invalidation levels', () => {
@@ -961,19 +991,54 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // reward 3000 / risk |63100 − 64000| = 900 → 3.33
-        expect(screen.getAllByText('1:3.33').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('3.33R').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('risk = distance to market — no confluent invalidation levels')).toBeTruthy();
     });
 
-    it('places the Invalidation Note directly under the Confluent Levels section', () => {
+    it('renders the direction-aware invalidation thesis inside each directional setup card', () => {
+        const opp = makeOpportunity();
+        // A CounterTrend profile under a bullish bias resolves SHORT — its
+        // card must quote its own stop-loss with "A close above".
+        opp.profiles.push({
+            opportunity_type: 'MeanReversion',
+            score: 55,
+            preconditions_met: 2,
+            preconditions_total: 2,
+            notes: 'Rip faded',
+            direction_family: 'CounterTrend',
+            long_entry_zone: null,
+            long_target_zone: null,
+            long_invalidation_level: null,
+            long_expected_rr_internal: null,
+            short_entry_zone: { low: 64000, high: 64200 },
+            short_target_zone: { low: 62000, high: 62500 },
+            short_invalidation_level: 64400,
+            short_expected_rr_internal: 6.2,
+            trade_viability: 'Actionable',
+        });
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        // The standalone Invalidation Note section is gone.
+        expect(screen.queryByText('Invalidation Note')).toBeNull();
+        // Every directional card carries its OWN stop-loss level bound to
+        // its own thesis — the level can never disagree with the SL row.
+        expect(screen.getByText('A close below $62400 on the completed candle invalidates the Trend Continuation thesis.')).toBeTruthy();
+        expect(screen.getByText('A close below $62800 on the completed candle invalidates the Breakout thesis.')).toBeTruthy();
+        expect(screen.getByText('A close below $62200 on the completed candle invalidates the Pullback thesis.')).toBeTruthy();
+        // SHORT card: direction-aware wording ("above" + its own SL).
+        expect(screen.getByText('A close above $64400 on the completed candle invalidates the Mean Reversion thesis.')).toBeTruthy();
+    });
+
+    it('keeps the section order below Trade Setups consistent', () => {
         seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         const titles = Array.from(document.querySelectorAll('[class*="sectionTitle"]'))
             .map((el) => el.textContent ?? '');
         const idx = (t: string) => titles.findIndex((x) => x.includes(t));
-        expect(idx('Confluent Levels')).toBeGreaterThan(-1);
-        expect(idx('Invalidation Note')).toBeGreaterThan(idx('Confluent Levels'));
-        expect(idx('Invalidation Note')).toBeLessThan(idx('Expected Reward-to-Risk Ratio'));
+        expect(idx('Trade Setups')).toBeGreaterThan(-1);
+        expect(idx('Confluent Levels')).toBeGreaterThan(idx('Trade Setups'));
+        expect(idx('Expected Reward-to-Risk Ratio')).toBeGreaterThan(idx('Confluent Levels'));
         expect(idx('Expected Reward-to-Risk Ratio')).toBeLessThan(idx('Market Position'));
         expect(idx('Market Position')).toBeLessThan(idx('Evaluated Setups'));
     });

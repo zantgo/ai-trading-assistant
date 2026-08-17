@@ -317,6 +317,7 @@
         name: string;
         role: 'support' | 'resistance' | 'neutral';
         count: number;
+        priceText: string;
     }
 
     interface MtfLevelEntry {
@@ -378,7 +379,7 @@
                     );
                     const chip = cell.chips.find((c) => c.name === parsed.name && c.role === role);
                     if (chip) chip.count++;
-                    else cell.chips.push({ name: parsed.name, role, count: 1 });
+                    else cell.chips.push({ name: parsed.name, role, count: 1, priceText });
                     if (sig.direction === 'Bullish') cell.bull++;
                     else if (sig.direction === 'Bearish') cell.bear++;
                     else cell.neutral++;
@@ -486,13 +487,9 @@
     {#if rows.length === 0}
         <div class={styles.placeholder}>No indicators in the registry yet. Awaiting indicator registry…</div>
     {:else}
-        <!-- ── INDICATORS heading (outside the containers) ── -->
-        <div class={styles.headingRow}>
-            <h3 class={styles.headingTitle}>Indicators</h3>
-            <span class={styles.headingCount}>{rows.length}</span>
-            <span class={styles.headingHint}>normalized reading per timeframe · · missing · -- warming · N/A gated</span>
-        </div>
-
+        <!-- ── TF summary bar (Micro / Fast / Slow / Macro) — sits above
+             the Indicators heading so the column header is the first thing
+             a reader sees, then the grid below it. -->
         <div class={styles.summary}>
             <div class={styles.summarySpacer}></div>
             {#each SLOTS as slot (slot.label)}
@@ -503,6 +500,12 @@
             {/each}
             <div class={styles.summarySpacer}></div>
             <div class={styles.summarySpacer}></div>
+        </div>
+
+        <!-- ── INDICATORS heading (outside the containers) ── -->
+        <div class={styles.headingRow}>
+            <h3 class={styles.headingTitle}>Indicators</h3>
+            <span class={styles.headingCount}>{rows.length}</span>
         </div>
 
         {#each groups as g (g.group)}
@@ -738,6 +741,9 @@
                                         {#each cell.chips.slice(0, MAX_CHIPS_PER_CELL) as chip (chip.name + chip.role)}
                                             <span class="{styles.levelChip} {chipClass(chip.role)}">
                                                 {chipAbbr(chip.name)}{chip.count > 1 ? ` ×${chip.count}` : ''}
+                                                {#if chip.priceText && chip.priceText !== '—'}
+                                                    <span class={styles.chipPrice}>{chip.priceText}</span>
+                                                {/if}
                                             </span>
                                         {/each}
                                         {#if cell.chips.length > MAX_CHIPS_PER_CELL}

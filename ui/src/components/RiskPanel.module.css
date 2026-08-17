@@ -9,7 +9,6 @@
 /* ─────────── Head ─────────── */
 .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(148, 163, 184, 0.10); }
 .headTitleBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-.headHeadline { font-size: 11px; color: #94a3b8; max-width: 240px; text-align: left; line-height: 1.45; }
 
 /* ─────────── Hero ─────────── */
 .hero { display: flex; gap: 18px; align-items: stretch; padding: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; margin-bottom: 14px; }
@@ -25,12 +24,14 @@
 .heroPeak { font-size: 10px; color: #64748b; }
 .heroPeakVal { font-weight: 700; padding: 1px 6px; border-radius: 3px; }
 
-/* Risk color tokens — shared across fill bars, tiles, pills */
-.riskVeryLow { --risk-stroke: #22c55e; --risk-bg: rgba(34,197,94,0.15); --risk-fg: #22c55e; --risk-fill: #22c55e; border-color: var(--risk-stroke); }
-.riskLow { --risk-stroke: #4ade80; --risk-bg: rgba(74,222,128,0.15); --risk-fg: #4ade80; --risk-fill: #4ade80; border-color: var(--risk-stroke); }
-.riskModerate { --risk-stroke: #f59e0b; --risk-bg: rgba(245,158,11,0.15); --risk-fg: #f59e0b; --risk-fill: #f59e0b; border-color: var(--risk-stroke); }
-.riskHigh { --risk-stroke: #f87171; --risk-bg: rgba(248,113,113,0.15); --risk-fg: #f87171; --risk-fill: #f87171; border-color: var(--risk-stroke); }
-.riskExtreme { --risk-stroke: #ef4444; --risk-bg: rgba(239,68,68,0.18); --risk-fg: #ef4444; --risk-fill: #ef4444; border-color: var(--risk-stroke); }
+/* Risk color tokens — shared across fill bars, tiles, pills.
+   v7.1: the 5-tone palette is unified across every surface —
+   VeryLow=blue · Low=green · Moderate=amber · High=orange · Extreme=strong red */
+.riskVeryLow { --risk-stroke: #3b82f6; --risk-bg: rgba(59, 130, 246, 0.14); --risk-fg: #60a5fa; --risk-fill: #3b82f6; border-color: var(--risk-stroke); }
+.riskLow { --risk-stroke: #22c55e; --risk-bg: rgba(34, 197, 94, 0.14); --risk-fg: #4ade80; --risk-fill: #22c55e; border-color: var(--risk-stroke); }
+.riskModerate { --risk-stroke: #f59e0b; --risk-bg: rgba(245, 158, 11, 0.14); --risk-fg: #fbbf24; --risk-fill: #f59e0b; border-color: var(--risk-stroke); }
+.riskHigh { --risk-stroke: #f97316; --risk-bg: rgba(249, 115, 22, 0.14); --risk-fg: #fb923c; --risk-fill: #f97316; border-color: var(--risk-stroke); }
+.riskExtreme { --risk-stroke: #ef4444; --risk-bg: rgba(239, 68, 68, 0.16); --risk-fg: #f87171; --risk-fill: #ef4444; border-color: var(--risk-stroke); }
 
 .labelVeryLow { background: var(--risk-bg); color: var(--risk-fg); }
 .labelLow { background: var(--risk-bg); color: var(--risk-fg); }
@@ -39,16 +40,18 @@
 .labelExtreme { background: var(--risk-bg); color: var(--risk-fg); }
 .labelNoData { background: rgba(148,163,184,0.10); color: #94a3b8; }
 
-.fillVeryLow { background: rgba(16, 185, 129, 0.30); }
-.fillLow { background: #64748b; }
+.fillVeryLow { background: #3b82f6; }
+.fillLow { background: #22c55e; }
 .fillModerate { background: #f59e0b; }
 .fillHigh { background: #f97316; }
-.fillExtreme { background: #ef5350; }
+.fillExtreme { background: #ef4444; }
 
 /* ── Summary tiles ── */
 .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 18px; }
 .summaryTile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 7px; opacity: 0.42; transition: opacity 0.2s, background 0.2s, border-color 0.2s; }
-.summaryTileActive { opacity: 1; border-color: rgba(255, 255, 255, 0.12); }
+/* v7.1: an active tile consumes the level token vars set by the sibling
+   `.risk*` class — light background wash + tinted border, count in white. */
+.summaryTileActive { opacity: 1; background: var(--risk-bg, rgba(255, 255, 255, 0.02)); border-color: var(--risk-stroke, rgba(255, 255, 255, 0.12)); }
 .summaryCount { font-size: 20px; font-weight: 800; color: #f1f5f9; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .summaryLabel { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
 
@@ -60,7 +63,7 @@
 .dimHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .dimNameBlock { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
 .dimName { font-size: 12px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dimWeight { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dimWeight { font-size: 9px; font-weight: 600; color: #64748b; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .dimBadges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .dimLevel { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 .dimState { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.08); }
@@ -101,22 +104,22 @@
 .execVolBad { color: #ef4444; }
 
 /* ─────────── Interpretation ─────────── */
-.interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 10px 12px; background: rgba(255,255,255,0.015); border-radius: 6px; border-left: 3px solid #334155; }
+/* v7.1: the Risk Summary callout consumes the level token vars (set by
+   the sibling `.risk*` class on the same element) — left border and
+   background wash follow the overall risk level. */
+.interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 10px 12px; background: var(--risk-bg, rgba(255,255,255,0.015)); border-radius: 6px; border-left: 3px solid var(--risk-stroke, #334155); }
 .interpretation :global(strong) { color: #e2e8f0; font-weight: 700; }
 
-/* ─────────── Disclosure ─────────── */
-.disclosure { margin-bottom: 12px; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 7px; background: rgba(255, 255, 255, 0.02); overflow: hidden; }
-.disclosure summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; cursor: pointer; list-style: none; font-size: 11px; font-weight: 600; color: #94a3b8; user-select: none; transition: background 0.2s; }
-.disclosure summary::-webkit-details-marker { display: none; }
-.disclosure summary:hover { background: rgba(255, 255, 255, 0.03); }
-.disclosureChevron { font-size: 16px; font-weight: 400; color: #64748b; transition: transform 0.2s; }
-.disclosure[open] .disclosureChevron { transform: rotate(90deg); }
-.disclosureBody { padding: 4px 12px 12px; border-top: 1px solid rgba(255, 255, 255, 0.04); }
-.weightGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 10px 0; }
-.weightChip { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 5px; }
-.weightLabel { font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
-.weightPct { font-size: 13px; font-weight: 800; color: #e2e8f0; font-variant-numeric: tabular-nums; }
-.disclosureNote { font-size: 10px; color: #64748b; line-height: 1.5; margin: 8px 0 0; }
+/* ─────────── Weight strip (v6.16) ─────────── */
+/* Replaces the old disclosure accordion + 8-chip grid: a single horizontal
+   segmented bar whose segment widths ARE the weights. Hover highlights the
+   segment and surfaces the full dimension name via the title tooltip. */
+.weightStripWrap { margin-top: 10px; }
+.weightStrip { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; }
+.weightSeg { height: 100%; min-width: 2px; background: rgba(100, 116, 139, 0.38); border-radius: 2px; transition: background 0.15s, box-shadow 0.15s; cursor: help; }
+.weightSeg:nth-child(even) { background: rgba(100, 116, 139, 0.26); }
+.weightSeg:hover { background: #94a3b8; box-shadow: 0 0 6px rgba(148, 163, 184, 0.5); }
+.weightStripCaption { font-size: 10px; color: #64748b; line-height: 1.5; margin: 6px 0 0; }
 
 /* ─────────── Placeholder ─────────── */
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
@@ -124,5 +127,5 @@
 
 /* ─────────── Reduced motion ─────────── */
 @media (prefers-reduced-motion: reduce) {
-    .heroRiskFill, .dimFill, .summaryTile, .disclosureChevron { transition: none !important; }
+    .heroRiskFill, .dimFill, .summaryTile, .weightSeg { transition: none !important; }
 }

@@ -178,6 +178,13 @@
     color: rgba(255, 255, 255, 0.45);
 }
 
+.chipPrice {
+    margin-left: 3px;
+    font-weight: 600;
+    font-feature-settings: "tnum" 1;
+    opacity: 0.75;
+}
+
 /* ── Support / Resistance split (levels totals) ── */
 
 .roleSplit {

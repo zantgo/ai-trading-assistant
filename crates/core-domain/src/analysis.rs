@@ -363,12 +363,6 @@ pub struct AnalysisMatrix {
     pub opportunity_analysis: OpportunityType,
     pub market_quality: QualityLevel,
     pub market_quality_score: f64,
-    /// Annualized Sharpe ratio of EMA-50 log returns over the trailing
-    /// 300-bar window (L1 metrics). `None` until 300 completed candles
-    /// accumulate; computed in `market-analyzer` and stamped onto the
-    /// matrix during cross-TF synthesis.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trend_stability_sharpe: Option<f64>,
     /// v6.12 numeric companions: the exact 0-100 alignment dimension
     /// scores each qualitative assessment is bucketed from (the
     /// disaggregated siblings of `market_quality_score`). L3-owned,
@@ -423,7 +417,6 @@ impl AnalysisMatrix {
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Poor,
             market_quality_score: 0.0,
-            trend_stability_sharpe: None,
             trend_score: None,
             momentum_score: None,
             structure_score: None,
@@ -1019,7 +1012,6 @@ let market_quality = if quality_score >= 85.0 {
         opportunity_analysis: opportunity,
         market_quality,
         market_quality_score: quality_score,
-        trend_stability_sharpe: None,
         // v6.12: the exact 0-100 alignment dimension scores each
         // assessment is bucketed from — the numeric companions rendered
         // as badges on the Analysis panel (the disaggregated siblings of

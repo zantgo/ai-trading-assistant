@@ -455,7 +455,7 @@
                                         class={styles.colRaw}
                                         style="color: {m.key === 'price_trend_sharpe' && mode === 'Directional' && !Number.isNaN(n) ? normColor(n) : undefined}"
                                         title={m.key === 'price_trend_sharpe'
-                                            ? 'Price-Trend Sharpe — annualized Sharpe of RAW price log returns over the trailing 300-bar window (trend smoothness on this timeframe). Distinct from the Analysis card\'s Trend Stability Sharpe, which uses EMA-50 log returns.'
+                                            ? 'Price-Trend Sharpe — annualized Sharpe of RAW price log returns over the trailing 300-bar window (trend smoothness on this timeframe).'
                                             : undefined}
                                     >
                                         {#if m.key === 'ema_stack'}

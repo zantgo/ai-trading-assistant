@@ -9,7 +9,9 @@
     import styles from './OpportunitiesPanel.module.css';
     import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
     import { computeOpportunityBars, rankSectionsByCount, type DirectionalBars } from '../lib/opportunityBars';
-    import { computeConfluentRr, fmtConfluentRr, riskBasisLabel } from '../lib/confluentRr';
+    import { computeConfluentRr, fmtConfluentRrMagnitude, rrBarPct, riskBasisLabel } from '../lib/confluentRr';
+    import { rrColor } from '../lib/dashboardColors';
+    import { confluenceStrengthLabel } from '../lib/confluenceStrength';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -392,6 +394,19 @@
             default: return 'ATR';
         }
     }
+    // v6.15: the confluent rows render a qualitative strength pill
+    // (WEAK/MODERATE/STRONG/VERY STRONG) instead of the raw additive
+    // weight % — the number read like a probability. The raw weight
+    // stays as a tooltip; the export mirrors the label via the shared
+    // `confluenceStrength` helper.
+    function confluenceTierClass(s: number): string {
+        switch (confluenceStrengthLabel(s)) {
+            case 'VERY STRONG': return styles.confluenceVeryStrong;
+            case 'STRONG': return styles.confluenceStrong;
+            case 'MODERATE': return styles.confluenceModerate;
+            default: return styles.confluenceWeak;
+        }
+    }
 
     // ── Trade Setups helpers ─────────────────────────────────────────────
     // v6.10.21: the left-edge accent is STATE-driven (State A = bright
@@ -470,6 +485,17 @@
         if (reason.includes('floor')) out.add('rr');
         if (reason.includes('no valid bracket') || reason.includes('no directional bias')) out.add('rr');
         return out;
+    }
+
+    // Per-card invalidation thesis — composed from the card's OWN side
+    // and its own stop-loss value (the STOP-LOSS row above), so the
+    // sentence can never quote a level the card does not display.
+    // Direction-aware: LONG → "below", SHORT → "above". NEUTRAL cards
+    // have no directional thesis → no sentence.
+    function buildInvalidationLine(setup: ActiveSetup): string | null {
+        if (setup.side === 'NEUTRAL' || setup.invalidation <= 0) return null;
+        const word = setup.side === 'LONG' ? 'below' : 'above';
+        return `A close ${word} ${fmtPxDecimal(setup.invalidation, markPrice)} on the completed candle invalidates the ${oppLabel(setup.opportunity_type)} thesis.`;
     }
 
     // Reference card warning state — State D when the bracket's R:R is
@@ -588,6 +614,9 @@
                                         <div class={styles.setupRowMeta}>
                                             {setup.preconditions_met}/{setup.preconditions_total} preconditions met · score {fmtScore(wireDisplayScore(setup))}
                                         </div>
+                                        {#if buildInvalidationLine(setup)}
+                                            <div class={styles.setupInvalidationNote}>{buildInvalidationLine(setup)}</div>
+                                        {/if}
                                     </div>
                                 </div>
                             {/each}
@@ -660,7 +689,7 @@
                                     </span>
                                 {/each}
                             </div>
-                            <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{fmtScore(level.strength)}%</span>
+                            <span class="{styles.confluenceStr} {confluenceTierClass(level.strength)}" title="Weight {fmtScore(level.strength)}/100">{confluenceStrengthLabel(level.strength)}</span>
                         </div>
                     {/each}
                 {/if}
@@ -679,7 +708,7 @@
                                     </span>
                                 {/each}
                             </div>
-                            <span class={styles.confluenceStr} style="color: {scoreColor(level.strength)}">{fmtScore(level.strength)}%</span>
+                            <span class="{styles.confluenceStr} {confluenceTierClass(level.strength)}" title="Weight {fmtScore(level.strength)}/100">{confluenceStrengthLabel(level.strength)}</span>
                         </div>
                     {/each}
                 {/if}
@@ -688,30 +717,41 @@
             {/if}
         </div>
 
-        <!-- ── Invalidation note — directly under the confluent levels ── -->
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Invalidation Note</div>
-            <div class={styles.noteBox}>
-                {opportunity?.invalidation_note || 'Assessment conditions forming — invalidation level will be calculated when structural pivot confirms.'}
-            </div>
-        </div>
-
         <!-- ── Expected Reward-to-Risk Ratio — averaged from the confluent
              level sets per side (LONG / SHORT badges when both exist).
-             Risk = confluent invalidation average, market-distance fallback. -->
+             Risk = confluent invalidation average, market-distance fallback.
+             v6.15: bare R-multiple value (`3.32R`, `10x+` above 10x) over a
+             0→10x magnitude bar with 1R/2R/3R/10x anchor ticks. -->
         <div class={styles.section}>
             <div class={styles.sectionTitle}>Expected Reward-to-Risk Ratio</div>
             {#if confluentRr.sides.length > 0}
                 <div class={styles.zoneGrid}>
                     {#each confluentRr.sides as side (side.side)}
                         <div class={styles.zoneCard}>
-                            <span class="{styles.confluenceSide} {side.side === 'LONG' ? styles.confluenceSideLong : styles.confluenceSideShort}">{side.side}</span>
                             {#if side.rr != null}
-                                <span class={styles.rrValue}>{fmtConfluentRr(side.rr)}</span>
+                                <div class={styles.rrCardHeader}>
+                                    <span class="{styles.confluenceSide} {side.side === 'LONG' ? styles.confluenceSideLong : styles.confluenceSideShort}">{side.side}</span>
+                                    <span class="{styles.rrValue} {rrCls(side.rr)}">{fmtConfluentRrMagnitude(side.rr)}</span>
+                                </div>
+                                <div class={styles.rrBarWrap}>
+                                    <div class={styles.rrBarTrack}>
+                                        <div class={styles.rrBarFill} style="width: {rrBarPct(side.rr).toFixed(1)}%; background: {rrColor(side.rr)}"></div>
+                                    </div>
+                                    <div class={styles.rrTick} style="left: 10%"></div>
+                                    <div class={styles.rrTick} style="left: 20%"></div>
+                                    <div class={styles.rrTick} style="left: 30%"></div>
+                                </div>
+                                <div class={styles.rrBarLabels}>
+                                    <span class={styles.rrTickLabel} style="left: 10%">1R</span>
+                                    <span class={styles.rrTickLabel} style="left: 20%">2R</span>
+                                    <span class={styles.rrTickLabel} style="left: 30%">3R</span>
+                                    <span class={styles.rrTickLabel} style="left: 100%">10x</span>
+                                </div>
                                 <span class={styles.rrReason} title={riskBasisLabel(side.riskBasis)}>
                                     {riskBasisLabel(side.riskBasis)}
                                 </span>
                             {:else}
+                                <span class="{styles.confluenceSide} {side.side === 'LONG' ? styles.confluenceSideLong : styles.confluenceSideShort}">{side.side}</span>
                                 <span class={styles.rrValueNA}>N/A</span>
                                 <span class={styles.rrReason}>{side.reason}</span>
                             {/if}

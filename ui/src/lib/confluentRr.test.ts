@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ConfluentLevel, OpportunityMatrix } from '../types';
-import { computeConfluentRr, fmtConfluentRr, riskBasisLabel } from './confluentRr';
+import { computeConfluentRr, fmtConfluentRr, fmtConfluentRrMagnitude, rrBarPct, riskBasisLabel } from './confluentRr';
 
 function oppWith(levels: {
     entry?: ConfluentLevel[];
@@ -163,9 +163,25 @@ describe('computeConfluentRr', () => {
 });
 
 describe('formatting helpers', () => {
-    it('formats the R:R as 1:X.XX like the header chip rail', () => {
-        expect(fmtConfluentRr(0.95)).toBe('1:0.95');
-        expect(fmtConfluentRr(3.333)).toBe('1:3.33');
+    it('formats the R:R as a bare R-multiple — no 1: prefix', () => {
+        expect(fmtConfluentRr(0.95)).toBe('0.95');
+        expect(fmtConfluentRr(3.333)).toBe('3.33');
+    });
+
+    it('renders trader-vernacular magnitude with an R suffix and a 10x+ cap', () => {
+        expect(fmtConfluentRrMagnitude(3.32)).toBe('3.32R');
+        expect(fmtConfluentRrMagnitude(0.95)).toBe('0.95R');
+        expect(fmtConfluentRrMagnitude(10)).toBe('10x+');
+        expect(fmtConfluentRrMagnitude(12.5)).toBe('10x+');
+    });
+
+    it('maps R:R to the 0→10x bar fill (0% = 0R, 100% = 10x) with clamping', () => {
+        expect(rrBarPct(0)).toBe(0);
+        expect(rrBarPct(3.32)).toBeCloseTo(33.2);
+        expect(rrBarPct(4.29)).toBeCloseTo(42.9);
+        expect(rrBarPct(10)).toBe(100);
+        expect(rrBarPct(25)).toBe(100);
+        expect(rrBarPct(NaN)).toBe(0);
     });
 
     it('labels both risk bases', () => {

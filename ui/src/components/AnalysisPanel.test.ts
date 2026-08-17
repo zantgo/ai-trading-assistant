@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tick } from 'svelte';
 import AnalysisPanel from './AnalysisPanel.svelte';
 import { useAppStore } from '../state.svelte';
-import type { AnalysisMatrix, IndicatorMap } from '../types';
+import type { AnalysisMatrix, AlignmentMatrix, IndicatorMap } from '../types';
 
 function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     return {
@@ -38,6 +38,24 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         timeframes_considered: 4,
         ...overrides,
     } as AnalysisMatrix;
+}
+
+function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatrix {
+    return {
+        symbol: 'BTC-USDT',
+        timeframes_present: 4,
+        dimensions: [],
+        mtf_trend_alignment: 0,
+        mtf_momentum_alignment: 0,
+        mtf_volume_alignment: 0,
+        mtf_volatility_alignment: 0,
+        mtf_overall_score: 25,
+        mtf_overall_label: 'BULLISH',
+        timeframe_alignments: [],
+        signal_cross_tf_count: 34,
+        trend_agreement_pct: 100,
+        ...overrides,
+    } as AlignmentMatrix;
 }
 
 function seed(analysis: AnalysisMatrix) {
@@ -133,43 +151,15 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         expect(screen.getByText('2.0:1 signal ratio')).toBeTruthy();
     });
 
-    it('v6.11: Trend card renders the trend_stability_sharpe numeric badge', () => {
-        seed(makeAnalysis({ trend_stability_sharpe: 3.85 }));
-        render(AnalysisPanel, { props: {} });
-        const badge = screen.getByText('3.85');
-        expect(badge.textContent?.trim()).toBe('3.85');
-        // Absent (null) → no badge.
-        cleanup();
-        seed(makeAnalysis({ trend_stability_sharpe: null }));
+    it('v6.14: Trend card no longer renders a Trend Stability Sharpe badge (v6.11 field removed from the L3 matrix)', () => {
+        // The L1→L3 traceability-evidence exception was stripped: the
+        // AnalysisMatrix no longer carries the field, so the Trend card
+        // must never render the old badge — even if a stale snapshot
+        // smuggles the key through.
+        seed(makeAnalysis({ trend_stability_sharpe: 3.85 } as Partial<AnalysisMatrix>));
         render(AnalysisPanel, { props: {} });
         expect(screen.queryByText('3.85')).toBeNull();
-    });
-
-    it('v6.10.21: Trend badge tint mirrors the stability bands', () => {
-        // ≥ +2 → strong-positive (green), > 0 → positive (light green),
-        // ≤ −2 → strong-negative (red), else negative (light red).
-        seed(makeAnalysis({ trend_stability_sharpe: 3.85 }));
-        render(AnalysisPanel, { props: {} });
-        let badge = screen.getByText('3.85');
-        expect(badge.className).toContain('sharpeStrongPos');
-
-        cleanup();
-        seed(makeAnalysis({ trend_stability_sharpe: 0.8 }));
-        render(AnalysisPanel, { props: {} });
-        badge = screen.getByText('0.80');
-        expect(badge.className).toContain('sharpePos');
-
-        cleanup();
-        seed(makeAnalysis({ trend_stability_sharpe: -5.7 }));
-        render(AnalysisPanel, { props: {} });
-        badge = screen.getByText('-5.70');
-        expect(badge.className).toContain('sharpeStrongNeg');
-
-        cleanup();
-        seed(makeAnalysis({ trend_stability_sharpe: -0.73 }));
-        render(AnalysisPanel, { props: {} });
-        badge = screen.getByText('-0.73');
-        expect(badge.className).toContain('sharpeNeg');
+        expect(screen.queryByText(/Trend Stability/)).toBeNull();
     });
 
     it('v6.12: all five cards render their 0-100 dimension-score badges (v6.13: rounded %)', () => {
@@ -202,16 +192,11 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         expect(screen.getByText('25%').className).toContain('scoreWeak');
     });
 
-    it('v6.12: Trend card shows BOTH the dimension-score and the Sharpe badge (v6.13: with tooltips)', () => {
-        seed(makeAnalysis({ trend_score: 62.35, trend_stability_sharpe: 20.0 }));
+    it('v6.12: Trend card renders its dimension-score badge with tooltip', () => {
+        seed(makeAnalysis({ trend_score: 62.35 }));
         render(AnalysisPanel, { props: {} });
         expect(screen.getByText('62%')).toBeTruthy();
-        expect(screen.getByText('20.00')).toBeTruthy();
-        // v6.13: hover tooltips qualify the numbers — the score badge
-        // explains the cross-timeframe agreement semantics and the
-        // Sharpe badge its statistical meaning.
         expect(screen.getByText('62%').getAttribute('title')).toContain('agreement across timeframes');
-        expect(screen.queryByTitle(/Trend stability sharpe/i)).toBeTruthy();
     });
 
     it('v6.12: ▲ delta arrow appears when a score rises vs the previous frame', async () => {
@@ -241,8 +226,8 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         expect(badge.textContent).toContain('▼');
     });
 
-    it('v6.11: export qualitative_assessment carries the trend-stability Sharpe', async () => {
-        const app = seed(makeAnalysis({ trend_stability_sharpe: 3.85 }));
+    it('v6.14: export qualitative_assessment no longer carries the trend-stability Sharpe', async () => {
+        const app = seed(makeAnalysis({ trend_stability_sharpe: 3.85 } as Partial<AnalysisMatrix>));
         const tf = app.instancesMap['BTC-USDT'].microTerm;
         tf.indicators = {
             bbwp: { raw_value: 94.8, normalized: 0.948, state_label: 'NEUTRAL', values: null },
@@ -260,8 +245,8 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         await tick();
         await new Promise((r) => setTimeout(r, 0));
         const payload = JSON.parse(writes[0]);
-        expect(payload.qualitative_assessment.trend_stability_sharpe).toBeCloseTo(3.85, 2);
-        expect(payload.qualitative_assessment.trend_stability_sharpe_display).toBe('3.85');
+        expect(payload.qualitative_assessment.trend_stability_sharpe).toBeUndefined();
+        expect(payload.qualitative_assessment.trend_stability_sharpe_display).toBeUndefined();
     });
 
     it('v6.10.19a (D1): export traceability carries the representative BBWP/ADX raw values', async () => {
@@ -321,5 +306,88 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         const payload = JSON.parse(writes[0]);
         expect(payload.representative_bbwp).toBeCloseTo(53.0, 1);
         expect(payload.representative_adx).toBeCloseTo(35.3, 1);
+    });
+});
+
+// v6.15: unified Interpretation & Rationale card — the raw backend
+// rationale line is gone; the evidence renders as a 5-column grid fed by
+// the alignment matrix (score / agreement / signals) and the analysis
+// matrix's pinned representative inputs (BBWP / ADX).
+describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
+    it('renders the unified card with all 5 rationale columns', () => {
+        seed(makeAnalysis({
+            bias: 'Bullish',
+            representative_bbwp: 9.2,
+            representative_adx: 36.5,
+        }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment();
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('Overall Score')).toBeTruthy();
+        expect(screen.getByText('Timeframe Agreement')).toBeTruthy();
+        expect(screen.getByText('Volatility Percentile')).toBeTruthy();
+        expect(screen.getByText('Trend Strength')).toBeTruthy();
+        expect(screen.getByText('Total Signals')).toBeTruthy();
+        expect(screen.getByText('25 / 100')).toBeTruthy();
+        expect(screen.getByText('(Bullish)')).toBeTruthy();
+        expect(screen.getByText('100%')).toBeTruthy();
+        expect(screen.getByText('4/4 timeframes aligned')).toBeTruthy();
+        expect(screen.getByText('9.2%')).toBeTruthy();
+        expect(screen.getByText('36.5')).toBeTruthy();
+        expect(screen.getByText('34 Signals')).toBeTruthy();
+    });
+
+    it('colours the bias sub-label green for Bullish', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment();
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('(Bullish)').getAttribute('style')).toContain('rgb(74, 222, 128)');
+    });
+
+    it('colours the bias sub-label red for Bearish', () => {
+        seed(makeAnalysis({ bias: 'Bearish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment({ mtf_overall_score: -30 });
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('-30 / 100')).toBeTruthy();
+        expect(screen.getByText('(Bearish)').getAttribute('style')).toContain('rgb(248, 113, 113)');
+    });
+
+    it('does not render the raw backend rationale line (v6.15 cleanup)', () => {
+        seed(makeAnalysis({ rationale: 'MTF overall score 25/100 → Bullish. BBWP=9.2 ADX=36.5.' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment();
+        render(AnalysisPanel, { props: {} });
+        expect(screen.queryByText(/MTF overall score/)).toBeNull();
+        expect(screen.queryByText(/BBWP=/)).toBeNull();
+        expect(screen.queryByText(/ADX=/)).toBeNull();
+        expect(screen.queryByText(/→/)).toBeNull();
+    });
+
+    it('annotates the score cell when the bias is lifted by the grace band', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment({ mtf_overall_score: 12 });
+        render(AnalysisPanel, { props: {} });
+        const value = screen.getByText('12 / 100');
+        expect(value.parentElement?.getAttribute('title')).toContain('Bias lifted');
+    });
+
+    it('does not annotate the score cell for an ordinary directional read', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment({ mtf_overall_score: 55 });
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('55 / 100').parentElement?.getAttribute('title')).toBeNull();
+    });
+
+    it('falls back to em-dashes when alignment and representative fields are absent', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        render(AnalysisPanel, { props: {} });
+        expect(screen.queryByText('25 / 100')).toBeNull();
+        expect(screen.queryByText('4/4 timeframes aligned')).toBeNull();
+        expect(screen.queryByText('34 Signals')).toBeNull();
+        expect(screen.getByText((content) => content.includes('market.'))).toBeTruthy();
     });
 });

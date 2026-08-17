@@ -501,7 +501,7 @@ describe('buildRecommendationTabExport', () => {
     expect(p.verdict.top).toBe('LONG');
     // v6.10.17: the verdict sentence is the graded call, never the raw
     // advisory sentence; the advisory text survives as environment guidance.
-    expect(p.final_verdict).toContain('LONG lean 60% — awaiting confirmation (readiness: FORMING)');
+    expect(p.final_verdict).toContain('LONG lean 60% — awaiting confirmation (readiness: Forming)');
     expect(p.final_verdict).not.toContain('Strong long bias');
     expect(p.final_verdict_guidance).toContain('Environment guidance:');
     expect(p.strategy).not.toHaveProperty('hold_caption');
@@ -520,13 +520,51 @@ describe('buildRecommendationTabExport', () => {
       headerSpec,
     }));
     expect(p.verdict.top).toBe('LONG');
-    expect(p.final_verdict).toContain('LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger MODERATE)');
+    expect(p.final_verdict).toContain('LONG lean 62% — Stand Aside (readiness: Stand Aside, Entry Danger Moderate)');
     expect(p.final_verdict).not.toContain('no directional call');
     expect(p.final_verdict_guidance).toContain('Environment guidance:');
-    expect(p.final_verdict_guidance).toContain('immediate');
+    // v6.17: execution clauses are stripped under every verdict and the
+    // guidance leads with the verdict's own read (never the stale claim).
+    expect(p.final_verdict_guidance).not.toContain('immediate');
+    expect(p.final_verdict_guidance).toContain('Bullish market bias with 62% confidence');
+    expect(p.final_verdict_guidance).not.toContain('BULLISH bias with 20% confidence');
     // v6.10.17: a directional lean carries a REAL playbook — no caption.
     expect(p.strategy).not.toHaveProperty('hold_caption');
     expect(p.strategy.entry).not.toBe('—');
+  });
+
+  it('v6.17: directional guidance is verdict-consistent — the neutral claim is rewritten, the tail survives', () => {
+    // The user's real capture shape: a LONG verdict headline with a stale
+    // neutral advisory sentence — the guidance must now lead with the
+    // verdict's own direction + probability, never "Neutral — no
+    // directional edge".
+    const p = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ final_recommendation: 'Neutral — no directional edge: 28% confidence, cautious stance in a trend-following environment. Breakout opportunity.' }),
+      decisionContext: makeDecisionContext({ trade_readiness: 'WATCH', long_probability: 71, short_probability: 10, hold_probability: 19, net_bias_pct: 61 }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(p.verdict.top).toBe('LONG');
+    expect(p.final_verdict).toContain('LONG lean 71% — awaiting confirmation (readiness: Watch)');
+    expect(p.final_verdict_guidance).toBe('Environment guidance: Bullish market bias with 71% confidence, cautious stance in a trend-following environment. Breakout opportunity.');
+    expect(p.final_verdict_guidance).not.toContain('Neutral');
+    expect(p.final_verdict_guidance).not.toContain('no directional edge');
+
+    // SHORT verdict mirrors the bearish lead.
+    const pShort = JSON.parse(buildRecommendationTabExport({
+      advisory: makeAdvisory({ final_recommendation: 'Long bias: BULLISH bias with 72% confidence.' }),
+      decisionContext: makeDecisionContext({ trade_readiness: 'WATCH', long_probability: 20, short_probability: 60, hold_probability: 20, net_bias_pct: -40 }),
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      symbol: 'SOL-USDC',
+      markPrice: 75.55,
+      headerSpec,
+    }));
+    expect(pShort.verdict.top).toBe('SHORT');
+    expect(pShort.final_verdict_guidance).toBe('Environment guidance: Bearish market bias with 60% confidence.');
   });
 
   it('v6.10.19a (D2a): HOLD guidance has no orphaned ":," / trailing ":" after the confidence strip', () => {

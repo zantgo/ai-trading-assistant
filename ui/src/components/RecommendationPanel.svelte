@@ -8,7 +8,7 @@
     import { buildL6DecisionHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './RecommendationPanel.module.css';
     import { deriveTradePlan } from '../lib/tradePlan';
-    import { computeDecisionRank, entryDangerLevel, selectProfileSide, profileZones, topSetupSummary } from '../lib/decisionRank';
+    import { computeDecisionRank, entryDangerLevel, selectProfileSide, profileZones, topSetupSummary, buildVerdictSentence } from '../lib/decisionRank';
 
     const app = useAppStore();
     let { pairKey, wssState } = $props<{ pairKey: string; wssState?: WsState }>();
@@ -121,13 +121,14 @@
         opportunity,
     }));
 
-    // ── Final Verdict accent — the quote's left line mirrors the verdict:
-    //    green LONG, red SHORT, amber HOLD (v6.10.28).
+    // ── Verdict & Rationale card accent — the card's left line mirrors
+    //    the verdict: green LONG, red SHORT, amber HOLD (v6.10.28, v6.17:
+    //    the accent moved from the quote to the unified card). ──
     const verdictAccent = $derived(
         rank.top === 'SHORT'
-            ? styles.verdictQuoteShort
+            ? styles.verdictCardShort
             : rank.top === 'LONG'
-                ? styles.verdictQuoteLong
+                ? styles.verdictCardLong
                 : '',
     );
 
@@ -415,6 +416,11 @@
                         </span>
                     </div>
                 </div>
+                {#if topSetup.direction !== 'NEUTRAL' && topSetup.zones && topSetup.zones.invalidation > 0}
+                    <div class={styles.profileCardInvalidation}>
+                        A close {topSetup.direction === 'LONG' ? 'below' : 'above'} ${fmtPriceScale(topSetup.zones.invalidation, markPrice)} on the completed candle invalidates the {sanitizeLabel(topSetup.opportunity_type)} thesis.
+                    </div>
+                {/if}
                 {#if topSetup.rationale && topSetup.rationale !== `${topSetup.opportunity_type}: preconditions ${topSetup.preconditions_met}/${topSetup.preconditions_total}`}
                     <div class={styles.profileCardNotes}>{topSetup.rationale}</div>
                 {/if}
@@ -519,45 +525,30 @@
          R6 + FIX-4 (v6.10.15) + v6.10.17: the verdict hero is the
          authoritative call. Under a genuine HOLD it reads "no directional
          call"; under a directional lean it carries the graded percentage
-         AND the readiness gate ("SHORT lean 38% — STAND ASIDE (entry_danger
-         HIGH)") — the operator always sees what the market says and when it
-         can be acted on. The advisory's `final_recommendation` renders as
-         muted environment guidance below. -->
+         AND the readiness gate ("SHORT lean 38% — Stand Aside (readiness:
+         Stand Aside, Entry Danger HIGH)") — the operator always sees what
+         the market says and when it can be acted on. The advisory's
+         `final_recommendation` renders as verdict-consistent environment
+         guidance below (v6.17: it leads with the verdict's own read). -->
     <div class={styles.section}>
-        <div class={styles.sectionTitle}>Final Verdict</div>
-        {#if rank.top === 'HOLD'}
-            <blockquote class="{styles.verdictQuote} {verdictAccent}">
-                HOLD — no directional call (readiness: {rank.headline.state}).
-            </blockquote>
-            {#if verdictAwareGuidance(advisory, rank.top)}
-                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top)}</div>
+        <div class={styles.sectionTitle}>Verdict & Rationale</div>
+        <div class="{styles.verdictCard} {verdictAccent}">
+            <blockquote class={styles.verdictQuote}>{buildVerdictSentence(rank, dangerDisplay)}</blockquote>
+            {#if verdictAwareGuidance(advisory, rank.top, rank.top_prob)}
+                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top, rank.top_prob)}</div>
             {/if}
-        {:else}
-            {@const verdictPct = Math.round(rank.top_prob)}
-            {@const verdictSentence =
-                rank.headline.state === 'STAND_ASIDE'
-                    ? `${rank.top} lean ${verdictPct}% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger ${dangerLevel}).`
-                    : rank.headline.state === 'READY'
-                        ? `${rank.top} ${verdictPct}% — READY (readiness: READY).`
-                        : `${rank.top} lean ${verdictPct}% — awaiting confirmation (readiness: ${rank.headline.state}).`}
-            <blockquote class="{styles.verdictQuote} {verdictAccent}">{verdictSentence}</blockquote>
-            {#if verdictAwareGuidance(advisory, rank.top)}
-                <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top)}</div>
+            <div class={styles.verdictDivider}></div>
+            <!-- ── Why (top-3 rationale, gated by rank consistency) ── -->
+            {#if rank.top === 'HOLD'}
+                <div class={styles.whyNote}>
+                    No directional edge — these bullets read the same across all three arms (Long/Short/Hold). They trace the data, not a trade call.
+                </div>
             {/if}
-        {/if}
-    </div>
-    <!-- ── Why (top-3 rationale, gated by rank consistency) -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Why</div>
-        {#if rank.top === 'HOLD'}
-            <div class={styles.whyNote}>
-                No directional edge — these bullets read the same across all three arms (LONG/SHORT/HOLD). They trace the data, not a trade call.
-            </div>
-        {/if}
-        <ul class={styles.why}>
-            {#each rank.rationale.slice(0, 3) as line, i (i)}
-                <li class={styles.whyItem}>{line}</li>
-            {/each}
-        </ul>
+            <ul class={styles.why}>
+                {#each rank.rationale.slice(0, 3) as line, i (i)}
+                    <li class={styles.whyItem}>{line}</li>
+                {/each}
+            </ul>
+        </div>
     </div>
 </div>

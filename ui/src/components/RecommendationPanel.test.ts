@@ -261,9 +261,11 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         // R:R is now reflected via the per-side fields and the
         // Risk-Adjusted Reward-to-Risk KPI. We assert the legacy label is gone.
         expect(screen.queryByText(/Internal R:R/i)).toBeNull();
-        // v6.10.19d D: the header chip is gone — the label now appears
-        // only on the Safety Flags KPI row.
-        expect(screen.getAllByText(/Risk-Adjusted Reward-to-Risk/i).length).toBe(1);
+        // v6.10.19d D: the header chip is gone. v6.17: the phrase also
+        // appears once more inside the Verdict & Rationale card's third
+        // Why bullet ("Risk-adjusted reward-to-risk: …") — the KPI label
+        // itself is still unique.
+        expect(screen.getAllByText(/Risk-Adjusted Reward-to-Risk/i).length).toBe(2);
         // R7: the KPI is the advisory's ATR-derived stop-distance guide —
         // relabelled to not collide with the Top Setup card's geometric SL.
         expect(screen.getByText('ATR Stop Guide')).toBeTruthy();
@@ -316,6 +318,9 @@ describe('RecommendationPanel — Top Setup card', () => {
         expect(screen.getAllByText(/64500/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/65000/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/63200/).length).toBeGreaterThan(0);
+        // The invalidation thesis is bound to the card's own stop-loss
+        // (63200) with the LONG direction word ("below").
+        expect(screen.getByText('A close below $63200 on the completed candle invalidates the Breakout thesis.')).toBeTruthy();
     });
 
     it('v6.14: the headline card renders the backend display_score (precondition-scaled)', () => {
@@ -460,6 +465,8 @@ describe('RecommendationPanel — Top Setup card', () => {
         expect(screen.getByText('Take-Profit')).toBeTruthy();
         expect(screen.getByText('Stop-Loss')).toBeTruthy();
         expect(screen.getByText('Reward-to-Risk')).toBeTruthy();
+        // No directional thesis → no invalidation subtitle.
+        expect(screen.queryByText(/invalidates the .* thesis/)).toBeNull();
     });
 });
 
@@ -767,7 +774,7 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
         expect(screen.getByText(/Environment guidance:/)).toBeTruthy();
     });
 
-    it('renders the advisory sentence under a directional verdict', () => {
+    it('v6.17: renders the advisory sentence under a directional verdict with the verdict-consistent lead', () => {
         const entry = seedPair('BTC-USDT');
         entry.decisionContext = makeDecisionContext({
             long_probability: 60,
@@ -776,8 +783,11 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
             net_bias_pct: 50,
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        // LONG verdict → advisory final_recommendation verbatim.
-        expect(screen.getByText(/Neutral — no directional edge:/)).toBeTruthy();
+        // LONG verdict → guidance leads with the verdict's OWN read
+        // (same direction + probability as the headline) — the stale
+        // "Neutral — no directional edge" claim can never survive.
+        expect(screen.getByText(/Bullish market bias with 60% confidence/)).toBeTruthy();
+        expect(screen.queryByText(/Neutral — no directional edge/)).toBeNull();
     });
 
     it('renders the guidance cards with tactic labels and no reference caption under HOLD (v6.10.28)', () => {
@@ -792,16 +802,17 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
         expect(screen.queryByText(/For reference — no active directional call/)).toBeNull();
     });
 
-    it('v6.10.28: the Final Verdict accent line is amber under a HOLD verdict', () => {
+    it('v6.10.28 + v6.17: the Verdict & Rationale card accent line is amber under a HOLD verdict', () => {
         const entry = seedPair('BTC-USDT');
         zeroProfiles(entry); // keep a genuine HOLD (no qualifying setup)
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        const cls = document.querySelector('blockquote')!.className;
-        expect(cls).toMatch(/verdictQuote/);
-        expect(cls).not.toMatch(/verdictQuoteLong|verdictQuoteShort/);
+        const card = document.querySelector('[class*="verdictCard"]')!;
+        const cls = card.className;
+        expect(cls).toMatch(/verdictCard/);
+        expect(cls).not.toMatch(/verdictCardLong|verdictCardShort/);
     });
 
-    it('v6.10.28: the Final Verdict accent line is green under a LONG verdict', () => {
+    it('v6.10.28 + v6.17: the Verdict & Rationale card accent line is green under a LONG verdict', () => {
         const entry = seedPair('BTC-USDT');
         entry.decisionContext = makeDecisionContext({
             long_probability: 60,
@@ -810,12 +821,12 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
             net_bias_pct: 50,
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        const cls = document.querySelector('blockquote')!.className;
-        expect(cls).toMatch(/verdictQuoteLong/);
-        expect(cls).not.toMatch(/verdictQuoteShort/);
+        const cls = document.querySelector('[class*="verdictCard"]')!.className;
+        expect(cls).toMatch(/verdictCardLong/);
+        expect(cls).not.toMatch(/verdictCardShort/);
     });
 
-    it('v6.10.28: the Final Verdict accent line is red under a SHORT verdict', () => {
+    it('v6.10.28 + v6.17: the Verdict & Rationale card accent line is red under a SHORT verdict', () => {
         const entry = seedPair('BTC-USDT');
         entry.decisionContext = makeDecisionContext({
             long_probability: 10,
@@ -824,9 +835,33 @@ describe('RecommendationPanel — Final Verdict + Environment Guidance (R6)', ()
             net_bias_pct: -50,
         });
         render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
-        const cls = document.querySelector('blockquote')!.className;
-        expect(cls).toMatch(/verdictQuoteShort/);
-        expect(cls).not.toMatch(/verdictQuoteLong/);
+        const cls = document.querySelector('[class*="verdictCard"]')!.className;
+        expect(cls).toMatch(/verdictCardShort/);
+        expect(cls).not.toMatch(/verdictCardLong/);
+    });
+
+    it('v6.17: verdict, guidance and Why bullets share ONE card separated by a divider', () => {
+        const entry = seedPair('BTC-USDT');
+        entry.decisionContext = makeDecisionContext({
+            long_probability: 60,
+            short_probability: 10,
+            hold_probability: 30,
+            net_bias_pct: 50,
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        // The single section title replaces the two old ones.
+        expect(screen.getByText('Verdict & Rationale')).toBeTruthy();
+        expect(screen.queryByText('Final Verdict')).toBeNull();
+        expect(screen.queryByText('Why')).toBeNull();
+        // Verdict quote + guidance + divider + bullets all live in the card.
+        const card = document.querySelector('[class*="verdictCard"]')!;
+        expect(card.querySelector('blockquote')!.textContent).toContain('LONG lean 60%');
+        expect(card.querySelector('[class*="verdictGuidance"]')).toBeTruthy();
+        expect(card.querySelector('[class*="verdictDivider"]')).toBeTruthy();
+        expect(card.querySelectorAll('[class*="whyItem"]').length).toBe(3);
+        // Bullets are the polished prose (no L-tokens, sentence-cased).
+        expect(card.textContent).toContain('Layer 2 Tradability Dimension');
+        expect(card.textContent).toContain('Trade readiness is');
     });
 });
 
@@ -867,9 +902,9 @@ describe('RecommendationPanel — STAND ASIDE with a directional verdict (v6.10.
         expect(screen.getByText('+60%')).toBeTruthy();
     });
 
-    it('renders the graded verdict sentence + guidance (LONG lean 62% — STAND ASIDE)', () => {
+    it('renders the graded verdict sentence + guidance (LONG lean 62% — Stand Aside)', () => {
         mountStandAsideWithLongVerdict();
-        expect(screen.getByText(/LONG lean 62% — STAND ASIDE/)).toBeTruthy();
+        expect(screen.getByText(/LONG lean 62% — Stand Aside/)).toBeTruthy();
         expect(screen.getByText(/Environment guidance:/)).toBeTruthy();
         expect(screen.queryByText(/no directional call/)).toBeNull();
     });

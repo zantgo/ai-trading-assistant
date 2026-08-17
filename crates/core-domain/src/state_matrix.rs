@@ -235,7 +235,6 @@ mod tests {
             state_confidence: confidence,
             confidence,
             market_quality_score: 50.0,
-            trend_stability_sharpe: None,
             trend_score: None,
             momentum_score: None,
             structure_score: None,

@@ -429,7 +429,6 @@ mod tests {
                 opportunity_analysis: OpportunityType::Breakout,
                 market_quality: QualityLevel::Good,
                 market_quality_score: 70.0,
-                trend_stability_sharpe: None,
                 trend_score: None,
                 momentum_score: None,
                 structure_score: None,

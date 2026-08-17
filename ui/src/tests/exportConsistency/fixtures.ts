@@ -349,8 +349,6 @@ export function makeAnalysis(): AnalysisMatrix {
     opportunity_analysis: 'TrendContinuation',
     market_quality: 'Good',
     market_quality_score: 72,
-    // v6.11: trend-stability Sharpe (annualized EMA-50 log-return Sharpe).
-    trend_stability_sharpe: 3.85,
     // v6.12: per-card dimension scores — the exact 0-100 inputs the
     // qualitative assessments above are bucketed from (badge parity).
     trend_score: 76.5,
@@ -439,7 +437,7 @@ export function makeOpportunity(): OpportunityMatrix {
     profiles: [tc, mr],
     forecast_confidence: 0.72,
     contributing_signals: ['rsi_14', 'macd_12_26_9'],
-    invalidation_note: 'Close below 62800 invalidates the continuation thesis.',
+    invalidation_note: 'A close below 62800 on the completed candle invalidates the TrendContinuation thesis.',
     entry_zone: { low: 63200, high: 63400 },
     target_zone: { low: 66000, high: 66500 },
     invalidation_level: 62800,

@@ -1652,55 +1652,53 @@ fn compute_opportunity(
         .map(|s| s.label.clone())
         .collect();
 
-    // Invalidation note — side-aware, and must reference the SAME level
-    // the actionable bracket surfaces:
-    //   - actionable side (4a) → that side's invalidation
-    //     (long: "Close below", short: "Close above").
-    //   - no qualifying profile → the macro bias side's invalidation.
-    //   - neutral bias → prefer the side whose geometry is consistent
-    //     (long first, then short); fall back to the legacy scalar.
-    // The legacy implementation always formatted the note from the
-    // legacy scalar `invalidation_level`, which under a neutral bias
-    // resolves to the SHORT side (a level ABOVE price) — producing
-    // "Close below 1907.6" notes that contradicted the frontend bracket
-    // (bug D3).
-    let (note_level, note_side) = if let Some(long) = top_side_long {
+    // Invalidation note — side-aware, and strictly bound to a level the
+    // UI surfaces:
+    //   - actionable side (4a) → the top qualifying profile's side and
+    //     that side's invalidation (long: "A close below", short:
+    //     "A close above").
+    //   - no qualifying profile → the macro bias side's invalidation,
+    //     which is exactly the side the frontend's reference brackets
+    //     display (BULLISH ← long, BEARISH ← short).
+    //   - neutral bias with no qualifying profile → there is NO
+    //     directional thesis to invalidate, so the note is suppressed
+    //     (same rule as NoClearOpportunity). The historical fallbacks —
+    //     the geometry-consistent side heuristics and the legacy scalar
+    //     `invalidation_level` position test — are gone: they emitted
+    //     "Close below X" sentences whose level belonged to a side the
+    //     frontend card never showed (bug D3, and the unbound-level
+    //     class where the note quoted a matrix scalar while the card
+    //     displayed a different stop-loss).
+    let note = if let Some(long) = top_side_long {
         if long {
-            (long_invalidation_level, "below")
+            Some((long_invalidation_level, "below"))
         } else {
-            (short_invalidation_level, "above")
+            Some((short_invalidation_level, "above"))
         }
     } else if bias_bullish {
-        (long_invalidation_level, "below")
+        Some((long_invalidation_level, "below"))
     } else if bias_bearish {
-        (short_invalidation_level, "above")
-    } else if long_geometry_consistent {
-        (long_invalidation_level, "below")
-    } else if short_geometry_consistent {
-        (short_invalidation_level, "above")
+        Some((short_invalidation_level, "above"))
     } else {
-        (
-            invalidation_level,
-            if invalidation_level >= close {
-                "above"
-            } else {
-                "below"
-            },
-        )
+        // v6.10.17 (F21): under NoClearOpportunity there is no thesis to
+        // invalidate — "A close above X invalidates the
+        // NoClearOpportunity thesis" is nonsense. Under a neutral bias
+        // with no qualifying profile the setup card is NEUTRAL (or
+        // absent) — same suppression, no directional sentence to emit.
+        None
     };
 
-    // v6.10.17 (F21): under NoClearOpportunity there is no thesis to
-    // invalidate — "Close above X invalidates the NoClearOpportunity
-    // thesis" is nonsense. The note is suppressed for the no-clear case.
-    let invalidation_note = if primary_opportunity
-        == core_domain::analysis::OpportunityType::NoClearOpportunity
-    {
-        String::new()
-    } else {
-        format!(
-            "Close {} {:.1} invalidates the {:?} thesis.",
-            note_side, note_level, primary_opportunity
-        )
+    let invalidation_note = match note {
+        Some((note_level, note_side))
+            if primary_opportunity
+                != core_domain::analysis::OpportunityType::NoClearOpportunity =>
+        {
+            format!(
+                "A close {} {:.1} on the completed candle invalidates the {:?} thesis.",
+                note_side, note_level, primary_opportunity
+            )
+        }
+        _ => String::new(),
     };
 
     // v6.10.21 (NBR): the neutral range reference bracket is emitted only
@@ -1814,16 +1812,6 @@ pub fn synthesize_cross_tf(
         previous_volume_dim,
         previous_bias,
     );
-
-    // v6.11: stamp the L1-computed trend-stability Sharpe (EMA-50 log-return
-    // Sharpe over the trailing 300-bar window) onto the L3 AnalysisMatrix.
-    // The value is carried as an unregistered per-TF indicator-map key
-    // (`first TF wins` merge above → the micro TF's reading); absent until
-    // the window fills.
-    let mut analysis = analysis;
-    analysis.trend_stability_sharpe = representative_indicators
-        .get("trend_stability_sharpe")
-        .map(|v| v.raw_value);
 
     let close = tf_snapshots
         .first()
@@ -3193,7 +3181,7 @@ mod tests {
             "z>0 must surface SHORT zones (sell the rip)"
         );
         assert!(
-            opp.invalidation_note.starts_with("Close above "),
+            opp.invalidation_note.starts_with("A close above "),
             "note must reference the SHORT thesis, was: {}",
             opp.invalidation_note
         );
@@ -3216,7 +3204,7 @@ mod tests {
             "z<0 must surface LONG zones (buy the dip)"
         );
         assert!(
-            opp.invalidation_note.starts_with("Close below "),
+            opp.invalidation_note.starts_with("A close below "),
             "note must reference the LONG thesis, was: {}",
             opp.invalidation_note
         );
@@ -3298,7 +3286,7 @@ mod tests {
         assert_eq!(opp.primary_opportunity, OpportunityType::Reversal);
         assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_some());
         assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_none());
-        assert!(opp.invalidation_note.starts_with("Close below "));
+        assert!(opp.invalidation_note.starts_with("A close below "));
 
         let opp = compute_opportunity(
             &analysis,
@@ -3312,7 +3300,95 @@ mod tests {
         assert_eq!(opp.primary_opportunity, OpportunityType::Reversal);
         assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_some());
         assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_none());
-        assert!(opp.invalidation_note.starts_with("Close above "));
+        assert!(opp.invalidation_note.starts_with("A close above "));
+    }
+
+    // ── Invalidation note: direction awareness + level binding ──────────
+
+    #[test]
+    fn invalidation_note_suppressed_without_directional_thesis() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use std::collections::HashMap;
+
+        // The regression this locks: a BREAKOUT primary under a NEUTRAL
+        // bias. Breakout is TrendRiding, so with no directional bias the
+        // profile carries NO zones — the frontend renders a NEUTRAL card
+        // (aggregate fallback). The historical fallback chain then emitted
+        // "Close below X invalidates the Breakout thesis" with a matrix
+        // scalar level the card never displayed — a directional sentence
+        // on a directionally-neutral setup. There is no thesis to
+        // invalidate: the note must be empty.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Neutral;
+        analysis.market_regime = MarketRegime::TrendingBull;
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        alignment.mtf_volatility_alignment = 0.4; // vol_dim = 70
+        if let Some(d) = alignment.dimensions.get_mut(4) {
+            d.score = 65.0; // struct_dim = 65
+        }
+
+        let ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::Breakout);
+        let p = find_profile(&opp, OpportunityType::Breakout);
+        assert!(
+            p.long_entry_zone.is_none() && p.short_entry_zone.is_none(),
+            "TrendRiding under neutral bias must carry no directional zones"
+        );
+        assert_eq!(
+            opp.invalidation_note,
+            String::new(),
+            "no directional thesis — the note must be suppressed, was: {}",
+            opp.invalidation_note
+        );
+    }
+
+    #[test]
+    fn invalidation_note_level_binds_to_top_profile_side() {
+        use core_domain::alignment::AlignmentMatrix;
+        use core_domain::analysis::{AnalysisMatrix, MarketBias, MarketRegime, OpportunityType};
+        use std::collections::HashMap;
+
+        // The level quoted in the note must be EXACTLY the level the top
+        // qualifying profile's card displays (its per-side invalidation),
+        // and the direction word must match that side.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 1;
+        analysis.bias = MarketBias::Bearish;
+        analysis.market_regime = MarketRegime::TrendingBear;
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        alignment.mtf_volatility_alignment = 0.4; // vol_dim = 70
+        if let Some(d) = alignment.dimensions.get_mut(4) {
+            d.score = 65.0; // struct_dim = 65
+        }
+
+        let ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
+            .expect("opportunity");
+        assert_eq!(opp.primary_opportunity, OpportunityType::Breakout);
+        let p = find_profile(&opp, OpportunityType::Breakout);
+        let short_inv = p
+            .short_invalidation_level
+            .expect("bearish TrendRiding must surface the SHORT invalidation");
+        assert_eq!(
+            opp.invalidation_note,
+            format!(
+                "A close above {:.1} on the completed candle invalidates the Breakout thesis.",
+                short_inv
+            ),
+            "note must quote the top profile's own SHORT invalidation level"
+        );
+        assert_eq!(
+            short_inv, opp.short_invalidation_level,
+            "profile and matrix levels must be the same value (single binding)"
+        );
+        assert!(
+            short_inv > 100.0,
+            "SHORT invalidation must sit above close (stop semantics)"
+        );
     }
 
     // ── v6.10.21 (NBR): neutral range reference bracket ──────────────────

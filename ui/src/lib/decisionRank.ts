@@ -595,6 +595,45 @@ export function entryDangerLevel(d: number): 'EXTREME' | 'HIGH' | 'MODERATE' | '
     return 'VERY_LOW';
 }
 
+/** Sentence-case readiness label for prose surfaces (v6.17). */
+export function readinessLabel(s: DecisionState): string {
+    switch (s) {
+        case 'READY': return 'Ready';
+        case 'WATCH': return 'Watch';
+        case 'FORMING': return 'Forming';
+        case 'STAND_ASIDE': return 'Stand aside';
+        default: return s;
+    }
+}
+
+/** Sentence-case entry-danger level for prose surfaces (e.g. `Moderate`). */
+export function dangerLabel(score: number): string {
+    return entryDangerLevel(score)
+        .toLowerCase()
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * v6.17: single shared verdict headline — used by the Recommendation panel
+ * AND the export so screen and clipboard can never disagree. The readiness
+ * gate renders in sentence case (`Watch`, `Stand aside`) and the danger
+ * level as `Entry Danger <level>`.
+ */
+export function buildVerdictSentence(rank: DecisionRank, dangerScore: number): string {
+    const pct = Math.round(rank.top_prob);
+    if (rank.top === 'HOLD') {
+        return `HOLD — no directional call (readiness: ${readinessLabel(rank.headline.state)}).`;
+    }
+    if (rank.headline.state === 'STAND_ASIDE') {
+        return `${rank.top} lean ${pct}% — Stand Aside (readiness: Stand Aside, Entry Danger ${dangerLabel(dangerScore)}).`;
+    }
+    if (rank.headline.state === 'READY') {
+        return `${rank.top} ${pct}% — Ready (readiness: Ready).`;
+    }
+    return `${rank.top} lean ${pct}% — awaiting confirmation (readiness: ${readinessLabel(rank.headline.state)}).`;
+}
+
 /**
  * The top qualifying profile (preconditions_met > 0, not the
  * NoClearOpportunity fallback), ordered by score descending. This is the
@@ -1450,6 +1489,13 @@ export function profileSummary(
     return { side, zones, rr, rr_reason, viability: effectiveViability };
 }
 
+/** Title-case a setup token for prose (`TrendContinuation` → `Trend Continuation`). */
+function prettifySetupType(s: string): string {
+    return s
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .trim();
+}
+
 function buildRationale(r: RationaleInputs): string[] {
     const out: string[] = [];
 
@@ -1465,36 +1511,38 @@ function buildRationale(r: RationaleInputs): string[] {
             : null;
     const driverSuffix =
         r.bias === 'Neutral' && r.top !== 'HOLD'
-            ? ` (math-driven by confluence score ${r.score.toFixed(0)}; wire bias reads Neutral)`
+            ? `; math-driven by confluence score ${r.score.toFixed(0)} (wire bias reads Neutral)`
             : '';
     const signedNote =
         r.bias === 'Neutral' && unsignedBlend != null
-            ? ` — signed 0 because Neutral bias zeroes the directional blend (unsigned ≈ ${unsignedBlend})`
+            ? `; signed 0 because the Neutral wire bias zeroes the directional blend (unsigned ≈ ${unsignedBlend})`
             : '';
     out.push(
-        `${r.bias} bias, confluence score ${r.score.toFixed(0)} (L2 tradability_dim + L3 quality + L4 opportunity)${signedNote}${driverSuffix}`,
+        `${r.bias} market bias: confluence score of ${r.score.toFixed(0)} (derived from the Layer 2 Tradability Dimension, Layer 3 Quality Score, and Layer 4 Opportunity Score)${signedNote}${driverSuffix}`,
     );
 
-    // 2. Setup identification
+    // 2. Setup identification — polished prose (v6.17): no L-tokens,
+    // no raw camelCase setup types.
     out.push(
-        `Setup: ${r.setupType} (L4 score ${Math.round(r.oppScore)}, ${r.setupQuality})`,
+        `Active setup: ${prettifySetupType(r.setupType)} (Layer 4 Opportunity Score of ${Math.round(r.oppScore)}, classified as ${r.setupQuality} quality)`,
     );
 
     // 3. Trade readiness gate — reports the actual reason, not a
     // hardcoded threshold. STAND_ASIDE can be triggered by
-    // entry_danger ≥ 70 OR confidence_assessment < 20.
+    // entry_danger ≥ 70 OR confidence_assessment < 20. (v6.17: sentence
+    // case + clean colons; the danger level renders as `Entry Danger`.)
     if (r.readiness === 'STAND_ASIDE') {
         if (r.entryDanger >= 70) {
             out.push(
-                `Trade readiness = STAND_ASIDE because entry_danger ${r.entryDanger.toFixed(0)} (${entryDangerLevel(r.entryDanger)}) ≥ 70`,
+                `Trade readiness is Stand aside: Entry Danger of ${r.entryDanger.toFixed(0)} (${dangerLabel(r.entryDanger)}) is at or above the 70 threshold`,
             );
         } else if (r.confidence < 20) {
             out.push(
-                `Trade readiness = STAND_ASIDE because confidence_assessment ${r.confidence.toFixed(0)} < 20`,
+                `Trade readiness is Stand aside: Confidence assessment of ${r.confidence.toFixed(0)}% is below 20`,
             );
         } else {
             out.push(
-                `Trade readiness = STAND_ASIDE (entry_danger ${r.entryDanger.toFixed(0)}, confidence ${r.confidence.toFixed(0)}%)`,
+                `Trade readiness is Stand aside: Entry Danger of ${r.entryDanger.toFixed(0)} (${dangerLabel(r.entryDanger)}), confidence ${r.confidence.toFixed(0)}%`,
             );
         }
     } else if (r.readiness === 'FORMING' && r.expectedRr < 1.0) {
@@ -1503,30 +1551,30 @@ function buildRationale(r: RationaleInputs): string[] {
         // that contradicts them.
         out.push(
             r.top === 'HOLD' && r.expectedRr === 0
-                ? 'Trade readiness = FORMING — risk-discounted R:R N/A; the directional score was capped by the missing R:R'
-                : `Trade readiness = FORMING — risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) capped the directional score`,
+                ? 'Trade readiness is Forming: risk-adjusted reward-to-risk is not available; the directional score was capped by the missing ratio'
+                : `Trade readiness is Forming: risk-adjusted reward-to-risk of ${r.expectedRr.toFixed(2)} (below the 1.0 floor) capped the directional score`,
         );
     } else if (r.readiness === 'FORMING') {
         out.push(
-            `Trade readiness = FORMING — entry_danger ${r.entryDanger.toFixed(0)} (${entryDangerLevel(r.entryDanger)}) is acceptable but market state is mid-form`,
+            `Trade readiness is Forming: Entry Danger of ${r.entryDanger.toFixed(0)} (${dangerLabel(r.entryDanger)}) is acceptable but the market state is mid-form`,
         );
     } else if (r.readiness === 'WATCH') {
         out.push(
-            `Trade readiness = WATCH — entry_danger ${r.entryDanger.toFixed(0)} (${entryDangerLevel(r.entryDanger)}) watches for confirmation`,
+            `Trade readiness is Watch: Entry Danger of ${r.entryDanger.toFixed(0)} (${dangerLabel(r.entryDanger)}) requires additional confirmation before full execution`,
         );
     } else {
-        out.push(`Trade readiness = READY (entry_danger ${r.entryDanger.toFixed(0)})`);
+        out.push(`Trade readiness is Ready: Entry Danger of ${r.entryDanger.toFixed(0)} (${dangerLabel(r.entryDanger)}) is acceptable`);
     }
 
     // 4. R:R
     if (r.expectedRr < 1.0) {
         out.push(
             r.top === 'HOLD' && r.expectedRr === 0
-                ? 'Risk-discounted R:R N/A — no actionable directional R:R'
-                : `Risk-discounted R:R ${r.expectedRr.toFixed(2)} (< 1.0) — ${r.top} score capped at 60% of pre-normalized total`,
+                ? 'Risk-adjusted reward-to-risk: not available; no actionable directional R:R'
+                : `Risk-adjusted reward-to-risk: ${r.expectedRr.toFixed(2)} (below the 1.0 floor; ${r.top} score capped at 60% of pre-normalized total)`,
         );
     } else {
-        out.push(`Risk-discounted R:R ${r.expectedRr.toFixed(2)}`);
+        out.push(`Risk-adjusted reward-to-risk: ${r.expectedRr.toFixed(2)}`);
     }
 
     // 5. Contributing indicators
@@ -1536,7 +1584,7 @@ function buildRationale(r: RationaleInputs): string[] {
 
     // 6. Supporting signals from L3
     if (r.supportingSignals.length > 0) {
-        out.push(`L3 supporting signals: ${r.supportingSignals.slice(0, 4).join(', ')}`);
+        out.push(`Layer 3 supporting signals: ${r.supportingSignals.slice(0, 4).join(', ')}`);
     }
 
     // 7. Contradicting signals (if any)

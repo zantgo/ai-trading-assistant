@@ -236,4 +236,74 @@ describe('buildAlignmentTabExport', () => {
     expect(p.consensus.label).toBe('partial_consensus');
     expect(p.hero.trend_agreement_pct).toBe(71.6);
   });
+
+  it('v7.1: interpretation prints the signed integer score the dial shows (never unsigned toFixed(1))', () => {
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    // makeAlignment() → mtf_overall_score 75 → the dial renders "+75".
+    expect(p.interpretation).toContain('composite score of +75');
+    expect(p.interpretation).not.toContain('75.0');
+  });
+
+  it('v7.1: a NEUTRAL composite reads "moderate consensus", never "strong directional consensus"', () => {
+    const neutral = {
+      ...makeAlignment(),
+      mtf_overall_label: 'NEUTRAL_MTF',
+      mtf_overall_score: -13,
+    } as AlignmentMatrix;
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: neutral,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.interpretation).toContain('<strong>moderate consensus</strong>');
+    expect(p.interpretation).not.toContain('strong directional consensus');
+    expect(p.interpretation).toContain('composite score of -13');
+    expect(p.interpretation).toContain('offset into a flat composite');
+  });
+
+  it('v7.1: composition_note mirrors the whisper footnote (spelled words, live wire weights)', () => {
+    const reweighted = {
+      ...makeAlignment(),
+      mtf_overall_score: 36,
+      blend_weights: [
+        ['Trend', 0.55],
+        ['Momentum', 0.35],
+        ['Volume', 0.05],
+        ['Volatility', 0.05],
+      ] as Array<[string, number]>,
+    } as AlignmentMatrix;
+    const p = JSON.parse(buildAlignmentTabExport({
+      alignment: reweighted,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.composition_note).toBe(
+      'Composition weights: Trend (fifty-five percent), Momentum (thirty-five percent), Volatility (five percent), and Volume (five percent).'
+    );
+    // Standard 50/30/10/10 fallback when blend_weights are absent.
+    const standard = JSON.parse(buildAlignmentTabExport({
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(standard.composition_note).toBe(
+      'Composition weights: Trend (fifty percent), Momentum (thirty percent), Volatility (ten percent), and Volume (ten percent).'
+    );
+    // No data → null note (the panel hides the footnote while awaiting).
+    const empty = JSON.parse(buildAlignmentTabExport({
+      alignment: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(empty.composition_note).toBeNull();
+  });
 });

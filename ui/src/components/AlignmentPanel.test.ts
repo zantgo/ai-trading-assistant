@@ -7,6 +7,12 @@
 //         bullish/bearish colors (previously fell through to neutral).
 //   AL-7: the NO_DATA sentinel renders "—%" + the awaiting interpretation,
 //         never a fabricated "Conflict — time horizons diverging" verdict.
+//   AL-8: the interpretation prose prints the EXACT signed score string
+//         the SCORE dial renders (no unsigned-toFixed(1) drift).
+//   AL-9: a NEUTRAL composite never reads "strong directional consensus"
+//         — the copy says "moderate consensus" instead.
+//   AL-10: the Consensus Composition Strip (4 directional segments) and
+//         the whisper footnote render only with real data.
 
 import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -174,5 +180,88 @@ describe('AlignmentPanel — NO_DATA sentinel gate (AL-7)', () => {
     const fills = document.querySelectorAll(`.${styles.dialFill}`);
     expect(fills.length).toBe(2);
     for (const f of fills) expect(f.getAttribute('stroke')).toBe('#94a3b8');
+  });
+});
+
+describe('AlignmentPanel — interpretation score binding (AL-8)', () => {
+  it('the prose prints the exact signed score string the SCORE dial renders', () => {
+    seed(makeAlignment()); // mtf_overall_score 62 → dial "+62"
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    // The dial center renders "+62".
+    expect(screen.getByText('+62')).toBeTruthy();
+    // The interpretation prose contains the identical "+62" token and
+    // never the old unsigned 1-decimal form ("62.0").
+    const interp = document.querySelector(`.${styles.interpretation}`)!.textContent!;
+    expect(interp).toContain('+62');
+    expect(interp).not.toContain('62.0');
+  });
+
+  it('a negative composite prints with a minus sign in prose', () => {
+    seed(makeAlignment({ mtf_overall_score: -13, mtf_overall_label: 'NEUTRAL_MTF' }));
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const interp = document.querySelector(`.${styles.interpretation}`)!.textContent!;
+    expect(interp).toContain('-13');
+    expect(screen.getByText('-13')).toBeTruthy();
+  });
+});
+
+describe('AlignmentPanel — NEUTRAL composite wording (AL-9)', () => {
+  it('high agreement + NEUTRAL composite reads "moderate consensus", never "strong directional consensus"', () => {
+    seed(makeAlignment({ mtf_overall_label: 'NEUTRAL_MTF', mtf_overall_score: -13 }));
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const interp = document.querySelector(`.${styles.interpretation}`)!.textContent!;
+    expect(interp).toContain('moderate consensus');
+    expect(interp).toContain('NEUTRAL');
+    expect(interp).not.toContain('strong directional consensus');
+  });
+
+  it('a non-NEUTRAL composite keeps "strong directional consensus"', () => {
+    seed(makeAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const interp = document.querySelector(`.${styles.interpretation}`)!.textContent!;
+    expect(interp).toContain('strong directional consensus');
+  });
+});
+
+describe('AlignmentPanel — composition strip + whisper footnote (AL-10)', () => {
+  it('renders four segments with live weights and directional colors', () => {
+    seed(makeAlignment()); // fallback weights 50/30/10/10, axes all positive
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const segs = document.querySelectorAll(`.${styles.consensusSeg}`);
+    expect(segs.length).toBe(4);
+    const widths = Array.from(segs).map((s) => (s as HTMLElement).style.width);
+    expect(widths).toEqual(['50%', '30%', '10%', '10%']);
+    // All-positive axes render every segment in bull green (#22c55e).
+    for (const s of segs) expect(s.getAttribute('style')).toContain('rgb(34, 197, 94)');
+  });
+
+  it('bearish and flat axes color their segments red and grey', () => {
+    seed(makeAlignment({ mtf_trend_alignment: -0.6, mtf_volume_alignment: 0 }));
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const segs = document.querySelectorAll(`.${styles.consensusSeg}`);
+    // Trend -0.6 → bear red (#ef4444).
+    expect(segs[0].getAttribute('style')).toContain('rgb(239, 68, 68)');
+    // Momentum +0.6 → bull green (#22c55e).
+    expect(segs[1].getAttribute('style')).toContain('rgb(34, 197, 94)');
+    // Volume 0 → flat grey (#475569) at the fixed flat opacity.
+    expect(segs[2].getAttribute('style')).toContain('rgb(71, 85, 105)');
+    expect((segs[2] as HTMLElement).style.opacity).toBe('0.35');
+    // Volatility +0.4 → bull green.
+    expect(segs[3].getAttribute('style')).toContain('rgb(34, 197, 94)');
+  });
+
+  it('whisper footnote spells the weights in full words', () => {
+    seed(makeAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.getByText(
+      'Composition weights: Trend (fifty percent), Momentum (thirty percent), Volatility (ten percent), and Volume (ten percent).'
+    )).toBeTruthy();
+  });
+
+  it('sentinel hides the strip and the footnote', () => {
+    seed(makeSentinelAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(document.querySelectorAll(`.${styles.consensusSeg}`).length).toBe(0);
+    expect(screen.queryByText(/Composition weights:/)).toBeNull();
   });
 });

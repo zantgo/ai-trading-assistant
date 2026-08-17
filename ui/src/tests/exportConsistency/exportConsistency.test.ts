@@ -80,7 +80,10 @@ describe('export consistency — Alignment tab', () => {
     // Hero (LayerHeader): badge label + score + agreement + TF count.
     expect(c.dom).toContain('WEAK BULL');
     expect(c.jsonText).toContain('WEAK BULL'); // real label, not hardcoded
-    expectJsonNumberRenderedAsDom(c, '30.5', 30.5);
+    // v7.1: the composite score renders as the signed integer "+31" (the
+    // SCORE dial + interpretation prose share the exact string); the JSON
+    // still carries the raw 30.5.
+    expectJsonNumberRenderedAsDom(c, '+31', 30.5);
     expect(c.dom).toContain('82%');
     expect(c.payload.hero.trend_agreement_pct).toBe(82);
     expect(c.dom).toContain('4/4');
@@ -164,8 +167,12 @@ describe('export consistency — Risks tab', () => {
     expect(p.summary_counts.low.count).toBe(3);
     expect(p.summary_counts.very_low.count).toBe(0);
 
-    // Headline parts (trailing slot copy).
-    expectInDomAndJson(c, '3 high · 2 moderate · overall moderate');
+    // v7.1: the header trailing headline was removed — the header is
+    // title-only (like every other tab) and the export mirrors the UI,
+    // so neither surface carries the old "x high · y moderate" string.
+    expect(c.dom).not.toContain('3 high · 2 moderate · overall moderate');
+    expect(c.jsonText).not.toContain('headline_parts');
+    expect(c.jsonText).not.toContain('interpretation_headline');
 
     // Dimensions sorted by severity — first is Cascade (70).
     expect(p.dimensions[0].name).toBe('Cascade Risk');
@@ -177,10 +184,10 @@ describe('export consistency — Risks tab', () => {
     expect(p.dimensions[0].confidence).toBe(85);
     expect(c.dom).toContain('85%');
     // Dimension names byte-identical to the screen cards (incl. the
-    // abbreviated "Exec Liquidity Risk").
+    // full "Execution Liquidity Risk").
     const execLiq = p.dimensions.find((d: { key: string }) => d.key === 'execution_liquidity_risk')!;
-    expect(execLiq.name).toBe('Exec Liquidity Risk');
-    expect(c.dom).toContain('Exec Liquidity Risk');
+    expect(execLiq.name).toBe('Execution Liquidity Risk');
+    expect(c.dom).toContain('Execution Liquidity Risk');
 
     // Evidence chips.
     expect(p.dimensions[0].evidence).toContain('SUSTAINED cascade above price');
@@ -199,8 +206,9 @@ describe('export consistency — Risks tab', () => {
     // v6.11: execution-friction gauge — screen card + export parity.
     const exec = p.dimensions.find((d: { key: string }) => d.key === 'execution_risk')!;
     expect(exec.execution_extras).toEqual({ volatility_to_spread_ratio: 9.2 });
-    // The `×` suffix is display-only; the JSON carries the bare number.
-    expect(c.dom).toContain('9.2×');
+    // v6.16: the × suffix is gone from the screen — the bare number renders.
+    expect(c.dom).toContain('9.2');
+    expect(c.dom).not.toContain('9.2×');
 
     // Interpretation paragraph — zero-count sentences omitted like the screen.
     expect(p.interpretation_full).toContain('Elevated risk environment.');
@@ -211,9 +219,10 @@ describe('export consistency — Risks tab', () => {
     expect(p.interpretation_full).toContain('at 74% confidence');
     expect(c.dom).toContain('Overall composite score is');
 
-    // Disclosure weights + note.
+    // Disclosure weights + note (v6.16: screen caption + export note share
+    // the exact "weighted sum of the eight dimension scores" sentence).
     expect(p.disclosure.weights).toHaveLength(8);
-    expectInDomAndJson(c, 'Overall risk is a weighted sum of the 8 dimension scores.');
+    expectInDomAndJson(c, 'Overall risk is a weighted sum of the eight dimension scores.');
   });
 });
 
@@ -277,8 +286,10 @@ describe('export consistency — Opportunities tab', () => {
     expect(p.rr_internal.time_horizon).toBe('SWING');
     expectInDomAndJson(c, 'SWING');
 
-    // Invalidation note verbatim.
-    expectInDomAndJson(c, 'Close below 62800 invalidates the continuation thesis.');
+    // Invalidation thesis: the panel renders a per-card sentence bound to
+    // the card's own stop-loss; the export carries the wire note verbatim.
+    expect(c.dom).toContain('A close below $62800 on the completed candle invalidates the Trend Continuation thesis.');
+    expect(c.jsonText).toContain('A close below 62800 on the completed candle invalidates the TrendContinuation thesis.');
 
     // Evaluated setups (NoClear excluded, like the screen).
     expect(p.evaluated_setups.map((e: { opportunity_type: string }) => e.opportunity_type)).toEqual([
@@ -430,10 +441,6 @@ describe('export consistency — Analysis tab', () => {
     expectInDomAndJson(c, 'Healthy');
     expect(p.qualitative_assessment.cycle_phase).toBe('MARKUP');
     expectInDomAndJson(c, 'MARKUP');
-    // v6.11: trend-stability Sharpe badge + export parity.
-    expect(p.qualitative_assessment.trend_stability_sharpe).toBeCloseTo(3.85, 2);
-    expect(p.qualitative_assessment.trend_stability_sharpe_display).toBe('3.85');
-    expectInDomAndJson(c, '3.85');
     // v6.12: per-card dimension-score badges + export parity
     // (v6.13: rounded-integer + '%' screen format mirrored exactly).
     expect(p.qualitative_assessment.trend_score_display).toBe('77%');
@@ -459,7 +466,15 @@ describe('export consistency — Analysis tab', () => {
 
     // Interpretation + rationale.
     expectInDomAndJson(c, 'Price is making higher highs');
-    expectInDomAndJson(c, 'The market is in a healthy uptrend');
+    // v6.15: the raw rationale line no longer renders on screen — the
+    // evidence is the structured grid below the interpretation; the full
+    // rationale sentence still ships in the JSON export.
+    expect(c.jsonText).toContain('The market is in a healthy uptrend');
+    expect(c.dom).toContain('31 / 100');
+    expect(c.dom).toContain('(Bullish)');
+    expect(c.dom).toContain('4/4 timeframes aligned');
+    expectJsonNumberRenderedAsDom(c, '83.3%', 83.3);
+    expectJsonNumberRenderedAsDom(c, '33.0', 33.0);
 
     // v6.10.21: representative traceability — the matrix's own pinned
     // inputs (per-slot last-writer-wins proof) beat the micro-map fallback.
@@ -533,9 +548,9 @@ describe('export consistency — Recommendation tab', () => {
     expect(p.top_setup.rr_display).toBe(p.safety_flags.rr_display);
     expect(p.safety_flags.rr_available).toBe(true);
 
-    // Why bullets (top-3).
+    // Why bullets (top-3) — v6.17 polished prose shared verbatim.
     expect(p.why).toHaveLength(3);
-    expectInDomAndJson(c, 'Bullish bias, confluence score 62');
+    expectInDomAndJson(c, 'Bullish market bias: confluence score of 62');
     expect(p.why_note).toBeNull();
 
     // Price levels (LONG verdict → long side zones).
@@ -552,11 +567,11 @@ describe('export consistency — Recommendation tab', () => {
     expect(p.strategy.protection).toBe('ATR-Based');
     expectInDomAndJson(c, 'ATR-Based');
     expect(p.strategy.target).toBe('Resistance-Based');
-    // v6.10.17: the final verdict is the graded verdict sentence in the
-    // DOM AND the export (the advisory sentence renders as environment
-    // guidance below both).
-    expect(p.final_verdict).toMatch(/^LONG \d+% — READY \(readiness: READY\)\.$/);
-    expectInDomAndJson(c, 'READY (readiness: READY)');
+    // v6.10.17 + v6.17: the final verdict is the graded verdict sentence
+    // in the DOM AND the export (readiness sentence-cased since v6.17;
+    // the advisory sentence renders as environment guidance below both).
+    expect(p.final_verdict).toMatch(/^LONG \d+% — Ready \(readiness: Ready\)\.$/);
+    expectInDomAndJson(c, 'Ready (readiness: Ready)');
     expect(p.final_verdict_guidance).toContain('Long on pullback');
     expectInDomAndJson(c, 'Long on pullback');
   });
@@ -584,9 +599,10 @@ describe('export consistency — Recommendation tab', () => {
     // dial label mirrors it (+60% green).
     expect(p.gauge.net_bias_display).toBe('+60%');
     expect(c.dom).toContain('+60%');
-    // The verdict hero is the graded sentence with the gate attached.
-    expect(p.final_verdict).toBe('LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH).');
-    expectInDomAndJson(c, 'LONG lean 62% — STAND ASIDE (readiness: STAND_ASIDE, entry_danger HIGH)');
+    // The verdict hero is the graded sentence with the gate attached
+    // (v6.17: sentence-cased readiness + spelled-out Entry Danger).
+    expect(p.final_verdict).toBe('LONG lean 62% — Stand Aside (readiness: Stand Aside, Entry Danger High).');
+    expectInDomAndJson(c, 'LONG lean 62% — Stand Aside (readiness: Stand Aside, Entry Danger High)');
     // The playbook is REAL under a directional-gated verdict (no caption).
     expect(p.strategy).not.toHaveProperty('hold_caption');
     expect(p.strategy.entry).not.toBe('—');

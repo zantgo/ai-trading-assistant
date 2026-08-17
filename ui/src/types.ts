@@ -405,9 +405,6 @@ export interface AnalysisMatrix {
     /** Numeric market-quality score in [0, 100] — distinct from
      *  categorical `market_quality` (`QualityLevel` enum). */
     market_quality_score: number;
-    /** Annualized Sharpe of EMA-50 log returns over the trailing 300-bar
-     *  window (v6.11 L3). `null` until 300 completed candles accumulate. */
-    trend_stability_sharpe?: number | null;
     /** v6.12 numeric companions: the exact 0-100 alignment dimension
      *  scores each qualitative assessment is bucketed from — the
      *  disaggregated siblings of `market_quality_score`, rendered as

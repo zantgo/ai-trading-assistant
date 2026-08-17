@@ -137,11 +137,25 @@
 
     type NamedDim = { name: string; key: string; weight: number; data: RiskDimension | undefined };
 
+    // Def-order weight breakdown (v6.16): feeds the segmented strip inside
+    // the Risk Summary card. Fixed — the strip renders even while awaiting,
+    // mirroring the old disclosure accordion's always-visible grid.
+    const WEIGHT_DEFS: ReadonlyArray<{ name: string; pct: number }> = [
+        { name: 'Market Risk', pct: 14 },
+        { name: 'Volatility Risk', pct: 14 },
+        { name: 'Execution Liquidity Risk', pct: 14 },
+        { name: 'Structure Risk', pct: 10 },
+        { name: 'Momentum Risk', pct: 14 },
+        { name: 'Signal Risk', pct: 10 },
+        { name: 'Execution Risk', pct: 10 },
+        { name: 'Cascade Risk', pct: 14 },
+    ];
+
     const namedDims = $derived<NamedDim[]>(
         risk ? [
             { name: 'Market Risk', key: 'market_risk', weight: 0.14, data: risk.market_risk },
             { name: 'Volatility Risk', key: 'volatility_risk', weight: 0.14, data: risk.volatility_risk },
-            { name: 'Exec Liquidity Risk', key: 'execution_liquidity_risk', weight: 0.14, data: risk.execution_liquidity_risk },
+            { name: 'Execution Liquidity Risk', key: 'execution_liquidity_risk', weight: 0.14, data: risk.execution_liquidity_risk },
             { name: 'Structure Risk', key: 'structure_risk', weight: 0.10, data: risk.structure_risk },
             { name: 'Momentum Risk', key: 'momentum_risk', weight: 0.14, data: risk.momentum_risk },
             { name: 'Signal Risk', key: 'signal_risk', weight: 0.10, data: risk.signal_risk },
@@ -173,26 +187,6 @@
             }
         }
         return counts;
-    });
-
-    const headlineParts = $derived.by(() => {
-        // v7.0-prod: the L5 trailing slot (LayerHeader `trailing` snippet)
-        // must NEVER carry helper copy that sits above the badge. When
-        // the matrix hasn't loaded yet we return a single identity token
-        // so the trailing slot reads as a title-only row, identical in
-        // weight to the other six layers.
-        if (!risk) return null;
-        const c = dimCounts;
-        const bits: string[] = [];
-        if (c.extreme > 0) bits.push(`${c.extreme} extreme`);
-        if (c.high > 0) bits.push(`${c.high} high`);
-        if (c.moderate > 0) bits.push(`${c.moderate} moderate`);
-        if (bits.length > 0) {
-            return `${bits.join(' \u00B7 ')} \u00B7 overall ${risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}`;
-        }
-        // RK-C: Low/VeryLow dims exist — "calm" overstates; the honest
-        // wording is "below moderate".
-        return `all dimensions below moderate \u00B7 overall ${risk.overall_risk.level.toLowerCase().replace(/_/g, ' ')}`;
     });
 
     const topSeverity = $derived.by((): RiskLevel | null => {
@@ -245,9 +239,6 @@
     <LayerHeader spec={headerSpec}>
         {#snippet trailing()}
             <h2 class={styles.title}>Risk Assessment</h2>
-            {#if headlineParts}
-                <div class={styles.headHeadline}>{headlineParts}</div>
-            {/if}
             <ExportDataButton onExport={buildExport} title="Copy all Risk data as JSON" />
         {/snippet}
     </LayerHeader>
@@ -281,7 +272,7 @@
         {#each LEVELS as l}
             {@const lk = l.toLowerCase().replace(/_/g, '')}
             {@const active = dimCounts[lk] > 0}
-            <div class="{styles.summaryTile} {active ? styles.summaryTileActive : ''}">
+            <div class="{styles.summaryTile} {active ? `${levelClass(l)} ${styles.summaryTileActive}` : ''}">
                 <span class={styles.summaryCount}>{dimCounts[lk]}</span>
                 <span class={styles.summaryLabel}>{l === 'VeryLow' ? 'Very Low' : l}</span>
             </div>
@@ -306,7 +297,7 @@
                             <header class={styles.dimHead}>
                                 <div class={styles.dimNameBlock}>
                                     <span class={styles.dimName}>{dim.name}</span>
-                                    <span class={styles.dimWeight}>{Math.round(dim.weight * 100)}% wt</span>
+                                    <span class={styles.dimWeight}>({Math.round(dim.weight * 100)}% Weight)</span>
                                 </div>
                                 <div class={styles.dimBadges}>
                                     <span class="{styles.dimLevel} {tokenClass(token.token)}">{dim.data.level}</span>
@@ -365,12 +356,12 @@
                             {#if dim.key === 'execution_risk' && dim.data.volatility_to_spread_ratio != null}
                                 <div class={styles.cascadeExtra}>
                                     <span class={styles.cascadeField}>
-                                        <span class={styles.cascadeFieldLabel}>ATR-to-Spread</span>
+                                        <span class={styles.cascadeFieldLabel}>Average True Range to Spread</span>
                                         <span
                                             class="{styles.cascadeFieldValue} {volToSpreadClass(dim.data.volatility_to_spread_ratio)}"
-                                            title="ATR(14) ÷ top-of-book spread — execution-friction gauge. Green ≥ 10 (favorable), amber 1.5–3 (moderate friction), red < 1.5 (spread friction dominates)."
+                                            title="Average True Range(14) ÷ top-of-book spread — execution-friction gauge. Green ≥ 10 (favorable), amber 1.5–3 (moderate friction), red < 1.5 (spread friction dominates)."
                                         >
-                                            {dim.data.volatility_to_spread_ratio.toFixed(1)}×
+                                            {dim.data.volatility_to_spread_ratio.toFixed(1)}
                                         </span>
                                     </span>
                                 </div>
@@ -381,7 +372,7 @@
                             <header class={styles.dimHead}>
                                 <div class={styles.dimNameBlock}>
                                     <span class={styles.dimName}>{dim.name}</span>
-                                    <span class={styles.dimWeight}>{Math.round(dim.weight * 100)}% wt</span>
+                                    <span class={styles.dimWeight}>({Math.round(dim.weight * 100)}% Weight)</span>
                                 </div>
                                 <span class="{styles.dimLevel} {styles.dimMissingBadge}">NOT ACTIVE</span>
                             </header>
@@ -395,7 +386,7 @@
                 {#each [
                     { name: 'Market Risk', weight: 0.14 },
                     { name: 'Volatility Risk', weight: 0.14 },
-                    { name: 'Exec Liquidity Risk', weight: 0.14 },
+                    { name: 'Execution Liquidity Risk', weight: 0.14 },
                     { name: 'Structure Risk', weight: 0.10 },
                     { name: 'Momentum Risk', weight: 0.14 },
                     { name: 'Signal Risk', weight: 0.10 },
@@ -406,7 +397,7 @@
                         <header class={styles.dimHead}>
                             <div class={styles.dimNameBlock}>
                                 <span class={styles.dimName}>{dim.name}</span>
-                                <span class={styles.dimWeight}>{Math.round(dim.weight * 100)}% wt</span>
+                                <span class={styles.dimWeight}>({Math.round(dim.weight * 100)}% Weight)</span>
                             </div>
                             <span class="{styles.dimLevel} {styles.dimMissingBadge}">AWAITING</span>
                         </header>
@@ -420,7 +411,7 @@
     <!-- ── Interpretation ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>Risk Summary</div>
-        <div class={styles.interpretation}>
+        <div class="{styles.interpretation} {risk ? levelClass(risk.overall_risk.level) : ''}">
             {#if risk}
                 {#if dimCounts.extreme > 0 || dimCounts.high > 0}
                     <strong>Elevated risk environment.</strong>
@@ -439,35 +430,23 @@
                 Risk synthesis is initializing — this section will provide a human-readable summary of the overall risk environment, highlighting which dimensions require attention and suggesting position-sizing guidance.
             {/if}
         </div>
-    </div>
-
-    <!-- ── Disclosure ── -->
-    <details class={styles.disclosure}>
-        <summary class={styles.disclosureSummary}>
-            <span>How is overall risk computed?</span>
-            <span class={styles.disclosureChevron}>{'›'}</span>
-        </summary>
-        <div class={styles.disclosureBody}>
-            <div class={styles.weightGrid}>
-                {#each [
-                    { label: 'Market', pct: 14 },
-                    { label: 'Volatility', pct: 14 },
-                    { label: 'ExecLiq', pct: 14 },
-                    { label: 'Structure', pct: 10 },
-                    { label: 'Momentum', pct: 14 },
-                    { label: 'Signal', pct: 10 },
-                    { label: 'Execution', pct: 10 },
-                    { label: 'Cascade', pct: 14 },
-                ] as d}
-                    <div class={styles.weightChip}>
-                        <span class={styles.weightLabel}>{d.label}</span>
-                        <span class={styles.weightPct}>{d.pct}%</span>
-                    </div>
+        <!-- v6.16: segmented weight strip — the accordion + 8-chip grid are
+             gone. Segment width = weight; hover shows the full dimension
+             name + weight. The export keeps the structured `disclosure`
+             block for data consumers. -->
+        <div class={styles.weightStripWrap}>
+            <div class={styles.weightStrip} aria-label="Overall risk weight breakdown">
+                {#each WEIGHT_DEFS as d}
+                    <div
+                        class={styles.weightSeg}
+                        style="width: {d.pct}%"
+                        title="{d.name}: {d.pct}% Weight"
+                    ></div>
                 {/each}
             </div>
-            <p class={styles.disclosureNote}>
-                Overall risk is a weighted sum of the 8 dimension scores. The state chip describes the risk trend (elevating / improving / stable); it does not change the score.
+            <p class={styles.weightStripCaption}>
+                Overall risk is a weighted sum of the eight dimension scores. Hover a segment for its full name and weight.
             </p>
         </div>
-    </details>
+    </div>
 </div>

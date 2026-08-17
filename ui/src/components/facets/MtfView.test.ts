@@ -313,6 +313,25 @@ describe('MtfView — v6.14 standalone section headings', () => {
         const headings = Array.from(container.querySelectorAll('h3')).map((h) => h.textContent);
         expect(headings).toEqual(['Indicators', 'Signals', 'Divergences', 'Levels']);
     });
+
+    it('renders the Micro/Fast/Slow/Macro TF summary bar ABOVE the Indicators heading (v6.15)', () => {
+        const pair = makePair();
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const text = container.textContent ?? '';
+        expect(text).toContain('Micro');
+        expect(text).toContain('Fast');
+        expect(text).toContain('Slow');
+        expect(text).toContain('Macro');
+        const summary = container.querySelector('[class*="summary"]');
+        const heading = Array.from(container.querySelectorAll('h3'))
+            .find((h) => h.textContent === 'Indicators');
+        expect(summary).toBeTruthy();
+        expect(heading).toBeTruthy();
+        expect(
+            (summary as Element).compareDocumentPosition(heading as Element)
+            & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+    });
 });
 
 describe('MtfView — v6.14 warming and gated cells never mislead', () => {
@@ -479,6 +498,9 @@ describe('MtfView — v6.14 levels show actual level chips with S/R split totals
         // Actual level names surfaced as chips (deduped with a repeat count).
         expect(text).toContain('R2 ×2');
         expect(text).toContain('S1');
+        // v6.15: each chip carries the ACTUAL level price on the table.
+        expect(text).toContain('$52000');
+        expect(text).toContain('$48000');
         // Row total: direction split (▼ 2 lit vs ▲ 1) + S/R role split.
         expect(text).toContain('▲ 1');
         expect(text).toContain('▼ 2');

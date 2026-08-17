@@ -1,19 +1,19 @@
-//! v6.11 e2e: `price_trend_sharpe` / `trend_stability_sharpe` pipeline
-//! contract through the real `build_indicator_map` path (the L1→L3 wire).
+//! v6.11 e2e: `price_trend_sharpe` pipeline contract through the real
+//! `build_indicator_map` path (the L1 wire).
 //!
 //! The standard probe harness (`indicator_pipeline_e2e.rs`) drives
-//! `NormalizationEngine::normalize_all` directly; the Sharpe ratios are
+//! `NormalizationEngine::normalize_all` directly; the Sharpe ratio is
 //! injected in `analyzer/normalize.rs::build_indicator_map` from the
-//! pipeline's rolling 300-bar windows, so this test replays candles through
-//! an EMA-50 exactly like the live pipeline and asserts:
+//! pipeline's rolling 300-bar window, so this test replays candles exactly
+//! like the live pipeline and asserts:
 //!
-//!   1. Pre-300 bars: the keys are ABSENT from the map and the lifecycle
+//!   1. Pre-300 bars: the key is ABSENT from the map and the lifecycle
 //!      reads `Loading(299/300)` — the `bars_required` gate contract.
 //!   2. At exactly 300 bars: `price_trend_sharpe` is present with the
 //!      annualized value, a `[-1, 1]` normalized score, and a banded state
-//!      label; `trend_stability_sharpe` carrier is present; lifecycle is
-//!      `Live` (the indicator goes Live exactly when the buffer fills).
-//!   3. Shadow ticks never carry the values (close-only contract).
+//!      label; lifecycle is `Live` (the indicator goes Live exactly when
+//!      the buffer fills).
+//!   3. Shadow ticks never carry the value (close-only contract).
 //!   4. CA-06: a disabled `price_trend_sharpe` is absent even at 400 bars.
 //!   5. No duplicate signal/value keys on the resulting map.
 
@@ -24,11 +24,10 @@ use market_analyzer::analyzer::normalize::{
     build_indicator_map, ExtraDivergence, NormalizeParams,
 };
 use market_analyzer::indicators::{
-    Ema, MacdOutput, NormalizationEngine, TrendState, sharpe_ratio_annualized, SHARPE_WINDOW,
+    MacdOutput, NormalizationEngine, TrendState, sharpe_ratio_annualized, SHARPE_WINDOW,
     registry,
 };
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use core_domain::indicator_dtos::{
     DivergenceState, IndicatorLifecycleState, NormalizedIndicatorValue,
 };
@@ -49,39 +48,26 @@ fn synth_uptrend(n: usize) -> Vec<f64> {
 }
 
 struct Replay {
-    ema_medium: Ema,
     close_history: VecDeque<f64>,
-    ema_medium_history: VecDeque<f64>,
 }
 
 impl Replay {
     fn new() -> Self {
         Self {
-            ema_medium: Ema::new(50),
             close_history: VecDeque::with_capacity(WINDOW),
-            ema_medium_history: VecDeque::with_capacity(WINDOW),
         }
     }
 
     fn push(&mut self, close: f64) {
-        let ema = self.ema_medium.update(close).to_f64().unwrap_or(close);
         self.close_history.push_back(close);
-        self.ema_medium_history.push_back(ema);
         while self.close_history.len() > WINDOW {
             self.close_history.pop_front();
         }
-        while self.ema_medium_history.len() > WINDOW {
-            self.ema_medium_history.pop_front();
-        }
     }
 
-    fn ratios(&self) -> (Option<f64>, Option<f64>) {
+    fn ratio(&self) -> Option<f64> {
         let closes: Vec<f64> = self.close_history.iter().copied().collect();
-        let emas: Vec<f64> = self.ema_medium_history.iter().copied().collect();
-        (
-            sharpe_ratio_annualized(&closes, TF_SECS),
-            sharpe_ratio_annualized(&emas, TF_SECS),
-        )
+        sharpe_ratio_annualized(&closes, TF_SECS)
     }
 }
 
@@ -100,7 +86,6 @@ fn build_params<'a>(
     macd: &'a MacdOutput,
     close: f64,
     price_trend_sharpe: Option<f64>,
-    trend_stability_sharpe: Option<f64>,
 ) -> NormalizeParams<'a> {
     NormalizeParams {
         close: Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO),
@@ -176,7 +161,6 @@ fn build_params<'a>(
         rvol_institutional_threshold: 1.5,
         rvol_climax_threshold: 3.0,
         price_trend_sharpe,
-        trend_stability_sharpe,
     }
 }
 
@@ -227,15 +211,14 @@ fn price_trend_sharpe_absent_before_300_bars() {
     for c in &closes {
         replay.push(*c);
     }
-    let (price, stability) = replay.ratios();
+    let price = replay.ratio();
     // The math helper emits values from ≥2 samples; the 300-bar contract is
     // enforced by the injection gate in build_indicator_map (bar_count < 300
-    // → the registered key is evicted by the bars_required retain and the
-    // carrier is never inserted).
+    // → the registered key is evicted by the bars_required retain).
 
     let macd = macd_output();
     let map = build_indicator_map(
-        build_params(&macd, *closes.last().unwrap(), price, stability),
+        build_params(&macd, *closes.last().unwrap(), price),
         299,
         false,
         &ActiveSet::all_enabled(),
@@ -243,10 +226,6 @@ fn price_trend_sharpe_absent_before_300_bars() {
     assert!(
         !map.contains_key("price_trend_sharpe"),
         "price_trend_sharpe must be absent before 300 bars (bars_required gate)"
-    );
-    assert!(
-        !map.contains_key("trend_stability_sharpe"),
-        "trend_stability_sharpe carrier must be absent before 300 bars"
     );
     assert_eq!(
         lifecycle_state_of(&map, "price_trend_sharpe", 299),
@@ -262,14 +241,13 @@ fn price_trend_sharpe_present_and_live_at_exactly_300_bars() {
     for c in &closes {
         replay.push(*c);
     }
-    let (price, stability) = replay.ratios();
+    let price = replay.ratio();
     let price = price.expect("300 closes must yield an annualized Sharpe");
-    let stability = stability.expect("300 EMA values must yield an annualized Sharpe");
     assert!(price > 0.0, "uptrend must yield a positive Sharpe, got {price}");
 
     let macd = macd_output();
     let map = build_indicator_map(
-        build_params(&macd, *closes.last().unwrap(), Some(price), Some(stability)),
+        build_params(&macd, *closes.last().unwrap(), Some(price)),
         300,
         false,
         &ActiveSet::all_enabled(),
@@ -297,25 +275,20 @@ fn price_trend_sharpe_present_and_live_at_exactly_300_bars() {
         "Live",
         "price_trend_sharpe goes Live exactly when the buffer fills (300 = [candle_buffer] size)"
     );
-
-    let carrier = map
-        .get("trend_stability_sharpe")
-        .expect("trend_stability_sharpe carrier must be present at 300 bars");
-    assert_eq!(carrier.raw_value, stability);
     assert_no_duplicate_keys(&map);
 }
 
 #[test]
-fn shadow_ticks_never_carry_sharpe_values() {
+fn shadow_ticks_never_carry_sharpe_value() {
     let closes = synth_uptrend(400);
     let mut replay = Replay::new();
     for c in &closes {
         replay.push(*c);
     }
-    let (price, stability) = replay.ratios();
+    let price = replay.ratio();
     let macd = macd_output();
     let map = build_indicator_map(
-        build_params(&macd, *closes.last().unwrap(), price, stability),
+        build_params(&macd, *closes.last().unwrap(), price),
         400,
         true,
         &ActiveSet::all_enabled(),
@@ -324,7 +297,6 @@ fn shadow_ticks_never_carry_sharpe_values() {
         !map.contains_key("price_trend_sharpe"),
         "close-only indicator must be absent on shadow ticks"
     );
-    assert!(!map.contains_key("trend_stability_sharpe"));
 
     // v6.10.21: the lifecycle on shadow ticks reports Live + feed_state Live
     // for the close-only row — the frontend per-key merge preserves the last
@@ -357,12 +329,12 @@ fn disabled_price_trend_sharpe_is_absent_via_ca06() {
     for c in &closes {
         replay.push(*c);
     }
-    let (price, stability) = replay.ratios();
+    let price = replay.ratio();
     let mut active = ActiveSet::all_enabled();
     active.disabled_indicators.insert("price_trend_sharpe".to_string());
     let macd = macd_output();
     let map = build_indicator_map(
-        build_params(&macd, *closes.last().unwrap(), price, stability),
+        build_params(&macd, *closes.last().unwrap(), price),
         400,
         false,
         &active,
@@ -371,9 +343,6 @@ fn disabled_price_trend_sharpe_is_absent_via_ca06() {
         !map.contains_key("price_trend_sharpe"),
         "CA-06: disabled ≡ absent"
     );
-    // The unregistered carrier is not a registry indicator — CA-06 does not
-    // apply to it; it feeds the L3 AnalysisMatrix only.
-    assert!(map.contains_key("trend_stability_sharpe"));
 }
 
 #[test]
@@ -388,35 +357,6 @@ fn registry_metadata_matches_window_and_group() {
     assert!(!meta.updates_on_shadow);
     assert!(meta.directional);
     assert_eq!(meta.signal_types.len(), 0);
-}
-
-#[test]
-fn analysis_matrix_stamp_contract() {
-    // The synthesis layer stamps AnalysisMatrix.trend_stability_sharpe from
-    // the unregistered carrier key — mirror that contract here.
-    let closes = synth_uptrend(400);
-    let mut replay = Replay::new();
-    for c in &closes {
-        replay.push(*c);
-    }
-    let (_, stability) = replay.ratios();
-    let stability = stability.expect("400 EMA values must yield a Sharpe");
-    let mut analysis = core_domain::analysis::AnalysisMatrix::empty("BTC-USD");
-    analysis.trend_stability_sharpe = Some(stability);
-    let json = serde_json::to_string(&analysis).unwrap();
-    assert!(
-        json.contains("trend_stability_sharpe"),
-        "the wire must carry the field when present"
-    );
-    let back: core_domain::analysis::AnalysisMatrix =
-        serde_json::from_str(&json).unwrap();
-    assert_eq!(back.trend_stability_sharpe, Some(stability));
-
-    // None is skipped on the wire (backward-compatible absence).
-    let mut empty = core_domain::analysis::AnalysisMatrix::empty("BTC-USD");
-    empty.trend_stability_sharpe = None;
-    let json_empty = serde_json::to_string(&empty).unwrap();
-    assert!(!json_empty.contains("trend_stability_sharpe"));
 }
 
 #[test]
