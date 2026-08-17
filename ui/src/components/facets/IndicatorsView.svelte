@@ -25,11 +25,9 @@
     interface Props {
         tf: TimeframeTelemetry;
         registry: IndicatorMeta[];
-        /** When set, this group is expanded by default (used by GroupConfluenceGrid scroll-to). */
-        focusGroup?: string | null;
     }
 
-    let { tf, registry, focusGroup = null }: Props = $props();
+    let { tf, registry }: Props = $props();
 
     const SIGNAL_ABBR: Record<string, string> = {
         Divergence: 'DIV', Crossover: 'CRO', Threshold: 'TH', Breakout: 'BO',
@@ -93,13 +91,6 @@
 
     let expandedGroups = $state<Record<string, boolean>>({});
     let expandedRows = $state<Record<string, boolean>>({});
-
-    // Auto-expand focused group when it changes.
-    $effect(() => {
-        if (focusGroup) {
-            expandedGroups[focusGroup] = true;
-        }
-    });
 
     function signalsFor(key: string): IndicatorSignal[] {
         return tf.indicators?.[key]?.signals ?? [];

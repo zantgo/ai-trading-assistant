@@ -10,9 +10,9 @@
     //   - A count breakdown ("4 bull / 1 bear / 2 inactive")
     //   - Gate count (filtered out of the main count)
     //
-    // Clicking a card scrolls to and expands that group in the active facet
-    // body — communication is via the `onGroupClick` callback so this
-    // component stays generic.
+    // v7.3: the cards are fully static display containers — the old
+    // click-to-focus affordance (hover light-up + cursor + onGroupClick)
+    // was removed so they never read as interactive.
 
     import type { ContextDimension, IndicatorDto, IndicatorMeta, MarketContext } from '../types';
     import { GROUP_ORDER, GROUP_META } from '../lib/groupMeta';
@@ -32,15 +32,13 @@
     interface Props {
         registry: IndicatorMeta[];
         indicators: Record<string, IndicatorDto>;
-        activeGroup?: string | null;
-        onGroupClick?: (group: string) => void;
         /** Per-TF L1 MarketContext — the 4 owning group cards render their
          *  matching dimension score (same values as the export's
          *  `market_context` block, exactly once each). */
         context?: MarketContext | null;
     }
 
-    let { registry, indicators, activeGroup = null, onGroupClick, context = null }: Props = $props();
+    let { registry, indicators, context = null }: Props = $props();
 
     // 1:1 mapping of the 5 L1 synthesis dimensions onto the surfaces that
     // own the same concept (liquidity lives on the Structural Anchors
@@ -140,12 +138,10 @@
         {@const meta = GROUP_META[s.group as keyof typeof GROUP_META]}
         {@const dom = dominantKind(s)}
         {@const dots = buildDots(s)}
-        {@const isActive = activeGroup === s.group}
         {@const ctxDim = dimFor(s.group)}
-        <button
-            class="{styles.card} {isActive ? styles.cardActive : ''}"
+        <div
+            class={styles.card}
             style="--accent: {meta.accent}"
-            onclick={() => onGroupClick?.(s.group)}
             title={meta.description}
         >
             <div class={styles.cardHeader}>
@@ -182,6 +178,6 @@
                 </span>
             {/if}
             <div class="{styles.cardBias} {styles[`bias_${dom}`]}"></div>
-        </button>
+        </div>
     {/each}
 </div>

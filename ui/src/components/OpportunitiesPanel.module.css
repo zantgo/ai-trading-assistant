@@ -27,8 +27,9 @@
 .bearish { color: #ef4444; }
 .rrValue { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
 
-/* ── OPPORTUNITY SUMMARY prose (v7.0) ── */
-.opportunitySummaryText { font-size: 12.5px; color: #cbd5e1; line-height: 1.6; margin: 0; }
+/* ── OPPORTUNITY SUMMARY prose (v7.0): typography is the unified
+   SummaryCard body language (12px slate, high-contrast strong). ── */
+.opportunitySummaryText { margin: 0; }
 
 /* ── Expected R:R card (v6.15): header row + 0→10x magnitude bar ── */
 .rrCardHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

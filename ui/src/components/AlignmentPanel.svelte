@@ -270,7 +270,7 @@
          the bottom of the panel into the head-badge zone. Gray premium
          card, prose only — the green/red composition strip and the
          "Composition weights" whisper footnote are gone. -->
-    <SummaryCard label="ALIGNMENT SUMMARY">
+    <SummaryCard label="SUMMARY">
         <div class={styles.interpretation}>
             {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
@@ -306,6 +306,7 @@
          composite blend). Both use the plain card look. The old CONSENSUS
          2×2 axis grid is gone — the four axis values still surface in the
          Score section's weight chips below. -->
+    <div class={styles.sectionTitle}>Metrics</div>
     <div class={styles.alignmentHero}>
         <div class={styles.dialCard}>
             <div class={styles.dialRow}>
@@ -429,7 +430,7 @@
     <!-- ── Alignment Breakdown — card grid ── -->
     <div class={styles.section}>
         <div class={styles.sectionTitle}>
-            Alignment Breakdown
+            Breakdown
         </div>
         {#if alignment?.dimensions?.length}
             <div class={styles.dimGrid}>

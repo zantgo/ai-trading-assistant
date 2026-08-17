@@ -351,11 +351,13 @@
     </LayerHeader>
 
     <!-- ── ANALYSIS SUMMARY (v7.0): the unified Interpretation card moved
-         from the bottom of the panel into the head-badge zone. The full
-         container travels — prose + divider + 5-column quantitative grid. -->
-    <SummaryCard label="ANALYSIS SUMMARY">
+         from the bottom of the panel into the head-badge zone. v7.3: the
+         5-column quantitative grid split into its own KEY METRICS card —
+         both summaries now follow the title-above-container rhythm. -->
+    <SummaryCard label="SUMMARY">
         <div class={styles.interpretText}>{@html highlightKeywords(analysis?.market_interpretation || '')}</div>
-        <div class={styles.interpretDivider}></div>
+    </SummaryCard>
+    <SummaryCard label="KEY METRICS">
         <div class={styles.rationaleGrid}>
             <div class={styles.rationaleCell} title={rationaleGrid.lifted ? 'Bias lifted by TF-vote margin (grace/lean band)' : undefined}>
                 <span class={styles.rationaleLabel}>Overall Score</span>

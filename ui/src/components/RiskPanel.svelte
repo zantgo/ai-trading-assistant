@@ -235,7 +235,7 @@
          risk progress bar. Always-gray premium card — the level-tinted
          background is gone; the segmented weight strip and its caption
          are erased (weights live on the dimension cards). -->
-    <SummaryCard label="RISK SUMMARY">
+    <SummaryCard label="SUMMARY">
         <div class={styles.interpretation}>
             {#if risk}
                 {#if dimCounts.extreme > 0 || dimCounts.high > 0}
@@ -260,11 +260,12 @@
     <!-- v6.10.19d (C): the hero is a RISK PROGRESS BAR (the ring is
          gone). Confidence moved into the L5 header as a chip between
          Score and Dimensions. The bar carries the "lower is safer"
-         tooltip. No caption text below the hero. -->
+         tooltip. No caption text below the hero. The nested "Risk"
+         label was removed (v7.3) — the section title above owns it. -->
+    <div class={styles.sectionTitle}>Overall Risk</div>
     <section class={styles.hero}>
         <div class={styles.heroRiskRow}
              title="Overall risk \u2014 lower is safer">
-            <span class={styles.heroRiskLabel}>Risk</span>
             <div class={styles.heroRiskBar}>
                 <div class="{styles.heroRiskFill} {risk ? levelClass(risk.overall_risk.level) : ''}"
                      style="width: {risk ? Math.min(risk.overall_risk.score, 100).toFixed(1) : '0'}%"></div>
@@ -282,6 +283,7 @@
     </section>
 
     <!-- ── Summary tiles ── -->
+    <div class={styles.sectionTitle}>Severity Distribution</div>
     <section class={styles.summary} aria-label="Dimension severity distribution">
         {#each LEVELS as l}
             {@const lk = l.toLowerCase().replace(/_/g, '')}

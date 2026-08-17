@@ -374,7 +374,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
   const empty: AlignmentPayload = {
     source_tab: 'alignment',
     meta,
-    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'ALIGNMENT SUMMARY' },
+    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero: {
       mtf_overall_score: 0,
       mtf_overall_label: 'NO_DATA',
@@ -420,7 +420,7 @@ export function buildAlignmentTabExport(args: AlignmentTabInputs): string {
   const payload: AlignmentPayload = {
     source_tab: 'alignment',
     meta,
-    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'ALIGNMENT SUMMARY' },
+    header: { ...buildHeaderBlock(args.headerSpec), summary_label: 'SUMMARY' },
     hero: buildHeroBlock(alignment),
     dimensions: buildDimensionsBlock(alignment),
     consensus: buildConsensusBlock(alignment),

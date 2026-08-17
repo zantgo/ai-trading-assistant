@@ -905,19 +905,20 @@ describe('OpportunitiesPanel — v6.10.21 state-driven cards, folder references,
 });
 
 describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layout', () => {
-    it('moves the environment badges into the header chip rail (Timeframes + Confidence)', () => {
+    it('moves the environment badges into the header chip rail (Confidence + Timeframes)', () => {
         seedSnapshot('BTC-USDT', makeOpportunity(), 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // The L4 header now carries the full top cluster: the bracket
-        // chips (Score / Reward-to-Risk Ratio / Horizon) plus the two
-        // environment pills that used to live at the bottom.
+        // chips (Score / Horizon) plus the two environment pills that
+        // used to live at the bottom (v7.3: grouped Score / Confidence /
+        // Horizon / Timeframes, no R:R chip).
         expect(screen.getByText('Timeframes:')).toBeTruthy();
         expect(screen.getByText('4/4')).toBeTruthy();
         expect(screen.getByText('Confidence:')).toBeTruthy();
         expect(screen.getByText('60%')).toBeTruthy();
         expect(screen.getByText('Score:')).toBeTruthy();
-        expect(screen.getByText('Reward-to-Risk Ratio:')).toBeTruthy();
         expect(screen.getByText('Horizon:')).toBeTruthy();
+        expect(screen.queryByText('Reward-to-Risk Ratio:')).toBeNull();
         // The bottom Environment section and the standalone Horizon zone
         // card are erased.
         expect(screen.queryByText('Environment')).toBeNull();
@@ -933,9 +934,9 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
         // reward 3000 / risk 700 → 4.29 as a bare R-multiple (no `1:`).
         expect(screen.getAllByText('4.29R').length).toBeGreaterThanOrEqual(1);
-        // The header bracket R:R (top profile wire 2.5) stays on its own
-        // chip — the two surfaces never merge.
-        expect(screen.getByText('1:2.50')).toBeTruthy();
+        // v7.3: the header R:R chip is gone — the R:R story lives in the
+        // setup cards and the Expected R:R section only.
+        expect(screen.queryByText('1:2.50')).toBeNull();
     });
 
     it('shows BOTH LONG and SHORT badges with their own R:R when both sides exist', () => {
@@ -1098,12 +1099,12 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
     });
 });
 
-describe('OpportunitiesPanel — v7.0 OPPORTUNITY SUMMARY head card', () => {
+describe('OpportunitiesPanel — v7.0 SUMMARY head card', () => {
     it('renders the generated prose in the summary card above the conviction bars', () => {
         const opp = makeOpportunity() as any;
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        const card = screen.getByLabelText('OPPORTUNITY SUMMARY');
+        const card = screen.getByLabelText('SUMMARY');
         expect(card).toBeTruthy();
         expect(card.textContent).toContain('strong-conviction');
         expect(card.textContent).toContain('trend-continuation phase');
@@ -1114,7 +1115,7 @@ describe('OpportunitiesPanel — v7.0 OPPORTUNITY SUMMARY head card', () => {
     it('renders the awaiting fallback prose when the opportunity is absent', () => {
         seedSnapshot('BTC-USDT', null as any, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        const card = screen.getByLabelText('OPPORTUNITY SUMMARY');
+        const card = screen.getByLabelText('SUMMARY');
         expect(card.textContent).toContain('Awaiting opportunity data');
     });
 });

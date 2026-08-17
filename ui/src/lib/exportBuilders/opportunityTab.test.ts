@@ -563,7 +563,7 @@ describe('buildOpportunityTabExport', () => {
   });
 });
 describe('buildOpportunityTabExport — v7.0 summary block', () => {
-  it('emits the OPPORTUNITY SUMMARY paragraph + label (panel parity)', () => {
+  it('emits the SUMMARY paragraph + label (panel parity)', () => {
     const p = JSON.parse(buildOpportunityTabExport({
       opportunity: makeOpportunity(),
       analysis: makeAnalysis(),
@@ -572,10 +572,26 @@ describe('buildOpportunityTabExport — v7.0 summary block', () => {
       markPrice: 64000,
       headerSpec,
     }));
-    expect(p.summary_label).toBe('OPPORTUNITY SUMMARY');
+    expect(p.summary_label).toBe('SUMMARY');
     // Fixture: primary Breakout, opportunity_score 60.12 → moderate band.
     expect(p.summary).toContain('moderate-conviction breakout phase');
     expect(p.header.summary_label).toBeNull();
+  });
+
+  it('emits the highlighted summary_display while keeping summary raw (panel parity)', () => {
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDT',
+      markPrice: 64000,
+      headerSpec,
+    }));
+    // Raw string is untouched by the highlighter.
+    expect(p.summary).not.toContain('<strong>');
+    // Display variant mirrors the panel's @html rendering.
+    expect(p.summary_display).toContain('<strong>moderate-conviction</strong>');
+    expect(p.summary_display.replace(/<strong>|<\/strong>/g, '')).toBe(p.summary);
   });
 
   it('emits the awaiting fallback paragraph when the matrix is null', () => {

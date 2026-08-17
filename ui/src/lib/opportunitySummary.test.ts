@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { OpportunityMatrix } from '../types';
-import { buildOpportunitySummary, opportunityProseLabel, OPPORTUNITY_SUMMARY_LABEL } from './opportunitySummary';
+import {
+    buildOpportunitySummary,
+    highlightOpportunitySummary,
+    opportunityProseLabel,
+    OPPORTUNITY_SUMMARY_LABEL,
+} from './opportunitySummary';
 
 function opp(overrides: Partial<OpportunityMatrix> = {}): OpportunityMatrix {
     return {
@@ -88,6 +93,37 @@ describe('buildOpportunitySummary', () => {
     });
 });
 
+describe('highlightOpportunitySummary', () => {
+    it('wraps conviction tiers in strong spans', () => {
+        expect(highlightOpportunitySummary('The market is in a strong-conviction breakout phase.')).toBe(
+            'The market is in a <strong>strong-conviction</strong> breakout phase.',
+        );
+        expect(highlightOpportunitySummary('a moderate-conviction pullback phase')).toContain(
+            '<strong>moderate-conviction</strong>',
+        );
+        expect(highlightOpportunitySummary('a high-conviction trend phase')).toContain('<strong>high-conviction</strong>');
+    });
+
+    it('wraps the quality rating and the strongest score figure', () => {
+        const s = highlightOpportunitySummary(
+            'Setup quality is rated Prime over an intraday horizon. 2 candidate profiles evaluated, the strongest scoring 78 with 3/3 preconditions met.',
+        );
+        expect(s).toContain('rated <strong>Prime</strong>');
+        expect(s).toContain('strongest scoring <strong>78</strong>');
+    });
+
+    it('never nests strong spans (conviction token stays atomic)', () => {
+        const s = highlightOpportunitySummary('a moderate-conviction breakout phase rated Moderate');
+        expect(s).toBe(
+            'a <strong>moderate-conviction</strong> breakout phase rated <strong>Moderate</strong>',
+        );
+    });
+
+    it('leaves fallback prose untouched', () => {
+        expect(highlightOpportunitySummary('Awaiting opportunity data — this summary will describe the active opportunity landscape once the opportunity matrix populates.')).not.toContain('<strong>');
+    });
+});
+
 describe('opportunityProseLabel', () => {
     it('turns PascalCase tokens into hyphenated prose', () => {
         expect(opportunityProseLabel('TrendContinuation')).toBe('trend-continuation');
@@ -102,6 +138,6 @@ describe('opportunityProseLabel', () => {
 
 describe('OPPORTUNITY_SUMMARY_LABEL', () => {
     it('is the unified [Subject] Summary token', () => {
-        expect(OPPORTUNITY_SUMMARY_LABEL).toBe('OPPORTUNITY SUMMARY');
+        expect(OPPORTUNITY_SUMMARY_LABEL).toBe('SUMMARY');
     });
 });

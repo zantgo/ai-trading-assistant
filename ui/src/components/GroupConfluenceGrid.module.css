@@ -28,23 +28,9 @@
     border-left: 3px solid var(--accent, rgba(255, 255, 255, 0.4));
     border-radius: 6px;
     color: inherit;
-    cursor: pointer;
     text-align: left;
     font-family: var(--mono, monospace);
-    transition: all 0.12s ease;
     overflow: hidden;
-}
-
-.card:hover {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.12);
-    border-left-color: var(--accent, rgba(255, 255, 255, 0.6));
-}
-
-.cardActive {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: var(--accent, rgba(255, 255, 255, 0.5));
-    border-left-width: 4px;
 }
 
 .cardHeader {

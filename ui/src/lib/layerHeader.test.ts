@@ -432,9 +432,9 @@ describe('buildL4OpportunityHeader (L4)', () => {
             long_expected_rr_internal: 1.0,
             short_expected_rr_internal: 2.5,
         }), 'Bullish');
-        // active R:R chip should be 1:1.00 (LONG side), not 1:2.50 (SHORT)
-        const rr = spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')!;
-        expect(rr.value).toBe('1:1.00');
+        // The resolved direction rides the badge (green = bullish); the
+        // R:R chip itself was removed in v7.3 (TRADE SETUPS owns it).
+        expect(spec.badge.color).toBe(DASHBOARD_COLORS.bullish);
     });
 
     it('FIX-2: Neutral bias renders a NEUTRAL-tone badge (no argmax directionality)', () => {
@@ -448,9 +448,23 @@ describe('buildL4OpportunityHeader (L4)', () => {
         }), 'Neutral');
         expect(spec.badge.label).toBe('Pullback');
         expect(spec.badge.color).toBe(COLORS.neutral);
-        // The R:R chip reads nothing directional under a neutral bias.
-        const rr = spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')!;
-        expect(rr.value).toBe('—');
+        // No R:R chip under a neutral bias (v7.3: chip removed entirely).
+        expect(spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')).toBeUndefined();
+    });
+
+    it('v7.3: the chip rail is grouped Score / Confidence / Horizon / Timeframes with no R:R chip', () => {
+        const spec = buildL4OpportunityHeader(
+            opportunityStub({ primary_opportunity: 'Breakout', opportunity_score: 58.87, time_horizon: 'INTRADAY' }),
+            'Bullish',
+            analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
+        );
+        expect(spec.meta.map((m) => m.label)).toEqual([
+            'Score',
+            'Confidence',
+            'Horizon',
+            'Timeframes',
+        ]);
+        expect(spec.meta.find((m) => m.label === 'Reward-to-Risk Ratio')).toBeUndefined();
     });
 
     it('Score chip renders neutral amber when opportunity_score=0 but a type IS set', () => {

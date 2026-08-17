@@ -121,7 +121,6 @@
 /* ── Status indicator ── */
 
 .statusIndicator {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -184,6 +183,20 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+}
+
+/* ── Right-edge action block (v7.3): status pill + trailing slot stay
+   grouped, pinned to the top right, and never wrap internally — when
+   the row runs out of space the identity/badge/chip rail wraps beneath
+   them instead. */
+
+.headerRight {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 /* ── Right-edge vertical stack (status pill over trailing slot) ──

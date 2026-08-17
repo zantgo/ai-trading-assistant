@@ -104,11 +104,17 @@
             {/if}
         </div>
     {:else}
-        {@render statusIndicator()}
-        {#if trailing}
-            <div class={styles.trailing}>
-                {@render trailing()}
-            </div>
-        {/if}
+        <!-- v7.3: the status pill and the trailing slot (panel title +
+             EXPORT DATA) are grouped in a single non-wrapping right block
+             so they can never split apart or drop onto a second line —
+             the identity/badge/chip rail wraps beneath them instead. -->
+        <div class={styles.headerRight}>
+            {@render statusIndicator()}
+            {#if trailing}
+                <div class={styles.trailing}>
+                    {@render trailing()}
+                </div>
+            {/if}
+        </div>
     {/if}
 </div>

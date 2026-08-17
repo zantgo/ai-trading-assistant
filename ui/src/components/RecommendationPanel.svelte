@@ -124,15 +124,16 @@
         opportunity,
     }));
 
-    // ── Verdict & Rationale card accent — the card's left line mirrors
-    //    the verdict: green LONG, red SHORT, amber HOLD (v6.10.28, v6.17:
-    //    the accent moved from the quote to the unified card). ──
+    // ── Verdict & Rationale card accent — the card's left-edge line
+    //    mirrors the verdict: green LONG, red SHORT, amber HOLD. The
+    //    accent rides the SummaryCard boundary itself, so the inner
+    //    content block stays transparent (v6.10.28, v6.17, v7.2). ──
     const verdictAccent = $derived(
         rank.top === 'SHORT'
-            ? styles.verdictCardShort
+            ? 'short'
             : rank.top === 'LONG'
-                ? styles.verdictCardLong
-                : '',
+                ? 'long'
+                : 'hold',
     );
 
     function buildExport() {
@@ -319,12 +320,25 @@
         {/snippet}
     </LayerHeader>
 
+    <!-- ── PROJECT RISK AND RETURN (v7.3): the what-if drawer now expands
+         directly beneath the header — above the VERDICT & RATIONALE card
+         — styled as a header extension (same dark tone, same hairline
+         border) so the header appears to grow downwards. -->
+    {#if drawerOpen}
+        <ProjectRiskDrawer
+            setup={drawerSetup}
+            markPrice={markPrice}
+            onProjection={(state: ProjectionState) => { projection = state; }}
+        />
+    {/if}
+
     <!-- ── VERDICT & RATIONALE (v7.0): moved from the bottom of the panel
          into the head-badge zone — the terminal execution exception of the
          [Subject] Summary naming scheme. The verdict-consistent accent
-         (green LONG / red SHORT / amber HOLD) rides the inner block. ── -->
-    <SummaryCard label="VERDICT & RATIONALE">
-        <div class="{styles.verdictCard} {verdictAccent}">
+         (green LONG / red SHORT / amber HOLD) rides the SummaryCard's
+         left edge (v7.2). ── -->
+    <SummaryCard label="VERDICT & RATIONALE" accent={verdictAccent}>
+        <div class={styles.verdictCard}>
             <blockquote class={styles.verdictQuote}>{buildVerdictSentence(rank, dangerDisplay)}</blockquote>
             {#if verdictAwareGuidance(advisory, rank.top, rank.top_prob)}
                 <div class={styles.verdictGuidance}>Environment guidance: {verdictAwareGuidance(advisory, rank.top, rank.top_prob)}</div>
@@ -343,17 +357,10 @@
         </div>
     </SummaryCard>
 
-    {#if drawerOpen}
-        <ProjectRiskDrawer
-            setup={drawerSetup}
-            markPrice={markPrice}
-            onProjection={(state: ProjectionState) => { projection = state; }}
-        />
-    {/if}
-
     <!-- Unified directional gauge — net bias from Long% − Short%,
          shown as a semi-circular dial. Center = Neutral, right = Long (green),
          left = Short (red). -->
+    <div class={styles.sectionTitle}>Recommendation Bias</div>
     <div class={styles.gaugeCard}>
         <div class={styles.gaugeWrap}>
             <svg viewBox="0 0 200 115" class={styles.gauge}>
@@ -394,7 +401,7 @@
         <div class={styles.sectionTitle}>
             {topSetup && topSetup.opportunity_type === 'NoActiveSetup'
                 ? 'No Active Setup'
-                : (topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'SETUP')}
+                : (topSetup && topSetup.below_floor ? 'Reference Bracket (Below Actionable Floor)' : 'TOP SETUP')}
             <span class={styles.sectionMeta}>
                 {topSetup
                     ? (topSetup.opportunity_type === 'NoActiveSetup'

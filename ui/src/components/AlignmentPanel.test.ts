@@ -223,11 +223,11 @@ describe('AlignmentPanel — NEUTRAL composite wording (AL-9)', () => {
   });
 });
 
-describe('AlignmentPanel — ALIGNMENT SUMMARY head card (v7.0)', () => {
-  it('renders the prose inside the ALIGNMENT SUMMARY card above the dial hero', () => {
+describe('AlignmentPanel — SUMMARY head card (v7.0)', () => {
+  it('renders the prose inside the SUMMARY card above the dial hero', () => {
     seed(makeAlignment());
     render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
-    const card = screen.getByLabelText('ALIGNMENT SUMMARY');
+    const card = screen.getByLabelText('SUMMARY');
     expect(card).toBeTruthy();
     // The interpretation prose lives inside the summary card…
     expect(card.querySelector(`.${styles.interpretation}`)!.textContent).toContain('strong directional consensus');

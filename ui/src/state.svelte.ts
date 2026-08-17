@@ -29,7 +29,7 @@ function createTimeframeTelemetry(
         isCompleted: false, latestSnapshot: null, historyPrices: [],
         pipelineState: 'LOADING',
         indicatorLifecycle: {},
-        showEmas: false, showBb: false, showVwap: true, showVolume: false,
+        showEmas: false, showBb: false, showVwap: false, showVolume: false,
         showAdx: false, showAtr: false, showRsi: false, showMacd: false,
         showSqueeze: false, showBbwp: false, showFib: false, showRvol: false,
         showStochastic: false, showChandeMo: false,

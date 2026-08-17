@@ -34,7 +34,7 @@ import type { LayerHeaderSpec } from '../layerHeader';
 import { computeOpportunityBars, rankSectionsByCount } from '../../lib/opportunityBars';
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 import { confluenceStrengthLabel } from '../confluenceStrength';
-import { buildOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../opportunitySummary';
+import { buildOpportunitySummary, highlightOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../opportunitySummary';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -150,6 +150,10 @@ export interface OpportunityPayload {
   /** v7.0: the OPPORTUNITY SUMMARY natural-language paragraph — the same
    *  string the panel's top summary card renders (shared generator). */
   summary: string;
+  /** v7.2: the panel-rendered (keyword-highlighted) summary paragraph —
+   *  mirrors `interpretation_display` in the Analysis tab; `summary`
+   *  stays raw for data consumers. */
+  summary_display: string;
   /** v7.0: the [Subject] Summary label rendered on the panel card. */
   summary_label: string;
   directional_bars: DirectionalBarsBlock;
@@ -522,6 +526,9 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     // v7.0: shared generator — the exact paragraph the panel's OPPORTUNITY
     // SUMMARY card renders (parity invariant).
     summary: buildOpportunitySummary(opp),
+    // v7.2: the highlighted variant mirrors the screen rendering (the
+    // panel renders `@html highlightOpportunitySummary(summary)`).
+    summary_display: highlightOpportunitySummary(buildOpportunitySummary(opp)),
     summary_label: OPPORTUNITY_SUMMARY_LABEL,
     // L4 bracket conviction only — the bias arg comes from Analysis (L3),
     // never from the L6 decision context.

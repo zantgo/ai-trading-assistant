@@ -273,7 +273,11 @@ describe('export consistency — Opportunities tab', () => {
     expect(c.dom).toContain('$66000');
     expect(c.dom).toContain('$62800');
     expect(c.dom).toContain('2.50');
-    expect(c.jsonText).toContain('2.50'); // header chip "1:2.50"
+    // v7.3: the header R:R chip is gone — the R:R story lives in the
+    // setup cards (screen "2.50", JSON rr_value) and the Expected R:R
+    // section; the exported header chip rail carries no R:R chip.
+    expect(p.header.chips.map((c: { label: string }) => c.label)).not.toContain('Reward-to-Risk Ratio');
+    expect(p.trade_setups[0].rr_value).toBe(2.5);
     expect(c.dom).toContain('3/3 preconditions met');
     expect(tc.preconditions_met).toBe(3);
 

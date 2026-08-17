@@ -80,7 +80,6 @@
 
     // ── Facet state ───────────────────────────────────────────────────
     let activeFacet = $state<FacetId>('indicators');
-    let focusGroup: string | null = $state(null);
     // v6.10.19d (B): the filter pill bars were removed. v6.11: the filter
     // plumbing itself was removed — the facet renderers and export builders
     // take no filter state at all, so every indicator and every signal is
@@ -133,15 +132,6 @@
         // tab was removed to avoid the same data rendered in two containers.
         return out;
     });
-
-    function handleGroupClick(group: string) {
-        // When a group card is clicked, switch to the Indicators facet and
-        // focus that group so it expands and scrolls into view.
-        activeFacet = 'indicators';
-        focusGroup = group;
-        // Clear focus after a tick so the same group can be re-focused.
-        setTimeout(() => { focusGroup = null; }, 50);
-    }
 
     // ── Header context extraction ─────────────────────────────────────
     // Per-TF L1 MarketContext — distributed to the owning surfaces (group
@@ -299,12 +289,10 @@
             {:else if activeTfObj}
                 <!-- SINGLE TIMEFRAME WORKSPACE -->
 
-                <!-- ROW 1 — Group Confluence Grid -->
+                <!-- ROW 1 — Group Confluence Grid (static display cards) -->
                 <GroupConfluenceGrid
                     registry={registry}
                     indicators={activeTfObj.indicators ?? {}}
-                    activeGroup={focusGroup}
-                    onGroupClick={handleGroupClick}
                     context={context ?? null}
                 />
 
@@ -346,7 +334,6 @@
                         <IndicatorsView
                             tf={activeTfObj}
                             registry={registry}
-                            focusGroup={focusGroup}
                         />
                     {:else if activeFacet === 'signals'}
                         <SignalsView tf={activeTfObj} registry={registry} />
