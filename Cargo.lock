@@ -1486,10 +1486,12 @@ name = "network-adapters"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "config-models",
  "core-domain",
  "futures-util",
+ "hmac",
  "k256",
  "rand 0.8.6",
  "reqwest",
@@ -1497,6 +1499,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "sha3",
  "sntpc",
  "sqlx",

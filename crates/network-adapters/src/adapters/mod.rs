@@ -4,6 +4,7 @@
 pub mod bitget;
 pub mod bitget_derivatives;
 pub mod bitget_historical_fetch;
+pub mod bitget_live;
 pub mod bitget_rest;
 pub mod historical_fetch;
 pub mod hl_derivatives_poller;

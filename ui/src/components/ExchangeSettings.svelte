@@ -23,6 +23,36 @@
         await app.deleteExchangeKey(id);
     }
 
+    // ── Rotation & backup (v7.1) ──────────────────────────────────────
+    let rotateSecret = $state('');
+    let rotateMsg = $state('');
+    let backupPassphrase = $state('');
+    let backupMsg = $state('');
+
+    async function handleRotate() {
+        if (!rotateSecret.trim()) return;
+        rotateMsg = await app.rotateExchangeKeys(rotateSecret);
+        rotateSecret = '';
+    }
+
+    async function handleBackup() {
+        if (!backupPassphrase.trim()) return;
+        const result = await app.backupExchangeKeys(backupPassphrase);
+        if (result.ok) {
+            const blob = new Blob([JSON.stringify(result.json, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `exchange-keys-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            backupMsg = 'Backup downloaded — keep it in a safe place.';
+        } else {
+            backupMsg = result.error ?? 'Backup failed';
+        }
+        backupPassphrase = '';
+    }
+
     function formatTs(ts: number | null): string {
         if (!ts) return '--';
         return new Date(ts * 1000).toLocaleString();
@@ -133,6 +163,35 @@
             {#if app.exchangeAccounts.length > 0}
                 <div class={styles.esMultiBadge}>Multi-account active</div>
             {/if}
+        </div>
+
+        <!-- Rotation & Backup (v7.1) -->
+        <div class={styles.esCard}>
+            <div class={styles.esCardHeader}>
+                <h3 class={styles.esCardTitle}>KEY ROTATION & BACKUP</h3>
+            </div>
+            <div class={styles.esForm}>
+                <div class={styles.esFieldRow}>
+                    <label class={styles.esLabel} for="es-rotate">New Master Secret</label>
+                    <input id="es-rotate" type="password" class={styles.esInput}
+                        bind:value={rotateSecret} placeholder="Re-encrypt all stored secrets under a new EXCHANGE_SECRET_KEY" />
+                    <button class={styles.esSubmitBtn} onclick={handleRotate}
+                        disabled={!rotateSecret.trim()}>ROTATE</button>
+                </div>
+                {#if rotateMsg}
+                    <p class={styles.esMsg}>{rotateMsg}</p>
+                {/if}
+                <div class={styles.esFieldRow}>
+                    <label class={styles.esLabel} for="es-backup">Backup Passphrase</label>
+                    <input id="es-backup" type="password" class={styles.esInput}
+                        bind:value={backupPassphrase} placeholder="Passphrase that unlocks the encrypted backup" />
+                    <button class={styles.esSubmitBtn} onclick={handleBackup}
+                        disabled={!backupPassphrase.trim()}>DOWNLOAD BACKUP</button>
+                </div>
+                {#if backupMsg}
+                    <p class={styles.esMsg}>{backupMsg}</p>
+                {/if}
+            </div>
         </div>
     </div>
 </div>

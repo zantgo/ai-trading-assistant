@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -88,6 +88,21 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 ## 6. Running & Monitoring Trades
 
 **Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
+
+**Going Live (v7.1, step by step).**
+
+1. **Set the master key** — start the daemon with `EXCHANGE_SECRET_KEY` set (a long random string). Without it, the engine refuses to store plaintext credentials (`503`).
+2. **Add your exchange credential** — in the Settings → Exchange API Keys panel (or `POST /api/keys`). Field guide:
+   - **Hyperliquid:** `api_key` = your wallet address (`0x…`), `api_secret` = the wallet private key hex. No passphrase.
+   - **Bitget:** `api_key`, `api_secret`, and the API `passphrase` (all three required; the passphrase is set when you create the API key on Bitget).
+   Secrets are stored AES-256-GCM encrypted and are never echoed back.
+3. **Switch the engine to live** — set `mode = "live"` on an instance in `config.toml` and restart, or click **Switch to LIVE** in the Automation dashboard (the engine is **globally** paper or live — one workspace, one account per exchange). If no key exists, the switch fails with a clear message.
+4. **Start small.** Begin with a fraction of the capital you intend to deploy; watch the Automation page (PAPER/LIVE badge, orders, fills) and the Portfolio page (equity, safety state).
+5. **Monitoring:** fills are REST-polled (~1s); equity is fetched from the venue; the safety state and the executor's soft gate behave exactly as in paper mode.
+6. **Going back to paper:** set `mode = "paper"` (config + restart, or the toggle). The ledger/positions continue on the same accounting.
+
+**Key rotation & backup.** `POST /api/keys/rotate` (or the Settings panel) re-encrypts every stored secret under a new master key without restarting. `GET /api/keys/backup?passphrase=…` (or the Settings panel) exports a passphrase-keyed encrypted backup — store it offline; restore by re-adding the keys.
+
 
 **Reading the Recommendation tab.** The Recommendation Matrix (`AdvisoryMatrix` + `DecisionContext`) is delivered per Market Instance on the WebSocket envelope (`/ws`). Open a Market Instance, switch to the **Recommendation** tab, and you will see —
 

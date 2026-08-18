@@ -1,6 +1,6 @@
 # Bollinger Bands (20, 2.0)
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function

@@ -18,6 +18,7 @@ use crate::paper_trading::FeesConfig;
 pub struct Fill {
     pub order_id: String,
     pub price: Decimal,
+    pub size: Decimal,
 }
 
 /// The venue-facing half of the unified execution engine. Paper and live are
@@ -40,8 +41,9 @@ pub trait ExecutionBackend: Send + Sync {
         Err("submit_order not implemented for this backend".to_string())
     }
 
-    /// Cancel an order at the venue (live only).
-    async fn cancel_order(&self, _order_id: &str) -> Result<(), String> {
+    /// Cancel an order at the venue (live only). `symbol` lets the venue
+    /// resolve the correct instrument (asset index / contract symbol).
+    async fn cancel_order(&self, _order_id: &str, _symbol: &str) -> Result<(), String> {
         Err("cancel_order not implemented for this backend".to_string())
     }
 
@@ -182,17 +184,12 @@ impl ExecutionBackend for LiveBroker {
         ids.pop().ok_or_else(|| "no order id returned".to_string())
     }
 
-    async fn cancel_order(&self, order_id: &str) -> Result<(), String> {
+    async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<(), String> {
         let oid: u64 = order_id
             .parse()
             .map_err(|_| format!("invalid live order id '{}'", order_id))?;
-        // Asset index is unknown at cancel time in the common path; the HL
-        // cancel endpoint accepts (a, o) pairs. Resolve via a broad cancel:
-        // iterate known symbols' indices is impractical — the engine cancels
-        // by client order id for bracket cleanup, so we cancel per-symbol
-        // with the caller-supplied index when available. Fallback: try index
-        // 0 and let the exchange reject unknown pairs (cancels are idempotent).
-        self.client.cancel_orders(&[(0, oid)]).await
+        let idx = self.asset_index_for(symbol).await?;
+        self.client.cancel_orders(&[(idx, oid)]).await
     }
 
     async fn poll_fills(&self) -> Vec<Fill> {
@@ -202,10 +199,136 @@ impl ExecutionBackend for LiveBroker {
                 .map(|f| Fill {
                     order_id: f.order_id,
                     price: Decimal::from_f64_retain(f.price).unwrap_or_default(),
+                    size: Decimal::ZERO,
                 })
                 .collect(),
             Err(e) => {
                 eprintln!("LIVE: poll_fills failed: {}", e);
+                Vec::new()
+            }
+        }
+    }
+
+    async fn fetch_equity(&self) -> Result<f64, String> {
+        self.client.fetch_equity().await
+    }
+}
+
+/// Live Bitget backend (v7.1 / Phase E1 — Bitget). Implements the trait
+/// against the signed Bitget V5 mix REST endpoints; fills are REST-polled.
+pub struct BitgetLiveBroker {
+    pub client: network_adapters::adapters::bitget_live::BitgetLiveClient,
+}
+
+impl BitgetLiveBroker {
+    pub fn new(
+        api_key: String,
+        api_secret: String,
+        passphrase: String,
+        product_type: String,
+    ) -> Self {
+        Self {
+            client: network_adapters::adapters::bitget_live::BitgetLiveClient::new(
+                api_key,
+                api_secret,
+                passphrase,
+                product_type,
+            ),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ExecutionBackend for BitgetLiveBroker {
+    fn mode(&self) -> ExecutionMode {
+        ExecutionMode::Live
+    }
+
+    fn evaluate_fill(&self, _order: &OrderLifecycle, _mid: Decimal) -> Option<Decimal> {
+        None
+    }
+
+    async fn submit_order(&self, packet: &OrderPacket) -> Result<String, String> {
+        let symbol =
+            network_adapters::adapters::bitget_live::bitget_symbol_from_internal(&packet.symbol);
+        let side = packet.side == OrderSide::Buy;
+        let size = packet.size.to_string();
+        let client_oid = format!(
+            "{}_{}",
+            packet.client_order_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        );
+        match packet.order_type {
+            OrderType::Limit => {
+                let price = packet
+                    .price
+                    .ok_or_else(|| "limit order without price".to_string())?
+                    .to_string();
+                self.client
+                    .place_order(
+                        &symbol,
+                        side,
+                        "limit",
+                        &price,
+                        &size,
+                        packet.reduce_only,
+                        &client_oid,
+                    )
+                    .await
+            }
+            OrderType::Market => {
+                self.client
+                    .place_order(
+                        &symbol,
+                        side,
+                        "market",
+                        "",
+                        &size,
+                        packet.reduce_only,
+                        &client_oid,
+                    )
+                    .await
+            }
+            OrderType::Stop => {
+                // SL bracket: Bitget trigger (market) order.
+                let trigger = packet
+                    .price
+                    .ok_or_else(|| "stop order without trigger price".to_string())?
+                    .to_string();
+                self.client
+                    .place_tpsl(
+                        &symbol,
+                        side,
+                        &trigger,
+                        &size,
+                        packet.reduce_only,
+                        &client_oid,
+                    )
+                    .await
+            }
+        }
+    }
+
+    async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<(), String> {
+        let symbol = network_adapters::adapters::bitget_live::bitget_symbol_from_internal(symbol);
+        self.client.cancel_order(&symbol, order_id).await
+    }
+
+    async fn poll_fills(&self) -> Vec<Fill> {
+        match self.client.fetch_fills().await {
+            Ok(fills) => fills
+                .into_iter()
+                .map(|(oid, px, sz)| Fill {
+                    order_id: oid,
+                    price: Decimal::from_f64_retain(px).unwrap_or_default(),
+                    size: Decimal::from_f64_retain(sz).unwrap_or_default(),
+                })
+                .collect(),
+            Err(e) => {
+                eprintln!("LIVE: Bitget poll_fills failed: {}", e);
                 Vec::new()
             }
         }

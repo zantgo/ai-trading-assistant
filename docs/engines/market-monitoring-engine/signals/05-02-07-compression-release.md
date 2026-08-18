@@ -1,6 +1,6 @@
 # SignalKind: CompressionRelease
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Category:** Volatility

@@ -1,6 +1,6 @@
 # Distribution Matrix Specification
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 4 — Data Distribution Layer

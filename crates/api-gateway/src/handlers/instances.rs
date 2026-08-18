@@ -1127,3 +1127,141 @@ pub async fn serve_reload_timeframe(
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
     }
 }
+
+// ─── Mode toggle (v7.1) ─────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct ModeRequest {
+    pub mode: String, // "paper" | "live"
+}
+
+/// POST /api/instances/:id/mode — switch the engine between paper and live
+/// execution (global mode: the engine is paper XOR live for the whole
+/// workspace). Live requires an active API key for the workspace exchange.
+pub async fn serve_set_mode(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(req): Json<ModeRequest>,
+) -> impl IntoResponse {
+    let Some(inst) = state.get_instance_by_id(&instance_id).await else {
+        return (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response();
+    };
+
+    let mode = match req.mode.as_str() {
+        "paper" => config_models::ExecutionMode::Paper,
+        "live" => config_models::ExecutionMode::Live,
+        other => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("Unknown mode '{}' (paper|live)", other),
+            )
+                .into_response();
+        }
+    };
+
+    let workspace = state.workspace.config().await;
+
+    if mode == config_models::ExecutionMode::Live {
+        // Require an active key for the workspace exchange.
+        let exchange = workspace.default_exchange.clone();
+        let key_row = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+             WHERE exchange = ?1 AND is_active = 1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(&exchange)
+        .fetch_optional(&state.pool)
+        .await;
+        let key_row = match key_row {
+            Ok(r) => r,
+            Err(e) => {
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("key query failed: {}", e),
+                )
+                    .into_response();
+            }
+        };
+        let Some((api_key, secret_enc, passphrase)) = key_row else {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!(
+                    "No active {} API key — add one first (POST /api/keys with EXCHANGE_SECRET_KEY set)",
+                    exchange
+                ),
+            )
+                .into_response();
+        };
+        let secret = match database_storage::crypto::decrypt_field(&secret_enc) {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    format!("cannot decrypt the API secret: {}", e),
+                )
+                    .into_response();
+            }
+        };
+
+        let quote = if !inst_pair_quote(&inst).is_empty() {
+            inst_pair_quote(&inst)
+        } else {
+            workspace.default_currency.clone()
+        };
+        let broker: Box<dyn portfolio_supervisor::execution::ExecutionBackend> =
+            if exchange.eq_ignore_ascii_case("Hyperliquid") {
+                Box::new(portfolio_supervisor::execution::backend::LiveBroker::new(
+                    api_key, secret, true, None,
+                ))
+            } else if exchange.eq_ignore_ascii_case("Bitget") {
+                if passphrase.is_empty() {
+                    return (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        "Bitget live requires a passphrase on the stored key".to_string(),
+                    )
+                        .into_response();
+                }
+                let product_type =
+                    network_adapters::adapters::bitget_live::product_type_from_quote(&quote)
+                        .to_string();
+                Box::new(
+                    portfolio_supervisor::execution::backend::BitgetLiveBroker::new(
+                        api_key,
+                        secret,
+                        passphrase,
+                        product_type,
+                    ),
+                )
+            } else {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("live mode is not supported for exchange '{}'", exchange),
+                )
+                    .into_response();
+            };
+        state.execution_engine.set_live_backend(broker).await;
+    } else {
+        state.execution_engine.set_paper_backend().await;
+    }
+
+    // Persist the mode into the workspace config.
+    let mut workspace = workspace;
+    for entry in &mut workspace.instances {
+        if entry.id == instance_id {
+            entry.mode = mode;
+        }
+    }
+    let _ = config_models::save_workspace(&workspace);
+    state.workspace.set_config(workspace).await;
+
+    Json(serde_json::json!({
+        "success": true,
+        "instance_id": instance_id,
+        "mode": if mode == config_models::ExecutionMode::Live { "live" } else { "paper" },
+        "note": "mode applies engine-wide (paper XOR live)",
+    }))
+    .into_response()
+}
+
+fn inst_pair_quote(inst: &std::sync::Arc<portfolio_supervisor::instance::Instance>) -> String {
+    inst.pair.1.clone()
+}

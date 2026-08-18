@@ -1,6 +1,6 @@
 # Candle Quality Envelope Specification
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Produced by DIE Layer 3 validation logic (executed inline in market-analyzer) and attached to the MME MarketSnapshot envelope.
 **Producing Layer:** Layer 3 — Data Quality Layer (DIE); layer name in code: `CandleQualityEnvelope`

@@ -424,7 +424,7 @@ impl SetupExecutor {
             };
             if breached {
                 if let Some(id) = entry.entry_order_id.take() {
-                    let _ = self.engine.cancel_order(&id).await;
+                    let _ = self.engine.cancel_order(&id, symbol).await;
                 }
                 self.log(
                     instance_id,
@@ -443,7 +443,7 @@ impl SetupExecutor {
             if let Some(tracked) = &entry.tracked_setup {
                 if plan.direction != tracked.direction {
                     if let Some(id) = entry.entry_order_id.take() {
-                        let _ = self.engine.cancel_order(&id).await;
+                        let _ = self.engine.cancel_order(&id, symbol).await;
                     }
                     self.log(
                         instance_id,
@@ -461,7 +461,7 @@ impl SetupExecutor {
                 // ── REPLACED: a different setup type now tops the ranking ──
                 if plan.setup_type != tracked.setup_type {
                     if let Some(id) = entry.entry_order_id.take() {
-                        let _ = self.engine.cancel_order(&id).await;
+                        let _ = self.engine.cancel_order(&id, symbol).await;
                     }
                     self.log(
                         instance_id,

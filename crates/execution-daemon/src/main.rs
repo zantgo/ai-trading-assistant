@@ -1073,44 +1073,104 @@ async fn main() {
         );
     }
 
-    // ── Phase E1: live trading bootstrap ─────────────────────────────
-    // When any instance declares `mode = "live"`, load the active
-    // Hyperliquid credential from the encrypted `exchange_keys` table and
-    // swap the engine onto the LiveBroker backend. Fills then arrive from
-    // the venue (polled in the executor loop) instead of the simulation.
+    // ── Phase E1 (v7.1): live trading bootstrap ──────────────────────
+    // When any instance declares `mode = "live"`, load the active credential
+    // for the workspace exchange from the encrypted `exchange_keys` table and
+    // swap the engine onto the venue broker (Hyperliquid or Bitget). Fills
+    // then arrive from the venue (REST-polled in the executor loop) instead
+    // of the simulation.
     let any_live = workspace
         .instances
         .iter()
         .any(|i| i.mode == config_models::ExecutionMode::Live);
     if any_live {
-        if !workspace
-            .default_exchange
-            .eq_ignore_ascii_case("hyperliquid")
+        let live_quote = workspace
+            .instances
+            .iter()
+            .find(|i| i.mode == config_models::ExecutionMode::Live)
+            .map(|i| i.quote.clone())
+            .filter(|q| !q.is_empty())
+            .unwrap_or_else(|| workspace.default_currency.clone());
+
+        let (address_or_key, secret_enc, passphrase_opt) = match workspace.default_exchange.as_str()
         {
-            panic!("mode = \"live\" requires default_exchange = \"Hyperliquid\" (Bitget live dispatch is not yet supported)");
-        }
-        let key_row = sqlx::query_as::<_, (String, String)>(
-            "SELECT api_key, api_secret FROM exchange_keys \
-             WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
-        )
-        .fetch_optional(&db_pool)
-        .await
-        .expect("live-mode key query");
-        let (address, secret_enc) = match key_row {
-            Some(row) => row,
-            None => panic!(
-                "mode = \"live\" requires an active Hyperliquid API key \
-                 (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+            "Hyperliquid" => {
+                let key_row = sqlx::query_as::<_, (String, String, String)>(
+                    "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+                         WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+                )
+                .fetch_optional(&db_pool)
+                .await
+                .expect("live-mode key query");
+                match key_row {
+                    Some((key, secret, _pass)) => (key, secret, None),
+                    None => panic!(
+                        "mode = \"live\" requires an active Hyperliquid API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+                    ),
+                }
+            }
+            "Bitget" => {
+                let key_row = sqlx::query_as::<_, (String, String, String)>(
+                    "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
+                         WHERE exchange = 'Bitget' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+                )
+                .fetch_optional(&db_pool)
+                .await
+                .expect("live-mode key query");
+                match key_row {
+                    Some((key, secret, pass)) => {
+                        if pass.is_empty() {
+                            panic!(
+                                "mode = \"live\" (Bitget) requires a passphrase — \
+                                     re-add the key with a passphrase"
+                            );
+                        }
+                        (key, secret, Some(pass))
+                    }
+                    None => panic!(
+                        "mode = \"live\" requires an active Bitget API key \
+                             (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+                    ),
+                }
+            }
+            other => panic!(
+                "mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
+                other
             ),
         };
+
         let secret = database_storage::crypto::decrypt_field(&secret_enc)
             .expect("failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?)");
-        let is_mainnet = true;
-        let broker = portfolio_supervisor::execution::backend::LiveBroker::new(
-            address, secret, is_mainnet, None,
+
+        let broker: Box<dyn portfolio_supervisor::execution::ExecutionBackend> = if workspace
+            .default_exchange
+            .eq_ignore_ascii_case("Hyperliquid")
+        {
+            Box::new(portfolio_supervisor::execution::backend::LiveBroker::new(
+                address_or_key,
+                secret,
+                true,
+                None,
+            ))
+        } else {
+            let product_type =
+                network_adapters::adapters::bitget_live::product_type_from_quote(&live_quote)
+                    .to_string();
+            Box::new(
+                portfolio_supervisor::execution::backend::BitgetLiveBroker::new(
+                    address_or_key,
+                    secret,
+                    passphrase_opt.unwrap_or_default(),
+                    product_type,
+                ),
+            )
+        };
+        execution_engine.set_live_backend(broker).await;
+        println!(
+            "🔴 TAE v7.1: LIVE mode active — orders dispatch to {}",
+            workspace.default_exchange
         );
-        execution_engine.set_live_backend(Box::new(broker)).await;
-        println!("🔴 TAE v7: LIVE mode active — orders dispatch to Hyperliquid");
     }
 
     // ── Clock-drift monitor (NTP-based) — must run BEFORE build_router
@@ -1279,13 +1339,7 @@ async fn main() {
                                     .read()
                                     .await
                                     .poll_fills()
-                                    .await
-                                    .into_iter()
-                                    .map(|f| portfolio_supervisor::execution::backend::Fill {
-                                        order_id: f.order_id,
-                                        price: f.price,
-                                    })
-                                    .collect();
+                                    .await;
                                 tae_engine.apply_external_fills(fills).await;
                             } else {
                                 tae_engine.evaluate_order_fills(mid).await;

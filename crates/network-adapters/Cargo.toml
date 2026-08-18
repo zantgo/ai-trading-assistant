@@ -23,5 +23,8 @@ rust_decimal = { version = "1.34", features = ["serde-with-str"] }
 rand = "0.8"
 k256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
 sha3 = "0.10"
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
 tracing = "0.1"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }

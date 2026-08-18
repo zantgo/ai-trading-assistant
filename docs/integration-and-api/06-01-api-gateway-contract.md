@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -155,8 +155,8 @@ The response shape is:
 | `DELETE` | `/api/instances/:instance_id` | Delete instance. |
 | `DELETE` | `/api/instances/by-pair/:pair_key` | Delete by pair key. |
 | `POST` | `/api/instances/:instance_id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
-| `POST` | `/api/instances/:instance_id/reload` | **Specified but not yet registered** (returns 404 per §5): tear down + rebuild a single TF pipeline (`slot=micro|fast|slow|macro`) or all four (`slot=all`). See [08-08 CB-11](../operations-and-compliance/08-08-candle-buffer-spec.md) and [03-01-06 DCP-09](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
-| `GET` | `/api/instances/:instance_id/activation` | **Specified but not yet registered** (returns 404 per §5). Planned response: the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) as applied at the current `config_version` — `{ disabled_indicators: [], disabled_signals: [], disabled_signal_kinds: [], liquidity: {...}, config_version: u64 }`. The activation is applied config-side today (see [`03-02-12-mme-configurable-activation.md §2`](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)); the REST surface is AUDIT-V6-212. |
+| `POST` | `/api/instances/:instance_id/reload` | **Served (v7.1):** tear down + rebuild a single TF pipeline (`slot=micro|fast|slow|macro`) or all four (`slot=all`). See [08-08 CB-11](../operations-and-compliance/08-08-candle-buffer-spec.md) and [03-01-06 DCP-09](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
+| `GET` | `/api/instances/:instance_id/activation` | **Served (v7.1):** the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) at the current `config_version` — `{ disabled_indicators, disabled_signals, disabled_signal_kinds, liquidity, config_version }` (AUDIT-V6-212). |
 | `POST` | `/api/instances/:instance_id/start` | Transition STOPPED / instance PAUSED → RUNNING (executor admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
 | `POST` | `/api/instances/:instance_id/pause` | Pending entries cancelled; open positions still managed (TP/SL/invalidation remain armed); no new setups. See [03-03-06 §3](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
 | `POST` | `/api/instances/:instance_id/stop` | Transition RUNNING/lifecycle PAUSED → STOPPING → STOPPED (flatten: cancel orders + market-close positions with `is_emergency_liquidation = true`, `reduce_only = true`). DELETE on a non-STOPPED instance returns `409` (see [03-03-06 IL-08](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
@@ -164,6 +164,7 @@ The response shape is:
 | `POST` | `/api/instances/:instance_id/safety/release-veto` | **Informational safety reset (v7).** Returns the safety state to `NORMAL` (only when the underlying drawdown condition has cleared) + optional peak-equity reset. Returns `422` if the drawdown condition is still active. Distinct from `/safety/reset` (consecutive-loss counters). `operator_id = "local"` is recorded in the resulting `risk_control_events` row. |
 | `GET` | `/api/instances/:instance_id/automation` | **v7 TAE surface (served).** Full setup-executor state: mode (paper/live), phase, tracked setup + projected risk/return, entry + bracket orders, position, invalidation state, activity log, safety gate, lifecycle, equity. See [03-03-01 §8.1](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md). |
 | `POST` | `/api/instances/:instance_id/automation/close` | **v7 manual override (served).** Cancels pending/bracket orders and closes the open position at market. `exit_reason = "manual"`. |
+| `POST` | `/api/instances/:instance_id/mode` | **v7.1 (served):** switch the engine between `paper` and `live` (global mode — the engine is paper XOR live for the whole workspace). Live requires an active API key for the workspace exchange (`POST /api/keys`). Body `{ "mode": "paper" | "live" }`; persists into the workspace config. |
 | `POST` | `/api/instances/:instance_id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |
 | `GET` | `/api/instances/:instance_id/portfolio` | **PME v7 (served): rich informational portfolio state** — equity, realized/unrealized/daily PnL, peak + max drawdown %, safety state + context, systemic risk, exposure block (gross/net/long/short/concentration), capital block (available/committed margin, usage, leverage, alert), positions with mark-to-market, lifecycle. Read-only. See [03-04-01 §5](../engines/portfolio-management-engine/03-04-01-pme-overview-spec.md). |
 | `GET` | `/api/instances/:instance_id/exposure` | **PME v7 (served):** Exposure Matrix (gross/net/long/short, per-symbol concentration, max single-pair). Read-only. |
@@ -252,7 +253,7 @@ The response shape is:
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v7.0; retired name recorded in `docs/CHANGELOG.md`). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v7.1; retired name recorded in `docs/CHANGELOG.md`). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -281,17 +282,17 @@ for the operator manual and
 
 
 
-### 2.10 Exchange Keys (encrypted credentials)
+### 2.10 Exchange Keys (encrypted credentials) — served (v7.1)
 
-> **Not yet mounted (returns 404 per §5).** The key-management handler exists in `crates/api-gateway/src/handlers/keys.rs` (list/add/delete) but is **not registered on the router** — do not build clients against it. Since audit 2026-08-18 the handler encrypts `api_secret`/`passphrase` with `EXCHANGE_SECRET_KEY` (AES-256-GCM, `database_storage::crypto`) and refuses to store plaintext when no master key is provisioned (`503`).
-
-> Live credentials must be entered through the encrypted `exchange_keys` SQLite table, **not** through `config.toml`. `config.toml` holds no secret material. The encryption contract is in [`06-02-database-schema-spec.md §3.5`](06-02-database-schema-spec.md).
+Credential management for live trading. All handlers are **registered**. `api_secret` / `passphrase` are stored AES-256-GCM encrypted with `EXCHANGE_SECRET_KEY` (set the env var at daemon start; plaintext storage is refused with `503`). Credentials must be entered through this API (or the Settings UI), **never** in `config.toml`. The encryption contract is in [`06-02-database-schema-spec.md §3.5`](06-02-database-schema-spec.md).
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| `POST` | `/api/keys` | `{ exchange: string, api_key: string, api_secret: string, passphrase?: string }` | `201 Created` on insert. Body is **never** echoed back; `api_secret` and `passphrase` are stored encrypted with `EXCHANGE_SECRET_KEY` (AES-256-GCM). |
-| `GET` | `/api/keys?exchange=` | — | `{ items: [{ exchange, key_id, created_at, last_rotated_at }] }` (the encrypted credentials are **not** in the response). |
-| `DELETE` | `/api/keys/:key_id` | — | `204 No Content` |
+| `POST` | `/api/keys` | `{ exchange: "Hyperliquid"\|"Bitget", account_name, api_key, api_secret, passphrase?, referred_uid?, is_active? }` | `201 Created` (body never echoed; secrets encrypted at rest). **Field guide:** Hyperliquid → `api_key` = wallet address (`0x…`), `api_secret` = private key hex; Bitget → `api_key`/`api_secret`/`passphrase` (Bitget passphrase required). |
+| `GET` | `/api/keys?exchange=` | — | `{ keys: [{ id, exchange, account_name, is_active, referred_uid, last_sync_timestamp }] }` — secrets never returned. |
+| `DELETE` | `/api/keys/:key_id` | — | Deleted. |
+| `POST` | `/api/keys/rotate` | `{ new_master_secret: string }` | Decrypts all stored secrets with the current master key, installs the new one in-process, re-encrypts every row (AUDIT-V6-077). |
+| `GET` | `/api/keys/backup?passphrase=` | — | Passphrase-keyed AES-256-GCM export of all credentials (`api_secret_encrypted`) for offline storage. |
 
 ### 2.11 System diagnostics endpoints
 
@@ -305,13 +306,7 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 
 ### 2.12 Planned endpoints (not yet served)
 
-The following are **specified but not yet served** (return `404` per §5). Listed for forward planning only.
-
-| Method | Path | Planned purpose | Audit ID |
-|--------|------|-----------------|----------|
-| `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). | AUDIT-V6-077 |
-| `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. | AUDIT-V6-077 |
-| `GET` | `/api/instances/:id/activation` | Effective activation set (global `[activation]` ∪ per-instance) at the current `config_version`. | AUDIT-V6-212 |
+All previously-planned endpoints are now **served** (keys management in §2.10, activation + reload in §2.4, mode in §2.4, backtest in §2.13). This section is intentionally empty.
 
 ### 2.13 Performance Analytics endpoints (live)
 

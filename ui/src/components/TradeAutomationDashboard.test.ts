@@ -223,3 +223,66 @@ describe('TradeAutomationDashboard (v7 live)', () => {
         );
     });
 });
+
+describe('TradeAutomationDashboard mode toggle (v7.1)', () => {
+    it('switches paper→live via the API and refreshes', async () => {
+        const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+        fetchMock.mockClear();
+        // First POST to /mode succeeds; then refresh re-fetches.
+        fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+            if (typeof url === 'string' && url.includes('/mode')) {
+                return Promise.resolve(jsonResponse({ success: true, mode: 'live' }));
+            }
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }));
+            }
+            if (typeof url === 'string' && url.includes('/automation')) {
+                return Promise.resolve(jsonResponse(automationPayload));
+            }
+            return Promise.resolve(jsonResponse([]));
+        });
+
+        render(TradeAutomationDashboard);
+        await waitFor(() => expect(screen.getByText('AUTOMATION ON')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('Switch to LIVE')).toBeTruthy());
+        await fireEvent.click(screen.getByText('Switch to LIVE'));
+
+        await waitFor(() => {
+            const calls = fetchMock.mock.calls;
+            expect(calls.some((c: unknown[]) => String(c[0]).includes('/mode'))).toBe(true);
+        });
+        const modeCall = fetchMock.mock.calls.find((c: unknown[]) => String(c[0]).includes('/mode'));
+        expect(JSON.parse(String((modeCall?.[1] as RequestInit)?.body ?? '{}'))).toMatchObject({ mode: 'live' });
+    });
+
+    it('shows an error when the mode switch fails', async () => {
+        const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+        fetchMock.mockClear();
+        fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+            if (typeof url === 'string' && url.includes('/mode')) {
+                return Promise.resolve(
+                    new Response(JSON.stringify({ error: 'No active Hyperliquid API key — add one first' }), {
+                        status: 400,
+                        headers: { 'content-type': 'application/json' },
+                    }),
+                );
+            }
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }));
+            }
+            if (typeof url === 'string' && url.includes('/automation')) {
+                return Promise.resolve(jsonResponse(automationPayload));
+            }
+            return Promise.resolve(jsonResponse([]));
+        });
+
+        render(TradeAutomationDashboard);
+        await waitFor(() => expect(screen.getByText('AUTOMATION ON')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('Switch to LIVE')).toBeTruthy());
+        await fireEvent.click(screen.getByText('Switch to LIVE'));
+
+        await waitFor(() =>
+            expect(screen.getByText(/No active Hyperliquid API key/)).toBeTruthy(),
+        );
+    });
+});

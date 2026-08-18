@@ -1,7 +1,7 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 7.0 (2026-08-18) — v7 redesign: the unified engine replaces the old policy-driven `ExecutionEngine` (gates, `process_trigger`, hard-exit) and absorbs the paper-matching logic as a simulation backend.
-**Status:** Specified — v7 implementation in progress.
+**Version:** 7.1 (2026-08-18) — v7 redesign: the unified engine replaces the old policy-driven `ExecutionEngine` (gates, `process_trigger`, hard-exit) and absorbs the paper-matching logic as a simulation backend; v7.1 adds the Bitget live backend + the venue matrix.
+**Status:** Implemented (v7.1) — Hyperliquid + Bitget live backends.
 **Engine:** Trade Automation Engine (TAE)
 **Input Contract:** SetupPlan (Setup Executor), [Decision Matrix](../../matrices/02-04-decision-matrix.md) (via the snapshot the executor passes through)
 **Output Contract:** orders, positions, equity, fees — surfaced via [Layer ⑦ API](03-03-01-tae-overview-spec.md#81-api)
@@ -103,6 +103,32 @@ Size for exits is **copied from the open position** (never re-sized) — closing
 For any sequence of ticks, running the executor against `PaperSimulation` produces the exact same ledger math (fees, PnL, funding) as the live path will once `LiveBroker` exists — the only differences are fill prices sourced from the venue instead of the simulated mid, and real order ids. This is the property that makes paper results meaningful as a live predictor.
 
 ---
+
+
+---
+
+## 5b. Venue Implementation Matrix (v7.1 — canonical)
+
+| Aspect | **Hyperliquid** (`LiveBroker`) | **Bitget** (`BitgetLiveBroker`) |
+|---|---|---|
+| Signing | EIP-712 typed data + secp256k1 ECDSA (wallet private key); domain `HyperliquidSignTransaction`, primaryType `HyperliquidTransaction:Order` | HMAC-SHA256 of `timestamp + method + requestPath + body`; headers `ACCESS-KEY` / `ACCESS-SIGN` / `ACCESS-TIMESTAMP` / `ACCESS-PASSPHRASE` |
+| Credentials (`exchange_keys`) | `api_key` = wallet address (`0x…`), `api_secret` = private key hex | `api_key`, `api_secret`, `passphrase` |
+| REST base | `https://api.hyperliquid.xyz` (`/info` + `/exchange`) | `https://api.bitget.com` (V2 REST) |
+| Place order | `POST /exchange` `{action:{type:"order"}, nonce, signature}` | `POST /api/v2/mix/order/place-order` (signed headers) |
+| Stop-loss | stop-market (t=4, `p` = trigger price) | `POST /api/v2/mix/order/place-tpsl-order` (trigger, market execution) |
+| Cancel order | `POST /exchange` `{action:{type:"cancel"}}` — `(asset_index, oid)` | `POST /api/v2/mix/order/cancel-order` — `(symbol, orderId)` |
+| Fills | `POST /info {type:"userFills"}` — REST polling | `GET /api/v2/mix/order/fills` — REST polling |
+| Equity | `POST /info {type:"clearinghouseState"}` → `marginSummary.accountValue` | `GET /api/v2/mix/account/accounts` → equity |
+| Symbol mapping | `BTC-USDC → coin "BTC"` + asset index from `meta` | `BTC-USDT → "BTCUSDT"` (strip `-`); `productType` = `USDT-FUTURES` / `USDC-FUTURES` by instance quote |
+| Order types | limit (t=1), market (t=2), stop-market (t=4) | limit, market, trigger (tpsl) |
+| Reduce-only | `r` flag in the order action | `reduceOnly` param |
+| Rate limits | generous; one request per order | ~20 req/s per key (client throttles to 10/s) |
+
+**Live credential flow:** set `EXCHANGE_SECRET_KEY` → add the key via `POST /api/keys` (or the Settings UI) → set `mode = "live"` on an instance (config.toml or `POST /api/instances/:id/mode`) → the daemon decrypts the key at boot/dispatch and the engine routes orders to the venue. The engine is **globally paper or globally live** (one workspace, one account per exchange); PME/PAE read the shared ledgers regardless of mode.
+
+## 5c. Mode-Neutrality Guarantee (extended)
+
+Running the executor against `PaperSimulation` or either live backend produces the same ledger math (fees, PnL, funding). Live differences are limited to: fill prices sourced from the venue, real order ids, and venue-reported fill sizes. This is the property that makes paper results meaningful as a live predictor on either venue.
 
 ## 6. Cross-References
 

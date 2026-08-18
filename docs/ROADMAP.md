@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-**Version:** 7.0 (2026-08-18) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
 **Status:** In progress — partial implementation; multiple engines still in WIP.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
@@ -167,7 +167,7 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 
 | Item | Owner | Acceptance criterion |
 |---|---|---|
-| E1. Live exchange adapter (Hyperliquid + Bitget order dispatch) | `network-adapters`, `portfolio-supervisor`, `execution-daemon` | Implement `ExecutionBackend` as a `LiveBroker` (the trait already exists in `execution/backend.rs`); new audit IDs registered; integration test submits a `reduce_only` order to a mock adapter |
+| E1. Live exchange adapter (Hyperliquid + Bitget order dispatch) | `network-adapters`, `portfolio-supervisor`, `execution-daemon` | **Delivered (v7.1):** `LiveBroker` (Hyperliquid, EIP-712) + `BitgetLiveBroker` (Bitget V5 HMAC) — see the [venue matrix](engines/trade-automation-engine/03-03-03-tae-layer2-execution.md); signing + keys + mode-toggle tests green |
 | E2. In-process exchange-key rotation tool (`POST /api/keys/rotate`, SIGHUP hot rotation, encrypted-backup export) | `api-gateway`, `config-models` | AUDIT-V6-077 closed |
 | E3. **Single-operator identity** — every audit event carries `operator_id = "local"`; no caller-supplied identity, no multi-client model (AUDIT-V4-076 **cancelled** by design) | `api-gateway`, docs | Delivered: `06-01 §1` single-operator statement; all audit surfaces stamped `local` |
 | E4. DOD hot-path migration (f64 indicator signatures) | `market-analyzer` | AUDIT-V8-400 … V8-407 closed; `Indicator::BarInput` is `f64`; per-indicator `update()` is `f64` |
@@ -233,7 +233,7 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [ ] **`docs/conceptual-foundations/01-02-global-architecture.md §2.3 Layer 2 line 132** no longer claims "currently only live execution is supported" — paper trading is the default and only path**
 - [x] **`README.md §Quick Start` carries the v7 implementation-status callout**
 - [x] **`AGENTS.md §Project overview` reflects the completed v7.0 state**
-- [x] **All numbered docs carry `**Version:** 7.0 (2026-08-18)` and the CHANGELOG top entry is `## v7.0 (2026-08-18)`**
+- [x] **All numbered docs carry `**Version:** 7.1 (2026-08-18)` and the CHANGELOG top entry is `## v7.0 (2026-08-18)`**
 - [x] **`./manage.sh test-doc`** passes (release gates G1–G16) — **ALL CHECKS PASSED** (2026-08-18)
 
 ### 6.2 Source-code verification
@@ -261,6 +261,11 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **`GET /api/instances/:id/safety`** returns the safety state + context + drawdown/daily metrics
 - [x] **`POST /api/instances/:id/safety/session-reset`** rebaselines peak equity + daily PnL (informational)
 - [x] **`POST /api/backtest/run` + `GET /api/backtest/:id` exist and round-trip a result** (v7 — delivered 2026-08-18)
+
+**Live trading (v7.1 — served):**
+- [x] **`POST /api/keys`, `GET /api/keys`, `DELETE /api/keys/:id`, `POST /api/keys/rotate`, `GET /api/keys/backup`** — encrypted credential management (both venues)
+- [x] **`POST /api/instances/:id/mode`** — engine-wide paper/live switch (requires a key; persists to config)
+- [x] **Hyperliquid + Bitget live dispatch** via `ExecutionBackend` (see [03-03-03 §5b](engines/trade-automation-engine/03-03-03-tae-layer2-execution.md))
 
 ### 6.4 Tests
 

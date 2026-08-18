@@ -64,3 +64,9 @@
 .es-multi-badge {
     margin-top: 10px; text-align: center; font-size: 9px; color: rgba(255,255,255,0.55); font-weight: 600;
 }
+
+.es-msg {
+    font-size: 0.72rem;
+    color: #7db4ff;
+    margin: 0.35rem 0 0;
+}

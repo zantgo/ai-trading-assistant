@@ -1,6 +1,6 @@
 # PAE Layer 5 — Backtest
 
-**Version:** 7.0 (2026-08-18) — delivered with the v7 PAE release.
+**Version:** 7.1 (2026-08-18) — delivered with the v7 PAE release.
 **Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 5 of 5

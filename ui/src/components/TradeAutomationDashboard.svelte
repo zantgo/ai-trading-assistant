@@ -1,6 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
+    import { useAppStore } from '../state.svelte';
     import styles from './TradeAutomationDashboard.module.css';
+
+    const app = useAppStore();
 
     // ── Live data (v7) ─────────────────────────────────────────────────
     interface InstanceSummary {
@@ -95,6 +98,22 @@
     let loading = $state(true);
     let error = $state('');
     let closing = $state(false);
+    let switchingMode = $state(false);
+    let modeError = $state('');
+
+    async function toggleMode() {
+        if (!selectedId || switchingMode) return;
+        switchingMode = true;
+        modeError = '';
+        const target = automation?.mode === 'live' ? 'paper' : 'live';
+        const result = await app.setInstanceMode(selectedId, target);
+        if (!result.ok) {
+            modeError = result.error ?? 'Mode switch failed';
+        } else {
+            await refresh();
+        }
+        switchingMode = false;
+    }
 
     async function loadInstances() {
         try {
@@ -237,6 +256,10 @@
             <span class="{styles.modeBadge} {automation?.mode === 'live' ? styles.modeLive : styles.modePaper}">
                 {automation?.mode?.toUpperCase() ?? 'PAPER'}
             </span>
+            <button class="{styles.modeToggle} {automation?.mode === 'live' ? styles.modeToggleLive : styles.modeTogglePaper}"
+                onclick={toggleMode} disabled={switchingMode || !selectedId}>
+                {switchingMode ? 'Switching…' : automation?.mode === 'live' ? 'Switch to PAPER' : 'Switch to LIVE'}
+            </button>
             {#if automation?.enabled}
                 <span class="{styles.badge} {styles.badgeRunning}">AUTOMATION ON</span>
             {:else}
@@ -254,6 +277,9 @@
             </span>
             {#if automation?.safety_gate?.blocked}
                 <span class="{styles.badge} {styles.badgeBlocked}">SAFETY: {automation.safety_gate.reason}</span>
+            {/if}
+            {#if modeError}
+                <span class="{styles.badge} {styles.badgeBlocked}">{modeError}</span>
             {/if}
         </div>
     </header>

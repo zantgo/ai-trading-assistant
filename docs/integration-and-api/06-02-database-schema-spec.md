@@ -1,6 +1,6 @@
 # Database Schema Specification
 
-**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v7.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v7.1 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -330,25 +330,35 @@ CREATE INDEX IF NOT EXISTS idx_order_fills_order ON order_fills(order_id);
 
 `order_fills` is **active in v4.0** (B-6). The PAE contract (`03-05-02 §3`) is now **complete per-fill attribution**: MFE/MAE, slippage (per-fill `target_price - fill_price`), fee attribution, and volume-weighted average entry/exit are all computed from the per-fill rows. See [`03-05-02-pae-layer1-trade-analytics.md`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) §3.
 
-### 3.8 `exchange_keys` — encrypted API credentials (AES-256-GCM)
+### 3.8 `exchange_keys` — encrypted API credentials (AES-256-GCM, v7.1)
+
+The v4.0 draft schema (key_id / encrypted_api_key BLOB / encryption_nonce / encryption_algorithm / last_rotated_at) was never materialized; the shipped migration (20240601000000) defines the real table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS exchange_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_id TEXT NOT NULL UNIQUE,
     exchange TEXT NOT NULL,
-    encrypted_api_key BLOB NOT NULL,
-    encrypted_api_secret BLOB NOT NULL,
-    encrypted_passphrase BLOB,
-    encryption_nonce BLOB NOT NULL,
-    encryption_algorithm TEXT NOT NULL DEFAULT 'AES-256-GCM' CHECK (encryption_algorithm = 'AES-256-GCM'),
-    created_at INTEGER NOT NULL,
-    last_rotated_at INTEGER NOT NULL
+    account_name TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    api_secret TEXT NOT NULL,
+    passphrase TEXT NOT NULL DEFAULT '',
+    referred_uid TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 0,
+    last_sync_timestamp INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_exchange_keys_exchange ON exchange_keys(exchange);
 ```
 
-> **Encrypted credentials only.** `config.toml` holds no secret material — all API keys, secrets, and passphrases live in this table, encrypted at rest with `EXCHANGE_SECRET_KEY` (master key from environment variable). The contract is in [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md).
+`api_secret` and `passphrase` are stored **AES-256-GCM encrypted** with the `EXCHANGE_SECRET_KEY` master key (env var). `api_key` is stored plaintext (it is not secret material — it identifies the account; Hyperliquid uses the wallet address, Bitget the API key id).
+
+**Per-venue field guide (v7.1):**
+
+| Venue | `api_key` | `api_secret` | `passphrase` |
+|---|---|---|---|
+| Hyperliquid | Wallet address (`0x…`) | Wallet private key hex | unused |
+| Bitget | API key id | API secret | API passphrase (required) |
+
+> **Encrypted credentials only.** `config.toml` holds no secret material — all API keys, secrets, and passphrases live in this table. The management API is [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md); rotation re-encrypts every row under a new master key (`POST /api/keys/rotate`).
 
 ### 3.9 `connection_quality_samples` — per-instance uptime telemetry
 

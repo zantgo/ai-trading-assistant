@@ -103,10 +103,16 @@ impl ExecutionEngine {
         *self.mode.write().await = mode;
     }
 
-    /// v7 live trading: swap in a `LiveBroker` backend (Phase E1).
+    /// v7 live trading: swap in a `LiveBroker`/`BitgetLiveBroker` backend.
     pub async fn set_live_backend(&self, backend: Box<dyn ExecutionBackend>) {
         *self.mode.write().await = ExecutionMode::Live;
         *self.backend.write().await = backend;
+    }
+
+    /// v7 live trading: restore the paper simulation backend.
+    pub async fn set_paper_backend(&self) {
+        *self.backend.write().await = Box::new(PaperSimulation::new(self.fee_config.clone()));
+        *self.mode.write().await = ExecutionMode::Paper;
     }
 
     pub async fn mode(&self) -> ExecutionMode {
@@ -208,7 +214,12 @@ impl ExecutionEngine {
             if order.status != OrderStatus::Submitted && order.status != OrderStatus::Open {
                 continue;
             }
-            order.filled_size = order.packet.size;
+            let fill_qty = if fill.size > dec!(0) {
+                fill.size
+            } else {
+                order.packet.size
+            };
+            order.filled_size = fill_qty;
             order.fill_price = Some(fill.price);
             order.status = OrderStatus::Closed;
             let now = std::time::SystemTime::now()
@@ -510,10 +521,15 @@ impl ExecutionEngine {
         Ok(())
     }
 
-    pub async fn cancel_order(&self, order_id: &str) -> Result<(), String> {
+    pub async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<(), String> {
         // Live mode: also cancel at the venue.
         if *self.mode.read().await == ExecutionMode::Live {
-            let _ = self.backend.read().await.cancel_order(order_id).await;
+            let _ = self
+                .backend
+                .read()
+                .await
+                .cancel_order(order_id, symbol)
+                .await;
         }
         let mut orders = self.orders.write().await;
         if let Some(o) = orders.get_mut(order_id) {
@@ -546,7 +562,7 @@ impl ExecutionEngine {
                 .collect()
         };
         for id in ids {
-            let _ = self.cancel_order(&id).await;
+            let _ = self.cancel_order(&id, symbol).await;
         }
     }
 
@@ -970,5 +986,198 @@ mod tests {
 
         let outcome = e.take_last_close("BTC-USDC").await.unwrap();
         assert!(!outcome.is_loss);
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    /// Records venue calls; fills are injected by the test.
+    struct RecordingBackend {
+        submits: Arc<AtomicUsize>,
+        cancels: Arc<AtomicUsize>,
+        fills: Arc<tokio::sync::RwLock<Vec<Fill>>>,
+    }
+
+    impl RecordingBackend {
+        fn new() -> (
+            Self,
+            Arc<AtomicUsize>,
+            Arc<AtomicUsize>,
+            Arc<tokio::sync::RwLock<Vec<Fill>>>,
+        ) {
+            let submits = Arc::new(AtomicUsize::new(0));
+            let cancels = Arc::new(AtomicUsize::new(0));
+            let fills = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+            let b = Self {
+                submits: submits.clone(),
+                cancels: cancels.clone(),
+                fills: fills.clone(),
+            };
+            (b, submits, cancels, fills)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ExecutionBackend for RecordingBackend {
+        fn mode(&self) -> ExecutionMode {
+            ExecutionMode::Live
+        }
+        fn evaluate_fill(&self, _o: &OrderLifecycle, _m: Decimal) -> Option<Decimal> {
+            None
+        }
+        async fn submit_order(&self, _p: &OrderPacket) -> Result<String, String> {
+            self.submits.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok("hl_1".to_string())
+        }
+        async fn cancel_order(&self, _id: &str, _sym: &str) -> Result<(), String> {
+            self.cancels.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(())
+        }
+        async fn poll_fills(&self) -> Vec<Fill> {
+            self.fills.read().await.clone()
+        }
+        async fn fetch_equity(&self) -> Result<f64, String> {
+            Ok(10_000.0)
+        }
+    }
+
+    fn engine() -> Arc<ExecutionEngine> {
+        Arc::new(ExecutionEngine::new(
+            crate::paper_trading::FeesConfig::default(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn live_submit_routes_to_backend() {
+        let (backend, submits, _cancels, _fills) = RecordingBackend::new();
+        let e = engine();
+        e.set_live_backend(Box::new(backend)).await;
+
+        let id = e
+            .submit_order(
+                OrderPacket {
+                    client_order_id: "t1".to_string(),
+                    symbol: "BTC-USDC".to_string(),
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Limit,
+                    price: Some(dec!(95)),
+                    size: dec!(1),
+                    reduce_only: false,
+                    is_emergency_liquidation: false,
+                    associated_position_id: None,
+                    metadata: Default::default(),
+                },
+                dec!(100),
+            )
+            .await
+            .unwrap();
+        assert_eq!(id, "hl_1");
+        assert_eq!(submits.load(AtomicOrdering::SeqCst), 1);
+        let orders = e.orders.read().await;
+        assert_eq!(orders.get("hl_1").unwrap().status, OrderStatus::Submitted);
+    }
+
+    #[tokio::test]
+    async fn apply_external_fills_opens_position() {
+        let (backend, _submits, _cancels, fills) = RecordingBackend::new();
+        let e = engine();
+        e.set_live_backend(Box::new(backend)).await;
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "t2".to_string(),
+                symbol: "BTC-USDC".to_string(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Limit,
+                price: Some(dec!(95)),
+                size: dec!(1),
+                reduce_only: false,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(100),
+        )
+        .await
+        .unwrap();
+
+        *fills.write().await = vec![Fill {
+            order_id: "hl_1".to_string(),
+            price: dec!(94),
+            size: dec!(1),
+        }];
+        let fills = e.backend.read().await.poll_fills().await;
+        e.apply_external_fills(fills).await;
+
+        let orders = e.orders.read().await;
+        assert_eq!(orders.get("hl_1").unwrap().status, OrderStatus::Closed);
+        drop(orders);
+        let pos = e.get_position("BTC-USDC").await.unwrap();
+        assert_eq!(pos.entry_price, dec!(94));
+        assert_eq!(pos.size, dec!(1));
+    }
+
+    #[tokio::test]
+    async fn live_cancel_delegates_to_venue() {
+        let (backend, _submits, cancels, _fills) = RecordingBackend::new();
+        let e = engine();
+        e.set_live_backend(Box::new(backend)).await;
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "t3".to_string(),
+                symbol: "BTC-USDC".to_string(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Limit,
+                price: Some(dec!(95)),
+                size: dec!(1),
+                reduce_only: false,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(100),
+        )
+        .await
+        .unwrap();
+
+        e.cancel_order("hl_1", "BTC-USDC").await.unwrap();
+        assert_eq!(cancels.load(AtomicOrdering::SeqCst), 1);
+        let orders = e.orders.read().await;
+        assert_eq!(orders.get("hl_1").unwrap().status, OrderStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn set_paper_backend_restores_simulation() {
+        let (backend, _submits, _cancels, _fills) = RecordingBackend::new();
+        let e = engine();
+        e.set_live_backend(Box::new(backend)).await;
+        assert_eq!(e.mode().await, ExecutionMode::Live);
+
+        e.set_paper_backend().await;
+        assert_eq!(e.mode().await, ExecutionMode::Paper);
+
+        // Paper path: market order fills instantly.
+        let id = e
+            .submit_order(
+                OrderPacket {
+                    client_order_id: "t4".to_string(),
+                    symbol: "BTC-USDC".to_string(),
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Market,
+                    price: None,
+                    size: dec!(1),
+                    reduce_only: false,
+                    is_emergency_liquidation: false,
+                    associated_position_id: None,
+                    metadata: Default::default(),
+                },
+                dec!(100),
+            )
+            .await
+            .unwrap();
+        let orders = e.orders.read().await;
+        assert_eq!(orders.get(&id).unwrap().status, OrderStatus::Closed);
     }
 }

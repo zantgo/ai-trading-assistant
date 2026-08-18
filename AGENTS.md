@@ -4,7 +4,7 @@
 
 This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 52 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
 
-> **Implementation status (v7.0 — roadmap complete).** All five engines are **implemented and production-ready in paper mode**: DIE + MME end-to-end; TAE = v7 setup executor on the unified execution engine (`ExecutionBackend`: PaperSimulation today, LiveBroker for Hyperliquid live dispatch); PME = informational portfolio mirror (safety ladder live, veto erased); PAE = live analytics + recorded-decision backtest with the full significance treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict). The roadmap and its verification checklist are closed; `./manage.sh test-doc` reports ALL CHECKS PASSED.
+> **Implementation status (v7.1 — roadmap complete).** All five engines are **implemented and production-ready in paper mode**: DIE + MME end-to-end; TAE = v7 setup executor on the unified execution engine (`ExecutionBackend`: PaperSimulation today, LiveBroker for Hyperliquid live dispatch); PME = informational portfolio mirror (safety ladder live, veto erased); PAE = live analytics + recorded-decision backtest with the full significance treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict). The roadmap and its verification checklist are closed; `./manage.sh test-doc` reports ALL CHECKS PASSED.
 
 ## Project overview
 

@@ -355,9 +355,92 @@ export class AppStore {
         exchange: 'Hyperliquid', account_name: '', api_key: '',
         api_secret: '', passphrase: '', referred_uid: '', is_active: true,
     });
-    async fetchExchangeKeys() { /***/ }
-    async addExchangeKey() { /***/ }
-    async deleteExchangeKey(_id: number) { /***/ }
+    async fetchExchangeKeys() {
+        try {
+            const res = await fetch('/api/keys', { headers: { Accept: 'application/json' } });
+            if (res.ok) {
+                const data = await res.json();
+                this.exchangeAccounts = (data.keys ?? []) as ExchangeAccount[];
+                this.exchangeActiveCount = this.exchangeAccounts.filter((k) => k.is_active).length;
+            }
+        } catch {
+            // tolerate — the panel renders the empty state
+        }
+    }
+    async addExchangeKey() {
+        const draft = this.exchangeFormDraft;
+        try {
+            const res = await fetch('/api/keys', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(draft),
+            });
+            if (res.ok || res.status === 201) {
+                this.exchangeFormDraft = {
+                    exchange: 'Hyperliquid', account_name: '', api_key: '',
+                    api_secret: '', passphrase: '', referred_uid: '', is_active: true,
+                };
+                await this.fetchExchangeKeys();
+                return true;
+            }
+        } catch {
+            // fall through
+        }
+        return false;
+    }
+    async deleteExchangeKey(id: number) {
+        try {
+            const res = await fetch(`/api/keys/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                await this.fetchExchangeKeys();
+                return true;
+            }
+        } catch {
+            // fall through
+        }
+        return false;
+    }
+    async rotateExchangeKeys(newSecret: string): Promise<string> {
+        try {
+            const res = await fetch('/api/keys/rotate', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ new_master_secret: newSecret }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) return data?.message ?? 'Keys rotated';
+            return data?.error ?? 'Rotation failed';
+        } catch {
+            return 'Rotation failed';
+        }
+    }
+    async backupExchangeKeys(passphrase: string): Promise<{ ok: boolean; error?: string; json?: unknown }> {
+        try {
+            const res = await fetch(`/api/keys/backup?passphrase=${encodeURIComponent(passphrase)}`);
+            if (res.ok) {
+                const json = await res.json();
+                return { ok: true, json };
+            }
+            const data = await res.json().catch(() => ({}));
+            return { ok: false, error: data?.error ?? 'Backup failed' };
+        } catch {
+            return { ok: false, error: 'Backup failed' };
+        }
+    }
+    async setInstanceMode(instanceId: string, mode: 'paper' | 'live'): Promise<{ ok: boolean; error?: string }> {
+        try {
+            const res = await fetch(`/api/instances/${instanceId}/mode`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ mode }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) return { ok: true };
+            return { ok: false, error: data?.error ?? data?.message ?? 'Mode switch failed' };
+        } catch {
+            return { ok: false, error: 'Mode switch failed' };
+        }
+    }
 
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');
