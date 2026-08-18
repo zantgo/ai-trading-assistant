@@ -52,13 +52,8 @@ fn not_silent_when_raw_value_nonzero() {
 fn indicator_lifecycle_status_carries_silent_flag() {
     use core_domain::indicator_dtos::{IndicatorLifecycleState, IndicatorLifecycleStatus};
 
-    let live = IndicatorLifecycleStatus::live(
-        200,
-        200,
-        1_700_000_000_000,
-        300,
-        /* silent = */ true,
-    );
+    let live =
+        IndicatorLifecycleStatus::live(200, 200, 1_700_000_000_000, 300, /* silent = */ true);
     assert!(live.silent);
     assert_eq!(live.state, IndicatorLifecycleState::Live);
 

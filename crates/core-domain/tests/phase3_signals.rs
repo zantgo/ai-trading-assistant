@@ -314,3 +314,197 @@ fn magnet_ignores_low_notional_cluster() {
         "tiny cluster should not trigger magnet signal"
     );
 }
+
+#[test]
+fn cluster_pressure_high_direction_follows_canonical_asymmetry_sign() {
+    // Canonical sign interpretation (02-13 §Cascade asymmetry v2.1):
+    // positive asymmetry = more short notional above mid = short squeeze
+    // risk (price likely to rally) = Bullish; negative = long squeeze
+    // risk = Bearish. Regression-locks the AUDIT-V4-029/audit-2026 fix.
+    use core_domain::liquidity::{
+        ClusterKind, LeverageAssumptions, LeverageDistributionSource, LiquidationCluster,
+        LiquidationClusterMatrix,
+    };
+
+    let cluster = |asym: f64, short_cluster: bool| LiquidationClusterMatrix {
+        symbol: "BTC".to_string(),
+        generated_at_ms: 0,
+        valid_until_ms: 0,
+        mid_price: 50_000.0,
+        leverage_assumptions: LeverageAssumptions {
+            buckets: vec![],
+            weights: vec![],
+            funding_modulation_active: false,
+            funding_extreme_pct: 0.0,
+            source: LeverageDistributionSource::DefaultPowerLaw,
+        },
+        short_clusters: if short_cluster {
+            vec![LiquidationCluster {
+                price_low: 50_100.0,
+                price_high: 50_200.0,
+                peak_price: 50_150.0,
+                notional_usd: 2_000_000.0,
+                dominant_leverage: 10,
+                distance_from_mid_pct: 0.3,
+                cluster_kind: ClusterKind::AboveCurrentPrice,
+                magnet_strength: 60.0,
+            }]
+        } else {
+            vec![]
+        },
+        long_clusters: if short_cluster {
+            vec![]
+        } else {
+            vec![LiquidationCluster {
+                price_low: 49_800.0,
+                price_high: 49_900.0,
+                peak_price: 49_850.0,
+                notional_usd: 2_000_000.0,
+                dominant_leverage: 10,
+                distance_from_mid_pct: 0.3,
+                cluster_kind: ClusterKind::BelowCurrentPrice,
+                magnet_strength: 60.0,
+            }]
+        },
+        cascade_asymmetry: asym,
+        total_long_oi_usd: 0.0,
+        total_short_oi_usd: 0.0,
+        estimation_confidence: 0.9,
+    };
+
+    // Positive asymmetry (short squeeze risk) → Bullish.
+    let input = SignalInput {
+        cluster: Some(&cluster(0.6, true)),
+        ..Default::default()
+    };
+    let sigs = derive_liquidity_signals(&input);
+    let pressure: Vec<_> = sigs
+        .iter()
+        .filter(|s| s.kind == LiquiditySignalKind::ClusterPressureHigh)
+        .collect();
+    assert_eq!(pressure.len(), 1, "expected ClusterPressureHigh");
+    assert_eq!(
+        pressure[0].direction,
+        LiquidityDirection::Bullish,
+        "positive asymmetry = short squeeze risk = Bullish"
+    );
+
+    // Negative asymmetry (long squeeze risk) → Bearish.
+    let input = SignalInput {
+        cluster: Some(&cluster(-0.6, false)),
+        ..Default::default()
+    };
+    let sigs = derive_liquidity_signals(&input);
+    let pressure: Vec<_> = sigs
+        .iter()
+        .filter(|s| s.kind == LiquiditySignalKind::ClusterPressureHigh)
+        .collect();
+    assert_eq!(pressure.len(), 1, "expected ClusterPressureHigh");
+    assert_eq!(
+        pressure[0].direction,
+        LiquidityDirection::Bearish,
+        "negative asymmetry = long squeeze risk = Bearish"
+    );
+}
+
+#[test]
+fn magnet_activated_direction_follows_canonical_cluster_semantics() {
+    // Canonical (02-13): an above-mid cluster is a short-liq zone — a rally
+    // into it forces buy-to-cover (short squeeze) = Bullish; a below-mid
+    // long-liq zone drags price down = Bearish. Regression-locks the
+    // MagnetActivated fix (previously inverted).
+    use core_domain::liquidity::{
+        ClusterKind, LeverageAssumptions, LeverageDistributionSource, LiquidationCluster,
+        LiquidationClusterMatrix,
+    };
+
+    let cluster_with = |kind: ClusterKind, notional: f64, dist: f64| LiquidationClusterMatrix {
+        symbol: "BTC".to_string(),
+        generated_at_ms: 0,
+        valid_until_ms: 0,
+        mid_price: 50_000.0,
+        leverage_assumptions: LeverageAssumptions {
+            buckets: vec![],
+            weights: vec![],
+            funding_modulation_active: false,
+            funding_extreme_pct: 0.0,
+            source: LeverageDistributionSource::DefaultPowerLaw,
+        },
+        short_clusters: if matches!(kind, ClusterKind::AboveCurrentPrice) {
+            vec![LiquidationCluster {
+                price_low: 50_100.0,
+                price_high: 50_200.0,
+                peak_price: 50_150.0,
+                notional_usd: notional,
+                dominant_leverage: 10,
+                distance_from_mid_pct: dist,
+                cluster_kind: kind,
+                magnet_strength: 80.0,
+            }]
+        } else {
+            vec![]
+        },
+        long_clusters: if matches!(kind, ClusterKind::BelowCurrentPrice) {
+            vec![LiquidationCluster {
+                price_low: 49_800.0,
+                price_high: 49_900.0,
+                peak_price: 49_850.0,
+                notional_usd: notional,
+                dominant_leverage: 10,
+                distance_from_mid_pct: dist,
+                cluster_kind: kind,
+                magnet_strength: 80.0,
+            }]
+        } else {
+            vec![]
+        },
+        cascade_asymmetry: 0.0,
+        total_long_oi_usd: 0.0,
+        total_short_oi_usd: 0.0,
+        estimation_confidence: 0.9,
+    };
+
+    // Above-mid short-liq zone (short squeeze) → Bullish.
+    let input = SignalInput {
+        cluster: Some(&cluster_with(
+            ClusterKind::AboveCurrentPrice,
+            2_000_000.0,
+            0.3,
+        )),
+        magnet_activation_distance_pct: 0.5,
+        ..Default::default()
+    };
+    let sigs = derive_liquidity_signals(&input);
+    let mag: Vec<_> = sigs
+        .iter()
+        .filter(|s| s.kind == LiquiditySignalKind::MagnetActivated)
+        .collect();
+    assert_eq!(mag.len(), 1, "expected MagnetActivated");
+    assert_eq!(
+        mag[0].direction,
+        LiquidityDirection::Bullish,
+        "above-mid short-liq cluster = short squeeze = Bullish"
+    );
+
+    // Below-mid long-liq zone (long squeeze) → Bearish.
+    let input = SignalInput {
+        cluster: Some(&cluster_with(
+            ClusterKind::BelowCurrentPrice,
+            2_000_000.0,
+            0.3,
+        )),
+        magnet_activation_distance_pct: 0.5,
+        ..Default::default()
+    };
+    let sigs = derive_liquidity_signals(&input);
+    let mag: Vec<_> = sigs
+        .iter()
+        .filter(|s| s.kind == LiquiditySignalKind::MagnetActivated)
+        .collect();
+    assert_eq!(mag.len(), 1, "expected MagnetActivated");
+    assert_eq!(
+        mag[0].direction,
+        LiquidityDirection::Bearish,
+        "below-mid long-liq cluster = long squeeze = Bearish"
+    );
+}

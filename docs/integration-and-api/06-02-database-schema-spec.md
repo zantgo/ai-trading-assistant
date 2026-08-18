@@ -7,7 +7,7 @@
 **This catalog is the current target schema (version per README §Feature Status).** Per-table implementation status is tracked in README §Feature Status.
 **Purpose:** This document specifies the SQLite database schema — all persistent tables, indexes, WAL configuration, and migration strategy for the Trading Platform's shared telemetry store.
 
-**Active tables (26):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)).
+**Active tables (27):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)), **`liquidation_real_buckets`** (Block D — added in v6.10; periodic flush of the in-memory price-bucketed liquidation aggregation, see [02-12-liquidity-matrix.md §5](../matrices/02-12-liquidity-matrix.md)).
 
 **Deferred (forward-compatibility only):** none.
 
@@ -52,9 +52,10 @@ Indexes are created on each table for the query patterns the engine actually use
 
 | Index | Columns | Use |
 |---|---|---|
-| `idx_market_snapshots_pair_time` | `(pair_key, timeframe_secs, timestamp DESC)` | Replay history fetch |
-| `idx_market_snapshots_completed` | `(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1` | MME pipeline (only completed snapshots) |
-| `idx_market_snapshots_reconstructed` | `(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1` | Reconstructed-candle audit |
+| `idx_snapshots_lookup` | `(symbol, timeframe_secs, timestamp DESC)` | Replay history fetch |
+| `idx_snapshots_liquidity_cascade` | `(symbol, timeframe_secs, timestamp DESC) WHERE liquidity_cascade_state IS NOT NULL` | Liquidity cascade queries |
+| `idx_liq_events_lookup` | `(symbol, timestamp DESC)` | Liquidation-event forensics |
+| `idx_liq_events_exchange` | `(exchange, timestamp DESC)` | Venue-level liquidation scans |
 | `idx_open_orders_state` | `(state, instance_id, created_at)` | Live order lifecycle queries |
 | `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
 | `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
@@ -73,61 +74,99 @@ Tables are grouped by ownership. Each entry shows the canonical schema (DDL-styl
 
 ### 3.1 `market_snapshots` — MME telemetry persistence (storage owned by DIE; content produced by MME)
 
-The primary time-series table — one row per completed candle, paired with the rolled-up MME matrix outputs that ride the WS `MarketSnapshot`. Rows are written only for completed candles; the `is_completed` column is retained for forward compatibility with shadow persistence (always `1` today), and the partial index `idx_market_snapshots_completed` is defensive.
+The primary time-series table — one row per completed candle: the candle itself, the indicator state (raw + normalized dual representation), the liquidity / cluster payloads (Phase 0–4), and the full indicator map as an auxiliary JSON blob. Rows are written only for completed candles by the analyzer's telemetry sink (`TelemetryMsg::InsertSnapshot`). The DDL below is the **actual applied schema** (initial migration `20240601000000_initial_schema.sql` + subsequent `ALTER TABLE` migrations `20260704…20260726`); the wire's L2–L6 matrices (`alignment`/`analysis`/`risk`/`advisory`/`opportunity`/`decision_context`/`context`/`statistical_context`/`metrics_config`) are **not persisted** — `query_latest_snapshot` reconstructs those as `None` and they are recomputed live by the MME (see *Persistence boundary* below).
 
 ```sql
 CREATE TABLE IF NOT EXISTS market_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pair_key TEXT NOT NULL,
-    timeframe_secs INTEGER NOT NULL,
+    exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
+    symbol TEXT NOT NULL,
+    timeframe_secs INTEGER NOT NULL DEFAULT 60,
     timestamp INTEGER NOT NULL,
-    is_completed INTEGER NOT NULL DEFAULT 1,
-    exchange TEXT NOT NULL,
     mid_price TEXT NOT NULL,
     bid_price TEXT NOT NULL,
     ask_price TEXT NOT NULL,
-    bid_size TEXT NOT NULL,
-    ask_size TEXT NOT NULL,
-    funding_rate TEXT,
-    open TEXT NOT NULL,
-    high TEXT NOT NULL,
-    low TEXT NOT NULL,
-    close TEXT NOT NULL,
-    volume TEXT NOT NULL,
-    average_volume TEXT,
-    open_interest TEXT,
-    oi_delta_1h TEXT,
-    prev_day_px TEXT,
-    mark_price TEXT,
-    index_price TEXT,
-    mark_index_spread_pct REAL,
-    reconstructed INTEGER NOT NULL DEFAULT 0,
-    reconstruction_method TEXT CHECK (reconstruction_method IS NULL OR reconstruction_method IN ('EXCHANGE_HISTORICAL','EXPONENTIAL_MOVING_AVERAGE','LINEAR_EXTRAPOLATION','UNAVAILABLE')),
-    indicators_json TEXT NOT NULL CHECK (json_valid(indicators_json)),
-    liquidity_json TEXT CHECK (liquidity_json IS NULL OR json_valid(liquidity_json)),
-    cluster_json TEXT CHECK (cluster_json IS NULL OR json_valid(cluster_json)),
-    liquidity_signals_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(liquidity_signals_json)),
-    alignment_json TEXT CHECK (alignment_json IS NULL OR json_valid(alignment_json)),
-    analysis_json TEXT CHECK (analysis_json IS NULL OR json_valid(analysis_json)),
-    risk_json TEXT CHECK (risk_json IS NULL OR json_valid(risk_json)),
-    advisory_json TEXT CHECK (advisory_json IS NULL OR json_valid(advisory_json)),
-    opportunity_json TEXT CHECK (opportunity_json IS NULL OR json_valid(opportunity_json)),
-    metrics_config_json TEXT CHECK (metrics_config_json IS NULL OR json_valid(metrics_config_json)),
-    decision_context_json TEXT CHECK (decision_context_json IS NULL OR json_valid(decision_context_json)),
-    context_json TEXT CHECK (context_json IS NULL OR json_valid(context_json)),
-    statistical_context_json TEXT CHECK (statistical_context_json IS NULL OR json_valid(statistical_context_json)),
-    risk_profile_json TEXT CHECK (risk_profile_json IS NULL OR json_valid(risk_profile_json))
+    open TEXT, high TEXT, low TEXT, close TEXT,
+    volume TEXT, average_volume TEXT,
+    -- raw indicator scalars
+    bb_upper TEXT, bb_middle TEXT, bb_lower TEXT, atr_14 TEXT, vwap TEXT,
+    ema_fast TEXT, ema_medium TEXT, ema_slow TEXT, ema_long TEXT, rsi_14 TEXT,
+    macd_line TEXT, macd_signal TEXT, macd_hist TEXT,
+    adx_14 TEXT, adx_plus TEXT, adx_minus TEXT,
+    squeeze_on INTEGER, squeeze_momentum TEXT, bbwp TEXT,
+    support_levels TEXT, resistance_levels TEXT,
+    -- normalized [-1,1] + state label dual representation (primary scored set)
+    rsi_normalized REAL, rsi_state_label TEXT,
+    macd_normalized REAL, macd_state_label TEXT,
+    squeeze_normalized REAL, squeeze_state_label TEXT,
+    adx_normalized REAL, adx_state_label TEXT,
+    bbwp_normalized REAL, bbwp_state_label TEXT,
+    rvol_normalized REAL, rvol_state_label TEXT,
+    ema_stack_normalized REAL, ema_stack_state_label TEXT,
+    vwap_normalized REAL, vwap_state_label TEXT,
+    -- extended indicator set (phase 1a/1b + stoch/chandemo)
+    stoch_k_normalized REAL, stoch_k_state_label TEXT,
+    stoch_d_normalized REAL, stoch_d_state_label TEXT,
+    chandemo_normalized REAL, chandemo_state_label TEXT,
+    supertrend_normalized REAL, supertrend_state_label TEXT,
+    keltner_normalized REAL, keltner_state_label TEXT,
+    donchian_normalized REAL, donchian_state_label TEXT,
+    obv_normalized REAL, obv_state_label TEXT,
+    cmf_normalized REAL, cmf_state_label TEXT,
+    mfi_normalized REAL, mfi_state_label TEXT,
+    hv_normalized REAL, hv_state_label TEXT,
+    aroon_normalized REAL, aroon_state_label TEXT,
+    choppiness_normalized REAL, choppiness_state_label TEXT,
+    linreg_slope_normalized REAL, linreg_slope_state_label TEXT,
+    zscore_normalized REAL, zscore_state_label TEXT,
+    -- fibonacci resting levels
+    fib_GP_top REAL, fib_GP_bottom REAL, fib_ext_1618 REAL, fib_ext_2618 REAL,
+    -- liquidity intelligence (Phase 0–4, migration 20260726)
+    liquidity_long_usd REAL, liquidity_short_usd REAL, liquidity_net_usd REAL,
+    liquidity_events INTEGER,
+    liquidity_cascade_state TEXT, liquidity_cascade_intensity REAL,
+    cluster_long_count INTEGER, cluster_short_count INTEGER,
+    cluster_total_notional_usd REAL, cluster_estimation_confidence REAL,
+    liquidity_json TEXT, cluster_json TEXT,
+    -- full indicator map (all 52 keys, raw + normalized + labels + signals)
+    auxiliary_normalized_data TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_market_snapshots_pair_time ON market_snapshots(pair_key, timeframe_secs, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_market_snapshots_completed ON market_snapshots(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1;
-CREATE INDEX IF NOT EXISTS idx_market_snapshots_reconstructed ON market_snapshots(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1;
+CREATE INDEX IF NOT EXISTS idx_snapshots_lookup
+    ON market_snapshots (symbol, timeframe_secs, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_liquidity_cascade
+    ON market_snapshots(symbol, timeframe_secs, timestamp DESC)
+    WHERE liquidity_cascade_state IS NOT NULL;
 ```
 
-**Persistence rule.** `market_snapshots` stores the **core candle + MME matrix fields** that are needed for replay and historical backtesting. Fields that are local to the live WS broadcast envelope (e.g. live shadow values that flicker until the next completed candle, the §A.7 `cascade_risk_index` placeholder) are **not persisted** to keep the table tight. The canonical wire contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); live-only fields are computed on the wire and recomputed by the MME during replay. The wire and persistent contracts are deliberately scoped — see `docs/CHANGELOG.md` for the resolution history.
+**Persistence boundary (code truth).** The L2–L6 matrix payloads (`alignment_json`, `analysis_json`, `risk_json`, `advisory_json`, `opportunity_json`, `decision_context_json`, `context_json`, `statistical_context_json`, `metrics_config_json`) and `indicators_json` are **documented-but-not-implemented**: no migration creates them and the INSERT writes neither — earlier revisions of this spec listed those columns; they were never shipped. Matrices are recomputed live by the MME and reconstructed as `None` by `query_latest_snapshot`. Persisted per-candle state covers: OHLCV, book prices, raw + normalized indicator scalars, Fibonacci levels, the `LiquidityFlow` + `LiquidationClusterMatrix` summary scalars and full JSON, and the complete indicator map in `auxiliary_normalized_data`.
+
+**Applied but unwritten columns.** Migration `20260715` adds `mark_price`, `index_price`, `mark_index_spread_pct` (TEXT/REAL) plus `idx_snapshots_mark_price` — the INSERT never writes them (always `None`), so they are omitted from the DDL above; they exist for forward compatibility with price-provenance auditing.
+
+**`liquidation_events` (Phase 1 input log).** Migration `20260715` creates the raw liquidation event log consumed by the L1.5 accumulator:
+
+```sql
+CREATE TABLE IF NOT EXISTS liquidation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    price REAL NOT NULL,
+    size_usd REAL NOT NULL,
+    timestamp INTEGER NOT NULL,
+    venue_order_id TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_liq_events_lookup ON liquidation_events (symbol, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_liq_events_exchange ON liquidation_events (exchange, timestamp DESC);
+```
+
+Retention: 90-day window (pruned by the telemetry logger's retention pass). CA-15 note: when the `[activation]` `liquidation_feed` toggle is disabled, the L1.5 accumulator aggregation stops (`record_event` gated) but raw event persistence here continues unchanged — "MME L1.5 drops the feed; DIE ingestion continues" (see [03-02-12 §CA-15](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)).
+
+**Retention.** The same 7-day window applies to `market_snapshots` (pruned by the telemetry logger's retention pass); the liquidity columns are covered by the same window — no separate cleanup pass.
 
 **Book-state provenance.** `mid_price`, `bid_price`, `ask_price`, and `average_volume` are sourced from the AssetContext/book channels (not from the candle close itself) and may lag the close.
 
-**Liquidity signals serialization.** `liquidity_signals_json` is **always serialized** as a JSON array (never omitted via `skip_serializing_if`). An empty signal set produces `"[]"`. This policy is matched by the live `/ws` payload and by [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md).
+**Liquidity serialization.** `liquidity_json` / `cluster_json` carry the full `LiquidityFlow` / `LiquidationClusterMatrix` payloads for `/api/history` round-trips (chart bootstrap after a daemon restart); the scalar columns above summarise the same state for queryability. The live `/ws` payload carries the same structures inline — see [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md).
 
 ### 3.2 `open_orders` — TAE order lifecycle (canonical vocabulary)
 

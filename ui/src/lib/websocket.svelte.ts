@@ -1,6 +1,7 @@
 import type { AppStore } from '../state.svelte';
 import type { IndicatorDto, IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
 import { getDecimalCount } from './telemetry';
+import { purgeCacheForKey } from './indicatorHistory';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
 
@@ -12,7 +13,8 @@ export const SLOT_TO_WS_KEY: Record<TimeframeSlotKind, WsKey> = {
     macro: 'wsMacro',
 };
 
-const WS_MAX_RETRIES = 30;
+const WS_INITIAL_DELAY_MS = 1000;
+const WS_MAX_DELAY_MS = 30000;
 
 let _globalMsgCount = 0;
 function logWsActivity(symbol: string, slot: string, msgCount: number): void {
@@ -20,8 +22,6 @@ function logWsActivity(symbol: string, slot: string, msgCount: number): void {
         console.log(`[WS-DIAG] ${symbol}/${slot}: message #${msgCount} at ${new Date().toISOString()}`);
     }
 }
-const WS_INITIAL_DELAY_MS = 1000;
-const WS_MAX_DELAY_MS = 30000;
 
 // ─── Multi-tab coordination ────────────────────────────────────────
 //
@@ -49,7 +49,7 @@ interface PairOwnership {
 }
 
 const TAB_ID = Math.random().toString(36).slice(2);
-const PAIR_OWNER_TTL_MS = 15000; // 2 missed heartbeats (7.5 s each) before takeover
+const PAIR_OWNER_TTL_MS = 15000; // 3 missed heartbeats (5 s each) before takeover
 const HEARTBEAT_INTERVAL_MS = 5000;
 
 const crossTabChannel: BroadcastChannel | null = (() => {
@@ -215,6 +215,15 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     const wireSlot = (snapshot as Record<string, unknown>).timeframe_slot;
     if (wireSlot != null && wireSlot !== tf.slot) return;
 
+    // Completed-candle frames carry the full matrix + signal payload and
+    // are the ONLY authority for retiring stale signals. Shadow ticks
+    // (is_completed = false) zero out matrix/divergence/liquidity-signal
+    // payloads for throughput, so preservation branches must apply to
+    // shadow frames only — otherwise a completed frame that legitimately
+    // drops an expired divergence (or an empty liquidity-signal list)
+    // would be re-supplied with stale data forever.
+    const isCompletedFrame = snapshot.is_completed === true;
+
     // Per-key merge: shadow ticks now skip close-only indicators entirely
     // (registry `updates_on_shadow = false`), so a simple spread merge is
     // sufficient to keep the last completed-candle values across live
@@ -234,6 +243,12 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     // at all — which is exactly the shape a shadow tick produces for
     // every divergence-bearing oscillator (RSI/MACD/stochastic/
     // chandemo/obv/cmf/mfi/squeeze).
+    //
+    // Shadow-only (audit fix): a COMPLETED frame is the backend's
+    // authoritative statement that a divergence has ended (signals that
+    // stop firing are simply not re-emitted — there is no "expired"
+    // marker). Preserving on completed frames froze retired divergences
+    // in the UI forever, with age_bars stuck at the last completed value.
     const incoming = (snapshot.indicators && typeof snapshot.indicators === 'object')
         ? (snapshot.indicators as IndicatorMap)
         : null;
@@ -247,7 +262,7 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             const incomingDivergenceSignals = (val.signals ?? []).filter(
                 (s) => s.kind === 'Divergence',
             );
-            if (prevDivergenceSignals.length > 0 && incomingDivergenceSignals.length === 0) {
+            if (!isCompletedFrame && prevDivergenceSignals.length > 0 && incomingDivergenceSignals.length === 0) {
                 const nonDivergenceIncoming = (val.signals ?? []).filter(
                     (s) => s.kind !== 'Divergence',
                 );
@@ -341,7 +356,22 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         tf.volumeProfile = snapshot.volume_profile;
     }
     if (Array.isArray(snapshot.liquidity_signals)) {
-        tf.liquiditySignals = snapshot.liquidity_signals;
+        // Shadow frames always carry an empty list (the backend zeroes the
+        // array on the live path). Reassigning unconditionally wiped the
+        // LiquidityPanel signal list at up to 4 Hz between candle closes.
+        // Completed frames are the authoritative source (empty or not);
+        // shadow frames only overwrite when they actually carry signals.
+        if (snapshot.liquidity_signals.length > 0 || isCompletedFrame) {
+            tf.liquiditySignals = snapshot.liquidity_signals;
+        }
+    } else if (isCompletedFrame) {
+        // Audit fix (M2): serde omits `liquidity_signals` entirely when
+        // the list is empty (`skip_serializing_if = "Vec::is_empty"`), so
+        // the branch above can never observe the authoritative-empty
+        // state. A completed frame WITHOUT the field means "no active
+        // signals" — clear the carried-forward list, otherwise stale
+        // CASCADE_DETECTED rows persisted next to a NONE cascade badge.
+        tf.liquiditySignals = [];
     }
     if (snapshot.indicator_lifecycle && typeof snapshot.indicator_lifecycle === 'object') {
         // Per-key merge of the indicator lifecycle map. The backend always
@@ -461,7 +491,14 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             }
         }
     }
-    } catch (_) {}
+    } catch (err) {
+        // A malformed frame (or an internal bug) must not take down the
+        // stream, but it must not be invisible either — silent swallowing
+        // made every applySnapshotToTimeframe failure undebuggable.
+        if (typeof console !== 'undefined') {
+            console.error(`[ws] applySnapshotToTimeframe failed (${symbol}/${tf.slot})`, err);
+        }
+    }
 }
 
 export function connectWebsocketForTimeframe(
@@ -483,6 +520,15 @@ export function connectWebsocketForTimeframe(
     newWs.onopen = () => {
         const pair = app.instancesMap[symbol];
         if (pair) pair.isConnected = true;
+        // A reconnect (backoff.retries > 0) means the backend rebuilt its
+        // in-memory buffers — the frontend's cached history is stale.
+        // Purge so mounted charts re-fetch `/api/history` from the new
+        // buffer (the fetch is deduplicated per (pair, timeframe) so only
+        // the first caller after the purge actually re-requests).
+        const bo = state.backoff[wsKey];
+        if (bo.retries > 0) {
+            purgeCacheForKey(symbol, tfSecs);
+        }
         state.backoff[wsKey] = freshBackoff();
     };
     newWs.onmessage = (event) => applySnapshotToTimeframe(app, tf, event, symbol);
@@ -492,15 +538,18 @@ export function connectWebsocketForTimeframe(
         if (state[wsKey] === newWs) {
             state[wsKey] = null;
         }
-        const bo = state.backoff[wsKey];
-        state.backoff[wsKey] = nextBackoff(bo);
-        if (bo.retries < WS_MAX_RETRIES) {
-            setTimeout(() => {
-                if (app.instancesMap[symbol]) {
-                    connectWebsocketForTimeframe(app, state, tf, tfSecs, symbol);
-                }
-            }, bo.delayMs);
-        }
+        // Reconnect indefinitely: no attempt cap. A backend restart longer
+        // than the old ~30-attempt budget (~12.5 min) previously left the
+        // charts frozen forever; now the exponential backoff (capped at
+        // WS_MAX_DELAY_MS) keeps retrying until the backend is reachable
+        // again. The pair-removal check below still stops the loop when
+        // the user removes the instance.
+        state.backoff[wsKey] = nextBackoff(state.backoff[wsKey]);
+        setTimeout(() => {
+            if (app.instancesMap[symbol]) {
+                connectWebsocketForTimeframe(app, state, tf, tfSecs, symbol);
+            }
+        }, state.backoff[wsKey].delayMs);
     };
     newWs.onerror = () => { newWs.close(); };
 }
@@ -573,6 +622,21 @@ export function disconnectWsForInstance(wssMap: Record<string, WsState>, symbol:
         ownedPairs.delete(symbol);
         broadcastRelease(symbol);
     }
+    // AUDIT-FE-H2: cancel any pending trailing connect timer so a rapid
+    // navigation burst followed by teardown can't open sockets AFTER the
+    // component unmounted (they had no owner and were never closed).
+    cancelPendingConnect(symbol);
+}
+
+/// AUDIT-FE-H2: cancel the pending trailing connect timer (and forget the
+/// debounce state) for a symbol. Called on teardown and before re-connect.
+export function cancelPendingConnect(symbol: string): void {
+    const trailing = pendingConnectAt.get(`${symbol}:trailing`);
+    if (typeof trailing === 'number') {
+        clearTimeout(trailing);
+    }
+    pendingConnectAt.delete(`${symbol}:trailing`);
+    pendingConnectAt.delete(symbol);
 }
 
 export function shouldReconnect(app: AppStore, state: WsState, symbol: string): boolean {

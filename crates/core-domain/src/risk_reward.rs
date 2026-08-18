@@ -166,7 +166,12 @@ impl NetCostModel {
         if reward_net <= 0.0 || risk_net <= 0.0 {
             0.0
         } else {
-            reward_net / risk_net
+            let ratio = reward_net / risk_net;
+            if ratio.is_finite() {
+                ratio
+            } else {
+                0.0
+            }
         }
     }
 }
@@ -276,11 +281,7 @@ pub fn compute_side_rr_v2(
 /// `prefer_per_profile` controls whether to read the profile-level
 /// `long_/short_expected_rr_internal` (preferred when a top profile is
 /// available) or fall back to the matrix-level per-side fields.
-pub fn active_side_rr(
-    long_rr: f64,
-    short_rr: f64,
-    bias: MacroBias,
-) -> f64 {
+pub fn active_side_rr(long_rr: f64, short_rr: f64, bias: MacroBias) -> f64 {
     match bias {
         MacroBias::StrongBullish | MacroBias::Bullish => long_rr,
         MacroBias::StrongBearish | MacroBias::Bearish => short_rr,
@@ -362,9 +363,13 @@ mod tests {
         // zone — `SlInsideEntry` (which precedes SlAtEntry) is now the
         // effective guard for zero-risk brackets; SlAtEntry remains the
         // defensive fallback for exact-boundary edge cases.
-        let r = compute_side_rr_v2(63000.0, 63100.0, 63200.0, 63300.0, 63050.0004, 63050.0, LONG);
+        let r = compute_side_rr_v2(
+            63000.0, 63100.0, 63200.0, 63300.0, 63050.0004, 63050.0, LONG,
+        );
         assert_eq!(r, SideRrStatus::NoValue(NoValueReason::SlInsideEntry));
-        let r2 = compute_side_rr_v2(63000.0, 63100.0, 63200.0, 63300.0, 63050.0004, 63050.0, SHORT);
+        let r2 = compute_side_rr_v2(
+            63000.0, 63100.0, 63200.0, 63300.0, 63050.0004, 63050.0, SHORT,
+        );
         assert!(matches!(r2, SideRrStatus::NoValue(_)));
     }
 

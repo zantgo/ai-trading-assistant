@@ -12,6 +12,8 @@ pub struct OrderBookAnalysis {
     ask_volume: Option<f64>,
     best_bid: Option<f64>,
     best_ask: Option<f64>,
+    best_bid_size: Option<f64>,
+    best_ask_size: Option<f64>,
     total_bid_depth: Option<f64>,
     total_ask_depth: Option<f64>,
 }
@@ -29,6 +31,8 @@ impl OrderBookAnalysis {
             ask_volume: None,
             best_bid: None,
             best_ask: None,
+            best_bid_size: None,
+            best_ask_size: None,
             total_bid_depth: None,
             total_ask_depth: None,
         }
@@ -45,6 +49,8 @@ impl OrderBookAnalysis {
         self.ask_volume = None;
         self.best_bid = None;
         self.best_ask = None;
+        self.best_bid_size = None;
+        self.best_ask_size = None;
         self.total_bid_depth = None;
         self.total_ask_depth = None;
 
@@ -59,6 +65,10 @@ impl OrderBookAnalysis {
 
         self.best_bid = Some(bid_slice[0].0);
         self.best_ask = Some(ask_slice[0].0);
+        // Top-of-book depth sizes (level 1) — the `bid_size` / `ask_size`
+        // contract fields on the snapshot (02-07 §2.1).
+        self.best_bid_size = Some(bid_slice[0].1);
+        self.best_ask_size = Some(ask_slice[0].1);
 
         let mut bid_total_vol: f64 = 0.0;
         let mut ask_total_vol: f64 = 0.0;
@@ -163,6 +173,8 @@ impl OrderBookAnalysis {
         self.ask_volume = None;
         self.best_bid = None;
         self.best_ask = None;
+        self.best_bid_size = None;
+        self.best_ask_size = None;
         self.total_bid_depth = None;
         self.total_ask_depth = None;
     }
@@ -173,6 +185,16 @@ impl OrderBookAnalysis {
 
     pub fn best_ask(&self) -> Option<f64> {
         self.best_ask
+    }
+
+    /// Top-of-book bid size (level-1 resting quantity).
+    pub fn best_bid_size(&self) -> Option<f64> {
+        self.best_bid_size
+    }
+
+    /// Top-of-book ask size (level-1 resting quantity).
+    pub fn best_ask_size(&self) -> Option<f64> {
+        self.best_ask_size
     }
 }
 

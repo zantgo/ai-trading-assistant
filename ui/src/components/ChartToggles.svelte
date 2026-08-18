@@ -1,8 +1,12 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    // AUDIT-FE-H1: the cluster-refresh status pill was never mounted —
+    // a failing /api/liquidity/cluster-status refresh left the heatmap
+    // silently empty with no explanation.
+    import LiquidityStatusPanel from './LiquidityStatusPanel.svelte';
     import styles from './ChartToggles.module.css';
     const app = useAppStore();
-    let { pairKey }: { pairKey: string } = $props();
+    let { pairKey, symbol }: { pairKey: string; symbol: string } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
 
     function syncAll(fn: (tf: any) => void) {
@@ -214,6 +218,7 @@
     <div class={styles.togglesGroup}>
         <button class="{styles.togglePill} {styles.liqHeatmapPill} {pair.microTerm.showLiqHeatmap ? styles.active : ''}"
             onclick={toggleLiqHeatmap}>LIQ LEVELS</button>
+        <LiquidityStatusPanel symbol={symbol} />
         <button class="{styles.togglePill} {styles.volumeProfilePill} {pair.microTerm.showVolumeProfile ? styles.active : ''}"
             onclick={toggleVolumeProfile}>VOL PROFILE</button>
         <button class="{styles.togglePill} {styles.derivativeRibbonPill} {pair.microTerm.showDerivativeRibbon ? styles.active : ''}"

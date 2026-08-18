@@ -490,7 +490,11 @@ fn assess_execution_risk(
         .and_then(|vals| vals.get("atr_14").copied())
         .unwrap_or(0.0);
     // Spread in raw price units: percentage → `spread / 100 × close`.
-    let spread_price = if close > 0.0 { spread / 100.0 * close } else { 0.0 };
+    let spread_price = if close > 0.0 {
+        spread / 100.0 * close
+    } else {
+        0.0
+    };
     let volatility_to_spread_ratio = if spread_price > 1e-9 && atr_14 > 0.0 {
         Some(atr_14 / spread_price)
     } else {
@@ -688,8 +692,9 @@ pub fn compute_risk(
     let signal_score = signal.score;
     let execution_score = execution.score;
     let cascade_score = cascade.score;
-    let overall = RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence)
-        .with_state(overall_state);
+    let overall =
+        RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence)
+            .with_state(overall_state);
     let market = market.with_state(dim_state(market_score));
     let volatility = volatility.with_state(dim_state(volatility_score));
     let liquidity = liquidity.with_state(dim_state(liquidity_score));
@@ -768,7 +773,17 @@ mod tests {
     fn compute_with_analysis_produces_valid_dimensions() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+        let r = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            0.0,
+            &[],
+            None,
+            &[],
+        );
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
         assert!(
@@ -802,12 +817,30 @@ mod tests {
             ("slow300".to_string(), "NORMAL".to_string(), 58.0),
             ("macro900".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
         ];
-        let risk = compute_risk("BTC-USD", &analysis, &indicators, None, None, 63017.0, &[], None, &tf_volatility);
+        let risk = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            63017.0,
+            &[],
+            None,
+            &tf_volatility,
+        );
         let vol = &risk.volatility_risk;
         // (30 + 15) blended with 0.7×83.25 + 0.3×97.2 = 87.4 → 66.2 → HIGH.
-        assert!(vol.score >= 60.0, "volatility_risk {} must be HIGH with a climax window", vol.score);
+        assert!(
+            vol.score >= 60.0,
+            "volatility_risk {} must be HIGH with a climax window",
+            vol.score
+        );
         let evidence = vol.evidence.join(" ");
-        assert!(evidence.contains("EXPANSION_CLIMAX"), "evidence must list the TF states: {}", evidence);
+        assert!(
+            evidence.contains("EXPANSION_CLIMAX"),
+            "evidence must list the TF states: {}",
+            evidence
+        );
         assert!(evidence.contains("BBWP elevated"));
     }
 
@@ -815,7 +848,17 @@ mod tests {
     fn cascade_risk_does_not_crash_with_zero_inputs() {
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+        let r = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            0.0,
+            &[],
+            None,
+            &[],
+        );
         // Baseline (no flow, no cluster) → score = 30.0
         assert!(
             (r.cascade_risk.score - 30.0).abs() < 1e-9,
@@ -834,7 +877,17 @@ mod tests {
         };
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None, 0.0, &[], None, &[]);
+        let r = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            Some(&flow),
+            None,
+            0.0,
+            &[],
+            None,
+            &[],
+        );
         // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
         assert!(
             r.cascade_risk.score >= 90.0,
@@ -867,7 +920,17 @@ mod tests {
         );
         let analysis = make_analysis_with_timeframes();
         // close = $60_000 → atr_pct = 2.5% → score_mag(2.5, 5.0) = 50
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 60_000.0, &[], None, &[]);
+        let r = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            60_000.0,
+            &[],
+            None,
+            &[],
+        );
         assert!(
             r.volatility_risk.score < 100.0,
             "volatility_risk should not saturate; got {}",
@@ -883,7 +946,17 @@ mod tests {
         // dimension scores is ≈ 1.0 (within ±5%) rather than ≈ 0.90.
         let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+        let r = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            0.0,
+            &[],
+            None,
+            &[],
+        );
         let dims = [
             r.market_risk.score,
             r.volatility_risk.score,
@@ -932,7 +1005,17 @@ mod tests {
         let indicators = HashMap::new();
         // First synthesis (no previous reference) → trend arm is Stable;
         // every sub-60 dimension inherits the overall state.
-        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], None, &[]);
+        let r = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            0.0,
+            &[],
+            None,
+            &[],
+        );
         for dim in [
             &r.market_risk,
             &r.volatility_risk,
@@ -944,7 +1027,10 @@ mod tests {
             &r.cascade_risk,
         ] {
             if dim.score < 60.0 {
-                assert_eq!(dim.state, r.overall_risk.state, "dim state must inherit the overall trend");
+                assert_eq!(
+                    dim.state, r.overall_risk.state,
+                    "dim state must inherit the overall trend"
+                );
             } else if dim.score >= 80.0 {
                 assert_eq!(dim.state, RiskState::Critical);
             } else {
@@ -953,10 +1039,30 @@ mod tests {
         }
         // A strongly bearish previous synthesis (normalized reference far
         // above the current overall) → Improving trend.
-        let r2 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(90.0), &[]);
+        let r2 = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            0.0,
+            &[],
+            Some(90.0),
+            &[],
+        );
         assert_eq!(r2.overall_risk.state, RiskState::Improving);
         // A strongly negative previous synthesis (reference ≈ 5) → Increasing.
-        let r3 = compute_risk("BTC-USD", &analysis, &indicators, None, None, 0.0, &[], Some(-90.0), &[]);
+        let r3 = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            0.0,
+            &[],
+            Some(-90.0),
+            &[],
+        );
         assert_eq!(r3.overall_risk.state, RiskState::Increasing);
     }
 
@@ -998,7 +1104,9 @@ mod tests {
         assert_eq!(dim.score, 40.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(1.25));
         assert!(
-            dim.evidence.iter().any(|e| e.contains("volatility-to-spread")),
+            dim.evidence
+                .iter()
+                .any(|e| e.contains("volatility-to-spread")),
             "evidence must carry the ratio: {:?}",
             dim.evidence
         );
@@ -1044,11 +1152,8 @@ mod tests {
         // ratio must be ≈ 4.22 — NOT 1.5107/0.000568 ≈ 2659 (the legacy
         // percent-vs-price unit bug).
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(
-            &analysis,
-            &execution_indicators(1.5107, 0.000568),
-            63_040.0,
-        );
+        let dim =
+            assess_execution_risk(&analysis, &execution_indicators(1.5107, 0.000568), 63_040.0);
         let ratio = dim.volatility_to_spread_ratio.expect("ratio must compute");
         assert!(
             (ratio - 4.22).abs() < 0.05,
@@ -1068,11 +1173,13 @@ mod tests {
         };
         let json = serde_json::to_string(&dim).unwrap();
         assert!(!json.contains("volatility_to_spread_ratio"));
-        let dim2 = RiskDimension { volatility_to_spread_ratio: Some(7.5), ..dim };
+        let dim2 = RiskDimension {
+            volatility_to_spread_ratio: Some(7.5),
+            ..dim
+        };
         let json2 = serde_json::to_string(&dim2).unwrap();
         assert!(json2.contains("volatility_to_spread_ratio"));
         let back: RiskDimension = serde_json::from_str(&json).unwrap();
         assert_eq!(back.volatility_to_spread_ratio, None);
     }
 }
-

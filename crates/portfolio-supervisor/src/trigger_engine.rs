@@ -50,7 +50,10 @@ impl TriggerEngine {
                 let elapsed = current_time_secs.saturating_sub(last_trigger);
                 elapsed >= *seconds
             }
-            TriggerMode::CandleClose { timeframe: _, count } => {
+            TriggerMode::CandleClose {
+                timeframe: _,
+                count,
+            } => {
                 let counters = self.candle_counters.try_read();
                 counters
                     .map(|c| c.get(timeframe_label).copied().unwrap_or(0) >= *count)

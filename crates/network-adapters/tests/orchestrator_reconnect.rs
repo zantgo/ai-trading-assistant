@@ -53,7 +53,10 @@ fn jitter_stays_within_bounds() {
         }
     }
 
-    assert!(observed_jitter, "expected at least one jittered value different from base");
+    assert!(
+        observed_jitter,
+        "expected at least one jittered value different from base"
+    );
 }
 
 #[test]
@@ -66,10 +69,7 @@ fn jitter_zero_pct_returns_unchanged() {
 
 #[test]
 fn jitter_zero_delay_returns_unchanged() {
-    assert_eq!(
-        apply_jitter(Duration::ZERO, 0.2),
-        Duration::ZERO
-    );
+    assert_eq!(apply_jitter(Duration::ZERO, 0.2), Duration::ZERO);
 }
 
 #[tokio::test]
@@ -129,8 +129,14 @@ async fn permanent_disable_after_5_consecutive_failures() {
         attempts,
     } = &result.final_state
     {
-        assert_eq!(*attempts, 5, "should be permanently disabled after exactly 5 consecutive failures");
-        assert!(!last_error.is_empty(), "failed state should contain an error message");
+        assert_eq!(
+            *attempts, 5,
+            "should be permanently disabled after exactly 5 consecutive failures"
+        );
+        assert!(
+            !last_error.is_empty(),
+            "failed state should contain an error message"
+        );
     } else {
         panic!(
             "expected ReconnectState::Failed after 5 consecutive failures, got {:?}",

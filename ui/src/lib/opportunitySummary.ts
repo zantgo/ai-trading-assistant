@@ -95,7 +95,16 @@ export function buildOpportunitySummary(opportunity: OpportunityMatrix | null | 
  * untouched for the export.
  */
 export function highlightOpportunitySummary(text: string): string {
-    return text
+    // M9 (production audit): escape first (the summary interpolates
+    // backend strings — profile types, quality ratings, horizons), then
+    // wrap keywords — the wrappers are added post-escape so they survive.
+    const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    return escaped
         .replace(/\b(high|strong|moderate|low|uncertain)-conviction\b/gi, '<strong>$&</strong>')
         .replace(/rated ([A-Za-z]+)/g, 'rated <strong>$1</strong>')
         .replace(/strongest scoring (\d+(?:\.\d+)?)/, 'strongest scoring <strong>$1</strong>');

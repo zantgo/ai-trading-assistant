@@ -19,19 +19,16 @@
 
 use std::collections::VecDeque;
 
-use market_analyzer::active_set::ActiveSet;
-use market_analyzer::analyzer::normalize::{
-    build_indicator_map, ExtraDivergence, NormalizeParams,
-};
-use market_analyzer::indicators::{
-    MacdOutput, NormalizationEngine, TrendState, sharpe_ratio_annualized, SHARPE_WINDOW,
-    registry,
-};
-use rust_decimal::Decimal;
 use core_domain::indicator_dtos::{
     DivergenceState, IndicatorLifecycleState, NormalizedIndicatorValue,
 };
+use market_analyzer::active_set::ActiveSet;
+use market_analyzer::analyzer::normalize::{build_indicator_map, ExtraDivergence, NormalizeParams};
 use market_analyzer::indicators::normalized::PreviousBarState;
+use market_analyzer::indicators::{
+    registry, sharpe_ratio_annualized, MacdOutput, NormalizationEngine, TrendState, SHARPE_WINDOW,
+};
+use rust_decimal::Decimal;
 
 const TF_SECS: u64 = 60;
 const WINDOW: usize = SHARPE_WINDOW;
@@ -164,7 +161,11 @@ fn build_params<'a>(
     }
 }
 
-fn lifecycle_state_of(map: &std::collections::HashMap<String, NormalizedIndicatorValue>, key: &str, bar_count: u32) -> String {
+fn lifecycle_state_of(
+    map: &std::collections::HashMap<String, NormalizedIndicatorValue>,
+    key: &str,
+    bar_count: u32,
+) -> String {
     let lc = market_analyzer::analyzer::build_indicator_lifecycle_map(
         map,
         &core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
@@ -243,7 +244,10 @@ fn price_trend_sharpe_present_and_live_at_exactly_300_bars() {
     }
     let price = replay.ratio();
     let price = price.expect("300 closes must yield an annualized Sharpe");
-    assert!(price > 0.0, "uptrend must yield a positive Sharpe, got {price}");
+    assert!(
+        price > 0.0,
+        "uptrend must yield a positive Sharpe, got {price}"
+    );
 
     let macd = macd_output();
     let map = build_indicator_map(
@@ -265,7 +269,11 @@ fn price_trend_sharpe_present_and_live_at_exactly_300_bars() {
     assert!(
         matches!(
             entry.state_label.as_str(),
-            "STRONG_POSITIVE_SHARPE" | "POSITIVE_SHARPE" | "NEGATIVE_SHARPE" | "STRONG_NEGATIVE_SHARPE"
+            "STRONG_POSITIVE_SHARPE"
+                | "POSITIVE_SHARPE"
+                | "NEGATIVE_SHARPE"
+                | "STRONG_NEGATIVE_SHARPE"
+                | "FLAT_SHARPE"
         ),
         "unexpected state label: {}",
         entry.state_label
@@ -331,7 +339,9 @@ fn disabled_price_trend_sharpe_is_absent_via_ca06() {
     }
     let price = replay.ratio();
     let mut active = ActiveSet::all_enabled();
-    active.disabled_indicators.insert("price_trend_sharpe".to_string());
+    active
+        .disabled_indicators
+        .insert("price_trend_sharpe".to_string());
     let macd = macd_output();
     let map = build_indicator_map(
         build_params(&macd, *closes.last().unwrap(), price),
@@ -375,5 +385,16 @@ fn normalizer_is_unaffected_by_registry_growth() {
     let ctx = market_analyzer::indicators::NormalizationContext::default();
     let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
     assert!(map.contains_key("rsi"));
-    assert!(map.contains_key("price_trend_sharpe") == false || map.get("price_trend_sharpe").is_some());
+    // AUDIT-TEST: the old assertion was a tautology
+    // (`contains_key == false || get().is_some()` can never fail).
+    // The real Sharpe value is injected only by `inject_sharpe_ratio`
+    // (build_indicator_map path); `normalize_all` alone can only ever
+    // produce the registry WARMING placeholder for this key.
+    if let Some(entry) = map.get("price_trend_sharpe") {
+        assert_eq!(
+            entry.state_label, "WARMING",
+            "normalize_all must not inject a real Sharpe value"
+        );
+        assert_eq!(entry.raw_value, 0.0);
+    }
 }

@@ -348,7 +348,7 @@ To achieve microsecond-level analytical throughput without sacrificing penny-per
 
 Scope: **DIE ingestion + MME Layers 1–5.**
 
-- Volatile ticks, order-book deltas, and the 51 indicator arrays are packed into cache-aligned, contiguous memory blocks using a **Structure of Arrays (SoA)** layout.
+- Volatile ticks, order-book deltas, and the 52 indicator arrays are packed into cache-aligned, contiguous memory blocks using a **Structure of Arrays (SoA)** layout.
 - Rolling histories live in **pre-allocated arena buffers / object pools**, reclaimed rather than freed, to eliminate heap fragmentation and allocator pauses on the analytical loop.
 - Calculations run on native floating-point primitives so the compiler can **auto-vectorize (SIMD, AVX/SSE)** and drive hardware FPUs directly.
 - Indicator lookup avoids string hashing: the metrics frame is a flat, enum-indexed array (`[IndicatorEvaluation; 51]`) rather than a `HashMap<String, …>`.

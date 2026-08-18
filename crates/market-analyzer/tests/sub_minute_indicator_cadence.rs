@@ -70,7 +70,14 @@ async fn spawn_analyzer_for(
     broadcast_tx: tokio::sync::broadcast::Sender<MarketSnapshot>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    spawn_analyzer_with_warm(duration_seconds, _exchange, event_rx, broadcast_tx, cancel, None)
+    spawn_analyzer_with_warm(
+        duration_seconds,
+        _exchange,
+        event_rx,
+        broadcast_tx,
+        cancel,
+        None,
+    )
 }
 
 /// PRI-03 (v6.10.7): spawn with an optional pre-warmed state (the
@@ -138,9 +145,14 @@ fn spawn_analyzer_with_warm(
             None,
             None,
             500,
+            300,
             Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            Arc::new(RwLock::new(
+                core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+            )),
+            Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
         )
         .await;
     })
@@ -241,8 +253,8 @@ async fn ema_state_advances_every_second_on_sub_minute_tf() {
         let (broadcast_tx, mut broadcast_rx) =
             tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
         let cancel = CancellationToken::new();
-        let _h = spawn_analyzer_for(1, exchange, event_rx, broadcast_tx.clone(), cancel.clone())
-            .await;
+        let _h =
+            spawn_analyzer_for(1, exchange, event_rx, broadcast_tx.clone(), cancel.clone()).await;
 
         // Seed the very first candle at 100.
         event_tx
@@ -320,11 +332,16 @@ async fn ema_state_advances_every_second_on_sub_minute_tf() {
 #[tokio::test]
 async fn one_second_tf_emits_one_completed_per_wall_second_with_zero_trades() {
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
-    let _h = spawn_analyzer_for(1, Exchange::Bitget, event_rx, broadcast_tx.clone(), cancel.clone())
-        .await;
+    let _h = spawn_analyzer_for(
+        1,
+        Exchange::Bitget,
+        event_rx,
+        broadcast_tx.clone(),
+        cancel.clone(),
+    )
+    .await;
 
     // Send a single seed trade, then stop sending. The analyzer must
     // still emit one completed snapshot per wall-clock second.
@@ -372,11 +389,16 @@ async fn one_second_tf_emits_one_completed_per_wall_second_with_zero_trades() {
 #[tokio::test]
 async fn all_indicator_families_advance_on_sub_minute_doji_fills() {
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
-    let _h = spawn_analyzer_for(1, Exchange::Hyperliquid, event_rx, broadcast_tx.clone(), cancel.clone())
-        .await;
+    let _h = spawn_analyzer_for(
+        1,
+        Exchange::Hyperliquid,
+        event_rx,
+        broadcast_tx.clone(),
+        cancel.clone(),
+    )
+    .await;
 
     // Pump 210 one-second buckets with one trade each so the analyzer has
     // 210 completed candles (≥ `bars_required = 200`).
@@ -473,7 +495,9 @@ fn indicator_values_are_per_tf_not_shared_across_tfs() {
     for p in &prices {
         rsi_1s.update(*p);
     }
-    let rsi_1s_value = rsi_1s.update(*prices.last().unwrap()).and_then(|d| d.to_f64());
+    let rsi_1s_value = rsi_1s
+        .update(*prices.last().unwrap())
+        .and_then(|d| d.to_f64());
 
     // Reference RSI on 5s buckets: roll the 100 trades into 20 bars by
     // binning every 5th close into one bar.
@@ -510,11 +534,7 @@ fn sub_minute_bucket_alignment_is_correct_for_ms_timestamps() {
             let ts_ms: u64 = 1_234_567_890_123;
             let expected_bucket = (ts_ms / (tf_secs * 1000)) * (tf_secs * 1000);
 
-            let (_, live) = gen.process_trade(&trade(
-                ts_ms,
-                dec!(42_000),
-                exchange,
-            ));
+            let (_, live) = gen.process_trade(&trade(ts_ms, dec!(42_000), exchange));
             assert_eq!(
                 live.start_time_ms, expected_bucket,
                 "exchange={:?} tf={}s: bucket must be aligned to {}-second epoch, got {}",
@@ -541,11 +561,16 @@ fn sub_minute_bucket_alignment_is_correct_for_ms_timestamps() {
 #[tokio::test]
 async fn sixty_second_tf_indicator_state_advances_per_real_close() {
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
-    let _h = spawn_analyzer_for(60, Exchange::Hyperliquid, event_rx, broadcast_tx.clone(), cancel.clone())
-        .await;
+    let _h = spawn_analyzer_for(
+        60,
+        Exchange::Hyperliquid,
+        event_rx,
+        broadcast_tx.clone(),
+        cancel.clone(),
+    )
+    .await;
 
     // Walk 210 minutes of price action with one trade per minute so each
     // minute's bucket closes via the trade stream (no force-close needed).
@@ -563,7 +588,11 @@ async fn sixty_second_tf_indicator_state_advances_per_real_close() {
         let start_ms = (s as u64) * 60_000 + 30_000; // mid-bucket
         let dec_px = rust_decimal::Decimal::from_f64_retain(px).unwrap();
         event_tx
-            .send(NormalizedEvent::Trade(trade(start_ms, dec_px, Exchange::Hyperliquid)))
+            .send(NormalizedEvent::Trade(trade(
+                start_ms,
+                dec_px,
+                Exchange::Hyperliquid,
+            )))
             .await
             .unwrap();
     }
@@ -643,7 +672,11 @@ async fn ema_lines_appear_at_their_own_periods_on_sub_minute_tf() {
             // debug_assert in `derive_side_zones`).
             let px = rust_decimal::Decimal::from_f64_retain(100.0 + s as f64 * 0.01).unwrap();
             event_tx
-                .send(NormalizedEvent::Trade(trade(base + s * 1000, px, Exchange::Hyperliquid)))
+                .send(NormalizedEvent::Trade(trade(
+                    base + s * 1000,
+                    px,
+                    Exchange::Hyperliquid,
+                )))
                 .await
                 .unwrap();
         }
@@ -714,8 +747,7 @@ async fn ema_lines_appear_at_their_own_periods_on_sub_minute_tf() {
 async fn idle_bucket_heartbeat_fills_quiet_seconds_on_sub_minute_tf() {
     use core_domain::LatencyTracker;
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
     let _h = spawn_analyzer_for(
         1,
@@ -730,7 +762,11 @@ async fn idle_bucket_heartbeat_fills_quiet_seconds_on_sub_minute_tf() {
     let base = LatencyTracker::now_ms();
     let seed_bucket = (base / 1000) * 1000;
     event_tx
-        .send(NormalizedEvent::Trade(trade(seed_bucket + 500, dec!(100), Exchange::Hyperliquid)))
+        .send(NormalizedEvent::Trade(trade(
+            seed_bucket + 500,
+            dec!(100),
+            Exchange::Hyperliquid,
+        )))
         .await
         .unwrap();
 
@@ -780,8 +816,7 @@ async fn idle_bucket_heartbeat_fills_quiet_seconds_on_sub_minute_tf() {
 async fn stale_mid_guard_falls_back_to_last_trade_close() {
     use core_domain::LatencyTracker;
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
     let _h = spawn_analyzer_for(
         1,
@@ -805,7 +840,11 @@ async fn stale_mid_guard_falls_back_to_last_trade_close() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let seed_ts = ((base / 1000) + 3) * 1000 + 500;
     event_tx
-        .send(NormalizedEvent::Trade(trade(seed_ts, dec!(100), Exchange::Hyperliquid)))
+        .send(NormalizedEvent::Trade(trade(
+            seed_ts,
+            dec!(100),
+            Exchange::Hyperliquid,
+        )))
         .await
         .unwrap();
 
@@ -853,8 +892,7 @@ async fn stale_mid_guard_falls_back_to_last_trade_close() {
 async fn force_closed_sub_minute_frames_carry_matrix_payload() {
     use core_domain::LatencyTracker;
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
     let _h = spawn_analyzer_for(
         1,
@@ -1001,11 +1039,11 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
         core_domain::models::TimeframeSlot::Micro,
         500,
         &market_analyzer::active_set::ActiveSet::all_enabled(),
+        Some(core_domain::normalized::Exchange::Hyperliquid),
     );
 
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
     // NOTE: `spawn_analyzer_with_warm` is sync — do NOT `.await` the
     // JoinHandle or the test blocks until the analyzer task ends.
@@ -1022,7 +1060,11 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
     // the next boundary emits the first LIVE completed frame.
     let seed_bucket = (LatencyTracker::now_ms() / 1000) * 1000;
     event_tx
-        .send(NormalizedEvent::Trade(trade(seed_bucket + 500, dec!(100.5), Exchange::Hyperliquid)))
+        .send(NormalizedEvent::Trade(trade(
+            seed_bucket + 500,
+            dec!(100.5),
+            Exchange::Hyperliquid,
+        )))
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(2200)).await;
@@ -1035,7 +1077,12 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
     let live = snaps
         .iter()
         .rev()
-        .find(|s| !s.quality_envelope.as_ref().map(|q| q.is_gap_filled).unwrap_or(false))
+        .find(|s| {
+            !s.quality_envelope
+                .as_ref()
+                .map(|q| q.is_gap_filled)
+                .unwrap_or(false)
+        })
         .expect("at least one real (non-gap-filled) completed snapshot");
     assert_eq!(
         live.pipeline_state,
@@ -1093,8 +1140,7 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
 async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
     use core_domain::LatencyTracker;
     let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let (broadcast_tx, mut broadcast_rx) =
-        tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
+    let (broadcast_tx, mut broadcast_rx) = tokio::sync::broadcast::channel::<MarketSnapshot>(4000);
     let cancel = CancellationToken::new();
     let _h = spawn_analyzer_for(
         1,
@@ -1115,7 +1161,11 @@ async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
         // `derive_side_zones`).
         let px = rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap();
         event_tx
-            .send(NormalizedEvent::Trade(trade(past_bucket + i, px, Exchange::Hyperliquid)))
+            .send(NormalizedEvent::Trade(trade(
+                past_bucket + i,
+                px,
+                Exchange::Hyperliquid,
+            )))
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -1131,7 +1181,12 @@ async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
     );
     let synthetic = snaps
         .iter()
-        .filter(|s| s.quality_envelope.as_ref().map(|q| q.is_gap_filled).unwrap_or(false))
+        .filter(|s| {
+            s.quality_envelope
+                .as_ref()
+                .map(|q| q.is_gap_filled)
+                .unwrap_or(false)
+        })
         .count();
     let real = snaps.len() - synthetic;
     assert!(real >= 2, "expected ≥2 real force-closes, got {real}");
@@ -1145,7 +1200,10 @@ async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
     // candle (PRI-06); its observable effect is that fib/S-R/cluster inputs
     // stay current, covered by the matrix payload on real frames.
     let real_matrix = snaps.iter().find(|s| {
-        !s.quality_envelope.as_ref().map(|q| q.is_gap_filled).unwrap_or(false)
+        !s.quality_envelope
+            .as_ref()
+            .map(|q| q.is_gap_filled)
+            .unwrap_or(false)
             && s.alignment.is_some()
     });
     assert!(

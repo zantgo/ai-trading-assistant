@@ -9,12 +9,7 @@
 //! `AppState`; the underlying task reads the same runtime on every
 //! tick so changes are hot-reloadable.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -25,9 +20,7 @@ use core_domain::snapshot_export::{SnapshotExportRuntime, ALL_TABS};
 
 // ─── GET /api/snapshot-export/status ─────────────────────────────────
 
-pub async fn serve_snapshot_export_status(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn serve_snapshot_export_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let rt = state.snapshot_export.read().await;
     Json(SnapshotExportResponse::from(&*rt)).into_response()
 }

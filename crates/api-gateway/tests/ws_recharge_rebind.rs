@@ -164,7 +164,7 @@ fn build_active_pair_with_channels(
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
         funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-    custom_pipelines: std::collections::HashMap::new(),
+        custom_pipelines: std::collections::HashMap::new(),
         micro: new_pipe(60, "Micro", TimeframeSlot::Micro, micro_bcast.clone()),
         fast: new_pipe(180, "Fast", TimeframeSlot::Fast, fast_bcast.clone()),
         slow: new_pipe(300, "Slow", TimeframeSlot::Slow, slow_bcast.clone()),
@@ -274,7 +274,9 @@ async fn setup_app_with_pair() -> (
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });

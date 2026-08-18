@@ -1,5 +1,5 @@
 use config_models::{
-    Direction, LifecycleState, OrderPacket, OrderStatus, OrderType, OrderSide, Stance,
+    Direction, LifecycleState, OrderPacket, OrderSide, OrderStatus, OrderType, Stance,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -82,7 +82,10 @@ impl ExecutionEngine {
     }
 
     fn build_idempotency_key(&self, trigger: &PolicyTrigger) -> String {
-        format!("{}:{}:{}", trigger.policy_id, trigger.symbol, trigger.trigger_timestamp)
+        format!(
+            "{}:{}:{}",
+            trigger.policy_id, trigger.symbol, trigger.trigger_timestamp
+        )
     }
 
     fn check_and_mark_dedup(&self, key: &str, ttl_secs: u64) -> bool {
@@ -113,13 +116,7 @@ impl ExecutionEngine {
         *self.safety_state.write().await = state.to_string();
     }
 
-    async fn persist_gate_event(
-        &self,
-        symbol: &str,
-        gate_id: u8,
-        decision: &str,
-        reason: &str,
-    ) {
+    async fn persist_gate_event(&self, symbol: &str, gate_id: u8, decision: &str, reason: &str) {
         if let Some(ref pool) = self.pool {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -151,14 +148,23 @@ impl ExecutionEngine {
         );
     }
 
-    pub async fn set_position(&self, symbol: &str, size: Decimal, direction: Direction, entry_price: Decimal) {
+    pub async fn set_position(
+        &self,
+        symbol: &str,
+        size: Decimal,
+        direction: Direction,
+        entry_price: Decimal,
+    ) {
         let mut positions = self.positions.write().await;
         if size > dec!(0) {
-            positions.insert(symbol.to_string(), PositionRecord {
-                size,
-                direction,
-                entry_price,
-            });
+            positions.insert(
+                symbol.to_string(),
+                PositionRecord {
+                    size,
+                    direction,
+                    entry_price,
+                },
+            );
         } else {
             positions.remove(symbol);
         }
@@ -252,34 +258,46 @@ impl ExecutionEngine {
         let final_order = match gate_result {
             crate::execution::gates::GateResult::Approved => order,
             crate::execution::gates::GateResult::Blocked { gate, ref reason } => {
-                self.persist_gate_event(&trigger.symbol, gate, "BLOCKED", reason).await;
+                self.persist_gate_event(&trigger.symbol, gate, "BLOCKED", reason)
+                    .await;
                 return Err(format!("Gate {} blocked: {}", gate, reason));
             }
             crate::execution::gates::GateResult::HeldForReview { gate, ref reason } => {
                 eprintln!("TAE: Gate {} held for review: {}", gate, reason);
-                self.persist_gate_event(&trigger.symbol, gate, "HELD_FOR_REVIEW", reason).await;
+                self.persist_gate_event(&trigger.symbol, gate, "HELD_FOR_REVIEW", reason)
+                    .await;
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs();
                 let mut lifecycle = OrderLifecycle::new(order.clone(), now);
                 lifecycle.status = OrderStatus::PreDispatch;
-                lifecycle.transitions.push(crate::execution::state_machine::OrderTransition {
-                    from: OrderStatus::PreDispatch,
-                    to: OrderStatus::PreDispatch,
-                    timestamp_ms: now * 1000,
-                    metadata: Some(format!("Gate {}: {}", gate, reason)),
-                });
+                lifecycle
+                    .transitions
+                    .push(crate::execution::state_machine::OrderTransition {
+                        from: OrderStatus::PreDispatch,
+                        to: OrderStatus::PreDispatch,
+                        timestamp_ms: now * 1000,
+                        metadata: Some(format!("Gate {}: {}", gate, reason)),
+                    });
                 let client_order_id = lifecycle.packet.client_order_id.clone();
                 let mut orders = self.orders.write().await;
                 orders.insert(client_order_id.clone(), lifecycle);
                 return Ok(Some(client_order_id));
             }
-            crate::execution::gates::GateResult::Clipped { gate, ref reason, adjusted_size } => {
+            crate::execution::gates::GateResult::Clipped {
+                gate,
+                ref reason,
+                adjusted_size,
+            } => {
                 eprintln!("TAE: Gate {} clipped: {}", gate, reason);
-                self.persist_gate_event(&trigger.symbol, gate, "CLIP_AND_CONTINUE", reason).await;
+                self.persist_gate_event(&trigger.symbol, gate, "CLIP_AND_CONTINUE", reason)
+                    .await;
                 if let Some(adjusted) = adjusted_size {
-                    OrderPacket { size: adjusted, ..order.clone() }
+                    OrderPacket {
+                        size: adjusted,
+                        ..order.clone()
+                    }
                 } else {
                     order.clone()
                 }
@@ -311,13 +329,11 @@ impl ExecutionEngine {
         Ok(Some(client_order_id))
     }
 
-    pub async fn dispatch_hard_exit(
-        &self,
-        symbol: &str,
-    ) -> Result<Option<String>, String> {
+    pub async fn dispatch_hard_exit(&self, symbol: &str) -> Result<Option<String>, String> {
         let (pos_size, pos_direction) = {
             let positions = self.positions.read().await;
-            positions.get(symbol)
+            positions
+                .get(symbol)
                 .map(|p| (p.size, p.direction))
                 .unwrap_or((dec!(0), Direction::Long))
         };
@@ -326,8 +342,14 @@ impl ExecutionEngine {
             return Ok(None);
         }
 
-        let client_order_id = format!("hard_exit_{}_{}", symbol, std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+        let client_order_id = format!(
+            "hard_exit_{}_{}",
+            symbol,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        );
 
         // Close side depends on position direction:
         // Long position → Sell to close; Short position → Buy to close
@@ -373,13 +395,18 @@ impl ExecutionEngine {
     }
 
     pub fn open_order_count(&self) -> usize {
-        self.orders.try_read().map(|o| {
-            o.values().filter(|l| {
-                l.status == OrderStatus::Open
-                    || l.status == OrderStatus::Submitted
-                    || l.status == OrderStatus::Pending
-                    || l.status == OrderStatus::PreDispatch
-            }).count()
-        }).unwrap_or(0)
+        self.orders
+            .try_read()
+            .map(|o| {
+                o.values()
+                    .filter(|l| {
+                        l.status == OrderStatus::Open
+                            || l.status == OrderStatus::Submitted
+                            || l.status == OrderStatus::Pending
+                            || l.status == OrderStatus::PreDispatch
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
     }
 }

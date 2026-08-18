@@ -4,13 +4,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use market_analyzer::analyzer;
-use config_models::{IntervalsConfig, SafetyConfig, Stance};
-use crate::safety::SafetyManager;
 use crate::lifecycle::LifecycleManager;
+use crate::safety::SafetyManager;
 use crate::WorkspaceState;
+use config_models::{IntervalsConfig, SafetyConfig, Stance};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
+use market_analyzer::analyzer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstanceStatus {
@@ -206,7 +206,9 @@ impl Instance {
     pub async fn set_initial_capital(&self, capital: f64) {
         self.trading.write().await.initial_capital = capital;
         self.safety
-            .set_initial_capital(rust_decimal::Decimal::from_f64_retain(capital).unwrap_or_default())
+            .set_initial_capital(
+                rust_decimal::Decimal::from_f64_retain(capital).unwrap_or_default(),
+            )
             .await;
     }
 
@@ -222,9 +224,9 @@ impl Instance {
     /// without spinning up a real WS pipeline.
     #[doc(hidden)]
     pub fn new_test(id: String, pair: (String, String), micro: TimeframeBuffers) -> Self {
-        use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
         use core_domain::models::MarketSnapshot;
         use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
+        use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
         use std::collections::VecDeque;
         use std::sync::Arc;
         use tokio::sync::broadcast;
@@ -261,7 +263,10 @@ impl Instance {
             // `cluster_matrix`). Tests don't exercise refresh, so we
             // initialize as Pending with empty fields.
             cluster_status: Arc::new(RwLock::new(
-                core_domain::liquidity::ClusterStatusSnapshot::pending(&format!("{}-{}", pair.0, pair.1), &slot.as_str()),
+                core_domain::liquidity::ClusterStatusSnapshot::pending(
+                    &format!("{}-{}", pair.0, pair.1),
+                    &slot.as_str(),
+                ),
             )),
             pipeline_state: Arc::new(RwLock::new(
                 core_domain::models::CandlePipelineState::Initializing,

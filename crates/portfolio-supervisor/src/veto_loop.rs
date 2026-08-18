@@ -54,8 +54,7 @@ pub fn spawn_veto_loop(
                 let paper_pos = paper_positions.get(&symbol);
                 let positions: Vec<PositionMatrix> = if let Some(pos) = paper_pos {
                     let latest_price_val = inst.latest_price().await.unwrap_or(0.0);
-                    let price_dec =
-                        Decimal::from_f64_retain(latest_price_val).unwrap_or(dec!(0));
+                    let price_dec = Decimal::from_f64_retain(latest_price_val).unwrap_or(dec!(0));
 
                     let direction_str = match pos.direction {
                         config_models::Direction::Long => "Long",
@@ -77,14 +76,12 @@ pub fn spawn_veto_loop(
                     vec![]
                 };
 
-                let exposure =
-                    exposure_layer::compute_exposure_matrix(&positions, equity_dec);
+                let exposure = exposure_layer::compute_exposure_matrix(&positions, equity_dec);
 
                 let cross_leverage = Decimal::from(20u32);
-                let initial_cap = Decimal::from_f64_retain(
-                    inst.trading.read().await.initial_capital,
-                )
-                .unwrap_or(dec!(0));
+                let initial_cap =
+                    Decimal::from_f64_retain(inst.trading.read().await.initial_capital)
+                        .unwrap_or(dec!(0));
                 let capital = capital_layer::compute_capital_matrix(
                     initial_cap,
                     dec!(0),

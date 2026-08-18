@@ -128,17 +128,24 @@
     }
 
     function formatRaw(meta: IndicatorMeta): string {
+        // Audit fix: the WARMING check must run FIRST — a warming `onoff`
+        // entry (e.g. squeeze during warmup) previously short-circuited
+        // into the `ON`/`OFF` branch and rendered a fabricated state.
+        if (isWarmingEntry(meta.key)) return '--';
         if (meta.value_format === 'onoff') {
             return meta.key === 'squeeze'
                 ? (isSqueezeOn(tf.indicators ?? {}) ? 'ON' : 'OFF')
                 : (rawVal(meta) != null ? 'ON' : 'OFF');
         }
-        if (isWarmingEntry(meta.key)) return '--';
         const v = rawVal(meta);
         switch (meta.value_format) {
             case 'percent1':  return v == null ? '--' : `${v.toFixed(1)}%`;
+            case 'percent4':  return v == null ? '--' : `${(v * 100).toFixed(4)}%`;
             case 'price':     return fmtPrice(v, parseFloat(tf.priceText ?? '0') || 0);
-            case 'ratio2':    return (v ?? 1).toFixed(2);
+            // Audit fix: `ratio2` rendered `(v ?? 1).toFixed(2)` — a null
+            // raw value fabricated "1.00" instead of the honest '--' every
+            // other formatter uses.
+            case 'ratio2':    return v == null ? '--' : v.toFixed(2);
             case 'decimals1': return fmt(v, 1);
             case 'decimals4': return fmt(v, 4);
             case 'decimals2':

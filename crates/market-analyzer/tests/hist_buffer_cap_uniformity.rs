@@ -29,7 +29,8 @@ fn cap_constant_is_single_value_for_all_tfs() {
 fn cap_constant_is_publicly_re_exported_from_analyzer() {
     use market_analyzer::analyzer;
     assert_eq!(
-        analyzer::warm::HIST_BUFFER_MAX, 1000,
+        analyzer::warm::HIST_BUFFER_MAX,
+        1000,
         "analyzer::warm::HIST_BUFFER_MAX must be 1000"
     );
 }

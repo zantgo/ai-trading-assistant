@@ -18,7 +18,11 @@ fn build_trade(i: usize) -> NormalizedTrade {
         symbol: "BTC-USD".to_string(),
         price: base_price + tick,
         size: Decimal::new((1000 + (i as i64 % 500)) * 10, 2),
-        side: if i & 1 == 0 { TradeSide::Buy } else { TradeSide::Sell },
+        side: if i & 1 == 0 {
+            TradeSide::Buy
+        } else {
+            TradeSide::Sell
+        },
         timestamp_ms: 1_752_800_000_000 + (i as u64),
         trade_id: format!("0x{:016x}", i),
     }
@@ -28,9 +32,7 @@ fn build_trade(i: usize) -> NormalizedTrade {
 async fn ingest_p95_latency_below_50ms_debug_budget() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<NormalizedEvent>(10_000);
 
-    let drain = tokio::spawn(async move {
-        while rx.recv().await.is_some() {}
-    });
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
 
     let mut durations = Vec::with_capacity(ITERATIONS);
 

@@ -57,22 +57,18 @@ impl ExchangeStatusTracker {
     /// Seed a single exchange into the tracker.
     pub async fn seed_single(&self, name: &str, ws_url: &str) {
         let mut map = self.state.write().await;
-        map.entry(name.to_string()).or_insert_with(|| ExchangeStatus {
-            name: name.to_string(),
-            state: ExchangeConnectionState::Disconnected,
-            active_pairs: 0,
-            last_heartbeat_ms: 0,
-            total_reconnects: 0,
-            ws_url: ws_url.to_string(),
-        });
+        map.entry(name.to_string())
+            .or_insert_with(|| ExchangeStatus {
+                name: name.to_string(),
+                state: ExchangeConnectionState::Disconnected,
+                active_pairs: 0,
+                last_heartbeat_ms: 0,
+                total_reconnects: 0,
+                ws_url: ws_url.to_string(),
+            });
     }
 
-    pub async fn register_exchange(
-        &self,
-        name: &str,
-        active_pairs: u32,
-        ws_url: &str,
-    ) {
+    pub async fn register_exchange(&self, name: &str, active_pairs: u32, ws_url: &str) {
         let mut state = self.state.write().await;
         state.entry(name.to_string()).or_insert(ExchangeStatus {
             name: name.to_string(),

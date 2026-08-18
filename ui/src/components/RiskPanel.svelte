@@ -196,11 +196,14 @@
     }
 
     function cascadeAsymmetryText(asym: number | undefined): string {
+        // v2026-08: display-band parity with LiquidityPanel / metricsTab —
+        // ±0.3 dead-band (the L4/L5 threshold documented in 03-02-11) and
+        // the canonical SHORT_SQUEEZE_RISK / LONG_SQUEEZE_RISK labels.
         if (asym == null || !isFinite(asym)) return '\u2014';
         const pct = (asym * 100).toFixed(1);
-        if (asym > 0) return `\u2191${pct}% (short squeeze)`;
-        if (asym < 0) return `\u2193${pct}% (long cascade)`;
-        return `0.0% (balanced)`;
+        if (asym > 0.3) return `\u2191${pct}% (SHORT_SQUEEZE_RISK)`;
+        if (asym < -0.3) return `\u2193${pct}% (LONG_SQUEEZE_RISK)`;
+        return `0.0% (NEUTRAL)`;
     }
 
     /** v6.10.21: volatility-to-spread band tint mirroring the L5 scoring

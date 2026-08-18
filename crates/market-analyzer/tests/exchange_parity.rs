@@ -30,18 +30,18 @@ use std::collections::HashSet;
 /// divergent one would still produce the same test result, which is
 /// the whole point of the parity contract.
 fn synthetic_derivative_snapshot() -> (
-    Option<f64>,           // oi
-    Option<f64>,           // funding
-    Option<f64>,           // mark_px
-    Option<f64>,           // oi_delta
-    Option<f64>,           // spread_pct
+    Option<f64>, // oi
+    Option<f64>, // funding
+    Option<f64>, // mark_px
+    Option<f64>, // oi_delta
+    Option<f64>, // spread_pct
 ) {
     (
-        Some(65_000_000.0),  // OI in USD notional
-        Some(0.0001),        // 1 bp funding
-        Some(65_000.0),      // mark price
-        Some(150_000.0),     // 1h OI delta (USD)
-        Some(0.05),          // 0.05% mark-index spread
+        Some(65_000_000.0), // OI in USD notional
+        Some(0.0001),       // 1 bp funding
+        Some(65_000.0),     // mark price
+        Some(150_000.0),    // 1h OI delta (USD)
+        Some(0.05),         // 0.05% mark-index spread
     )
 }
 
@@ -169,7 +169,12 @@ fn smc_event_driven_keys_remain_absent_until_first_event() {
     inject_derivatives_indicators(&mut map, oi, funding, oi_delta, mark, spread, None, 0.001);
     inject_orderbook_indicators(&mut map, &synthetic_orderbook(), 0.30);
 
-    for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+    for key in [
+        "smc_structure",
+        "smc_liquidity",
+        "smc_fvg",
+        "smc_order_blocks",
+    ] {
         assert!(
             !map.contains_key(key),
             "{key} (EventDriven) must not be in the map when no event has fired"

@@ -27,6 +27,7 @@ import {
     type HeaderBlock,
 } from './shared';
 import type { LayerHeaderSpec } from '../layerHeader';
+import { demoteBiasForCoverage } from '../layerHeader';
 import {
     computeHeroState,
     pickBestOpportunity,
@@ -421,8 +422,13 @@ function buildAssetRankingRow(
     inst: InstanceState,
     nowMs: number,
     actionableSymbols: Set<string>,
+    assetRanking: AssetRank[] | null = null,
 ): AssetRankingRow | null {
     if (!inst.instanceId) return null;
+    // v2026-08 (M4): one Score definition per column — prefer the canonical
+    // L7 AssetRank score (0.5 × mean_conf + 50), fall back to the local
+    // max qualifying profile score when the backend array is absent.
+    const backendRank = assetRanking?.find((r) => r.symbol === inst.symbol) ?? null;
     const opp = inst.opportunity;
     const adv = inst.advisory;
     const analysis = inst.analysis;
@@ -438,7 +444,9 @@ function buildAssetRankingRow(
     const signal = actionableSymbols.has(inst.symbol) ? signalLabel(guidance) : 'WAIT';
 
     let score = 0;
-    if (opp?.profiles && opp.profiles.length > 0) {
+    if (backendRank != null && Number.isFinite(backendRank.score)) {
+        score = backendRank.score;
+    } else if (opp?.profiles && opp.profiles.length > 0) {
         score = Math.max(...opp.profiles.map((p) => p.score ?? 0));
     } else if (opp?.opportunity_score != null) {
         score = opp.opportunity_score;
@@ -576,7 +584,7 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
         cards: buildCardsBlock(instances, setups, actionable, best, overview),
         market_health: buildMarketHealthBlock(instances, overview),
         regime_distribution: buildRegimeBlock(overview),
-        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, actionableSymbols),
+        asset_rankings: buildAssetRankingsBlock(instances, args.sortKey ?? 'score', args.sortDir ?? 'desc', now, actionableSymbols, overview?.asset_ranking ?? null),
         overview_matrix: overview,
         instance_count: instances.length,
     };
@@ -622,9 +630,24 @@ function buildKpisBlock(
         },
         market_bias: {
             label: 'MARKET BIAS',
-            value: (overview?.global_market_bias ?? 'Neutral').toString(),
+            // I-10 parity: the KPI value demotes exactly like the header
+            // badge and the strip (STRONG_BULLISH → BULLISH under ≤2 pairs)
+            // and the pair-count suffix rides the sublabel.
+            value: (() => {
+                const raw = (overview?.global_market_bias ?? 'NEUTRAL').toString();
+                const lowCoverage =
+                    (overview?.low_coverage ?? false) ||
+                    (overview?.instance_count ?? 0) <= 2;
+                return demoteBiasForCoverage(raw, lowCoverage).displayBias ?? raw;
+            })(),
             sub: overview
-                ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth`
+                ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth${(() => {
+                    const raw = (overview?.global_market_bias ?? 'NEUTRAL').toString();
+                    const lowCoverage =
+                        (overview?.low_coverage ?? false) ||
+                        (overview?.instance_count ?? 0) <= 2;
+                    return demoteBiasForCoverage(raw, lowCoverage, overview?.instance_count ?? null).coverageSuffix;
+                })()}`
                 : 'local aggregation',
         },
         avg_risk: {
@@ -767,10 +790,11 @@ function buildAssetRankingsBlock(
     sortDir: SortDir,
     nowMs: number,
     actionableSymbols: Set<string>,
+    assetRanking: AssetRank[] | null,
 ): OverviewAssetRankingsBlock {
     const rows: AssetRankingRow[] = [];
     for (const inst of instances) {
-        const r = buildAssetRankingRow(inst, nowMs, actionableSymbols);
+        const r = buildAssetRankingRow(inst, nowMs, actionableSymbols, assetRanking);
         if (r) rows.push(r);
     }
     const sorted = sortAssetRankings(rows, sortKey, sortDir);

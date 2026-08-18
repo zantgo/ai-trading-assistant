@@ -2,10 +2,12 @@
 //! Verifies precision preservation, tick quantization, and the spec example
 //! from `docs/engines/trade-automation-engine/03-03-03-tae-layer2-execution.md`.
 
+use portfolio_supervisor::risk_calculator::{
+    compute_risk, compute_risk_with_atr, RiskCalculationInput,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::str::FromStr;
-use portfolio_supervisor::risk_calculator::{compute_risk, compute_risk_with_atr, RiskCalculationInput};
 
 fn input_long_basic() -> RiskCalculationInput {
     RiskCalculationInput {

@@ -1,13 +1,23 @@
 use config_models::{LifecycleState, OrderPacket, Stance};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GateResult {
     Approved,
-    Blocked { gate: u8, reason: String },
-    HeldForReview { gate: u8, reason: String },
-    Clipped { gate: u8, reason: String, adjusted_size: Option<rust_decimal::Decimal> },
+    Blocked {
+        gate: u8,
+        reason: String,
+    },
+    HeldForReview {
+        gate: u8,
+        reason: String,
+    },
+    Clipped {
+        gate: u8,
+        reason: String,
+        adjusted_size: Option<rust_decimal::Decimal>,
+    },
 }
 
 pub fn evaluate_gates(
@@ -92,10 +102,7 @@ pub fn evaluate_gates(
     if margin_usage_ratio >= 0.95 {
         return GateResult::Blocked {
             gate: 3,
-            reason: format!(
-                "Margin usage ratio {:.2} >= 0.95",
-                margin_usage_ratio
-            ),
+            reason: format!("Margin usage ratio {:.2} >= 0.95", margin_usage_ratio),
         };
     }
 
@@ -108,7 +115,9 @@ pub fn evaluate_gates(
                     return GateResult::Clipped {
                         gate: 4,
                         reason: format!("Position size {} exceeds max {}", size_f64, max_usd),
-                        adjusted_size: Some(rust_decimal::Decimal::from_f64_retain(max_usd).unwrap_or(order.size)),
+                        adjusted_size: Some(
+                            rust_decimal::Decimal::from_f64_retain(max_usd).unwrap_or(order.size),
+                        ),
                     };
                 }
             }
@@ -123,10 +132,7 @@ pub fn evaluate_gates(
             if leverage > max_leverage as f64 {
                 return GateResult::Blocked {
                     gate: 4,
-                    reason: format!(
-                        "Leverage {:.2} exceeds max {}",
-                        leverage, max_leverage
-                    ),
+                    reason: format!("Leverage {:.2} exceeds max {}", leverage, max_leverage),
                 };
             }
         }
@@ -204,9 +210,7 @@ fn compute_estimated_slippage(
             let spread = ask - bid;
             let mid = (bid + ask) / Decimal::from(2);
             if mid > Decimal::ZERO {
-                let spread_pct = (spread / mid * Decimal::from(100))
-                    .to_f64()
-                    .unwrap_or(1.0);
+                let spread_pct = (spread / mid * Decimal::from(100)).to_f64().unwrap_or(1.0);
                 let order_size_f64 = order.size.to_f64().unwrap_or(0.0);
                 if order_size_f64 > 0.0 {
                     spread_pct * (1.0 + (order_size_f64 / 100_000.0).min(5.0))
@@ -269,9 +273,17 @@ mod tests {
             &order,
             LifecycleState::LifecyclePaused,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Blocked { gate: 0, .. }));
     }
@@ -283,9 +295,17 @@ mod tests {
             &order,
             LifecycleState::LifecyclePaused,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Approved));
     }
@@ -297,9 +317,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Avoid,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Blocked { gate: 1, .. }));
     }
@@ -311,9 +339,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Avoid,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Approved));
     }
@@ -325,9 +361,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "STAND_ASIDE", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "STAND_ASIDE",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::HeldForReview { gate: 2, .. }));
     }
@@ -339,9 +383,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            100.0, 0.96, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            100.0,
+            0.96,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Blocked { gate: 3, .. }));
     }
@@ -353,9 +405,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            5000.0, 0.5, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            5000.0,
+            0.5,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Approved));
     }
@@ -367,9 +427,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, Some(500.0),
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            Some(500.0),
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Clipped { gate: 4, .. }));
     }
@@ -381,10 +449,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.01,
-            20, None,
-            Some(dec!(49950)), Some(dec!(50050)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.01,
+            20,
+            None,
+            Some(dec!(49950)),
+            Some(dec!(50050)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::HeldForReview { gate: 5, .. }));
     }
@@ -396,10 +471,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5,
-            20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Approved));
     }
@@ -411,9 +493,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Blocked { gate: 6, .. }));
     }
@@ -425,9 +515,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Approved));
     }
@@ -439,9 +537,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "DRAWDOWN_STOP",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "DRAWDOWN_STOP",
         );
         assert!(matches!(result, GateResult::Blocked { gate: 7, .. }));
     }
@@ -453,9 +559,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "SUSPENDED",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "SUSPENDED",
         );
         assert!(matches!(result, GateResult::Blocked { gate: 7, .. }));
     }
@@ -467,11 +581,57 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_gate7_receives_safety_state_as_str() {
+        // Audit regression (M1): the daemon previously forwarded
+        // `format!("{:?}", state)` (PascalCase "DrawdownStop"), which Gate 7
+        // never matched — the direct safety-state guard was dead code. The
+        // canonical `SafetyState::as_str()` (SCREAMING_SNAKE) must feed the
+        // gate and block.
+        use core_domain::portfolio::SafetyState;
+        let order = make_order(false, false, dec!(1));
+        for state in [SafetyState::DrawdownStop, SafetyState::Suspended] {
+            let result = evaluate_gates(
+                &order,
+                LifecycleState::Running,
+                Stance::Active,
+                10000.0,
+                0.1,
+                "READY",
+                0.5,
+                20,
+                None,
+                Some(dec!(49999)),
+                Some(dec!(50001)),
+                0,
+                10000.0,
+                state.as_str(),
+            );
+            assert!(
+                matches!(result, GateResult::Blocked { gate: 7, .. }),
+                "Gate 7 must block on {} (as_str = {})",
+                state.as_str(),
+                state.as_str(),
+            );
+        }
+        // The Debug spelling must NOT be what the gate consumes — pin that
+        // the canonical wire form differs from `{:?}`.
+        assert_ne!(format!("{:?}", SafetyState::DrawdownStop), "DRAWDOWN_STOP");
     }
 
     #[test]
@@ -481,9 +641,17 @@ mod tests {
             &order,
             LifecycleState::Running,
             Stance::Active,
-            10000.0, 0.1, "READY", 0.5, 20, None,
-            Some(dec!(49999)), Some(dec!(50001)),
-            0, 10000.0, "NORMAL",
+            10000.0,
+            0.1,
+            "READY",
+            0.5,
+            20,
+            None,
+            Some(dec!(49999)),
+            Some(dec!(50001)),
+            0,
+            10000.0,
+            "NORMAL",
         );
         assert_eq!(result, GateResult::Approved);
     }

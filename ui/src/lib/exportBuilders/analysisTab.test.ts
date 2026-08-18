@@ -18,22 +18,22 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     bias: 'StrongBullish',
     confidence: 0.78,
     state_confidence: 0.78,
-    market_regime: 'TRENDING_BULL',
+    market_regime: 'TrendingBull',
     market_quality: 'Good',
-    market_phase: 'MARK_UP',
+    market_phase: 'Markup',
     timeframes_considered: 4,
     supporting_signals: [
-      'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
-      'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
+      'MICRO (bullish): score +35, TRENDING regime, 3 signals',
+      'FAST (bullish): score +25, TRENDING regime, 2 signals',
     ],
     contradicting_signals: [
-      'SLOW (bearish): score -30, RANGING regime, 1 signal',
+      'SLOW (bearish): score -30, RANGE regime, 1 signal',
     ],
-    trend_assessment: 'Trending',
-    momentum_assessment: 'Strong Bullish',
-    structure_assessment: 'Breakout',
+    trend_assessment: 'Developing',
+    momentum_assessment: 'Increasing',
+    structure_assessment: 'Healthy',
     volatility_assessment: 'Expanding',
-    volume_assessment: 'Increasing',
+    volume_assessment: 'Strong',
     market_interpretation: 'Market is in a strong bullish phase.',
     rationale: 'Composite confluence score 78.',
     ...overrides,
@@ -52,7 +52,7 @@ function makeAlignment(): AlignmentMatrix {
     mtf_volume_alignment: 0.1,
     mtf_volatility_alignment: 0.2,
     timeframe_alignments: [
-      { timeframe: 'MICRO', trend_score: 0.42, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING_BULL', active_signals: 5 },
+      { timeframe: 'MICRO', trend_score: 0.42, momentum_score: 0.3, overall_score: 1.0, regime: 'TRENDING', active_signals: 5 },
       { timeframe: 'FAST', trend_score: 0.5, momentum_score: 0.2, overall_score: 0.7, regime: 'EXPANSION', active_signals: 3 },
     ],
   } as unknown as AlignmentMatrix;
@@ -70,6 +70,36 @@ describe('buildAnalysisTabExport', () => {
     expect(p.header.layer_name).toBe('Analysis');
     expect(p.body.bias).toBe('Strong Bullish');
     expect(p.body.confidence_pct).toBe(78);
+  });
+
+  it('key_metrics mirrors the panel KEY METRICS row (audit C2 parity)', () => {
+    const p = JSON.parse(buildAnalysisTabExport({
+      analysis: makeAnalysis(),
+      alignment: makeAlignment(),
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(p.key_metrics).toEqual({
+      mtf_overall_score: 75,
+      trend_agreement_pct: 75,
+      timeframes_present: 4,
+      signal_cross_tf_count: 3,
+    });
+    // Analysis fallback for the timeframe count when alignment is absent.
+    const noAlignment = JSON.parse(buildAnalysisTabExport({
+      analysis: makeAnalysis(),
+      alignment: null,
+      symbol: 'BTC-USDT',
+      markPrice: 63390,
+      headerSpec,
+    }));
+    expect(noAlignment.key_metrics).toEqual({
+      mtf_overall_score: null,
+      trend_agreement_pct: null,
+      timeframes_present: 4,
+      signal_cross_tf_count: null,
+    });
   });
 
   it('signal_lean_hero is emitted with raw percentage numbers', () => {
@@ -99,7 +129,7 @@ describe('buildAnalysisTabExport', () => {
     expect(supporting[0].score).toBe(35);
     expect(supporting[0].score_display).toBe('+35');
     expect(supporting[0].timeframe).toBe('MICRO');
-    expect(supporting[0].regime).toBe('TRENDING_BULL');
+    expect(supporting[0].regime).toBe('TRENDING');
     expect(supporting[0].signals_count).toBe(3);
   });
 
@@ -129,7 +159,7 @@ describe('buildAnalysisTabExport', () => {
       markPrice: 63390,
       headerSpec,
     }));
-    expect(p.qualitative_assessment.cycle_phase).toBe('MARK UP');
+    expect(p.qualitative_assessment.cycle_phase).toBe('MARKUP');
   });
 
   it('v6.14: qualitative_assessment no longer carries the trend-stability Sharpe', () => {
@@ -186,8 +216,8 @@ describe('buildAnalysisTabExport', () => {
   it('split-tone hero label matches the screen ("Split signals", no parenthetical)', () => {
     const split = {
       ...makeAnalysis(),
-      supporting_signals: ['MICRO (bullish): score +35, TRENDING_BULL regime, 1 signal'],
-      contradicting_signals: ['SLOW (bearish): score -30, RANGING regime, 1 signal'],
+      supporting_signals: ['MICRO (bullish): score +35, TRENDING regime, 1 signal'],
+      contradicting_signals: ['SLOW (bearish): score -30, RANGE regime, 1 signal'],
     };
     const p = JSON.parse(buildAnalysisTabExport({
       analysis: split,
@@ -291,7 +321,7 @@ describe('buildAnalysisTabExport', () => {
       analysis: {
         ...makeAnalysis(),
         supporting_signals: ['MICRO (neutral): score +0, RANGE regime, 0 signals'],
-        contradicting_signals: ['FAST (neutral): score +0, RANGING regime, 0 signals'],
+        contradicting_signals: ['FAST (neutral): score +0, RANGE regime, 0 signals'],
       } as unknown as AnalysisMatrix,
       alignment: makeAlignment(),
       symbol: 'BTC-USDT',
@@ -325,9 +355,9 @@ describe('buildAnalysisTabExport', () => {
       analysis: {
         ...makeAnalysis(),
         supporting_signals: [
-          'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
-          'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
-          'SLOW (bullish): score +15, TRENDING_BULL regime, 1 signal',
+          'MICRO (bullish): score +35, TRENDING regime, 3 signals',
+          'FAST (bullish): score +25, TRENDING regime, 2 signals',
+          'SLOW (bullish): score +15, TRENDING regime, 1 signal',
         ],
         contradicting_signals: [],
       } as unknown as AnalysisMatrix,

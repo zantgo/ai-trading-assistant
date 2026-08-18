@@ -2,9 +2,7 @@ import type {
     DecisionProfile, DecisionScore, RiskProfile, RiskCalculation,
     FeeTableRow, CommissionProjection, ExchangeAccount,
     DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    ScaleInPortion, TakeProfitTarget, UserTrade,
-    SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
-    OpenOrder, SlotState, PositionSlot, EquitySnapshot,
+    OpenOrder, SlotState,
     OverviewMatrix,
 } from './types';
 
@@ -37,25 +35,11 @@ declare module './state.svelte' {
         exchangeMaxAccounts: number;
         exchangeFormDraft: { exchange: string; account_name: string; api_key: string; api_secret: string; passphrase: string; referred_uid: string; is_active: boolean };
 
-        paperCashBalance: number; paperInitialUSD: number; paperAllocationPct: number;
-        paperAutoExecute: boolean; activePaperPosition: Record<string, unknown> | null;
-        paperUnrealizedPnl: number; paperUnrealizedRoi: number;
-        paperTotalAccountValue: number; paperMarginUsed: number; paperMaxTrades: number;
-        paperActiveTrades: number; paperAvailableTrades: number;
-        paperHistory: Record<string, unknown>[]; paperLoading: boolean;
-        paperScaleInPortions: ScaleInPortion[]; paperTakeProfitTargets: TakeProfitTarget[];
-        paperAvgEntryPrice: number; paperInvalidationLevel: number;
-        paperFilledPortions: number; paperMaxRiskPct: number; paperLeverage: number;
-        paperAutoExecuteIntervals: number; paperLookbackTrades: number;
-        paperPositionPct: number; paperFreeBalancePct: number; paperDirection: 'LONG' | 'SHORT' | '';
         openOrders: OpenOrder[];
         activePlan: Record<string, unknown> | null;
         activeConsoleOpen: boolean;
         activeConsoleTab: 'positions' | 'orders' | 'history' | 'plan';
-        activeSlots: SlotState[]; positionSlots: PositionSlot[];
-        equitySnapshots: EquitySnapshot[];
-        paperInitialAllocatedMargin: number;
-        paperRealizedPnlAccumulator: number;
+        activeSlots: SlotState[];
         paperBreakEvenTrailEnabled: boolean;
 
         apiKeyConfigured: boolean; rulesContent: string;
@@ -65,12 +49,9 @@ declare module './state.svelte' {
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
 
-        dashboardStats: DashboardStats | null; dashboardActiveFilter: string;
+        dashboardStats: DashboardStats | null;
         dashboardPeriod: string; dashboardOrigin: string;
         tradeLedgerRecords: TradeLedgerRecord[]; tradeJournalRecords: TradeJournalRecord[];
-        journalLookbackDepth: number; systemHeartbeat: SystemHeartbeat | null;
-        recentDecisions: DecisionMemoryRow[]; completedTrades: CompletedTradesRow[];
-        userTrades: UserTrade[];
 
         overviewMatrix: OverviewMatrix | null;
         fetchOverview(): Promise<void>;

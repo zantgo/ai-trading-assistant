@@ -6,6 +6,106 @@
 
 
 
+## Unreleased (2026-08-17) — MME coherence audit sweep
+
+**Backend + UI + docs.** MME coherence audit sweep (2026-08): fix cascade_asymmetry sign interpretation (positive = SHORT_SQUEEZE_RISK) across liquidity signal derivation, LiquidityPanel and metrics export; make POST /api/config accept the GET response body (partial merge) and implement the real [api_failover] config consumed by the HL derivatives poller; fix per-instance config application on load (instances is an array); fix LIQUIDITY_VACUUM dead signal (depth_bias key); drop WARMING placeholder zeros from /api/history; emit real order-book mid + top-of-book depth sizes; NaN-hardening in market-context synthesis + cluster confidence; infinite WS reconnect + history cache purge on reconnect; DerivativeRibbon depth-bias classification fix; side-resolved gross R:R export; snapshot-export slot/timeframe fixes; funding display unit fixes (percent4 format); enum-casing alignment of frontend comparisons (MarketRegime/MarketPhase/AlignState/GlobalBias wire formats).
+
+### Full MME audit pass (2026-08-17, second sweep)
+
+**Critical backend / contract fixes**
+- TAE policy evaluator (`portfolio-supervisor/src/policy/evaluator.rs`): `decision.bias` numeric conditions matched SCREAMING_SNAKE never seen on the wire — every bias condition degraded to Neutral (2.0). Now matches the PascalCase wire values; `analysis.market_regime` string resolution aligned to the PascalCase wire; `decision.confidence_assessment` now maps to `AdvisoryMatrix.confidence_assessment` and `decision.score_confidence` added. TAE docs `03-03-02` / `03-03-04` rewritten to the wire-casing contract.
+- Configurable activation (CA-01…CA-15, AUDIT-V6-208…214): `ActiveSet::from_config` wired into `build_pipelines` (global `[activation]` + per-instance union + `config_version`); `[liquidity]` sub-toggles honored — `liquidation_feed` gates the L1.5 accumulator, `cluster_estimation` gates the L2.5 refresh spawn, `signals` gates LiquiditySignal emission, master `enabled=false` absents `liquidity`/`cluster`/`liquidity_signals` from the snapshot. End-to-end tests in `crates/market-analyzer/tests/activation_wiring.rs`.
+- Gate 7 (execution-daemon): safety state forwarded via `SafetyState::as_str()` (SCREAMING_SNAKE) instead of `{:?}` PascalCase — the direct `DRAWDOWN_STOP`/`SUSPENDED` guard now fires.
+- `GET /api/rules` now serves `docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md` (was a nonexistent `docs/indicators-guide.md` — permanent 404). Path pinned by a test.
+- Config validation: `InstanceEntry.custom_pipelines` (configured-but-unimplemented custom slots) now fails fast at load with a clear error instead of being silently ignored.
+
+**Frontend fixes**
+- `LevelsView`: liquidation-magnet `distance_from_mid_pct` rendered 100× inflated (0.6 → "60.00%") — fixed to the wire's absolute-percentage semantics.
+- `websocket.svelte.ts`: divergence-signal carry-forward now applies to shadow frames only (completed frames authoritatively expire divergences — stale divergences no longer live forever with frozen `age_bars`); `liquidity_signals` no longer wiped to `[]` on every shadow tick (completed frames remain authoritative); per-handler errors are logged instead of silently swallowed.
+- `OpportunitiesPanel`: `TOP · ACTIONABLE` badge index now derived from the final viability-tier-sorted order (mixed-tier setups no longer flag the wrong card; screen matches the export).
+- `RecommendationPanel`: Risk-Adjusted R:R KPI color now derived from the displayed (fallback) value; removed dead `dangerState`.
+- `IndicatorsView`: WARMING check runs before the `onoff` branch; `ratio2` renders `--` for null (was fabricated "1.00").
+- `AlignmentPanel`: dead underscore-variant branches cleaned.
+
+**Docs adapted to code (code is the source of truth)**
+- `06-02-database-schema-spec.md` §3.1: `market_snapshots` DDL rewritten to the real applied schema (95 columns); the documented-but-absent matrix JSON columns (`alignment_json`…`metrics_config_json`, `indicators_json`, `pair_key`, `is_completed`, `reconstructed`) removed; persistence boundary stated honestly (L2–L6 matrices are not persisted; `query_latest_snapshot` reconstructs `None`).
+- Liquidity cross-engine flow (`03-02-11`, `01-05`): restated to the actual mechanism — user-authored policy conditions on `opportunity.primary_opportunity`; no built-in CLOSE_ONLY stance from `LiquiditySqueeze`; `cascade_risk`/`liquidity_signals` are frontend-consumed only; built-in TAE/PME cascade consumers tracked in ROADMAP.
+- `AnalysisMatrix.confidence` duplicate mirror acknowledged in `01-01` / `02-00b` (no longer claimed "no backwards-compat alias").
+- Overview `instance_count`/`active_symbols` "invariant" corrected to code reality (coincide in single-instance-per-symbol deployments; not code-enforced).
+- Signals counts: `05-02-00` refreshed to 101 declarations / 52 parent indicators; the 11 per-indicator spec tables aligned to the registry `signal_types` manifest with explicit runtime-deriver annotations (`bbwp`, `squeeze`, `aroon`, `stochastic`, `mfi`, `macd`, `volume_profile`, `smc_liquidity`, `obv`, `cmf`, `linreg_slope`).
+- `03-02-15` §4 `bars_required` table rewritten from the registry (all 52 entries; ema_stack 1 per AUDIT-V8-001).
+- Stale "50/51 indicators" → 52 across 6 crate doc comments + 3 docs; README matrices count 15 → 17; `03-02-13` bins default 50 → 100; systemic-risk row points to the P7 TF-decay note.
+### Full MME audit pass (2026-08-17, fourth sweep — production deployment blockers)
+
+**Security (K1)**
+- CORS locked from `allow_origin(Any)` to the dashboard's own origins (`http://127.0.0.1:3000` + localhost/Vite-dev variants); new outermost `reject_cross_site` middleware refuses any request whose `Sec-Fetch-Site` is `cross-site` or whose `Origin` is foreign (browser-based attackers previously had full read/write control of the unauthenticated API: config.toml rewrite, instance lifecycle, safety-veto release, live_trading mode).
+- `/ws` hardened: cross-site upgrades refused, connection cap (64 concurrent), unknown-pair sockets close after 10 s instead of hanging forever.
+- `POST /api/rules` is now read-only (405) — it previously overwrote the git-tracked indicators guide with arbitrary content.
+
+**Shutdown (K2 + K4)**
+- `[clock_monitor] breach_action = "panic"` now terminates the process (`std::process::exit(1)`) — the previous `panic!` inside the spawned monitor task was discarded by `join_all`, so the configured hard-stop was a no-op and drift enforcement died silently.
+- Graceful shutdown on SIGINT/SIGTERM: cancels every pipeline, lets the SQLite logger drain the telemetry queue (~2 s), then exits cleanly. Previously the process was killed abruptly — up to 10k queued messages and the WAL tail were lost.
+
+**Outage recovery (K3 + M2)**
+- Gap recovery raised 60 → 500 bars (≈8 h at 1 m TF) in the analyzer AND 60 → 1000 in `/api/history` — outages longer than an hour no longer leave permanent chart/DB holes.
+- Reconstructed candles (doji-fill, idle-heartbeat, gap-fill) are now persisted to `market_snapshots` with a new `reconstructed` provenance column (migration `20260818000000`); `query_recent_candles` maps the column back so restarts and the history DB fallback keep provenance.
+- Telemetry sends switched to a bounded drop policy (`try_send` + drop counter, logged) — a slow SQLite logger can no longer freeze the MME analysis/WS pipeline via awaited sends.
+
+**Config truth (M1/M8)**
+- `[quality]` added to the shipped config.toml (median spike filter previously shipped DISABLED).
+- `cluster_refresh_secs` 300 → 0 (per-TF candle cadence — the shipped 300 s made every LIQ HEATMAP 5× staler than documented).
+- Config validation rejects zero-valued `duration_seconds` / `rsi_period` / MACD periods / `median_window_size` at boot (`InvalidNumeric`) + defensive clamp in `MedianPriceFilter`.
+- Dead config keys removed from config.toml (MACD/squeeze/ATR/macd-threshold keys hardcoded in calculators; the `[workspace.opportunity_matrix]` section; the `[liquidity]` sub-toggle duplicates); false doc comments in `config-models` corrected (`opportunity_matrix` consultation, `[order_book]` overridability).
+- Docs aligned: clock budget 10 ms default (was 50 µs/100 µs claims), LIVE floor `max(size/10, 50)` (was "full size"), `sub_minute_skip_historical` default false, 08-04 fictional `[adapters.ema_window]`/`gap_threshold_secs` config claims removed.
+
+**Ops + resilience (M4/M5/M7/M9/M10)**
+- manage.sh: background start builds then execs the binary directly (PID file now records the daemon, not the cargo wrapper — no more orphaned daemons / bind panics); stop waits 10 s for the graceful shutdown then SIGKILLs; check_status exits 1 when stopped; engine.log rotates at 50 MB (3 kept).
+- `connection_quality_samples` pruned on the 30-day rolling window (previously unbounded).
+- Instance boot: paused/stopped instances are no longer force-started; failed spawns retry every 30 s for ~10 minutes (previously a boot-time network blip left an empty deployment).
+- XSS hardening: the two `{@html}` sinks (`highlightKeywords`, `highlightOpportunitySummary`) HTML-escape backend-sourced text before keyword wrapping (+ regression tests).
+- `risk_control_events` table created (migration `20260818000001`) — the veto loop and gate chain had INSERTed into a nonexistent table since v4.0, silently dropping every veto/gate audit record.
+- AUDIT-V7-330…334 marked shipped; AUDIT-V6-208…210 marked shipped, V6-211 cancelled (not a persistence concern), V6-212…214 remain open with scope notes.
+
+### Full MME audit pass (2026-08-17, third sweep — export parity + Overview)
+
+**Critical fixes**
+- Overview `InstanceMeta.symbol` fed the QUOTE currency (`inst.pair.1` = "USDT") — `risk_distribution` (always 0/100/0), `risk_environment` (always HIGH_RISK), `AssetRank.risk_level` (always MODERATE), `active_symbols` (quote leak) and `low_coverage` (2-symbol case) were all corrupted. Now `inst.symbol()`; pinned by two core-domain tests (`risk_data_binds_when_meta_symbol_matches_advisory_symbol`, `mismatched_meta_symbol_leaks_quote_into_active_symbols`).
+- Export parity: `AnalysisPayload` gained `key_metrics` (Overall Score / Timeframe Agreement / Total Signals — the panel's KEY METRICS row); `OpportunityPayload` gained `confluent_rr` (the per-side Expected R:R section); MTF payload gained `cross_tf_tables` (per-TF signal tallies, divergence cells, level chips — the three screen tables) and the WARMING/gated cells now report `active:false` / `warming` / `gated` instead of fabricating 0.0 readings; `trade_setups[].rank_idx` remapped post-viability-sort (screen/export drift, the M7 class).
+- `meta.timesframes` typo renamed to `meta.timeframes` (all consumers + pinned test updated).
+
+**Major fixes**
+- DerivativeRibbon feed status: `Date.now()` (ms) vs wire epoch-seconds timestamp made every badge permanently STALE — status is now computed in seconds; 3 component tests.
+- `liquidity_signals` can never clear: serde omits the empty array, so a completed frame WITHOUT the field is now the authoritative empty state (clears the carried-forward list). The regression fixture was corrected to the serde-realistic shape.
+- WS handler: slot-less / custom-slot connections no longer panic (`expect` on `None`) — they fall back to the micro channel (best-effort per 06-01 §3.1).
+- Overview `is_active` now excludes lifecycle-STOPPED/STOPPING instances (was `!cancel` only) — `LifecycleManager::current()` getter added.
+- Scheduler tab labels made honest: scheduled exports are server-side raw serde dumps, not UI-builder shapes.
+- `types.ts`: `MarketSnapshot.volume_profile` added (was consumed but untyped); `IndicatorLifecycleStatus.bars_seen_real` (PRI-12) added.
+
+**Docs adapted**
+- 06-01: Overview described as WS-only → REST `/api/overview` (with `low_coverage` top-level, not nested); `/reload`, `/activation`, `/orders/:id/override-readiness`, `/pre-dispatch/*`, `/keys/*` marked "specified but not yet registered" (return 404); `/instances/:id/portfolio` + `/safety` moved out of the planned table (they ARE served); session `active`/quit-200 drift corrected; `/api/liquidity/cluster-status` documented; `/api/analytics` catch-all corrected to not-registered.
+- 03-02-02: phantom `pending_candle` wire property removed from the shadow-path description; `metrics_config` claim scoped to completed frames; "51 technical calculators" → 52.
+- 06-02: `mark_price`/`index_price`/`mark_index_spread_pct` applied-but-unwritten columns noted; `liquidation_events` schema documented; `liquidation_real_buckets` added to the table inventory (27 tables).
+
+**Third sweep (2026-08-17):**
+- **Volume-profile default raised 50 → 100 bins** (`default_volume_profile_bins`, `config.toml` ×5, warm-up test pin, AGENTS.md / 03-02-13 / 07-05 docs): halves bin-width resolution error on high-priced majors (POC/VAH/VAL ±$40 → ±$20 on BTC), refines HVN level quoting, and matches the original dynamic-bin spec's [30,120] design window at zero CPU/wire cost (profile rides completed frames only).
+- **`heatmap_leverage_tiers` persisted from TimeframeSettings** — `buildIndicators()` now emits the field (wider `Record<string, number | number[]>`), so a per-TF save no longer silently resets operator tiers to `[10]` (WorkspaceSettings parity).
+- **`/api/history` custom-slot parity** — `clusters` / `volume_profiles` / `liquidity_flows` now iterate `ActivePair.custom_pipelines` (`custom-<id>` keys) alongside the 4 default slots (PRI-07).
+- **Alignment export panel-parity** — `alignmentTab.ts` `shortStateLabel` normalizes case+underscores (was rendering `STRONGBULLISH`/`NODATA` for the PascalCase wire); fixture flipped to real wire values.
+- **Cascade-asymmetry display unified** — RiskPanel + riskTab adopt the ±0.3 dead-band and `SHORT_SQUEEZE_RISK`/`LONG_SQUEEZE_RISK` vocabulary (extracted to `ui/src/lib/liquidityPanel.ts` with a regression suite); matches LiquidityPanel/metricsTab/03-02-11.
+- **One Score definition per ranking column** — AssetRankingsTable + overview export consume the backend `asset_ranking.score` (`0.5×mean_conf+50`) with local fallback.
+- **I-10 demotion parity complete** — KPI strip + overview export demote the bias *color* and append the pair-count suffix (shared `demoteBiasForCoverage`); parity tests added.
+- **Hardening** — `opportunityBars` exp-cap (R:R ≥ 237 can no longer NaN the conviction bars); `FundingExtreme` strength denominator floored; cluster estimator `is_finite()` input gate; doji-fill envelope applies the −20 gap penalty (3rd site); registry `config_params` key corrected to `funding_extreme_pct`.
+- **TS contract** — `MarketSnapshot.volume_profile`, `AnalysisMatrix.market_bias_score`, `IndicatorMeta.bars_required/data_source/signal_capability`, matrix-level `OpportunityMatrix.direction_family` typed; `TradeViabilityWire` SCREAMING union types the wire field (normalized at the boundary).
+- **Tests/fixtures** — gross R:R side-resolution regression tests; `analysisTab`/`recommendationTab`/`GeneralDashboard`/`metricsTab`/`layerHeader`/`makeContext` fixtures moved to real wire vocabulary; 06-01 §2.2 trimmed to implemented semantics; stale doc refs updated (02-13 cadence, 02-12 bucket_index formula, 02-08:54, 02-03 §2, "50-indicator" ×3, 06-03 decision row, types.ts/prettifyPhase/registry comments).
+
+**Follow-up sweep (2026-08-17):**
+- **CRITICAL fix:** `POST /api/config` now persists through `config_models::save_workspace` — the previous bare `toml::to_string_pretty(&WorkspaceConfig)` dropped the `[workspace]` wrapper and all platform sections (`[hyperliquid]`, `[bitget]`, `[clock_monitor]`, `[reconnect]`, `[candle_buffer]`, `[snapshot_export]`), producing a file the daemon could not boot from. New integration tests (`crates/api-gateway/tests/config_round_trip.rs`) cover the GET→mutate→POST→reload round-trip and the partial-body merge.
+- **Sign-inversion closure:** `MagnetActivated` direction fixed (above-mid short-liq cluster = short squeeze = Bullish; below-mid long-liq = Bearish) with a regression test; `LiquidationClusterMatrix.cascade_asymmetry` docstring corrected; StructuralAnchorsStrip ladder label "short liq if dumped" → "short liq if squeezed"; 07-04 §2 color-token table + §5.5/§7 copy aligned.
+- **I-10 parity:** the low-coverage STRONG_* demotion is shared (`demoteBiasForCoverage`) and now applied to the HeaderKpiStrip market-bias tile and the overview export KPI, not just the L7 header badge.
+- **Unit fixes:** `tradePlan.ts` stop-loss fallback no longer double-scales percent-scale `stop_loss_distance_pct` (was producing negative prices); `metricsExport.ts` gains the `percent4` funding case; `net_rr` gains a finite guard; market-context group-dimension NaN-guard; warm-up snapshots no longer emit candle volume as top-of-book depth; custom-slot volume-profile `timeframe_slot` uses the canonical `custom-N` string; force-close `quality_envelope.is_valid` mirrors the validity gate.
+- **Real config:** `IndicatorsConfig.heatmap_leverage_tiers` implemented backend-side (was a frontend-only phantom that reset to `[10]` on every reload); failover default fallback aligned (30).
+- **Casing/export hardening:** `evaluated_setups[].viability` normalized to PascalCase (matches `trade_setups`); fixtures and 07-05 export-schema examples corrected to real wire values (MarketContext `TRENDING` vocabulary, `TrendingBull`/`Markup`, `short_squeeze_risk` for +asymmetry); StatisticalContext TS type aligned to the wire shape; doc corrections for 02-03 envelope shape, 02-07 null-vs-omitted semantics, 03-02-11 vacuum band defaults, 03-02-14 dynamic-bin dead-code note, 02-09 §6 summary clause, 06-01 liquidity_signals omission.
+
 ## v6.18 (2026-08-16) — Invalidation note: direction-aware, strictly bound to the setup card
 
 **Backend + UI + docs.** The L4 `invalidation_note` is rewritten to be direction-aware and strictly bound to a level the UI actually displays, and the Opportunities panel's standalone `Invalidation Note` section is removed in favour of a per-card italicized thesis inside every directional setup card.
@@ -1571,7 +1671,7 @@ Every audit issue from v2.x is closed below. New identifiers (`AUDIT-V4-NN`) are
 
 | Legacy ID | New ID | Description | Resolution |
 |---|---|---|---|
-| — | `AUDIT-V4-029` | LiquidityPanel reversed `cascade_asymmetry` sign | Fixed; normative mapping block added |
+| — | `AUDIT-V4-029` | LiquidityPanel reversed `cascade_asymmetry` sign | Fixed; normative mapping block added (the 2026-08 audit found the sign interpretation was still inverted at four sites — cluster signal direction, LiquidityPanel labels, metrics export description, module docstring — and fixed it; regression test pins positive = short squeeze risk) |
 | — | `AUDIT-V4-030` | LiquidityPanel data path `microTerm` | Kept as `instance.microTerm.*` (canonical; the `timeframes.micro` alias was removed per v6.3) |
 | — | `AUDIT-V4-031` | LiquidityPanel used shortened signal names | Replaced with canonical `LIQUIDITY_*` prefixed names |
 | — | `AUDIT-V4-032` | UI dashboard "19 indicator panes" | Corrected to "18 dedicated indicator panes + PriceChart overlay + shared generics" |
@@ -1696,11 +1796,11 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V7-322` | `network-adapters`: implement `BitgetHistoricalFetch` with forward `startTime` cursor pagination + `limit=200` per page (HFP-06) | Open (specified in `03-01-07` §7) | v6.10 |
 | `AUDIT-V7-323` | `portfolio-supervisor`: replace `collect_candles` with `HistoricalFetchPolicy` caller; HFP-03 sub-minute short-circuit; HFP-09 merge; HFP-10 timeout handling | Open (specified in `03-01-07` §7) | v6.10 |
 | `AUDIT-V7-324` | `tests`: add 5 tests — (a) sub-minute returns empty, (b) Hyperliquid paginates to `size`, (c) Bitget paginates `limit=200` to `size`, (d) DB-precedence on overlap, (e) timeout returns partial + warning | Open (specified in `03-01-07` §7) | v6.10 |
-| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each of the 50 indicator metadata entries in `crates/market-analyzer/src/indicators/registry.rs` | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting | Open (specified in `03-02-15` §8) | v6.10 |
-| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector | Open (specified in `03-02-15` §8) | v6.10 |
+| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | v6.10 |
+| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each indicator metadata entry in `crates/market-analyzer/src/indicators/registry.rs` (all **52** entries) | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | v6.10 |
+| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | v6.10 |
+| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | v6.10 |
+| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector | **Shipped in v6.5** (see v6.5 entry + 2026-08-17 audit sweep) | v6.10 |
 | `AUDIT-V8-400` | `market-analyzer/indicators/traits.rs`: DOD hot-path contract applied — `BarInput` fields are `f64`, `Indicator::Output = f64`. Migration code-converter at the trait boundary for all ~30 `Indicator` impls. | Staged (v6.5) | v6.10 |
 | `AUDIT-V8-401` | `market-analyzer/indicators/ema.rs`: migrate EMA `update(price: Decimal) → update(price: f64)`. Expected: ~50 line change (10 lines signature + 40 lines test). | Staged | v6.10 |
 | `AUDIT-V8-402` | `market-analyzer/indicators/rsi.rs`: migrate RSI `update(close: Decimal) → update(close: f64)`. Expected: ~60 line change. | Staged | v6.10 |
@@ -1710,13 +1810,13 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V8-406` | `market-analyzer/src/analyzer/warm.rs` (`warm_indicators_for_timeframe`): same pattern — single `Decimal→f64` batch conversion per historical candle; feed `_f` values to indicators. | Staged | v6.10 |
 | `AUDIT-V8-407` | `market-analyzer/src/analyzer/normalize.rs`: update `NormalizeParams` to accept `f64`; remove `d2f()`/`od2f()` conversion helpers; simplify `build_indicator_map` to consume `f64` directly. | Staged (dependent on AUDIT-V8-401…V8-404) | v6.10 |
 | `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line | Open (specified in `03-03-06` §7) | v6.10 |
-| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status` | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version` | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (specified in `03-02-12` §9) | v6.10 |
-| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (specified in `03-02-12` §9) | v6.10 |
+| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | **Shipped** (2026-08-17 audit sweep) | v6.10 |
+| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | **Shipped** (2026-08-17 audit sweep: `ActiveSet::from_config` wired in `build_pipelines`; disabled indicators absent from the map; liquidity sub-toggles honored) | v6.10 |
+| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status` | **Shipped** (2026-08-17 audit sweep: `metrics_config` emission verified end-to-end) | v6.10 |
+| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version` | **Cancelled** (2026-08-17 audit sweep: `metrics_config` is a live-wire attribution block, not a persisted matrix; `06-02` §3.1 documents the actual persistence boundary) | v6.10 |
+| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (runtime surface pending; activation is applied config-side) | v6.10 |
+| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (TAE Phase-A follow-up; ROADMAP §3) | v6.10 |
+| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (UI follow-up) | v6.10 |
 | `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Partially resolved (v6.4.1): the three handlers are served (06-01 §2.11). Remaining open: `mark_index_spread_pct` writers; persistent `/api/system/clock.breach_count` counter (placeholder `0` today) | v6.10 |
 | `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed) | Open | v6.10 |
 | `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers) | Open | v6.10 |

@@ -79,9 +79,15 @@
     }
 
     const rows = $derived.by((): Row[] => {
+        // v2026-08 (M4): one Score definition per column — the canonical L7
+        // AssetRank score (`0.5 × mean_conf + 50`, [50,100]) from the
+        // OverviewMatrix, with a local fallback to the max qualifying
+        // profile score when the backend array is empty/absent for a symbol.
+        const assetRanking = app.overviewMatrix?.asset_ranking ?? [];
         const out: Row[] = [];
         for (const [key, inst] of Object.entries(app.instancesMap)) {
             if (!inst.instanceId) continue;
+            const backendRank = assetRanking.find((r) => r.symbol === inst.symbol) ?? null;
             const opp = inst.opportunity;
             const adv = inst.advisory;
             const analysis = inst.analysis;
@@ -105,10 +111,13 @@
             const signal = readiness === 'READY' && topViability === 'Actionable'
                 ? signalLabel(guidance)
                 : 'WAIT';
-            // Aggregate opportunity score: prefer highest per-profile score,
-            // fall back to opportunity_score from the matrix.
+            // Score column: canonical L7 AssetRank score when the backend
+            // computed it (0.5 × mean_conf + 50, [50,100]); fall back to
+            // the local max qualifying profile score for resilience.
             let score = 0;
-            if (opp?.profiles && opp.profiles.length > 0) {
+            if (backendRank != null && Number.isFinite(backendRank.score)) {
+                score = backendRank.score;
+            } else if (opp?.profiles && opp.profiles.length > 0) {
                 score = Math.max(...opp.profiles.map((p) => p.score ?? 0));
             } else if (opp?.opportunity_score != null) {
                 score = opp.opportunity_score;
@@ -140,11 +149,19 @@
                 connected: inst.isConnected,
             });
         }
-        // Sort
+        // Sort. AUDIT-FE-M1: the `price` column carries a FORMATTED string
+        // ("99999.90") — the old localeCompare made magnitude-boundary pairs
+        // sort lexicographically ("100000" below "99999"). Sort numerically
+        // when both values parse as finite numbers.
         const dir = sortDir === 'asc' ? 1 : -1;
         out.sort((a, b) => {
             const av = (a as any)[sortKey];
             const bv = (b as any)[sortKey];
+            const an = typeof av === 'string' ? Number(av.replace(/,/g, '')) : Number(av);
+            const bn = typeof bv === 'string' ? Number(bv.replace(/,/g, '')) : Number(bv);
+            if (Number.isFinite(an) && Number.isFinite(bn)) {
+                return (an - bn) * dir;
+            }
             if (typeof av === 'string' && typeof bv === 'string') {
                 return av.localeCompare(bv) * dir;
             }

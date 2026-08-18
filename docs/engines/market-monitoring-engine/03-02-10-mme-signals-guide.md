@@ -43,25 +43,21 @@ struct IndicatorSignal {
 | **StackChange** | The EMA ribbon reorders. | [stack-change.md](signals/05-02-11-stack-change.md) |
 | **PatternForming** | A chart or candlestick pattern is detected. | [pattern-forming.md](signals/05-02-12-pattern-forming.md) |
 
-There are **101 signal-kind declarations** across 51 registry entries (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry — i.e. most indicators declare several SignalKinds.
+There are **101 signal-kind declarations** across 52 registry entries (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry — i.e. most indicators declare several SignalKinds.
 
 ---
 
 ## 3. Signal Status Lifecycle
 
-```
-first detection ──► POTENTIAL ──(confirming condition)──► CONFIRMED ──(persists)──► ACTIVE
-                        │
-                        └──(invalidated)──► dropped
-```
-
 | Status | Usage |
 |--------|-------|
-| `Potential` | Geometry present but unconfirmed; secondary confluence only. |
-| `Confirmed` | Confirming trigger fired (e.g. decisive candle close through a level); full weight. |
-| `Active` | A confirmed state persisting over bars, tracked via `age_bars`. |
+| `Active` | Emitted **immediately** by most detectors (threshold, crossover, zero-line-cross, breakout, band-touch, trend-flip, compression-release, level-test, volume-climax, pattern-forming, …). No intermediate state. |
+| `Potential` | Only `Divergence`: the divergence geometry is present but not yet confirmed. |
+| `Confirmed` | Only `Divergence` (per the divergence state machine, e.g. `CONFIRMED_BULLISH_DIVERGENCE`) and `StackChange` (EMA-stack reorder). |
 
-> **Momentary vs. stateful.** Momentary kinds never enter `ACTIVE` — they fire on the transition bar only; the persistence chain to `ACTIVE` applies to stateful kinds (see [05-02-00](signals/05-02-00-signals-index.md)).
+**There is no server-side `POTENTIAL → CONFIRMED → ACTIVE` persistence chain.** The legacy claim that signals "confirm, then persist into ACTIVE" is retired: status is chosen per-detector at emission time, and **`age_bars` is the only persistence axis** — the analyzer's stateful ager increments `age_bars` per completed bar for signals that survive (a signal is re-emitted on the next bar with an incremented age, or dropped when its condition lapses). `Potential` never upgrades to `Confirmed` in place on a later bar; a divergence re-emission simply carries the new state.
+
+> **Momentary vs. stateful.** Whether a signal reappears across bars is a property of its detector (stateful kinds re-fire while their condition holds), not of its `status`. Wire casing: `SignalStatus` / `SignalKind` / `SignalDirection` serialize PascalCase (`"Active"`, `"Divergence"`, `"Bullish"`); `label` strings keep their SCREAMING display form (`"CONFIRMED_BULLISH_DIVERGENCE"`).
 
 ---
 

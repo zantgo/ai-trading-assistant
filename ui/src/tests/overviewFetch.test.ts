@@ -10,16 +10,16 @@ import { useAppStore } from '../state.svelte';
 import type { OverviewMatrix } from '../types';
 
 const sampleOverview: OverviewMatrix = {
-    global_market_bias: 'Bullish',
-    market_breadth: 'Positive',
+    global_market_bias: 'BULLISH',
+    market_breadth: 'POSITIVE',
     low_coverage: false,
     breadth_pct: 50,
     regime_distribution: { TRENDING: 0.7, RANGE: 0.3 },
     opportunity_distribution: { BREAKOUT: 2, TREND_CONTINUATION: 1 },
     risk_distribution: { low_pct: 60, moderate_pct: 30, high_pct: 10, risk_environment: 'LOW_RISK' },
     asset_ranking: [],
-    market_synchronization: 'Synchronized',
-    market_health: 'Healthy',
+    market_synchronization: 'SYNCHRONIZED',
+    market_health: 'HEALTHY',
     global_summary: 'Test summary',
     instance_count: 3,
     active_symbols: ['BTC-USDT', 'ETH-USDT'],

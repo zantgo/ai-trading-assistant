@@ -135,7 +135,9 @@ impl Adx {
         };
 
         let tr_smooth = self.tr_rma.update_seeded(tr.to_f64().unwrap_or(0.0));
-        let plus_dm_smooth = self.plus_dm_rma.update_seeded(plus_dm.to_f64().unwrap_or(0.0));
+        let plus_dm_smooth = self
+            .plus_dm_rma
+            .update_seeded(plus_dm.to_f64().unwrap_or(0.0));
         let minus_dm_smooth = self
             .minus_dm_rma
             .update_seeded(minus_dm.to_f64().unwrap_or(0.0));

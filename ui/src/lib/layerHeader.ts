@@ -276,8 +276,10 @@ export function buildL1MetricsHeader(
         meta.push({ label: 'Age', value: `${ageBars}b`, color: COLORS.textMuted, state: 'valid' });
     }
     // Hide regime from chips when it's already implied by the badge label.
+    // `overall_label` is the MarketContext vocabulary
+    // (STRONG_BULL/WEAK_BULL/STRONG_BEAR/WEAK_BEAR/NEUTRAL).
     const regimeImplied =
-        (regime === 'TRENDING' && (label === 'BULLISH' || label === 'BEARISH')) ||
+        (regime === 'TRENDING' && (label.includes('BULL') || label.includes('BEAR'))) ||
         (regime === 'RANGE' && label === 'NEUTRAL');
     if (regime && !regimeImplied) {
         meta.push(chip('Regime', prettifyEnum(regime), null, () => COLORS.textMuted));
@@ -331,7 +333,7 @@ export function buildL1MtfHeader(alignment: AlignmentMatrix | null | undefined, 
             state: 'valid',
         },
         meta: [
-            chip('TFs', `${tfs}/4`, tfs, null, true),
+            chip('TFs', `${tfs} TF`, tfs, null, true),
             chip('Agreement', `${agreement.toFixed(0)}%`, agreement, scoreColor),
             chip('Cross', cross, cross, null, true),
         ],
@@ -366,7 +368,7 @@ export function buildL2AlignmentHeader(a: AlignmentMatrix | null | undefined): L
             // v7.0.1: the Score chip is gone too — the panel hero now
             // carries two circular dials (Agreement + Score); the header
             // chrome keeps only the badge and the TF-count chip.
-            chip('TFs', tfs != null ? `${tfs}/4` : null, tfs, null, true),
+            chip('TFs', tfs != null ? `${tfs} TF` : null, tfs, null, true),
         ],
         status: tfs != null && tfs >= 3 ? 'live' : tfs != null && tfs >= 1 ? 'stale' : 'loading',
     };
@@ -391,11 +393,11 @@ export function buildL3AnalysisHeader(a: AnalysisMatrix | null | undefined): Lay
         return { layerNumber: 3, layerName: 'Analysis', badge: emptyBadge(), meta: [], status: 'loading' };
     }
     const redundant =
-        (bias === 'Bullish' && regime === 'TRENDING_BULL') ||
-        (bias === 'Bearish' && regime === 'TRENDING_BEAR') ||
-        (bias === 'StrongBullish' && regime === 'TRENDING_BULL') ||
-        (bias === 'StrongBearish' && regime === 'TRENDING_BEAR') ||
-        (bias === 'Neutral' && regime === 'RANGE');
+        (bias === 'Bullish' && regime === 'TrendingBull') ||
+        (bias === 'Bearish' && regime === 'TrendingBear') ||
+        (bias === 'StrongBullish' && regime === 'TrendingBull') ||
+        (bias === 'StrongBearish' && regime === 'TrendingBear') ||
+        (bias === 'Neutral' && regime === 'Range');
 
     const meta: MetaChipSpec[] = [
         chip('Quality', quality, null, () => qualityColor(quality)),
@@ -446,7 +448,7 @@ export function buildL4OpportunityHeader(
         analysis?.confidence != null ? Math.round(analysis.confidence * 100) : null;
     const environmentMeta: MetaChipSpec[] = [
         chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
-        chip('Timeframes', tfs != null ? `${tfs}/4` : null, tfs, null, true),
+        chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
     ];
 
     if (noClear) {
@@ -493,7 +495,7 @@ export function buildL4OpportunityHeader(
             chip('Score', score, score, scoreColor),
             chip('Confidence', confidencePct != null ? `${confidencePct}%` : null, confidencePct, scoreColor),
             chip('Horizon', horizon ? prettifyEnum(horizon) : null, null, () => COLORS.textMuted),
-            chip('Timeframes', tfs != null ? `${tfs}/4` : null, tfs, null, true),
+            chip('Timeframes', tfs != null ? `${tfs} TF` : null, tfs, null, true),
         ],
         status: 'live',
     };
@@ -626,6 +628,35 @@ export function buildL6DecisionHeader(input: {
 // L7 — Overview (system-wide). `systemic_risk_score = 0` is green.
 // Status is sourced from the L7 fetch state (live when fresh, stale
 // after >2× polling interval, error when the last attempt failed).
+/**
+ * v6.10.18 (I-10): under LOW coverage (≤2 active symbols) the global
+ * STRONG_* tokens overstate a breadth statistic that is statistically
+ * meaningless — demote the DISPLAY token one tier (STRONG_BULLISH →
+ * BULLISH, STRONG_BEARISH → BEARISH) and append the pair count to the
+ * sublabel so a professional trader reads "BULLISH (1 pair)", never
+ * "STRONG BULLISH 100% breadth" from a single symbol. The wire value
+ * stays intact for data consumers.
+ *
+ * Shared by the L7 header badge, the GeneralDashboard KPI strip and the
+ * overview export so every surface demotes identically.
+ */
+export function demoteBiasForCoverage(
+    bias: string | null | undefined,
+    lowCoverage: boolean,
+    count?: number | null,
+): { displayBias: string | null; coverageSuffix: string } {
+    if (!lowCoverage || !bias) return { displayBias: bias ?? null, coverageSuffix: '' };
+    const displayBias =
+        bias === 'STRONG_BULLISH'
+            ? 'BULLISH'
+            : bias === 'STRONG_BEARISH'
+              ? 'BEARISH'
+              : bias;
+    const coverageSuffix =
+        count != null ? ` (${count} pair${count === 1 ? '' : 's'})` : '';
+    return { displayBias, coverageSuffix };
+}
+
 export function buildL7OverviewHeader(
     overview: OverviewMatrix | null | undefined,
     fetchState: { lastSuccessMs: number | null; lastErrorMs: number | null; now: number; pollIntervalMs: number },
@@ -661,13 +692,7 @@ export function buildL7OverviewHeader(
     // "STRONG BULLISH 100% breadth" from a single symbol. The wire value
     // stays intact for data consumers.
     const lowCoverage = (overview.low_coverage ?? false) || (count != null && count <= 2);
-    const displayBias =
-        lowCoverage && bias === 'StrongBullish'
-            ? 'Bullish'
-            : lowCoverage && bias === 'StrongBearish'
-              ? 'Bearish'
-              : bias;
-    const coverageSuffix = lowCoverage && count != null ? ` (${count} pair${count === 1 ? '' : 's'})` : '';
+    const { displayBias, coverageSuffix } = demoteBiasForCoverage(bias, lowCoverage, count);
     return {
         layerNumber: 7,
         layerName: 'Overview',

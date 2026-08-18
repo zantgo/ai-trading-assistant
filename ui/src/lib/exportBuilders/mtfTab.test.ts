@@ -190,3 +190,127 @@ it('zero-fills missing-DTO registry entries in the MTF indicator list', () => {
   expect(smc).toBeDefined();
   expect(smc!.values.every((v) => v.active === false && v.normalized === 0)).toBe(true);
 });
+
+// Audit G-4: WARMING placeholders and non-Directional gates are NOT
+// "available" readings — the export must mirror the screen's '--'/'N/A'
+// cells instead of reporting active 0.0 values.
+it('warming placeholders and gated rows are inactive in MTF cells', () => {
+  const warmRegistry: IndicatorMeta[] = [
+    ...registry,
+    {
+      key: 'bbwp',
+      display_name: 'BBWP',
+      group: 'Volatility',
+      class: 'Leading',
+      value_format: 'decimals2',
+      value_source: 'raw',
+      default_enabled: true,
+      directional: false,
+      normalization_mode: 'ContextOnly',
+    } as unknown as IndicatorMeta,
+  ];
+  const makeWarmTf = (label: string): TimeframeTelemetry => ({
+    barDurationSec: 60,
+    isCompleted: true,
+    pipelineState: 'OK',
+    priceText: '63000',
+    latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5 },
+    indicators: {
+      rsi_14: { raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'WARMING', signals: [], values: {} },
+      bbwp: { raw_value: 0, normalized: 0, confidence: 0, state_label: 'WARMING', signals: [], values: {} },
+    } as unknown as Record<string, IndicatorDto>,
+  } as unknown as TimeframeTelemetry);
+  const p = JSON.parse(buildMtfExportJson({
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+    registry: warmRegistry,
+    pair: {
+      microTerm: makeWarmTf('Micro'),
+      fastTerm: makeWarmTf('Fast'),
+      slowTerm: makeWarmTf('Slow'),
+      macroTerm: makeWarmTf('Macro'),
+    },
+  }));
+  const rsi = p.indicators.find((i: { key: string }) => i.key === 'rsi');
+  // WARMING → inactive, dash display, excluded from the agreement mean.
+  expect(rsi.values[0].active).toBe(false);
+  expect(rsi.values[0].warming).toBe(true);
+  expect(rsi.values[0].normalized_display).toBe('\u2014');
+  expect(rsi.agreement).toBe(0);
+  expect(rsi.normalized_available).toBe(false);
+  const bbwp = p.indicators.find((i: { key: string }) => i.key === 'bbwp');
+  // ContextOnly gate → inactive regardless of DTO presence.
+  expect(bbwp.values[0].active).toBe(false);
+  expect(bbwp.values[0].gated).toBe(true);
+  // Per-TF detail rows report the same.
+  const microRow = p.timeframes[0].indicators.find((i: { key: string }) => i.key === 'rsi');
+  expect(microRow.normalized_available).toBe(false);
+});
+
+// Audit G-3: the cross_tf_tables block mirrors the three screen tables.
+it('cross_tf_tables carries per-TF signal tallies and totals', () => {
+  // Real-style registry key ("rsi" — no period suffix, as the backend
+  // emits; the `supports_divergence` flag makes it a divergence row).
+  const sigRegistry: IndicatorMeta[] = [{
+    key: 'rsi',
+    display_name: 'RSI 14',
+    group: 'Momentum',
+    class: 'Hybrid',
+    value_format: 'decimals2',
+    value_source: 'raw',
+    default_enabled: true,
+    directional: true,
+    supports_divergence: true,
+  } as unknown as IndicatorMeta];
+  const makeSigTf = (label: string, direction: 'Bullish' | 'Bearish'): TimeframeTelemetry => ({
+    barDurationSec: 60,
+    isCompleted: true,
+    pipelineState: 'OK',
+    priceText: '63000',
+    latestSnapshot: { timestamp: Math.floor(Date.now() / 1000) - 5 },
+    indicators: {
+      rsi: {
+        raw_value: 62.4, normalized: 0.24, confidence: 0.78, state_label: 'BULLISH',
+        signals: [{
+          kind: 'Threshold', direction, status: 'Active', label: 'RSI_THRESHOLD',
+          strength: 0.5, age_bars: 2, display_label: 'TH·2',
+        }],
+        values: {},
+      },
+    } as unknown as Record<string, IndicatorDto>,
+  } as unknown as TimeframeTelemetry);
+  const p = JSON.parse(buildMtfExportJson({
+    symbol: 'BTC-USDT',
+    markPrice: 63390,
+    headerSpec,
+    registry: sigRegistry,
+    pair: {
+      microTerm: makeSigTf('Micro', 'Bullish'),
+      fastTerm: makeSigTf('Fast', 'Bullish'),
+      slowTerm: makeSigTf('Slow', 'Bearish'),
+      macroTerm: makeSigTf('Macro', 'Bearish'),
+    },
+  }));
+  const signals = p.cross_tf_tables.signals as Array<{
+    kind: string;
+    per_timeframe: Array<{ timeframe: string; bull: number; bear: number; neutral: number; entries: unknown[] }>;
+    totals: { bull: number; bear: number; neutral: number };
+  }>;
+  const th = signals.find((s) => s.kind === 'Threshold');
+  expect(th).toBeDefined();
+  expect(th!.per_timeframe.map((c) => [c.bull, c.bear])).toEqual([
+    [1, 0], [1, 0], [0, 1], [0, 1],
+  ]);
+  expect(th!.totals).toEqual({ bull: 2, bear: 2, neutral: 0 });
+  expect(th!.per_timeframe[0].entries).toHaveLength(1);
+  expect(th!.per_timeframe[0].entries[0]).toMatchObject({ display_name: 'RSI 14', label: 'RSI_THRESHOLD' });
+  // Divergence rows: the fixture has no divergences — only capable
+  // indicators appear, with empty per-TF cells.
+  const divs = p.cross_tf_tables.divergences as Array<{ key: string; row_count: number }>;
+  const rsiDiv = divs.find((d) => d.key === 'rsi');
+  expect(rsiDiv).toBeDefined();
+  expect(rsiDiv!.row_count).toBe(0);
+  expect(p.cross_tf_tables.totals.signal_count).toBe(4);
+  expect(p.cross_tf_tables.totals.global_signal_lean).toEqual({ bull: 2, bear: 2, neutral: 0 });
+});

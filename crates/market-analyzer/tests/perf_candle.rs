@@ -12,7 +12,15 @@ use market_analyzer::candle_generator::CandleGenerator;
 #[test]
 fn per_tick_candle_update_p95_under_threshold() {
     const ITERATIONS: usize = 1000;
+    // AUDIT-TEST: the documented SLA (AC-DIE-2) is p95 < 2 ms; the old
+    // test asserted 50 ms — 25× the contract — and could only fail under
+    // extreme load. Enforce the documented SLA in release builds; keep a
+    // generous debug-build allowance (unoptimized + assertions dominate
+    // the wall-clock here).
+    #[cfg(debug_assertions)]
     const THRESHOLD_MS: f64 = 50.0;
+    #[cfg(not(debug_assertions))]
+    const THRESHOLD_MS: f64 = 2.0;
 
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

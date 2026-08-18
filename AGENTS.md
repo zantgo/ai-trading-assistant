@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 50 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
+This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 52 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
 
 > **Implementation status (v6.9).** Of the five logical engines, **DIE (Data Infrastructure) and MME (Market Monitoring) are implemented end-to-end** — every layer, every dashboard, every primary endpoint. **TAE (Trade Automation), PME (Portfolio Management), and PAE (Performance Analytics) are WIP / partial**: the Rust backends compile and produce state, but their dedicated dashboards (`TradeAutomationDashboard`, `PortfolioDashboard`, the `PerformanceDashboard` backtest tab) render hardcoded placeholder data and are clearly labelled as such. The phased delivery plan and the verification checklist are in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -82,20 +82,20 @@ bun run check        # svelte-check + tsc typecheck
 - Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
 - Config API: `GET /api/config` (returns parsed `config.toml`)
-- History API: `GET /api/history?symbol=&timeframe_secs=&limit=` (default `100`, max `1000`; returns `{ symbol, prices[], candles[], indicator_histories }`)
+- History API: `GET /api/history?symbol=&timeframe_secs=&limit=` (default `100`, max `1000`; returns `{ symbol, prices[], candles[], indicator_history }`)
 - Connection Quality API: `GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100; when both `instance_id` and `timeframe_secs` are supplied returns per-scope; absent params return process-wide aggregate)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`) and Bitget WebSocket (`wss://ws.bitget.com/v2/ws/public`)
 - Static assets served from `ui/dist`
 - **Price-chart overlays** (toggle pills in `ChartToggles.svelte`, opt-in, both default `false`):
   - **LIQ HEATMAP** — `LiquidationHeatmapPrimitive` (`ui/src/lib/liquidationHeatmap.ts`) renders colored horizontal bands at liquidation cluster price zones, fed by `tf.cluster` (per-TF `LiquidationClusterMatrix` since v6.4.2; refreshed at each TF's own candle cadence; see `docs/engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md` and `docs/conceptual-foundations/01-05-liquidity-domain.md`).
-  - **VOL PROFILE** — `VolumeProfilePrimitive` (`ui/src/lib/volumeProfile.ts`) renders a right-edge stacked buy/sell histogram with POC / VAH / VAL labels, fed by `tf.volumeProfile` (per-TF `VolumeProfileSnapshot`; see `docs/engines/market-monitoring-engine/03-02-13-mme-volume-profile-layer.md`). Dynamic bin count 30–120, computed server-side per `volume_profile_window` / `tick_size` / `bar_duration_secs`.
+  - **VOL PROFILE** — `VolumeProfilePrimitive` (`ui/src/lib/volumeProfile.ts`) renders a right-edge stacked buy/sell histogram with POC / VAH / VAL labels, fed by `tf.volumeProfile` (per-TF `VolumeProfileSnapshot`; see `docs/engines/market-monitoring-engine/03-02-13-mme-volume-profile-layer.md`). Static bin count from config `volume_profile_bins` (default 100); `num_bins` reports the non-empty bins after filtering.
 
 ### Connection Resilience & Quality
 
 - **Reconnect policy**: `crates/network-adapters/src/adapters/resilience.rs` — exponential backoff (1s→30s, ±20% jitter) on WS disconnect; resilient to network crashes with auto-reconnect.
 - **Candle reconstruction**: `crates/network-adapters/src/adapters/reconstruction.rs` — detects ingestion gaps on reconnect; ≥1m candles fetched from exchange REST historical, <1m candles synthesized via EMA/last-N closes. Reconstructed candles carry a `reconstructed: Some(ReconstructionMethod)` flag.
-- **Clock drift**: `crates/network-adapters/src/clock_monitor.rs` — NTP polling enforces ≤50µs UTC drift budget; default warn loudly on breach, configurable to panic via `[clock_monitor].breach_action`.
+- **Clock drift**: `crates/network-adapters/src/clock_monitor.rs` — NTP polling enforces the configured UTC drift budget (`[clock_monitor] threshold_micros`, shipped default 10 ms); default warn loudly on breach, configurable to hard-stop via `[clock_monitor].breach_action = panic`.
 - **Quality tracking**: `crates/network-adapters/src/connection_quality_tracker.rs` (in-memory windows + 60s persistence loop) — rolling 1h/6h/24h windows with composite score formula: `50×(uptime_pct/100) + 30×(1 - min(disconnects/10, 1)) + 20×(1 - min(avg_reconnect_ms/5000, 1)) - 5×min(data_loss_s/600, 1) - 5×min(reconstructed_candles/100, 1)`, clamped to 0..100. Connection quality is served live from the in-memory `ConnectionQualityRegistry`; historical samples are persisted to the `connection_quality_samples` table for future analytical queries.
 
 ## Configuration

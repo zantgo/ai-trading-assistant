@@ -1,4 +1,6 @@
-use core_domain::performance::{PerformanceClassification, StrategyAnalyticsRow, TradeAnalyticsRecord};
+use core_domain::performance::{
+    PerformanceClassification, StrategyAnalyticsRow, TradeAnalyticsRecord,
+};
 use sqlx::SqlitePool;
 
 const MC_RUNS: u32 = 10_000;
@@ -25,9 +27,7 @@ pub async fn compute_strategy_analytics(
 
     by_policy
         .into_iter()
-        .map(|(policy_id, policy_trades)| {
-            compute_policy_analytics(&policy_id, &policy_trades)
-        })
+        .map(|(policy_id, policy_trades)| compute_policy_analytics(&policy_id, &policy_trades))
         .collect()
 }
 
@@ -270,13 +270,7 @@ fn monte_carlo_sign_randomization(pnls: &[f64], runs: u32, seed: u64) -> f64 {
     for _ in 0..runs {
         let randomized_mean = pnls
             .iter()
-            .map(|&pnl| {
-                if rng.next() & 1 == 0 {
-                    pnl
-                } else {
-                    -pnl
-                }
-            })
+            .map(|&pnl| if rng.next() & 1 == 0 { pnl } else { -pnl })
             .sum::<f64>()
             / pnls.len() as f64;
 
@@ -299,7 +293,11 @@ struct XorShift64 {
 
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        let s = if seed == 0 { 0xDEAD_BEEF_CAFE_BABE } else { seed };
+        let s = if seed == 0 {
+            0xDEAD_BEEF_CAFE_BABE
+        } else {
+            seed
+        };
         Self { state: s }
     }
 
@@ -432,10 +430,7 @@ mod tests {
 
     #[test]
     fn test_average_loss_stored_as_positive() {
-        let trades: Vec<_> = vec![
-            make_loss(10.0, "POLICY_A"),
-            make_loss(20.0, "POLICY_A"),
-        ];
+        let trades: Vec<_> = vec![make_loss(10.0, "POLICY_A"), make_loss(20.0, "POLICY_A")];
         let results = compute_strategy_analytics_from_trades(&trades);
         let row = &results[0];
         assert!(row.average_loss > 0.0);
@@ -444,10 +439,7 @@ mod tests {
 
     #[test]
     fn test_gross_loss_stored_as_positive() {
-        let trades: Vec<_> = vec![
-            make_loss(10.0, "POLICY_A"),
-            make_loss(30.0, "POLICY_A"),
-        ];
+        let trades: Vec<_> = vec![make_loss(10.0, "POLICY_A"), make_loss(30.0, "POLICY_A")];
         let results = compute_strategy_analytics_from_trades(&trades);
         let row = &results[0];
         assert!(row.gross_loss > 0.0);
@@ -459,7 +451,10 @@ mod tests {
         let trades: Vec<_> = vec![make_win(100.0, "POLICY_A"), make_loss(50.0, "POLICY_A")];
         let results = compute_strategy_analytics_from_trades(&trades);
         let row = &results[0];
-        assert_eq!(row.classification, PerformanceClassification::InsufficientData);
+        assert_eq!(
+            row.classification,
+            PerformanceClassification::InsufficientData
+        );
     }
 
     #[test]
@@ -503,9 +498,10 @@ mod tests {
 
     #[test]
     fn test_p_value_positive_edge() {
-        let pnls = vec![5.0, 8.0, 12.0, 6.0, 9.0, 7.0, 11.0, 10.0, 13.0, 4.0,
-                         8.0, 9.0, 7.0, 11.0, 6.0, 10.0, 12.0, 5.0, 8.0, 9.0,
-                         7.0, 11.0, 6.0, 10.0, 13.0, 4.0, 8.0, 9.0, 12.0, 7.0];
+        let pnls = vec![
+            5.0, 8.0, 12.0, 6.0, 9.0, 7.0, 11.0, 10.0, 13.0, 4.0, 8.0, 9.0, 7.0, 11.0, 6.0, 10.0,
+            12.0, 5.0, 8.0, 9.0, 7.0, 11.0, 6.0, 10.0, 13.0, 4.0, 8.0, 9.0, 12.0, 7.0,
+        ];
         let n = pnls.len() as f64;
         let mean = pnls.iter().sum::<f64>() / n;
         let variance = pnls.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);

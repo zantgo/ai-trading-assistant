@@ -2,9 +2,9 @@
 
 **Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
 
-**Producer:** MME L2.5 (cluster estimation task, 5-min refresh)
+**Producer:** MME L2.5 (cluster estimation task, one task per TF at the TF's own candle cadence)
 **Consumer:** MME L4 (Opportunity) — LiquiditySqueeze preconditions; MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — inline cluster panel on the Charts tab (07-02 §4.3)
-**Per-bar:** NO (refreshed every 5 minutes per symbol)
+**Per-bar:** NO (refreshed at each TF's candle cadence; the matrix carries a fixed 5-minute `valid_until_ms` TTL)
 **Snapshot field:** `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>`
 
 The LiquidationClusterMatrix carries the **estimated liquidation
@@ -39,7 +39,7 @@ peak-detected to identify clusters.
 
 ## Refresh cadence
 
-5 minutes by default (`cluster_refresh_secs`). This is because the
+Synchronized with the TF's own candle cadence by default (`cluster_refresh_secs = 0`); a non-zero `cluster_refresh_secs` overrides to a fixed interval. This is because the
 underlying inputs (OI, funding, price) change slowly; faster refresh
 wastes CPU. The matrix carries a `valid_until_ms` timestamp the
 frontend can display.

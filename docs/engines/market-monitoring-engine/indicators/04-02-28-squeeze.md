@@ -136,6 +136,8 @@ Squeeze Momentum Chart:
 
 The Threshold signals for acceleration/deceleration are distinct from CompressionRelease — they capture momentum phase changes within an active trend, not the initial release from compression.
 
+> **Registry note.** The registry manifest (`signal_types`) currently declares `CompressionRelease` + `Divergence`; the three Threshold rows above are **runtime-derived** (deriver branch per AUDIT-AIU-035) — the registry declaration will catch up. `[activation] disabled_signal_kinds` gating therefore does not yet cover the Threshold kind for `squeeze`.
+
 ## Normalization
 
 The Squeeze Momentum normalized score in [-1, 1] is computed from the squeeze state and momentum direction/strength:

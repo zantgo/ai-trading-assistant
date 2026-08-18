@@ -269,8 +269,11 @@ pub async fn serve_update_instance_config(
         }
         Err(e) => {
             eprintln!("Pipeline recharge failed for {}: {}", pair_key, e);
+            // AUDIT-F16: the old code returned 200 with a plaintext note —
+            // the client could not distinguish saved-but-stale from success,
+            // silently diverging persisted vs live config.
             (
-                axum::http::StatusCode::OK,
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Config saved but pipeline recharge failed: {}", e),
             )
                 .into_response()

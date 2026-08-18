@@ -466,9 +466,8 @@ pub fn compute_advisory(
     let confidence = (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
         .clamp(0.0, 100.0);
 
-    // Stop-loss distance: ATR-based structural boundary for the TAE
-    // type-boundary handoff. Uses 1.5× ATR as default, tightened to 1.0×
-    // when structure is Strong.
+    // Stop-loss distance: percent-scale output for the TAE type-boundary
+    // handoff, `[0.5, 15.0]` percent (e.g. `2.5` means 2.5%).
     //
     // v6.10 (Phase 1 / A1): wire format is RAW PERCENTAGES in `[0.5, 15.0]`
     // (e.g. `2.5` means 2.5%). The TAE position-sizing path in
@@ -480,15 +479,12 @@ pub fn compute_advisory(
     // which inflated position sizes ~100×. We now multiply the entire
     // expression by 100 so the output range is `[0.5, 15.0]` percent.
     //
-    // Bug-fix #8: the legacy implementation read `risk.volatility_risk.score`
-    // (an L5 risk score, 0-100) instead of the underlying ATR. The
-    // resulting `stop_loss_distance_pct` had nothing to do with the actual
-    // candle's average true range — a low-risk symbol with a tight ATR
-    // would surface a 5-15% stop while a high-risk symbol with a wide ATR
-    // would surface a 0.5% stop. We now compute `atr / close` (relative
-    // ATR) and multiply by the structural tightness factor, with the same
-    // [0.5%, 15%] clamp that the rest of the platform uses for stop
-    // distance fractions.
+    // NOTE (v2026-08 audit): the actual implementation below does NOT use
+    // ATR — the relative-ATR approach documented in earlier revisions was
+    // never wired (ATR is not available at this call site). The live
+    // formula is a stance-keyed base (`1.0|1.5 × 2.0%`) plus a
+    // `volatility_risk.score / 10` bump, clamped to `[0.5, 15.0]`. Docs
+    // 02-04 §3.6 and 03-02-07 §4 describe this actual formula.
     let stop_loss_distance_pct = {
         let base_multiplier = if analysis.structure_assessment
             == crate::analysis::StructureAssessment::Strong
@@ -639,7 +635,8 @@ mod tests {
             DirectionalGuidance::Neutral
         ));
         assert!(
-            adv.final_recommendation.contains("Neutral — no directional edge"),
+            adv.final_recommendation
+                .contains("Neutral — no directional edge"),
             "claim missing: {}",
             adv.final_recommendation
         );

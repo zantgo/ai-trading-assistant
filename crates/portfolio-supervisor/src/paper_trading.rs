@@ -1,6 +1,4 @@
-use config_models::{
-    ExecutionPolicy, OrderPacket, OrderSide, OrderStatus, OrderType,
-};
+use config_models::{ExecutionPolicy, OrderPacket, OrderSide, OrderStatus, OrderType};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -169,7 +167,7 @@ impl PaperTradingEngine {
                 .as_millis() as i64;
             let equity_str = equity.to_string();
             let _ = sqlx::query(
-                "INSERT INTO portfolio_equity_history (equity, timestamp_ms) VALUES (?, ?)"
+                "INSERT INTO portfolio_equity_history (equity, timestamp_ms) VALUES (?, ?)",
             )
             .bind(&equity_str)
             .bind(now)
@@ -205,12 +203,14 @@ impl PaperTradingEngine {
                 self.fill_market_order(&mut lifecycle, current_mid_price)?;
             } else {
                 lifecycle.status = OrderStatus::Open;
-                lifecycle.transitions.push(crate::execution::state_machine::OrderTransition {
-                    from: OrderStatus::Pending,
-                    to: OrderStatus::Open,
-                    timestamp_ms: now * 1000,
-                    metadata: None,
-                });
+                lifecycle
+                    .transitions
+                    .push(crate::execution::state_machine::OrderTransition {
+                        from: OrderStatus::Pending,
+                        to: OrderStatus::Open,
+                        timestamp_ms: now * 1000,
+                        metadata: None,
+                    });
             }
 
             orders.insert(exchange_id.clone(), lifecycle);
@@ -223,10 +223,7 @@ impl PaperTradingEngine {
         Ok(exchange_id)
     }
 
-    pub async fn evaluate_order_fills(
-        &self,
-        current_mid_price: Decimal,
-    ) -> Vec<(String, Decimal)> {
+    pub async fn evaluate_order_fills(&self, current_mid_price: Decimal) -> Vec<(String, Decimal)> {
         let mut fills = Vec::new();
 
         let orders_to_check: Vec<(String, OrderLifecycle)> = {
@@ -280,8 +277,9 @@ impl PaperTradingEngine {
         lifecycle: &mut OrderLifecycle,
         mid_price: Decimal,
     ) -> Result<(), String> {
-        let spread_half = Decimal::from_f64_retain(self.fee_config.simulated_spread_pct / 100.0 / 2.0)
-            .unwrap_or(dec!(0));
+        let spread_half =
+            Decimal::from_f64_retain(self.fee_config.simulated_spread_pct / 100.0 / 2.0)
+                .unwrap_or(dec!(0));
         let fill_price = if lifecycle.packet.side == OrderSide::Buy {
             mid_price * (dec!(1) + spread_half)
         } else {
@@ -312,12 +310,14 @@ impl PaperTradingEngine {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        lifecycle.transitions.push(crate::execution::state_machine::OrderTransition {
-            from: OrderStatus::Open,
-            to: OrderStatus::Closed,
-            timestamp_ms: now * 1000,
-            metadata: Some(format!("filled {} @ {}", fill_qty, fill_price)),
-        });
+        lifecycle
+            .transitions
+            .push(crate::execution::state_machine::OrderTransition {
+                from: OrderStatus::Open,
+                to: OrderStatus::Closed,
+                timestamp_ms: now * 1000,
+                metadata: Some(format!("filled {} @ {}", fill_qty, fill_price)),
+            });
 
         Ok(())
     }
@@ -348,12 +348,8 @@ impl PaperTradingEngine {
         if lifecycle.packet.reduce_only {
             if let Some(pos) = positions.remove(&symbol) {
                 let pnl = match pos.direction {
-                    config_models::Direction::Long => {
-                        (fill_price - pos.entry_price) * pos.size
-                    }
-                    config_models::Direction::Short => {
-                        (pos.entry_price - fill_price) * pos.size
-                    }
+                    config_models::Direction::Long => (fill_price - pos.entry_price) * pos.size,
+                    config_models::Direction::Short => (pos.entry_price - fill_price) * pos.size,
                 };
                 *equity += pnl - fee;
 
@@ -368,8 +364,27 @@ impl PaperTradingEngine {
                 } else {
                     "policy"
                 };
-                self.persist_paper_trade(&symbol, dir_str, pos.entry_price, fill_price, pos.size, pnl, fee).await;
-                self.persist_trade_telemetry(&symbol, dir_str, pos.entry_price, fill_price, pos.size, pnl, fee, trigger_src).await;
+                self.persist_paper_trade(
+                    &symbol,
+                    dir_str,
+                    pos.entry_price,
+                    fill_price,
+                    pos.size,
+                    pnl,
+                    fee,
+                )
+                .await;
+                self.persist_trade_telemetry(
+                    &symbol,
+                    dir_str,
+                    pos.entry_price,
+                    fill_price,
+                    pos.size,
+                    pnl,
+                    fee,
+                    trigger_src,
+                )
+                .await;
                 self.persist_equity_snapshot(*equity).await;
             }
         } else {
@@ -448,8 +463,8 @@ impl PaperTradingEngine {
             return;
         }
 
-        let rate = Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0)
-            .unwrap_or(dec!(0));
+        let rate =
+            Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0).unwrap_or(dec!(0));
         let mut total_settlement = dec!(0);
 
         let settlement_details: Vec<(String, Decimal, Decimal)> = positions
@@ -740,6 +755,10 @@ mod tests {
 
         // Equity should have increased (Pnl = 3 * (51000-50000) = 30000, minus fees)
         let equity = engine.get_equity_decimal().await;
-        assert!(equity > dec!(10000), "equity should increase on profitable close, got {}", equity);
+        assert!(
+            equity > dec!(10000),
+            "equity should increase on profitable close, got {}",
+            equity
+        );
     }
 }

@@ -112,17 +112,19 @@ impl BitgetHistoricalFetch {
         rest_url: &str,
     ) -> Result<Vec<NormalizedCandle>, String> {
         match &self.page_fetcher {
-            Some(pager) => pager(
-                symbol,
-                internal_symbol,
-                product_type,
-                granularity,
-                start_time_ms,
-                end_time_ms,
-                limit,
-                rest_url,
-            )
-            .await,
+            Some(pager) => {
+                pager(
+                    symbol,
+                    internal_symbol,
+                    product_type,
+                    granularity,
+                    start_time_ms,
+                    end_time_ms,
+                    limit,
+                    rest_url,
+                )
+                .await
+            }
             None => {
                 fetch_historical_candles_page(
                     symbol,
@@ -179,7 +181,7 @@ impl HistoricalFetchPolicy for BitgetHistoricalFetch {
         while collected.len() < request.target_count {
             if started.elapsed() >= timeout {
                 return Err(HistoricalFetchError::Timeout(
-                    started.elapsed().as_millis() as u64,
+                    started.elapsed().as_millis() as u64
                 ));
             }
 
@@ -237,11 +239,7 @@ impl HistoricalFetchPolicy for BitgetHistoricalFetch {
             // Anchor on the OLDEST candle in the page (Bitget returns
             // newest-first within a page; HL uses `page.first().start_time_ms`).
             // The next request window is `[start_ts, earliest_in_page - duration_ms]`.
-            let earliest_in_page = page
-                .iter()
-                .map(|c| c.start_time_ms)
-                .min()
-                .unwrap_or(end_ts);
+            let earliest_in_page = page.iter().map(|c| c.start_time_ms).min().unwrap_or(end_ts);
             let next_end = earliest_in_page.saturating_sub(duration_ms);
 
             // Defensive: if the cursor didn't strictly advance backward,

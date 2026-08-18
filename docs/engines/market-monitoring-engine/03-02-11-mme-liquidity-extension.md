@@ -71,6 +71,13 @@ indicator/signal — sub-second TFs refresh at sub-second intervals).
 First fire is immediate at spawn (no 5-min delay). Operator override:
 `config.toml [liquidity] cluster_refresh_secs > 0` clamps to ≥ 1 s.
 
+> **TTL is fixed at 5 minutes regardless of cadence.** Independent of the
+> per-TF refresh cadence above, every `LiquidationClusterMatrix` carries
+> `valid_until_ms = generated_at_ms + 5 × 60 × 1000` (a hardcoded 5-minute
+> TTL, `crates/core-domain/src/liquidity/mod.rs`) — a sub-5-minute TF that
+> refreshes its cluster more often does **not** shorten the TTL, and a
+> slow TF that refreshes less often never emits a longer-lived matrix.
+
 ## Strict architecture invariants
 
 1. **Unidirectional cascade.**
@@ -105,12 +112,24 @@ L7   Overview                        ← gains cascade_risk_index field on envel
 L2.5 is MME-internal. It does not produce TAE or PME outputs directly.
 The integration with the rest of the platform is:
 
-- **TAE** reads the L4 Opportunity Matrix's `primary_opportunity`. A
-  `LiquiditySqueeze` value drives a `CLOSE_ONLY` policy stance and forces
-  `reduce_only = true` on all dispatched orders per the §3.3 invariant in
-  [03-03-03-tae-layer2-execution.md](../trade-automation-engine/03-03-03-tae-layer2-execution.md).
-- **PME** reads `RiskMatrix.cascade_risk` as a veto signal. If cascade
-  risk is extreme, PME can force positions into `CLOSE_ONLY`.
+- **TAE** reads the L4 Opportunity Matrix's `primary_opportunity` through
+  the policy condition language (`opportunity.primary_opportunity` in
+  [03-03-04-tae-execution-policy-spec.md §2.3](../trade-automation-engine/03-03-04-tae-execution-policy-spec.md)).
+  An operator-authored policy may match `"LiquiditySqueeze"` — e.g. to
+  trigger a reduce-only exit directive. There is **no built-in stance
+  change**: a `CLOSE_ONLY` stance is set only by the operator or by a PME
+  veto, and once set, Gate 1 blocks new entries and the §3.3 invariant in
+  [03-03-03-tae-layer2-execution.md](../trade-automation-engine/03-03-03-tae-layer2-execution.md)
+  forces `reduce_only = true` on all dispatched orders. A built-in
+  liquidity-driven CLOSE_ONLY dispatch is tracked in `docs/ROADMAP.md`
+  §3 Phase A (not yet wired).
+- **PME** veto loop consumes `OverviewMatrix.systemic_risk_score` plus
+  margin/exposure/loss-streak conditions (see
+  [08-02-pre-trade-risk-controls.md](../../operations-and-compliance/08-02-pre-trade-risk-controls.md));
+  `RiskMatrix.cascade_risk` and the `liquidity_signals` list are
+  **frontend-consumed only** — no TAE/PME code path reads `LiquidityFlow`
+  `cascade_state`, `LiquiditySignalKind`, or `cascade_risk` for stances or
+  vetoes today. A PME cascade veto is tracked in `docs/ROADMAP.md`.
 - **PAE** (future work) can read the `liquidation_events` table for
   cascade-conditioned backtesting.
 
@@ -131,7 +150,7 @@ The Phase 3 `LiquiditySignalKind` enum defines **11** signals derived per snapsh
 | 1 | `CASCADE_DETECTED` | `flow.cascade_state` transitions from `None` → `Detected` |
 | 2 | `CASCADE_SUSTAINED` | `flow.cascade_state = Sustained` for ≥ 3 consecutive candles |
 | 3 | `CASCADE_EXHAUSTED` | `flow.cascade_state` transitions to `Exhausted` |
-| 4 | `LIQUIDITY_VACUUM` | Order book thin AND dense liquidations behind price |
+| 4 | `LIQUIDITY_VACUUM` | Order book thin AND dense liquidations behind price. **Input source:** the `depth_bias` indicator's raw depth ratio (`book_depth_ratio` = `indicators["depth_bias"].raw_value`, the bid/ask depth-imbalance ratio) — the registry key is `depth_bias`; a `depth_ratio` key was never registered. Fires when the ratio is below `liquidity_vacuum_depth_low` = `liquidity_vacuum_threshold` (default `0.3` → band `(0.3, 3.33)`) or above `liquidity_vacuum_depth_high` = `1 / liquidity_vacuum_threshold` (the legacy `0.5 / 2.0` pair corresponds to a configured threshold of `0.5`), paired with the flow context. |
 | 5 | `FUNDING_EXTREME` | `|funding_rate|` exceeds extreme threshold |
 | 6 | `OI_FUNDING_DIVERGENCE` | OI increasing while funding rate trending opposite direction |
 | 7 | `MAGNET_ACTIVATED` | Price approaching a cluster zone (magnet active) |

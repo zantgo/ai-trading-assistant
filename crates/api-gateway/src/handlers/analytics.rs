@@ -21,7 +21,7 @@ pub async fn serve_strategy_analytics(
         database_storage::query_strategy_analytics_history(
             &state.pool,
             Some(pid),
-            query.limit.unwrap_or(50),
+            query.limit.unwrap_or(50).min(crate::types::API_MAX_LIMIT),
         )
         .await
     } else {
@@ -32,7 +32,7 @@ pub async fn serve_strategy_analytics(
             database_storage::query_strategy_analytics_history(
                 &state.pool,
                 None,
-                query.limit.unwrap_or(50),
+                query.limit.unwrap_or(50).min(crate::types::API_MAX_LIMIT),
             )
             .await
         } else {
@@ -49,7 +49,7 @@ pub async fn serve_strategy_analytics_history(
     let rows = database_storage::query_strategy_analytics_history(
         &state.pool,
         query.policy_id.as_deref(),
-        query.limit.unwrap_or(100),
+        query.limit.unwrap_or(100).min(crate::types::API_MAX_LIMIT),
     )
     .await;
     Json(rows)
@@ -91,7 +91,7 @@ pub async fn serve_optimization_report(
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
     let persisted =
-        database_storage::query_optimization_reports(&state.pool, query.limit.unwrap_or(10)).await;
+        database_storage::query_optimization_reports(&state.pool, query.limit.unwrap_or(10).min(crate::types::API_MAX_LIMIT)).await;
     if !persisted.is_empty() {
         return Json(persisted);
     }
@@ -204,12 +204,12 @@ pub async fn serve_trade_analytics(
         trades
             .into_iter()
             .filter(|t| t.trigger_source == *pid)
-            .take(query.limit.unwrap_or(200) as usize)
+            .take(query.limit.unwrap_or(200).min(crate::types::API_MAX_LIMIT) as usize)
             .collect()
     } else {
         trades
             .into_iter()
-            .take(query.limit.unwrap_or(200) as usize)
+            .take(query.limit.unwrap_or(200).min(crate::types::API_MAX_LIMIT) as usize)
             .collect()
     };
     Json(filtered)

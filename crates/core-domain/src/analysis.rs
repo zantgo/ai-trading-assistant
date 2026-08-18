@@ -533,8 +533,8 @@ fn vote_lean_with(
 /// Fire-side vote: ≥3/4 of `timeframes_present` (min 3) decisive, ≤1
 /// opponent — requires real breadth, never a warmup window.
 fn directional_vote_lean(alignment: &AlignmentMatrix) -> Option<MarketBias> {
-    let required = ((alignment.timeframes_present as f64 * 0.75).ceil() as usize)
-        .max(BIAS_GRACE_VOTE_MIN);
+    let required =
+        ((alignment.timeframes_present as f64 * 0.75).ceil() as usize).max(BIAS_GRACE_VOTE_MIN);
     vote_lean_with(alignment, required, 1)
 }
 
@@ -885,26 +885,26 @@ pub fn derive_analysis(
     // volatility dimension was clearly 25-35. (SUPERSEDED by the F3
     // decision below — the current implementation again excludes
     // volatility per the canonical spec.)
-// v6.10 (Phase 6 / F3): `market_quality` is the mean of the trend,
-// momentum, structure, and volume dimension scores (4 dims, NOT 5 —
-// volatility is excluded per the canonical spec at
-// `docs/matrices/02-02-analysis-matrix.md §3.6`). The previous v6.9
-// implementation included volatility, which inflated the score for
-// "compression" regimes. Bands are the canonical half-open
-// thresholds: POOR <30, WEAK [30,50), AVERAGE [50,70), GOOD [70,85),
-// EXCELLENT ≥85.
-let quality_score = (trend_dim + mom_dim + struct_dim + volu_dim) / 4.0;
-let market_quality = if quality_score >= 85.0 {
-    QualityLevel::Excellent
-} else if quality_score >= 70.0 {
-    QualityLevel::Good
-} else if quality_score >= 50.0 {
-    QualityLevel::Average
-} else if quality_score >= 30.0 {
-    QualityLevel::Weak
-} else {
-    QualityLevel::Poor
-};
+    // v6.10 (Phase 6 / F3): `market_quality` is the mean of the trend,
+    // momentum, structure, and volume dimension scores (4 dims, NOT 5 —
+    // volatility is excluded per the canonical spec at
+    // `docs/matrices/02-02-analysis-matrix.md §3.6`). The previous v6.9
+    // implementation included volatility, which inflated the score for
+    // "compression" regimes. Bands are the canonical half-open
+    // thresholds: POOR <30, WEAK [30,50), AVERAGE [50,70), GOOD [70,85),
+    // EXCELLENT ≥85.
+    let quality_score = (trend_dim + mom_dim + struct_dim + volu_dim) / 4.0;
+    let market_quality = if quality_score >= 85.0 {
+        QualityLevel::Excellent
+    } else if quality_score >= 70.0 {
+        QualityLevel::Good
+    } else if quality_score >= 50.0 {
+        QualityLevel::Average
+    } else if quality_score >= 30.0 {
+        QualityLevel::Weak
+    } else {
+        QualityLevel::Poor
+    };
 
     let mut rationale_parts: Vec<String> = Vec::new();
     // v6.10.17 (F22): BBWP/ADX render with one decimal so the rationale
@@ -1041,7 +1041,8 @@ mod tests {
     use crate::alignment::{AlignmentMatrix, TfAlignmentInfo};
 
     fn simple_alignment(tfs: u8, score: f64, agreement: f64, cross_tf: u32) -> AlignmentMatrix {
-        let mut alignments = Vec::new();        let labels = ["micro60", "fast180", "slow300", "macro900"];
+        let mut alignments = Vec::new();
+        let labels = ["micro60", "fast180", "slow300", "macro900"];
         let secs = [60, 180, 300, 900];
         for i in 0..tfs as usize {
             alignments.push(TfAlignmentInfo {
@@ -1527,10 +1528,8 @@ mod tests {
             OpportunityType::MeanReversion,
             OpportunityType::NoClearOpportunity,
         ];
-        let mut families: Vec<DirectionFamily> = all
-            .iter()
-            .map(|ot| direction_family_for(*ot))
-            .collect();
+        let mut families: Vec<DirectionFamily> =
+            all.iter().map(|ot| direction_family_for(*ot)).collect();
         families.sort_by_key(|f| *f as u8);
         families.dedup();
         assert_eq!(
@@ -1540,23 +1539,26 @@ mod tests {
             families
         );
         // TrendRiding is the majority family.
-        assert!(all
-            .iter()
-            .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::TrendRiding))
-            .count()
-            >= 4);
+        assert!(
+            all.iter()
+                .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::TrendRiding))
+                .count()
+                >= 4
+        );
         // CounterTrend covers MeanReversion + Reversal.
-        assert!(all
-            .iter()
-            .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::CounterTrend))
-            .count()
-            == 2);
+        assert!(
+            all.iter()
+                .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::CounterTrend))
+                .count()
+                == 2
+        );
         // Neutral covers NoClearOpportunity.
-        assert!(all
-            .iter()
-            .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::Neutral))
-            .count()
-            == 1);
+        assert!(
+            all.iter()
+                .filter(|ot| matches!(direction_family_for(**ot), DirectionFamily::Neutral))
+                .count()
+                == 1
+        );
     }
 
     #[test]

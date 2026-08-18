@@ -42,6 +42,26 @@ pub enum ConfigError {
          `docs/conceptual-foundations/01-07-data-model-hierarchy.md`."
     )]
     WorkspaceMissing,
+
+    #[error(
+        "instance `{symbol}` declares {count} custom timeframes ({keys}),\n\
+         but custom pipeline slots are not yet instantiated by the runtime\n\
+         (see `docs/ROADMAP.md` §3 Phase A — custom `instances[*].custom_pipelines`).\n\
+         Remove the `custom_pipelines` table or restrict the instance to the\n\
+         default 4-slot ladder (micro/fast/slow/macro) to boot."
+    )]
+    CustomTimeframesUnsupported {
+        symbol: String,
+        count: usize,
+        keys: String,
+    },
+
+    #[error(
+        "invalid numeric config (audit M8): {detail}.\n\
+         Zero-valued periods/durations panic in the hot path (Decimal/u64\n\
+         division, median-window indexing) — every period must be >= 1."
+    )]
+    InvalidNumeric { detail: String },
 }
 
 /// Alias for `Result<T, ConfigError>`.
@@ -195,6 +215,8 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub heatmap: HeatmapConfig,
     #[serde(default)]
+    pub api_failover: ApiFailoverConfig,
+    #[serde(default)]
     pub activation: ActivationConfig,
     /// Opportunity-matrix knobs — currently just the ATR-fallback toggle
     /// for confluent levels (Phase C of the v6.10 fix). When `enabled`,
@@ -248,6 +270,7 @@ impl Default for WorkspaceConfig {
             intervals: IntervalsConfig::default(),
             liquidity: LiquidityConfig::default(),
             heatmap: HeatmapConfig::default(),
+            api_failover: ApiFailoverConfig::default(),
             activation: ActivationConfig::default(),
             opportunity_matrix: OpportunityMatrixConfig::default(),
             config_version: 1,
@@ -356,6 +379,7 @@ pub fn load_platform() -> Result<PlatformConfig> {
         source: e,
     })?;
     let (platform, _workspace) = on_disk.split();
+    validate_platform(&platform)?;
     Ok(platform)
 }
 
@@ -371,6 +395,7 @@ pub fn load_workspace() -> Result<WorkspaceConfig> {
         path: path.clone(),
         source: e,
     })?;
+    validate_workspace(&on_disk.workspace)?;
     Ok(on_disk.workspace)
 }
 
@@ -386,7 +411,81 @@ pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
         path: path.clone(),
         source: e,
     })?;
+    validate_workspace(&on_disk.workspace)?;
     Ok(on_disk.split())
+}
+
+/// Fail-fast boot validation (audit fix M6): surfaces config surfaces the
+/// runtime cannot honor instead of silently ignoring them.
+///
+/// Currently rejected: `InstanceEntry.custom_pipelines` — the registry has
+/// full PRI-07 code paths for custom slots (cluster handles, history,
+/// per-TF refresh) but no production call-site instantiates them, so a
+/// configured custom TF would be silently dropped. Explicit rejection is
+/// the honest behaviour until the wiring lands.
+fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
+    for inst in &ws.instances {
+        if !inst.custom_pipelines.is_empty() {
+            let mut keys: Vec<String> = inst
+                .custom_pipelines
+                .keys()
+                .map(|k| k.to_string())
+                .collect();
+            keys.sort();
+            return Err(ConfigError::CustomTimeframesUnsupported {
+                symbol: inst.symbol.clone(),
+                count: inst.custom_pipelines.len(),
+                keys: keys.join(", "),
+            });
+        }
+        // M8 (production audit): zero-valued numeric knobs panic in the
+        // hot path — `candles.duration_seconds = 0` divides by zero in
+        // CandleGenerator, `rsi_period = 0` in Rsi::update, and
+        // `median_window_size = 0` indexes an empty window in
+        // MedianPriceFilter. Fail fast at boot instead.
+        for (name, tf) in [
+            ("micro", Some(&inst.micro_term)),
+            ("fast", Some(&inst.fast_term)),
+            ("slow", inst.slow_term.as_ref()),
+            ("macro", inst.macro_term.as_ref()),
+        ] {
+            if let Some(tf) = tf {
+                if tf.candles.duration_seconds == 0 {
+                    return Err(ConfigError::InvalidNumeric {
+                        detail: format!(
+                            "instance {}: {}.candles.duration_seconds = 0",
+                            inst.symbol, name
+                        ),
+                    });
+                }
+                let ind = &tf.indicators;
+                if ind.rsi_period == 0 {
+                    return Err(ConfigError::InvalidNumeric {
+                        detail: format!("instance {}: {}.rsi_period = 0", inst.symbol, name),
+                    });
+                }
+                if ind.macd_fast == 0 || ind.macd_slow == 0 || ind.macd_signal == 0 {
+                    return Err(ConfigError::InvalidNumeric {
+                        detail: format!("instance {}: {} MACD period(s) = 0", inst.symbol, name),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// M8: platform-level numeric guards (`load_platform` path) — the median
+/// filter window must be ≥ 1.
+fn validate_platform(platform: &PlatformConfig) -> Result<()> {
+    if let Some(q) = &platform.quality {
+        if q.median_window_size == 0 {
+            return Err(ConfigError::InvalidNumeric {
+                detail: "[quality].median_window_size = 0 (must be >= 1)".into(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Serialize a `WorkspaceConfig` back to TOML and persist to `config.toml`.
@@ -581,5 +680,121 @@ indicators = { rsi_period = 14 }
         // files in CWD).
         assert!(assert_no_legacy_files().is_ok());
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn custom_timeframes_rejected_at_load() {
+        // Audit fix (M6): `custom_pipelines` is configured-but-unimplemented
+        // in the runtime — the registry never instantiates custom slots. The
+        // loader must fail fast instead of silently dropping the config.
+        let mut ws = WorkspaceConfig::default();
+        let mut inst = InstanceEntry {
+            id: "btc".into(),
+            symbol: "BTC-USDT".into(),
+            quote: "USDT".into(),
+            initial_capital_usd: 1000.0,
+            status: InstanceStatus::Running,
+            micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
+            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
+            slow_term: None,
+            macro_term: None,
+            automation: AutomationConfig::default(),
+            operational_mode: OperationalMode::Advisory,
+            weight_overrides: None,
+            position_scaling: None,
+            activation: None,
+            custom_pipelines: std::collections::HashMap::new(),
+        };
+        assert!(
+            validate_workspace(&ws).is_ok(),
+            "empty custom_pipelines must pass validation"
+        );
+        ws.instances.push(inst.clone());
+
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(5u16, TimeframeConfig::new(120, IndicatorsConfig::default()));
+        inst.custom_pipelines = custom;
+        ws.instances = vec![inst];
+        match validate_workspace(&ws) {
+            Err(ConfigError::CustomTimeframesUnsupported {
+                symbol,
+                count,
+                keys,
+            }) => {
+                assert_eq!(symbol, "BTC-USDT");
+                assert_eq!(count, 1);
+                assert_eq!(keys, "5");
+            }
+            other => panic!("expected CustomTimeframesUnsupported, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn zero_valued_periods_rejected_at_load() {
+        // M8 (production audit): zero periods panic in the hot path
+        // (Decimal/u64 division, median-window indexing) — reject at boot.
+        let bad_duration = InstanceEntry {
+            id: "btc".into(),
+            symbol: "BTC-USDT".into(),
+            quote: "USDT".into(),
+            initial_capital_usd: 1000.0,
+            status: InstanceStatus::Running,
+            micro_term: TimeframeConfig {
+                candles: CandlesConfig {
+                    duration_seconds: 0,
+                },
+                ..TimeframeConfig::new(60, IndicatorsConfig::default())
+            },
+            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
+            slow_term: None,
+            macro_term: None,
+            automation: AutomationConfig::default(),
+            operational_mode: OperationalMode::Advisory,
+            weight_overrides: None,
+            position_scaling: None,
+            activation: None,
+            custom_pipelines: std::collections::HashMap::new(),
+        };
+        let mut ws = WorkspaceConfig::default();
+        ws.instances = vec![bad_duration];
+        assert!(matches!(
+            validate_workspace(&ws),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+
+        let mut bad_rsi = InstanceEntry {
+            id: "btc".into(),
+            symbol: "BTC-USDT".into(),
+            quote: "USDT".into(),
+            initial_capital_usd: 1000.0,
+            status: InstanceStatus::Running,
+            micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
+            fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
+            slow_term: None,
+            macro_term: None,
+            automation: AutomationConfig::default(),
+            operational_mode: OperationalMode::Advisory,
+            weight_overrides: None,
+            position_scaling: None,
+            activation: None,
+            custom_pipelines: std::collections::HashMap::new(),
+        };
+        bad_rsi.micro_term.indicators.rsi_period = 0;
+        ws.instances = vec![bad_rsi];
+        assert!(matches!(
+            validate_workspace(&ws),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+
+        // Platform side: median window 0 rejected.
+        let mut platform = PlatformConfig::default();
+        platform.quality = Some(QualityConfig {
+            median_window_size: 0,
+            ..QualityConfig::default()
+        });
+        assert!(matches!(
+            validate_platform(&platform),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
     }
 }

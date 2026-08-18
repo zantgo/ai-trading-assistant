@@ -27,7 +27,7 @@ transacted.
 
 ## Inputs
 
-- Loaded OHLCV candle history (default 300 bars, configurable via
+- Loaded OHLCV candle history (default 500 bars, configurable via
   `volume_profile_window` in `[indicators]`).
 - The same `completed` candle the L1 indicator pipeline already feeds.
 
@@ -50,7 +50,7 @@ pub struct VolumeProfileSnapshot {
     pub total_volume: f64,
     pub range_low: f64,
     pub range_high: f64,
-    pub num_bins: usize,                // result of dynamic_bin_count()
+    pub num_bins: usize,                // count of non-empty bins AFTER the zero-volume filter
     pub timestamp_ms: u64,
 }
 
@@ -67,24 +67,11 @@ pub struct VolumeProfileBin {
 
 ## Computation
 
-### Dynamic bin count
+### Static bin count
 
-```rust
-VolumeProfileSnapshot::dynamic_bin_count(
-    price_range,         // max(high) - min(low) across the loaded window
-    tick_size,           // smallest price increment for this symbol
-    bar_duration_secs,   // slot's timeframe_secs
-) -> usize {
-    let raw = (price_range / tick_size).round() as usize;
-    let tf_bonus = min(log2(bar_duration_secs) as usize, 8);
-    (raw + tf_bonus).clamp(30, 120)
-}
-```
+The bin count is **static**, taken from the `volume_profile_bins` config key (default `100`, floored at `1` inside `VolumeProfile::new` so a misconfigured `0` cannot panic the `range / num_bins` division). The snapshot builder does **not** re-derive the count from price range, tick size, or bar duration — `num_bins` on the wire is the count of **non-empty bins after filtering** (`out_bins.len()` after the `volume <= 0.0` bins are dropped in `build_volume_profile_snapshot`), which may be less than the configured count.
 
-The bin count adapts to the price range and bar duration so the histogram
-stays visually balanced across all four timeframes. Wider price ranges get
-more bins; higher-TF bars get a small additive bonus so the right-column
-volume profile doesn't look sparse.
+> **`dynamic_bin_count()` is dead code.** `VolumeProfileSnapshot::dynamic_bin_count(price_range, tick_size, bar_duration_secs)` (the tick-size / bar-duration adaptive formula, clamped `[30, 120]`) still exists in `crates/core-domain/src/volume_profile.rs` — **with no production callers**; it survives only for its unit tests. The legacy "30–120 adaptive bin count" behavior claims are retired.
 
 ### Per-candle distribution
 
@@ -175,7 +162,7 @@ unchanged.
 | Key | Default | Range | Description |
 |---|---|---|---|
 | `volume_profile_window` | 500 | 50–2000 | Number of completed bars in the rolling profile. |
-| `volume_profile_bins` | 50 | 30–120 | Maximum bin count (clamp ceiling). |
+| `volume_profile_bins` | 100 | ≥ 1 (floored at 1) | Static bin count for the profile histogram. |
 | `volume_profile_value_area` | 0.70 | 0.50–0.90 | Fraction of volume the value area must contain. |
 
 All three keys already exist in `config-models` `IndicatorsConfig`.

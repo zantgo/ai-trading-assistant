@@ -20,7 +20,7 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.17, **Market
         + [Alignment Matrix per symbol]    (v6.10.3+ — cross-TF aggregate)
 ```
 
-L7 aggregates each instance's slow-tier (300 s) Decision Matrix; the tier is a documented constant, not currently configurable. The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's slow-tier `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below).
+L7 aggregates **all four timeframe windows** per symbol (micro/fast/slow/macro — see the I-2 note below); per-window advisories feed the breadth/bias/opportunity/regime tallies, per-symbol scalars are the mean over the windows, and categorical per-asset fields are the mode (ties resolve to the fastest window). The Alignment Matrix inputs (v6.10.3+) are likewise sourced from each instance's `MarketSnapshot.alignment` and aggregated across all symbols (see §3.5 below). The legacy slow-tier-300s-only basis is retired.
 
 Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced by `compute_overview()`.
 
@@ -34,13 +34,13 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 |-------|------|-------------|
 | `global_market_bias` | `GlobalBias` | Universe-wide directional bias (§3.1). |
 | `market_breadth` | `MarketBreadth` | Breadth classification (§3.2). |
-| `low_coverage` | `bool` | `true` when breadth is computed over a reduced signal set (fewer than 4 of the 12 SignalKinds enabled); default `false` (§3.2). |
+| `low_coverage` | `bool` | `true` when `active_symbols.len() < 3` (symbol-count based — the breadth/sync/health aggregates are statistically unreliable on 1–2 symbols); default `false` (§3.2). |
 | `breadth_pct` | `f64 ∈ [-100, 100]` | Continuous numeric breadth: signed percentage of bullish-asset count. Source of the UI's −100 % to +100 % breadth gauge and the input to `market_breadth` and `market_synchronization`. |
 | `regime_distribution` | `map<string, f64>` | Fraction of assets per regime. (`f64` because the regime-classification partition is exhaustive — entries sum to `1.0`.) |
 | `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` and `Scalp` since the v2.1 completeness sweep — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). (`u32` because opportunity types are not mutually exclusive — a single asset can simultaneously satisfy the preconditions of multiple setups, so the map is a per-type count rather than a partition.) |
 | `risk_distribution` | `RiskDistribution` | Low/moderate/high risk share + environment label (§4). |
 | `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). |
-| `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty`. The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-portfolio.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
+| `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty` — the `high_pct` term uses the **TF-decayed** high-share (micro 0.1 / fast 0.2 / slow 0.3 / macro 0.4, P7 §3 note below), and `sync_penalty` is nonzero only under a bearish `global_market_bias` (graded table §3.4). The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-portfolio.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
 | `asset_ranking` | `AssetRank[]` | Assets ranked by composite score (§5). |
 | `market_synchronization` | `SyncLevel` | Cross-asset correlation of direction (§3.3). |
 | `market_health` | `HealthLevel` | Overall market health (§3.4). |
@@ -51,7 +51,7 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `instance_count` | `u32` | Active monitoring instances. |
 | `active_symbols` | `string[]` | Sorted list of active symbols. |
 
-**Invariant.** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. UI consumers and pre-trade consumers rely on this equality; multi-instance mode (multiple `MarketSnapshot` per symbol) is not currently supported.
+**Invariant (code truth).** `instance_count` counts active `InstanceMeta` records (`is_active`), while `active_symbols` is the sorted union of symbols from active instances **and** all advisory windows (v6.10.18 I-2: each symbol contributes 0–4 TF-window advisories). In the current single-instance-per-symbol deployment the two coincide (`instance_count == active_symbols.length`), but the code does not enforce equality — `global_summary` phrases it as "N active instances across M symbols". Multi-instance mode (multiple `MarketSnapshot` per symbol) is not currently supported.
 
 ### 2.2 AssetRank
 
@@ -59,10 +59,10 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 |-------|------|-------------|
 | `symbol` | `string` | Asset. |
 | `score` | `f64` | Composite ranking score. |
-| `bias` | `string` | Directional guidance label. |
+| `bias` | `string` | Directional guidance label — Rust `Debug`-format value of `DirectionalGuidance` (`"StrongLong"`, `"Neutral"`, `"AvoidDirectionalExposure"`, …). |
 | `confidence` | `f64` | Decision Matrix `confidence_assessment` value (mirror, in `[0, 100]`). |
-| `regime` | `string` | Strategy environment label. |
-| `risk_level` | `string` | Risk band — per-asset L5 `overall_risk.score` (v6.10.16 FIX-O3): `≤ 30` LOW, `≥ 70` HIGH, else MODERATE. |
+| `regime` | `string` | Strategy environment label — Rust `Debug`-format value of `StrategyEnvironment` (`"TrendFollowing"`, `"MeanReversion"`, …). |
+| `risk_level` | `string` | Risk band — per-asset L5 `overall_risk.score` (v6.10.16 FIX-O3): `≤ 30` LOW, `≥ 70` HIGH, else MODERATE (Display vocabulary, SCREAMING). |
 | `mtf_score` | `f64 ∈ [-100, 100]` (v6.10.3+) | `AlignmentMatrix.mtf_overall_score` for this symbol. `0.0` when no alignment is available for the symbol. |
 | `mtf_label` | `string` (v6.10.3+) | `AlignmentMatrix.mtf_overall_label` for this symbol — `STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`. |
 
@@ -142,7 +142,7 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 
 > **`VERY_WEAK` semantics.** `VERY_WEAK` denotes marginally negative breadth — weaker than `BALANCED`, not yet a confirmed negative (`NEGATIVE` requires `breadth_pct < −20`).
 
-> **Low-coverage flag (`low_coverage`).** The Overview Matrix carries an additive `low_coverage: bool` field (default `false`) alongside `market_breadth`: it is `true` when fewer than 4 of the 12 `SignalKind`s are enabled in the active configuration (see [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)); breadth is then computed over the enabled subset only. In the empty state (§7) `low_coverage` is `false`.
+> **Low-coverage flag (`low_coverage`).** The Overview Matrix carries an additive `low_coverage: bool` field (default `false`) alongside `market_breadth`: it is `true` when **`active_symbols.len() < 3`** — a **symbol-count** threshold (`compute_overview` sets `low_coverage: active_symbols.len() < 3`), not a signal-kind count. Under low coverage the **frontend** demotes the `STRONG_*` display tokens one tier and appends the pair count (e.g. "BULLISH (1 pair)", never "STRONG BULLISH 100% breadth" from a single symbol — I-10). In the empty state (§7) `low_coverage` is `false`.
 
 ### 3.3 SyncLevel (Market Synchronization)
 `HIGHLY_SYNCHRONIZED`, `SYNCHRONIZED`, `MIXED`, `FRAGMENTED`, `HIGHLY_FRAGMENTED` — from `|breadth_pct|`:
@@ -209,7 +209,7 @@ UI consumers typically render this as a large numeric with a 3-bucket classifier
 
 ### 3.5.4 Empty / partial-input semantics
 
-When no instance has yet produced a slow-tier Alignment Matrix (`alignments.is_empty()`) but the L6 inputs (advisories + active instances) are populated:
+When no instance has yet produced an Alignment Matrix (`alignments.is_empty()`) but the L6 inputs (advisories + active instances) are populated:
 
 - `alignment_distribution` → empty map.
 - `alignment_consensus_index` → `0.0` (not NaN).
@@ -283,27 +283,29 @@ Rankings sort descending, producing a leaderboard of relative strength/weakness 
   "market_breadth": "POSITIVE",
   "low_coverage": false,
   "breadth_pct": 60.0,
-  "regime_distribution": { "TRENDING_BULL": 0.6, "RANGE": 0.4 },
-  "opportunity_distribution": { "BREAKOUT": 2, "TREND_CONTINUATION": 1 },
+  "regime_distribution": { "TRENDING": 0.6, "RANGE": 0.4 },
+  "opportunity_distribution": { "Breakout": 2, "TrendContinuation": 1 },
   "risk_distribution": { "low_pct": 60.0, "moderate_pct": 40.0, "high_pct": 0.0, "risk_environment": "LOW_RISK" },
   "systemic_risk_score": 0.0,
   "asset_ranking": [
-    { "symbol": "BTC-USDT", "score": 87.5, "bias": "STRONG_LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE", "mtf_score": 65.0, "mtf_label": "STRONG_BULL_MTF" }
+    { "symbol": "BTC-USDT", "score": 87.5, "bias": "StrongLong", "confidence": 75.0, "regime": "TrendFollowing", "risk_level": "MODERATE", "mtf_score": 65.0, "mtf_label": "STRONG_BULL_MTF" }
   ],
   "market_synchronization": "SYNCHRONIZED",
   "market_health": "HEALTHY",
   "alignment_distribution": { "STRONG_BULL_MTF": 2, "WEAK_BULL_MTF": 1, "NEUTRAL_MTF": 2 },
   "alignment_consensus_index": 35.5,
   "multi_tf_agreement_pct": 72.0,
-  "global_summary": "5 active instances across 5 symbols. Global bias: BULLISH with positive market breadth.",
+  "global_summary": "5 active instances across 5 symbols. Global bias: BULLISH with positive market breadth. Risk environment: LOW_RISK.",
   "instance_count": 5,
   "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT", "AVAX-USDT", "MATIC-USDT"]
 }
 ```
 
+> The `global_summary` sentence always appends the `Risk environment: {env}.` clause (see §2.1). `cascade_risk_index` and the per-symbol `asset_ranking` entries are emitted alongside the fields above.
+
 > **Worked example for `systemic_risk_score`.** With `global_market_bias = BULLISH`, `sync_penalty = 0` regardless of synchronization level. The score reduces to `0.6 × high_pct + 0.4 × 0 = 0.6 × high_pct`. The example above (3 low-risk + 2 moderate-risk = 0 high-risk out of 5) yields `high_pct = 0` and `systemic_risk_score = 0.0`. A biased-bearish example with `high_pct = 60.0` and `sync_penalty = 0` (e.g. `HIGHLY_FRAGMENTED`) would yield `systemic_risk_score = 36.0`.
 
-Enum values serialize as `SCREAMING_SNAKE_CASE`.
+**Wire casing.** `GlobalBias` / `MarketBreadth` / `SyncLevel` / `HealthLevel` serialize SCREAMING_SNAKE_CASE (`"BULLISH"`, `"POSITIVE"`, `"SYNCHRONIZED"`, `"HEALTHY"`). The `AssetRank.bias` / `regime` strings are **Rust `Debug`-format values** of `DirectionalGuidance` / `StrategyEnvironment` — `"StrongLong"`, `"TrendFollowing"`, `"AvoidDirectionalExposure"`, … (PascalCase, NOT the enum SCREAMING form). `regime_distribution` keys are the L7 custom keys (`TRENDING`, `EXPANSION`, `RANGE`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` — `TrendFollowing → TRENDING`, `Breakout → EXPANSION`, `MeanReversion → RANGE`); `opportunity_distribution` keys are the `Debug`-format PascalCase opportunity names (`"TrendContinuation"`, `"Breakout"`, …).
 
 ---
 

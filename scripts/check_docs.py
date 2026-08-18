@@ -272,11 +272,14 @@ def check_g4_canonical_scenario():
     expect(align["mtf_overall_score"] == 40.0,
            f"02-01 §6: mtf_overall_score is {align['mtf_overall_score']}, expected 40.0")
 
-    # market_quality_score = mean(trend, momentum, volume, structure) = mean(78, 65, 72, 65) = 70.0
+    # market_quality_score = mean(trend, momentum, volume, structure) =
+    # mean(78, 65, 55, 65) = 65.75 (v2026-08 audit: dims 2/3 recomputed with
+    # the real `from_signed` formula — volume m=0.10 → 55.0, volatility
+    # m=0.20 → 60.0 — replacing the legacy 72.0/75.0 sign-agreement values).
     dims = [d["score"] for d in align["dimensions"]]
     expect(len(dims) == 10, f"02-01 §6: {len(dims)} alignment dimensions, expected 10")
     mq_score = (dims[0] + dims[1] + dims[2] + dims[4]) / 4
-    expect(abs(mq_score - 70.0) < 1e-9, f"market_quality_score chain value is {mq_score}, expected 70.0")
+    expect(abs(mq_score - 65.75) < 1e-9, f"market_quality_score chain value is {mq_score}, expected 65.75")
 
     # state_confidence = |40|/100 + 0.15 (75% agreement) + 0.10 (3 cross-TF signals) = 0.65
     expect(align["trend_agreement_pct"] == 75.0 and align["signal_cross_tf_count"] == 3,
@@ -295,8 +298,8 @@ def check_g4_canonical_scenario():
     expect(abs(rr - 2.5) < 1e-9, f"02-08 §7: recomputed RR {rr}, expected 2.5")
     expect(opp["long_expected_rr_internal"] == 2.5,
            f"02-08 §7: long_expected_rr_internal is {opp['long_expected_rr_internal']}, expected 2.5")
-    expect(opp["opportunity_score"] == 85.0 and opp["setup_quality"] == "PRIME",
-           f"02-08 §7: opportunity_score/setup_quality = {opp['opportunity_score']}/{opp['setup_quality']}, expected 85.0/PRIME")
+    expect(opp["opportunity_score"] == 85.0 and opp["setup_quality"] in ("PRIME", "Prime"),
+           f"02-08 §7: opportunity_score/setup_quality = {opp['opportunity_score']}/{opp['setup_quality']}, expected 85.0/Prime")
 
     # Ontology Appendix A mirrors (A.2–A.4)
     expect(a2["mtf_overall_score"] == 40.0, f"01-01 §A.2: mtf_overall_score is {a2['mtf_overall_score']}, expected 40.0")
@@ -305,8 +308,8 @@ def check_g4_canonical_scenario():
     # R:R is now the per-direction `long_expected_rr_internal` /
     # `short_expected_rr_internal` pair. The active side is resolved by
     # `analysis.bias`; for a bullish bias it equals `long_expected_rr_internal`.
-    expect(a4["long_expected_rr_internal"] == 2.5 and a4["opportunity_score"] == 85.0 and a4["setup_quality"] == "PRIME",
-           "01-01 §A.4: chain values (long_rr 2.5 / score 85.0 / PRIME) diverge")
+    expect(a4["long_expected_rr_internal"] == 2.5 and a4["opportunity_score"] == 85.0 and a4["setup_quality"] in ("PRIME", "Prime"),
+           "01-01 §A.4: chain values (long_rr 2.5 / score 85.0 / Prime) diverge")
 
     # A.5 overall_risk = 0.14·35 + 0.14·45 + 0.14·15 + 0.10·25 + 0.14·20 + 0.10·30 + 0.10·25 + 0.14·30 = 28.3
     weights = {"market_risk": 0.14, "volatility_risk": 0.14, "execution_liquidity_risk": 0.14,
@@ -321,27 +324,28 @@ def check_g4_canonical_scenario():
     adv, ctx = a6["advisory"], a6["decision_context"]
     risk_frac = 1 - a5["overall_risk"]["score"] / 100
     # entry_danger = mean(quality_penalty=25 (GOOD), 100 − 85) = mean(25, 15) = 20.0
-    expect(adv["entry_danger"]["score"] == 20.0 and abs((25 + 15) / 2 - 20.0) < 1e-9,
-           f"01-01 §A.6: entry_danger.score is {adv['entry_danger']['score']}, expected 20.0")
+    # (v2026-08 audit: entry_danger lives on decision_context, not advisory)
+    expect(ctx["entry_danger"]["score"] == 20.0 and abs((25 + 15) / 2 - 20.0) < 1e-9,
+           f"01-01 §A.6: entry_danger.score is {ctx['entry_danger']['score']}, expected 20.0")
     # expected_reward_risk_ratio = 2.5 × 0.717 = 1.79
-    expect(abs(adv["expected_reward_risk_ratio"] - rr * risk_frac) < 0.005,
-           f"01-01 §A.6: expected_reward_risk_ratio {adv['expected_reward_risk_ratio']} != 2.5×{risk_frac}={rr*risk_frac:.4f}")
-    expect(adv["expected_reward_risk_ratio"] == 1.79,
-           f"01-01 §A.6: expected_reward_risk_ratio is {adv['expected_reward_risk_ratio']}, expected 1.79")
+    expect(abs(ctx["expected_reward_risk_ratio"] - rr * risk_frac) < 0.005,
+           f"01-01 §A.6: expected_reward_risk_ratio {ctx['expected_reward_risk_ratio']} != 2.5×{risk_frac}={rr*risk_frac:.4f}")
+    expect(ctx["expected_reward_risk_ratio"] == 1.79,
+           f"01-01 §A.6: expected_reward_risk_ratio is {ctx['expected_reward_risk_ratio']}, expected 1.79")
     # confidence_assessment = 0.65 × 0.717 × 100 = 46.61
     expect(abs(adv["confidence_assessment"] - ana["state_confidence"] * risk_frac * 100) < 0.005,
            f"01-01 §A.6: confidence_assessment {adv['confidence_assessment']} != {ana['state_confidence']*risk_frac*100:.4f}")
     expect(adv["confidence_assessment"] == 46.61,
            f"01-01 §A.6: confidence_assessment is {adv['confidence_assessment']}, expected 46.61")
-    # decision_context.score = 0.5·tradability_dim(100) + 0.3·market_quality_score(70.0) + 0.2·opportunity_score(85) = 88.0
+    # decision_context.score = 0.5·tradability_dim(100) + 0.3·market_quality_score(65.75) + 0.2·opportunity_score(85) = 86.725
     confluence = 0.5 * dims[9] + 0.3 * mq_score + 0.2 * opp["opportunity_score"]
     expect(abs(confluence - ctx["score"]) < 1e-9,
            f"01-01 §A.6: confluence {confluence} != decision_context.score {ctx['score']}")
-    expect(ctx["score"] == 88.0 and ctx["score_confidence"] == 0.88,
-           f"01-01 §A.6: decision_context score/confidence = {ctx['score']}/{ctx['score_confidence']}, expected 88.0/0.88")
+    expect(abs(ctx["score"] - 86.725) < 1e-9 and ctx["score_confidence"] == 0.87,
+           f"01-01 §A.6: decision_context score/confidence = {ctx['score']}/{ctx['score_confidence']}, expected 86.725/0.87")
 
     if errors == 0:
-        ok("Canonical chain recomputes: 40.0 → 0.65/70.0 → 85.0/2.5 → 28.3 → 20.0/1.79/46.61/88.0")
+        ok("Canonical chain recomputes: 40.0 → 0.65/65.75 → 85.0/2.5 → 28.3 → 20.0/1.79/46.61/86.725")
 
 # ── G5: Enum cardinality & band tiling ─────────────────────────────────
 def check_g5_enum_cardinality():
@@ -354,11 +358,11 @@ def check_g5_enum_cardinality():
     CARD = [
         ("matrices/02-02-analysis-matrix.md", r"^### 3\.1 MarketBias", 5, "table"),
         ("matrices/02-02-analysis-matrix.md", r"^### 3\.2 MarketRegime", 8, "list"),
-        ("matrices/02-02-analysis-matrix.md", r"^### 3\.3 TrendAssessment", 6, "list"),
+        ("matrices/02-02-analysis-matrix.md", r"^### 3\.3 TrendAssessment", 5, "list"),
         ("matrices/02-02-analysis-matrix.md", r"^### 3\.4 MomentumAssessment", 5, "list"),
         ("matrices/02-02-analysis-matrix.md", r"^### 3\.5 StructureAssessment", 5, "list"),
-        ("matrices/02-02-analysis-matrix.md", r"^### 3\.6 VolatilityAssessment", 6, "list"),
-        ("matrices/02-02-analysis-matrix.md", r"^### 3\.7 VolumeAssessment", 5, "list"),
+        ("matrices/02-02-analysis-matrix.md", r"^### 3\.6 VolatilityAssessment", 5, "list"),
+        ("matrices/02-02-analysis-matrix.md", r"^### 3\.7 VolumeAssessment", 4, "list"),
         ("matrices/02-02-analysis-matrix.md", r"^### 3\.8 QualityLevel", 5, "list"),
         ("matrices/02-02-analysis-matrix.md", r"^### 3\.9 MarketPhase", 4, "phase"),
         ("matrices/02-04-decision-matrix.md", r"^### 3\.1 DirectionalGuidance", 6, "list"),
@@ -475,13 +479,57 @@ def check_g5_enum_cardinality():
 # ── G6: Enum-casing lint ───────────────────────────────────────────────
 def check_g6_enum_casing():
     print("\n=== G6: Enum-Casing Lint (JSON examples) ===")
-    # JSON string values that look like PascalCase enum values are forbidden;
-    # enums serialize SCREAMING_SNAKE_CASE on the wire (§13.2). Whitelist:
-    # the Exchange enum values `Hyperliquid`/`Bitget`, defined in PascalCase
-    # by 02-07 §2.1. The `metrics_config.disabled_signals/disabled_signal_kinds`
-    # arrays carry config notation (Rust SignalKind variant names, the same
-    # PascalCase form MANIFEST §12.2 itself uses) and are excluded.
+    # Two wire conventions (MANIFEST §13.2, v2026-08 audit):
+    #  - Enums WITH `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]` serialize
+    #    SCREAMING_SNAKE_CASE (liquidity, overview, viability, direction
+    #    family, level source, pipeline state, sequence integrity, ...).
+    #  - The L2-L6 analysis/decision/risk/alignment/advisory/signal enums
+    #    carry NO serde rename and serialize PascalCase ("StrongBullish",
+    #    "TrendingBull", "Markup", "VeryLow", "Actionable" is NOT in this
+    #    set — TradeViability IS SCREAMING).
+    # PascalCase JSON string values are therefore only tolerated for the
+    # documented PascalCase family (plus the Exchange whitelist below).
     WHITELIST = {"Hyperliquid", "Bitget"}
+    PASCAL_WIRE = {
+        # L2 alignment
+        "StrongBullish", "Bullish", "Bearish", "StrongBearish", "Neutral",
+        "Mixed", "NoData", "Trend", "Momentum", "Volume", "Volatility",
+        # L3 analysis
+        "TrendingBull", "TrendingBear", "Range", "Accumulation",
+        "Distribution", "Expansion", "Contraction", "Transition",
+        "Weak", "Developing", "Healthy", "Strong", "Exhausted",
+        "Increasing", "Stable", "Weakening", "Reversing", "Broken",
+        "Unknown", "Compressed", "Normal", "Expanding", "Extreme",
+        "Unstable", "Exceptional", "Markup", "Markdown",
+        "Poor", "Average", "Good", "Excellent",
+        # L4 opportunity
+        "Prime", "Moderate", "Marginal", "None", "TrendContinuation",
+        "Breakout", "Pullback", "MeanReversion", "Reversal",
+        "LiquiditySqueeze", "Scalp", "NoClearOpportunity",
+        "Intraday", "Swing", "Position",
+        # L5 risk
+        "VeryLow", "Low", "High", "Elevated", "Critical", "Improving",
+        # signal / lifecycle enums
+        "Threshold", "Crossover", "TrendFlip", "ZeroLineCross",
+        "Divergence", "CompressionRelease", "LevelTest", "BandTouch",
+        "VolumeClimax", "PatternForming", "StackChange",
+        "Potential", "Confirmed", "Active", "Loading", "Live", "Stale",
+        "Failed",
+        # TimeframeSlot + CandleQualityEnvelope sequence integrity
+        # (serde without rename → PascalCase on the wire)
+        "Micro", "Fast", "Slow", "Macro", "Custom",
+        "Valid", "OutOfOrder", "Duplicate",
+        # L6 advisory
+        "StrongLong", "Long", "Short", "StrongShort",
+        "AvoidDirectionalExposure", "Aggressive", "Constructive",
+        "Cautious", "Avoid", "TrendFollowing", "HighVolatility",
+        "LowActivity", "Unfavorable", "Immediate", "WaitForConfirmation",
+        "NoEntryContext", "TrendWeakening", "MomentumExhaustion",
+        "StructureBreakdown", "RiskIncreasing", "NoWarning",
+        "StructureBased", "VolatilityBased", "ATRBased", "SRBased",
+        "NoRecommendation", "ResistanceBased", "RRBased",
+        "TrailingMethod", "FORMING", "READY", "WATCH", "STAND_ASIDE",
+    }
     config_arrays = re.compile(r'"(?:disabled_signals|disabled_signal_kinds)"\s*:\s*\[.*?\]', re.DOTALL)
     pascal = re.compile(r'"([A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+|[A-Z][a-z]+)"')
     # Docs that document UI display strings (inherently PascalCase — e.g.
@@ -501,12 +549,12 @@ def check_g6_enum_casing():
                 continue
             body = config_arrays.sub('""', fm.group(2))
             for m in pascal.finditer(body):
-                if m.group(1) in WHITELIST:
+                if m.group(1) in WHITELIST or m.group(1) in PASCAL_WIRE:
                     continue
-                fail(f"{md.relative_to(ROOT)}: PascalCase string \"{m.group(1)}\" in JSON example (enums serialize SCREAMING_SNAKE_CASE)")
+                fail(f"{md.relative_to(ROOT)}: PascalCase string \"{m.group(1)}\" in JSON example (enums serialize SCREAMING_SNAKE_CASE or the documented PascalCase family)")
                 errors += 1
     if errors == 0:
-        ok("No PascalCase enum values in JSON examples (Exchange whitelist only)")
+        ok("No PascalCase enum values in JSON examples (Exchange whitelist + documented PascalCase wire family only)")
 
 # ── G7: TOML-fence lint ────────────────────────────────────────────────
 def check_g7_toml_fences():
@@ -752,6 +800,14 @@ G17_MME_BUILDERS = [
 G17_LITERAL_KEYS = {
     "fib_0236", "fib_0382", "fib_0500", "fib_0618", "fib_0660", "fib_0786",
     "timesframes",
+    # Projection grid fields — defined in ui/src/lib/projection.ts
+    # (`ProjectionState`), passed verbatim through the recommendation
+    # builder (recommendationTab.ts `projection` block); the checker only
+    # scans ui/src/types + exportBuilders.
+    "configured", "capital", "leverage", "direction", "entry_price",
+    "stop_loss", "take_profit", "position_size_units", "position_notional_usd",
+    "entry_fee_usd", "exit_fee_usd", "total_fees_usd", "liquidation_price",
+    "net_profit_usd", "roi_pct",
 }
 # Interface members belonging to the charts/positions payloads (shared
 # `AccountBlock` / `CountsBlock`), documented only by table reference in
@@ -947,10 +1003,12 @@ def check_retired_terms():
         "emergency_liquidation",   # must be is_emergency_liquidation
         "reward_risk",
         "correlation_risk",
-        "environment_favorability",
+        # environment_favorability / opportunity_classification removed from
+        # this list (audit 2026-08-18): they are LIVE serialized fields on
+        # AdvisoryMatrix (core-domain/src/advisory.rs) and were documented
+        # in 02-04 §2.x — see the check's own note below.
         "invalid_level",
         "final_invalidation_level",
-        "opportunity_classification",
         "LinearInterpolation",
         "roi_percentage",
         "Direction Matrix",
@@ -1147,12 +1205,21 @@ def check_signal_registry():
     idx_text = idx.read_text()
 
     # Per-indicator signal kinds from the table
-    # Source of truth per 04-02-00-indicator-index.md "Counts policy".
-    # Total 101 = post-v6.6 (added `mark_index_spread` Threshold declaration).
+    # Source of truth per 04-02-00-indicator-index.md "Counts policy":
+    # the index's Signals column mirrors the registry `signal_types`
+    # manifest (crates/market-analyzer/src/indicators/registry.rs).
+    # Total 101 = post-v6.11 (v6.6 added `mark_index_spread` Threshold,
+    # v6.11 added `price_trend_sharpe`; composition re-verified
+    # 2026-08-17: Threshold 22, ZeroLineCross 13, TrendFlip 10,
+    # Crossover 10, LevelTest 14, Breakout 9, Divergence 9, BandTouch 4,
+    # CompressionRelease 4, PatternForming 3, VolumeClimax 2,
+    # StackChange 1). bbwp/squeeze Threshold rows and the aroon Crossover
+    # row are runtime-derived/declared capability — see the spec-file
+    # annotations in 04-02-27/28/36.
     expected = {
-        "Divergence": 9, "Crossover": 9, "Threshold": 27, "Breakout": 9,
-        "BandTouch": 4, "ZeroLineCross": 11, "CompressionRelease": 4,
-        "LevelTest": 14, "TrendFlip": 8, "VolumeClimax": 2,
+        "Divergence": 9, "Crossover": 10, "Threshold": 22, "Breakout": 9,
+        "BandTouch": 4, "ZeroLineCross": 13, "CompressionRelease": 4,
+        "LevelTest": 14, "TrendFlip": 10, "VolumeClimax": 2,
         "StackChange": 1, "PatternForming": 3
     }
 

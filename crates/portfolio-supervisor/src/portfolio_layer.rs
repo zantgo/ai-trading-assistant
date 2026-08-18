@@ -1,4 +1,6 @@
-use core_domain::portfolio::{CapitalMatrix, ExposureMatrix, PortfolioMatrix, PositionMatrix, SafetyState};
+use core_domain::portfolio::{
+    CapitalMatrix, ExposureMatrix, PortfolioMatrix, PositionMatrix, SafetyState,
+};
 use std::collections::HashMap;
 
 pub fn compute_portfolio_matrix(

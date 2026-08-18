@@ -26,7 +26,7 @@ docs/
 │   ├── 01-06-crate-layout-and-cycles.md              ← 9-crate workspace layout, dependency graph, cycle-breaking design decisions
 │   ├── 01-07-target-architecture-roadmap.md          ← SoA candle history, Phase-3 book depth, NTP, PD memory
 │   └── 01-08-candle-buffer-and-indicator-lifecycle.md ← conceptual overview: single candle count + two-level lifecycle (v6.5)
-├── matrices/                                         (02 — 15 files)
+├── matrices/                                         (02 — 17 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
 │   ├── 02-01-alignment-matrix.md                     ← 10-dimension cross-TF agreement
@@ -117,7 +117,7 @@ docs/
     ├── 08-03-connection-resilience.md                ← WebSocket reconnect policy + backoff state machine
     ├── 08-04-candle-reconstruction.md                ← gap detection + exchange historical fetch + sub-1m synthesis
     ├── 08-05-connection-quality.md                   ← rolling 1h/6h/24h quality score + dashboard panel
-    ├── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤100µs UTC budget)
+    ├── 08-06-clock-monitor.md                        ← NTP drift enforcement (10 ms default budget, tunable)
     ├── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
     └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
 ```
@@ -206,19 +206,19 @@ This table is the **single source of implementation truth** — every spec in `d
 | **TAE / PME dedicated dashboards** | ⚠️ WIP — `TradeAutomationDashboard`, `PortfolioDashboard` are placeholder mock-ups | `07-02 §5.3`, `ROADMAP.md §3 Phase A` |
 | **PAE backtest runner + equity curve** | ⚠️ WIP — UI mock today; no `/api/backtest/*` routes | `ROADMAP.md §3 Phase D` |
 | Instance lifecycle (Gate 0, lifecycle tables, automation) | 🟡 Partial — `LifecycleState` enum defined; Gate 0 not yet enforced; tables not yet migrated (AUDIT-V6-202…207) | `03-03-06`, `ROADMAP.md §3 Phase B` |
-| Configurable activation (denylists, `config_version`, `AUTO_PAUSED`) | 🟡 Partial — spec exists; runtime wiring pending (AUDIT-V6-208…214) | `03-02-12`, `ROADMAP.md §3 Phase C` |
+| Configurable activation (denylists, `config_version`, `AUTO_PAUSED`) | ✅ Implemented — global + per-instance `[activation]` blocks wired through pipeline construction; liquidity sub-toggles (`liquidation_feed`, `cluster_estimation`, `signals`) honored (AUDIT-V6-208…214, shipped in the 2026-08-17 MME coherence sweep; the `AUTO_PAUSED` TAE guardrail is a ROADMAP Phase-A follow-up) | `03-02-12`, `ROADMAP.md §3 Phase C` |
 | Pre-dispatch persistence (`pre_dispatch_orders` table) | ⛔ Not yet started | `06-01` §2.9, `ROADMAP.md §3 Phase C` |
 | Liquidity Intelligence (Phases 0-4) | 🟡 Partial — Phases 0-2 (derivatives telemetry, flow, cluster matrix) implemented; Phase 3 (`cascade_risk_index` aggregation into `systemic_risk_score`) pending (AUDIT-V4-005); Phase 4 (cluster price-chart overlay) pending (AUDIT-V4-079) | `01-05`, `03-02-11` |
 | Exchange key rotation | 🟡 Partial — manual rotation procedure documented; in-process rotation tool unscheduled (AUDIT-V6-077) | `08-07` |
 | Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | ✅ Implemented — served surface documented in `06-01` §2.11; `clock.breach_count` placeholder pending (AUDIT-V6-301) | `06-01` |
-| **Standardized candle formation + unified indicator lifecycle (v6.5)** | 🟡 Partial — specs written; trait migration, migrations, UI badge pending (AUDIT-V7-300, 301, 302, 303, 304, 305, 306, 307, 310, 311, 312, 313, 314, 320, 321, 322, 323, 324, 330, 331, 332, 333, 334) | `08-08`, `03-01-06`, `03-01-07`, `03-02-15`, `01-08`, `ROADMAP.md §3 Phase B` |
+| **Standardized candle formation + unified indicator lifecycle (v6.5)** | ✅ Implemented — trait migration, lifecycle map, UI badges shipped (AUDIT-V7-330…334 resolved; see `03-02-15 §8`) | `08-08`, `03-01-06`, `03-01-07`, `03-02-15`, `01-08` |
 | **TAE live exchange order dispatch** | ⛔ Not yet started — paper trading is the default and only execution path today | `ROADMAP.md §3 Phase E` |
 
 ## Key Conventions
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
-- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.8).
+- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.10.29 — the numbered docs carry the release stamp 6.10).
 - All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
 - All configuration is stored in **`config.toml`** at the workspace root.
 - Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.

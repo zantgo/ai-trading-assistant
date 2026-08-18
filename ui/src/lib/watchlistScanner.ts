@@ -7,7 +7,9 @@
 //
 // The scanner is wired up against the platform's Decision Matrix:
 //
-//   - `advisory.trade_readiness` ∈ { READY, FORMING, WATCH, STAND_ASIDE }
+//   - `decisionContext.trade_readiness` ∈ { READY, FORMING, WATCH,
+//     STAND_ASIDE } (trade_readiness lives on the Decision Context, not
+//     the Advisory Matrix — corrected 2026-08-17)
 //   - `advisory.directional_guidance` ∈ { StrongLong, Long, Neutral,
 //                                          Short, StrongShort,
 //                                          AvoidDirectionalExposure }

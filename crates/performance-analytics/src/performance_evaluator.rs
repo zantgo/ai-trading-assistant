@@ -3,7 +3,8 @@ use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
 use core_domain::performance::{
-    RiskAnalyticsRow, StrategyAnalyticsRow, PerformanceMatrixRow, PerformanceMatrixSummary, TradeAnalyticsRecord,
+    PerformanceMatrixRow, PerformanceMatrixSummary, RiskAnalyticsRow, StrategyAnalyticsRow,
+    TradeAnalyticsRecord,
 };
 
 pub struct EvaluatorConfig {
@@ -46,12 +47,14 @@ pub async fn run_full_analytics_pipeline(pool: &SqlitePool) {
         database_storage::insert_strategy_analytics(pool, row).await;
     }
 
-    let performance_rows = crate::performance_layer::compute_performance_matrix(pool, &trades).await;
+    let performance_rows =
+        crate::performance_layer::compute_performance_matrix(pool, &trades).await;
     for row in &performance_rows {
         database_storage::insert_performance_matrix_snapshot(pool, row).await;
     }
 
-    let summaries = crate::performance_layer::compute_performance_matrix_summary(pool, &trades).await;
+    let summaries =
+        crate::performance_layer::compute_performance_matrix_summary(pool, &trades).await;
     for summary in &summaries {
         database_storage::insert_performance_summary(pool, summary).await;
     }
@@ -79,7 +82,9 @@ pub async fn compute_performance_on_demand(pool: &SqlitePool) -> Vec<Performance
     crate::performance_layer::compute_performance_matrix(pool, &trades).await
 }
 
-pub async fn compute_performance_summary_on_demand(pool: &SqlitePool) -> Vec<PerformanceMatrixSummary> {
+pub async fn compute_performance_summary_on_demand(
+    pool: &SqlitePool,
+) -> Vec<PerformanceMatrixSummary> {
     let trades = crate::trade_analytics::reconstruct_trades(pool).await;
     crate::performance_layer::compute_performance_matrix_summary(pool, &trades).await
 }

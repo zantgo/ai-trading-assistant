@@ -21,7 +21,7 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         market_bias_score: 0.4,
         state_confidence: 0.6,
         confidence: 0.6,
-        market_regime: 'TRENDING_BULL',
+        market_regime: 'TrendingBull',
         trend_assessment: 'Healthy',
         momentum_assessment: 'Stable',
         structure_assessment: 'Healthy',
@@ -30,10 +30,10 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         opportunity_analysis: 'TrendContinuation',
         market_quality: 'Good',
         market_quality_score: 70,
-        market_phase: 'MARKUP',
+        market_phase: 'Markup',
         market_interpretation: 'Bullish market.',
         rationale: 'MTF overall score 30/100 → Bullish.',
-        supporting_signals: ['MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals'],
+        supporting_signals: ['MICRO (bullish): score +5, TRENDING regime, 3 signals'],
         contradicting_signals: [],
         timeframes_considered: 4,
         ...overrides,
@@ -92,11 +92,11 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
 
     it('still renders bull/bear squares with arrows for directional signals (AN-1)', () => {
         seed(makeAnalysis({
-            supporting_signals: ['MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals'],
+            supporting_signals: ['MICRO (bullish): score +5, TRENDING regime, 3 signals'],
             contradicting_signals: ['FAST (bearish): score -3, RANGING regime, 1 signal'],
         }));
         render(AnalysisPanel, { props: {} });
-        const bull = screen.getByTitle('MICRO (bullish): score +5, TRENDING_BULL regime, 3 signals');
+        const bull = screen.getByTitle('MICRO (bullish): score +5, TRENDING regime, 3 signals');
         expect(bull.querySelector('svg')?.getAttribute('stroke')).toBe('#22c55e');
         expect(bull.querySelector('svg')?.querySelector('polyline')).toBeTruthy();
         const bear = screen.getByTitle('FAST (bearish): score -3, RANGING regime, 1 signal');
@@ -128,9 +128,9 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
         // v6.10.18 (I-7): the hero vote uses decisive scores (|score| > 10).
         seed(makeAnalysis({
             supporting_signals: [
-                'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
-                'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
-                'SLOW (bullish): score +15, TRENDING_BULL regime, 1 signal',
+                'MICRO (bullish): score +35, TRENDING regime, 3 signals',
+                'FAST (bullish): score +25, TRENDING regime, 2 signals',
+                'SLOW (bullish): score +15, TRENDING regime, 1 signal',
             ],
             contradicting_signals: [],
         }));
@@ -142,8 +142,8 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
     it('renders the doc-example 2.0:1 ratio when both sides have counts (AN-3)', () => {
         seed(makeAnalysis({
             supporting_signals: [
-                'MICRO (bullish): score +35, TRENDING_BULL regime, 3 signals',
-                'FAST (bullish): score +25, TRENDING_BULL regime, 2 signals',
+                'MICRO (bullish): score +35, TRENDING regime, 3 signals',
+                'FAST (bullish): score +25, TRENDING regime, 2 signals',
             ],
             contradicting_signals: ['SLOW (bearish): score -30, RANGING regime, 1 signal'],
         }));
@@ -346,7 +346,7 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         expect(screen.getByText('25 / 100')).toBeTruthy();
         expect(screen.getByText('(Bullish)')).toBeTruthy();
         expect(screen.getByText('100%')).toBeTruthy();
-        expect(screen.getByText('4/4 timeframes aligned')).toBeTruthy();
+        expect(screen.getByText('4 timeframes aligned')).toBeTruthy();
         expect(screen.getByText('9.2%')).toBeTruthy();
         expect(screen.getByText('36.5')).toBeTruthy();
         expect(screen.getByText('34 Signals')).toBeTruthy();
@@ -401,7 +401,7 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         seed(makeAnalysis({ bias: 'Bullish' }));
         render(AnalysisPanel, { props: {} });
         expect(screen.queryByText('25 / 100')).toBeNull();
-        expect(screen.queryByText('4/4 timeframes aligned')).toBeNull();
+        expect(screen.queryByText('4 timeframes aligned')).toBeNull();
         expect(screen.queryByText('34 Signals')).toBeNull();
         expect(screen.getByText((content) => content.includes('market.'))).toBeTruthy();
     });

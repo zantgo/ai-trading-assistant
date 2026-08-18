@@ -1,12 +1,14 @@
 use axum::{
     extract::ws::{Message as AxumMessage, WebSocket},
     extract::{Query, State, WebSocketUpgrade},
-    response::IntoResponse,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
 use core_domain::jsonrpc::JsonRpcNotification;
 use core_domain::models::MarketSnapshot;
 use core_domain::models::TimeframeSlot;
 use market_analyzer::analyzer::ActivePair;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -14,11 +16,64 @@ use crate::helpers::default_pair_key;
 use crate::types::WsQuery;
 use crate::AppState;
 
+/// K1 (production audit): the WS stream carries the full MarketSnapshot
+/// (indicators, matrices, liquidity) with no authentication. Browsers do
+/// not enforce same-origin on WebSockets, so the handler must: (a) reject
+/// upgrades whose `Origin`/`Sec-Fetch-Site` prove a foreign site, (b) cap
+/// concurrent sockets (each holds a broadcast receiver and a task), and
+/// (c) never hold a socket open for a pair that does not exist.
+const MAX_WS_CONNECTIONS: usize = 64;
+static ACTIVE_WS_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII guard — decrements the connection counter when the socket task
+/// ends (or when the upgrade is refused / dropped un-accepted). Shared via
+/// `Arc` so the guard survives the `ws_handler` future and lives inside
+/// `handle_ws_socket` for the whole lifetime of the socket task.
+struct WsConnectionGuard;
+
+impl Drop for WsConnectionGuard {
+    fn drop(&mut self) {
+        ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(query): Query<WsQuery>,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+    headers: axum::http::HeaderMap,
+) -> Response {
+    // K1: refuse cross-site upgrades. `Sec-Fetch-Site: cross-site` is set
+    // by every browser for cross-origin WS; a foreign `Origin` header is
+    // the non-browser equivalent. Same-origin dashboard sockets pass.
+    if let Some(fetch_site) = headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        if fetch_site != "same-origin" && fetch_site != "same-site" && fetch_site != "none" {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    if let Some(origin) = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
+        if !crate::origin_allowed(origin) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+
+    // K1: connection cap — an unauthenticated local client could open
+    // thousands of sockets and amplify every broadcast frame per
+    // subscriber (~30-80 KB deep clones each). The guard is shared into
+    // `handle_ws_socket` via `Arc` so the counter tracks the *open socket
+    // task* lifetime, not the `ws_handler` future (which returns
+    // microseconds after the upgrade is accepted). Without this, the cap
+    // could never be reached and the counter would always read ~0.
+    let prev = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+    if prev >= MAX_WS_CONNECTIONS {
+        ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    let _guard = Arc::new(WsConnectionGuard);
+
     let pair_key = if query.symbol.is_empty() {
         let first = state
             .workspace
@@ -43,7 +98,9 @@ pub async fn ws_handler(
         .as_deref()
         .map(TimeframeSlot::parse)
         .unwrap_or_else(|| TimeframeSlot::parse_from_secs(tf_secs));
-    ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key, tf_secs, slot))
+    ws.on_upgrade(move |socket| {
+        handle_ws_socket(socket, state, pair_key, tf_secs, slot, _guard)
+    })
 }
 
 /// Serialize and send a `broadcast.market_snapshot` notification for the
@@ -91,6 +148,7 @@ async fn handle_ws_socket(
     pair_key: String,
     tf_secs: u64,
     requested_slot: TimeframeSlot,
+    _connection_guard: Arc<WsConnectionGuard>,
 ) {
     let _ = tf_secs; // keep param for logs in a future iteration; suppresses unused-but-set warning
 
@@ -115,17 +173,46 @@ async fn handle_ws_socket(
             None => {
                 // No active pair yet (e.g. session not initialised). Wait
                 // for either the next recharge/insert event or a channel
-                // close.
-                match recharge_rx.recv().await {
-                    Ok(_) => continue,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => return,
+                // close. K1: bound the wait — an unknown-symbol client
+                // previously hung the socket + task forever (an
+                // unauthenticated socket-exhaustion primitive).
+                match tokio::time::timeout(std::time::Duration::from_secs(10), recharge_rx.recv())
+                    .await
+                {
+                    Ok(Ok(_)) => continue,
+                    Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+                    Ok(Err(broadcast::error::RecvError::Closed)) => return,
+                    Err(_) => {
+                        eprintln!(
+                            "WS: no active pair for '{}' within 10 s — closing socket",
+                            pair_key
+                        );
+                        return;
+                    }
                 }
             }
         }
     }
-    let mut rx_stream: broadcast::Receiver<MarketSnapshot> =
-        rx_stream.expect("rx_stream initialized above");
+    // Audit fix (M3): `subscribe_broadcast_by_slot` returns None for
+    // Custom{id} slots (custom pipelines are never instantiated) — the
+    // previous `rx_stream.expect(...)` panicked the socket task and killed
+    // the connection. Fall back to the micro channel (best-effort slot
+    // resolution per 06-01 §3.1) so slot-less legacy clients and custom
+    // durations stay alive and receive data.
+    let mut rx_stream: broadcast::Receiver<MarketSnapshot> = match rx_stream {
+        Some(rx) => rx,
+        None => {
+            eprintln!(
+                "WS: no pipeline for slot {:?} (pair {}) — falling back to micro",
+                requested_slot, pair_key
+            );
+            state
+                .get_active_pair(&pair_key)
+                .await
+                .and_then(|p| p.subscribe_broadcast_by_slot(TimeframeSlot::Micro))
+                .expect("the micro pipeline always exists for an active pair")
+        }
+    };
 
     // Immediately send the most recent completed snapshot for this slot so
     // the frontend's Metrics Indicators table is populated with real

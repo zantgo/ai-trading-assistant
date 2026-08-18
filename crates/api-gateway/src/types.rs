@@ -135,6 +135,7 @@ pub struct ConfigResponse {
     pub indicators: config_models::IndicatorsConfig,
     pub instances: Vec<config_models::InstanceEntry>,
     pub indicator_registry: Vec<market_analyzer::indicators::IndicatorMeta>,
+    pub api_failover: config_models::ApiFailoverConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -529,6 +530,9 @@ pub struct IndicatorHistoryArrays {
 
 #[derive(Debug, Serialize)]
 pub struct HistoryResponse {
+    // AUDIT-F1: the API contract (06-01 §2.2) documents a top-level
+    // `symbol` member that was never serialized.
+    pub symbol: String,
     pub prices: Vec<String>,
     pub candles: Vec<HistoryCandle>,
     pub indicator_history: IndicatorHistoryArrays,
@@ -869,6 +873,12 @@ fn default_journal_limit() -> u32 {
     50
 }
 
+/// AUDIT-F4: shared cap for journal/ledger/analytics `limit` params —
+/// the documented `/api/history` ceiling is 1000; the unbounded journal/
+/// ledger/optimization endpoints previously allowed `?limit=2_000_000_000`
+/// which dumped entire tables in one response.
+pub const API_MAX_LIMIT: u32 = 1000;
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateJournalNotesRequest {
     pub human_notes: String,
@@ -883,7 +893,6 @@ pub struct TradeLedgerQuery {
 fn default_limit() -> u32 {
     200
 }
-
 #[derive(Debug, Deserialize)]
 pub struct TradeTelemetryRequest {
     pub exchange: String,

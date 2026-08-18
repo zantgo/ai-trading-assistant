@@ -7,6 +7,7 @@ use config_models::TimeframeConfig;
 
 use crate::analyzer::normalize::{series_divergence_state, ExtraDivergence};
 use crate::analyzer::update_sr_levels;
+use crate::analyzer::derive_pipeline_state;
 use crate::indicators::normalized::PreviousBarState;
 use crate::indicators::{
     detect_pattern, Adx, AnchoredVwap, Aroon, Atr, AwesomeOscillator, Bbwp, BollingerBands,
@@ -16,7 +17,7 @@ use crate::indicators::{
     SqueezeMomentum, StdDevChannel, Stochastic, Supertrend, VolumeProfile, WilliamsR, ZScore,
 };
 use crate::sr_engine::SrRoleTracker;
-use core_domain::models::{MarketSnapshot, TimeframeSlot};
+use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle};
 use core_domain::volume_profile::VolumeProfileSnapshot;
 
@@ -44,9 +45,7 @@ pub const HIST_BUFFER_MAX: usize = 1000;
 /// exchanges: the function has no per-TF / per-exchange branching.
 fn trim_snapshot_history_to_cap<T: Clone>(mut snapshot_history: Vec<T>) -> Vec<T> {
     if snapshot_history.len() > HIST_BUFFER_MAX {
-        snapshot_history = snapshot_history
-            [snapshot_history.len() - HIST_BUFFER_MAX..]
-            .to_vec();
+        snapshot_history = snapshot_history[snapshot_history.len() - HIST_BUFFER_MAX..].to_vec();
     }
     snapshot_history
 }
@@ -255,8 +254,7 @@ pub fn warm_derivatives_from_snapshots(
     let oi_window_start = snapshots.len().saturating_sub(oi_cap);
     for snap in &snapshots[oi_window_start..] {
         if let Some(oi) = snap.open_interest.and_then(|d| d.to_f64()) {
-            out.oi_history
-                .push_back((snap.timestamp, oi));
+            out.oi_history.push_back((snap.timestamp, oi));
         }
     }
 
@@ -317,8 +315,12 @@ pub fn warm_indicators_for_timeframe(
     symbol: &str,
     timeframe_secs: u64,
     slot: TimeframeSlot,
-     buffer_size: usize,
-    _active_set: &crate::active_set::ActiveSet,
+    buffer_size: usize,
+    active_set: &crate::active_set::ActiveSet,
+    // AUDIT-H5: the venue for the pre-warm snapshots (was hardcoded
+    // Hyperliquid). `None` for callers that don't know the venue yet —
+    // the snapshot then reports no exchange instead of a wrong one.
+    exchange: Option<Exchange>,
 ) -> WarmedPipelineState {
     let active_indicators = tf_config.indicators.clone();
 
@@ -389,8 +391,10 @@ pub fn warm_indicators_for_timeframe(
     // ingestion inherits accurate flip-state (matches run_single tolerance).
     let mut sr_tracker = SrRoleTracker::new(0.003);
     // Session Pivot Points, warmed so live ingestion inherits published levels.
-    let mut pivot_points_indicator = PivotPoints::new(PivotMethod::from_str_lenient(&active_indicators.pivot_points_method)); // AUDIT-AIU-072
-    // Candlestick recognizer, warmed so its pending-confirmation buffer is live.
+    let mut pivot_points_indicator = PivotPoints::new(PivotMethod::from_str_lenient(
+        &active_indicators.pivot_points_method,
+    )); // AUDIT-AIU-072
+        // Candlestick recognizer, warmed so its pending-confirmation buffer is live.
     let mut candlestick_indicator = Candlestick::new(CandlestickConfig::default());
     // Ichimoku Cloud, warmed so live ingestion inherits the 52-bar window.
     let mut ichimoku_indicator = Ichimoku::new(
@@ -464,8 +468,7 @@ pub fn warm_indicators_for_timeframe(
         // `.update().or_else(|| update_with_min_bars(…))` chain double-pushed
         // the same bar during warmup (update() pushes before returning None),
         // corrupting the ichimoku rolling windows until the deque cycled.
-        let ichimoku_reading =
-            ichimoku_indicator.update_with_min_bars(high_f, low_f, close_f, 9);
+        let ichimoku_reading = ichimoku_indicator.update_with_min_bars(high_f, low_f, close_f, 9);
 
         // CCI (warmed through history).
         let cci_reading = cci_indicator.update(high_f, low_f, close_f);
@@ -710,8 +713,16 @@ pub fn warm_indicators_for_timeframe(
             volume_profile_reading,
             smc_reading,
             volume_profile_snapshot,
-            // v6.10 (Phase 5 / E1): warm-up defaults to all-enabled.
-            &crate::active_set::ActiveSet::all_enabled(),
+            // AUDIT-H5: thread the real venue + pipeline state through —
+            // previously the warm snapshot hardcoded `Exchange::Hyperliquid`
+            // and `CandlePipelineState::default()` (Initializing), so a
+            // fully-warmed Bitget pipeline flashed the wrong exchange and an
+            // "Initializing" banner on WS bootstrap. Warm snapshots are
+            // seeded all-enabled; the ActiveSet denylist is applied at the
+            // consume point (run_single) so the seeded calculators stay warm.
+            exchange,
+            derive_pipeline_state(snapshot_history.len(), buffer_size),
+            active_set,
         );
 
         latest_snapshot = Some(snapshot.clone());
@@ -791,10 +802,7 @@ pub fn warm_indicators_for_timeframe(
         anchored_vwap_indicator,
         latest_snapshot,
         snapshot_history: trimmed_snapshot_history.clone(),
-        derivatives_state: warm_derivatives_from_snapshots(
-            &trimmed_snapshot_history,
-            buffer_size,
-        ),
+        derivatives_state: warm_derivatives_from_snapshots(&trimmed_snapshot_history, buffer_size),
     }
 }
 
@@ -864,6 +872,12 @@ fn build_historical_snapshot(
     volume_profile: Option<crate::indicators::VolumeProfileOutput>,
     smc: Option<crate::indicators::SmcOutput>,
     volume_profile_snapshot: Option<VolumeProfileSnapshot>,
+    // AUDIT-H5: the warm-up path must not stamp the wrong venue onto the
+    // pre-warm snapshot (it hardcoded `Exchange::Hyperliquid`, so Bitget
+    // symbols reported the wrong exchange on WS bootstrap + /api/history
+    // until the first live candle replaced the snapshot).
+    shadow_exchange: Option<Exchange>,
+    pipeline_state: CandlePipelineState,
     active_set: &crate::active_set::ActiveSet,
 ) -> MarketSnapshot {
     let candle_close_sec = completed.start_time_ms / 1000;
@@ -988,16 +1002,20 @@ fn build_historical_snapshot(
 
     MarketSnapshot {
         timeframe_slot: Some(slot),
-        exchange: Some(Exchange::Hyperliquid),
+        exchange: shadow_exchange,
         timeframe_secs,
         timestamp: candle_close_sec,
         symbol: symbol.to_string(),
         is_completed: Some(true),
+        // Warm-up snapshots seed internal state only (never broadcast):
+        // emit the retired order-book contract neutrally — candle close as
+        // reference mid, no depth sizes (the old `Some(volume)` mislabeled
+        // candle volume as top-of-book depth).
         mid_price: completed.close,
         bid_price: Decimal::ZERO,
         ask_price: Decimal::ZERO,
-        bid_size: Some(completed.volume),
-        ask_size: Some(completed.volume),
+        bid_size: None,
+        ask_size: None,
         funding_rate: None,
         open_interest: None,
         oi_delta_1h: None,
@@ -1011,45 +1029,17 @@ fn build_historical_snapshot(
         close: Some(completed.close),
         volume: Some(completed.volume),
         average_volume: avg_vol,
-        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        pipeline_state,
         indicator_lifecycle: std::collections::HashMap::new(),
         context: Some(crate::market_context_synth::synthesize_market_context(
             &indicators,
         )),
-        decision_context: Some({
-            let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
-            let mut sum = 0.0f64;
-            let mut n = 0u32;
-            for meta in crate::indicators::registry::INDICATORS {
-                if meta.directional {
-                    if let Some(v) = indicators.get(meta.key) {
-                        sum += v.normalized;
-                        n += 1;
-                    }
-                }
-            }
-            let conf = if n > 0 {
-                (sum / n as f64 * 100.0).clamp(-100.0, 100.0)
-            } else {
-                0.0
-            };
-            let px = completed.close.to_f64().unwrap_or(0.0);
-            // See note in analyzer/mod.rs — the warm-up path uses empty/default
-            // Analysis and Risk matrices because the full L3/L4/L5 pipeline
-            // is not yet wired into the warm-up cycle. The DecisionContext
-            // contract still computes deterministically.
-            let analysis_for_l6 = core_domain::analysis::AnalysisMatrix::empty(&completed.symbol);
-            let risk_for_l6 = core_domain::risk::RiskMatrix::empty(&completed.symbol);
-            core_domain::decision_context::DecisionContext::compute(
-                &indicators,
-                px,
-                atr_val,
-                conf,
-                &analysis_for_l6,
-                None,
-                &risk_for_l6,
-            )
-        }),
+        // AUDIT-H5: the warm-up cycle has no L3/L4/L5 wiring — the previous
+        // code fed empty Analysis/Risk matrices into `DecisionContext::compute`
+        // and served the resulting zeroed guidance (readiness, probabilities,
+        // R:R) on WS bootstrap. Honest `None` — the first live close computes
+        // the real decision context a candle later.
+        decision_context: None,
         statistical_context: None,
         indicators,
         alignment: None,
@@ -1245,13 +1235,7 @@ mod tests {
                 None,
                 None,
             ),
-            make_snap_with_derivs(
-                1_700_000_180_000,
-                Some(dec!(102_000)),
-                None,
-                None,
-                None,
-            ),
+            make_snap_with_derivs(1_700_000_180_000, Some(dec!(102_000)), None, None, None),
         ];
         let state = warm_derivatives_from_snapshots(&snapshots, 500);
         // latest_oi / funding → most recent values

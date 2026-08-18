@@ -1,7 +1,7 @@
 //! AC-L4-1 (per-frame serialization p95 < 1ms under nominal load).
 //!
 //! Verifies that `MarketSnapshot` serialization to JSON completes in under 1ms
-//! for a typical payload with 50 indicators and sub-matrices populated.
+//! for a typical payload with 52 indicators and sub-matrices populated.
 //! Uses a generous 50ms threshold to account for debug/test-profile overhead
 //! in CI environments; in optimized release builds this is well under 1ms.
 
@@ -190,7 +190,13 @@ fn per_frame_serialization_p95_under_threshold() {
     }
 
     const ITERATIONS: usize = 200;
+    // AUDIT-TEST: the documented SLA (AC-L4-1) is p95 < 1 ms; the old
+    // test asserted 50 ms — 50× the contract. Enforce the documented SLA
+    // in release builds; keep a generous debug-build allowance.
+    #[cfg(debug_assertions)]
     const THRESHOLD_MS: f64 = 50.0;
+    #[cfg(not(debug_assertions))]
+    const THRESHOLD_MS: f64 = 1.0;
 
     let mut times: Vec<f64> = Vec::with_capacity(ITERATIONS);
     for _ in 0..ITERATIONS {

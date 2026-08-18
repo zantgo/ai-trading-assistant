@@ -48,7 +48,7 @@ function makeAlignment(overrides: Partial<AlignmentMatrix> = {}): AlignmentMatri
     mtf_overall_score: 62,
     mtf_overall_label: 'STRONG_BULL_MTF',
     timeframe_alignments: [
-      { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING_BULL', active_signals: 5, price: 63390 },
+      { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
     ],
     signal_cross_tf_count: 2,
     trend_agreement_pct: 82,

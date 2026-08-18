@@ -56,15 +56,16 @@ Value          ::= number | string | [number] | [string]
 
 | Field Path | Type | Source | Example Values |
 |-----------|------|--------|---------------|
-| `decision.bias` | `string` | Decision Matrix | `"BULLISH"`, `"STRONG_BULLISH"` |
-| `decision.confidence_assessment` | `number` | Decision Matrix | `72.0` (0–100) |
-| `decision.market_stance` | `string` | Decision Matrix | `"AGGRESSIVE"`, `"CONSTRUCTIVE"` |
-| `decision.directional_guidance` | `string` | Decision Matrix | `"STRONG_LONG"`, `"LONG"` |
-| `decision.strategy_environment` | `string` | Decision Matrix | `"TREND_FOLLOWING"`, `"BREAKOUT"` |
-| `decision.entry_guidance` | `string` | Decision Matrix | `"IMMEDIATE"`, `"PULLBACK"` |
-| `analysis.market_regime` | `string` | Analysis Matrix | `"TRENDING_BULL"`, `"RANGE"` |
-| `analysis.market_quality` | `string` | Analysis Matrix | `"GOOD"`, `"EXCELLENT"` |
-| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, `"SCALP"`, … — see [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical eight-variant precondition table (canonical producer — replaces the removed `decision.opportunity_type` field per the v2.1 institutional redesign; see [02-00-matrix-field-ownership.md §3](../../matrices/02-00-matrix-field-ownership.md) for the migration map) |
+| `decision.bias` | `string` | Decision Matrix | `"Bullish"`, `"StrongBullish"` |
+| `decision.confidence_assessment` | `number` | Advisory Matrix | `72.0` (0–100) — maps to `AdvisoryMatrix.confidence_assessment` |
+| `decision.score_confidence` | `number` | Decision Matrix | `97.0` (0–100) — `DecisionContext.score_confidence` × 100 |
+| `decision.market_stance` | `string` | Decision Matrix | `"Aggressive"`, `"Constructive"` |
+| `decision.directional_guidance` | `string` | Decision Matrix | `"StrongLong"`, `"Long"` |
+| `decision.strategy_environment` | `string` | Decision Matrix | `"TrendFollowing"`, `"Breakout"` |
+| `decision.entry_guidance` | `string` | Decision Matrix | `"Immediate"`, `"Pullback"` |
+| `analysis.market_regime` | `string` | Analysis Matrix | `"TrendingBull"`, `"Range"` |
+| `analysis.market_quality` | `string` | Analysis Matrix | `"Good"`, `"Excellent"` |
+| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"Breakout"`, `"TrendContinuation"`, `"LiquiditySqueeze"`, `"Scalp"`, … — see [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical eight-variant precondition table (canonical producer — replaces the removed `decision.opportunity_type` field per the v2.1 institutional redesign; see [02-00-matrix-field-ownership.md §3](../../matrices/02-00-matrix-field-ownership.md) for the migration map) |
 | `opportunity.opportunity_score` | `number` | Opportunity Matrix | `85.0` (0–100) |
 | `risk.market_risk.score` | `number` | Risk Matrix | `35.0` (0–100) |
 | `risk.volatility_risk.score` | `number` | Risk Matrix | `45.0` (0–100) |
@@ -76,6 +77,8 @@ Value          ::= number | string | [number] | [string]
 | `risk.cascade_risk.score` | `number` | Risk Matrix | `30.0` (0–100) |
 | `risk.overall_risk.score` | `number` | Risk Matrix | `28.3` (0–100) |
 
+> **Wire-casing contract.** All `string` condition values are compared against the **PascalCase wire serialization** of the underlying enum (`"StrongBullish"`, `"TrendingBull"`, `"Breakout"`, …) — the same casing the frontend consumes from the WS broadcast. SCREAMING_SNAKE forms (`"STRONG_BULLISH"`, `"TRENDING_BULL"`) never occur on the wire and must not be used in policies. `decision.trade_readiness` is the exception: its wire values are `"READY" | "FORMING" | "WATCH" | "STAND_ASIDE"`.
+
 ---
 
 ## 3. Example Policies
@@ -84,10 +87,10 @@ Value          ::= number | string | [number] | [string]
 
 ```
 AND(
-  decision.bias IN ["BULLISH", "STRONG_BULLISH"],
+  decision.bias IN ["Bullish", "StrongBullish"],
   decision.confidence_assessment GTE 60,
-  decision.market_stance IN ["AGGRESSIVE", "CONSTRUCTIVE"],
-  opportunity.primary_opportunity IN ["TREND_CONTINUATION", "BREAKOUT"],
+  decision.market_stance IN ["Aggressive", "Constructive"],
+  opportunity.primary_opportunity IN ["TrendContinuation", "Breakout"],
   risk.overall_risk.score LT 40
 )
 → Trigger LONG
@@ -97,8 +100,8 @@ AND(
 
 ```
 AND(
-  decision.directional_guidance IN ["STRONG_LONG", "LONG"],
-  opportunity.primary_opportunity EQ "BREAKOUT",
+  decision.directional_guidance IN ["StrongLong", "Long"],
+  opportunity.primary_opportunity EQ "Breakout",
   opportunity.opportunity_score GTE 75,
   risk.volatility_risk.score LT 50,
   risk.overall_risk.score LT 30
@@ -110,9 +113,9 @@ AND(
 
 ```
 AND(
-  analysis.market_regime IN ["RANGE", "TRANSITION"],
-  decision.bias IN ["BEARISH", "STRONG_BEARISH"],
-  decision.entry_guidance IN ["IMMEDIATE", "WAIT_FOR_CONFIRMATION"],
+  analysis.market_regime IN ["Range", "Transition"],
+  decision.bias IN ["Bearish", "StrongBearish"],
+  decision.entry_guidance IN ["Immediate", "WaitForConfirmation"],
   risk.overall_risk.score LT 50
 )
 → Trigger SHORT

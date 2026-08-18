@@ -49,7 +49,9 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
@@ -171,10 +173,10 @@ async fn test_websocket_stream_with_active_pair() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-    custom_pipelines: std::collections::HashMap::new(),
+        custom_pipelines: std::collections::HashMap::new(),
         micro: TimeframePipeline {
             slot: TimeframeSlot::Micro,
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -349,7 +351,9 @@ async fn test_websocket_stream_with_active_pair() {
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
@@ -390,5 +394,79 @@ async fn test_websocket_stream_with_active_pair() {
     assert!(
         unknown_result.is_ok() || unknown_result.is_err(),
         "WS with unknown pair should not crash the server"
+    );
+}
+
+#[test]
+fn rules_guide_path_resolves_inside_repo() {
+    // Audit fix (C5): `GET /api/rules` previously read `docs/indicators-guide.md`,
+    // which does not exist in the repo — the endpoint 404'd permanently. The
+    // handler must target the real MME indicators guide spec. The daemon runs
+    // from the workspace root, so walk up from the crate dir to find it.
+    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let mut dir = std::path::PathBuf::from(&crate_dir);
+    let mut found = None;
+    loop {
+        let candidate = dir.join(api_gateway::handlers::config::RULES_GUIDE_PATH);
+        if candidate.exists() {
+            found = Some(candidate);
+            break;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    let guide = found.expect(
+        "RULES_GUIDE_PATH must resolve to an existing file inside the workspace (docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md)",
+    );
+    let content = std::fs::read_to_string(&guide).expect("guide must be readable");
+    assert!(
+        content.contains("indicators"),
+        "guide must contain rulebook content"
+    );
+}
+
+#[tokio::test]
+async fn cross_site_requests_are_rejected() {
+    // K1 (production audit): the unauthenticated API must refuse requests
+    // whose `Sec-Fetch-Site` / `Origin` prove a foreign website — the
+    // loopback bind alone is no defense against browser-based attackers.
+    let (state, _pool) = setup_test_state().await;
+    let router = api_gateway::build_router(state);
+
+    // Browser cross-site fetch: `Sec-Fetch-Site: cross-site` → 403.
+    let request = hyper::Request::builder()
+        .method("GET")
+        .uri("/api/config")
+        .header("sec-fetch-site", "cross-site")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = router.clone().oneshot(request).await.unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+
+    // Foreign Origin header → 403.
+    let request = hyper::Request::builder()
+        .method("POST")
+        .uri("/api/session/quit")
+        .header("content-type", "application/json")
+        .header("origin", "https://evil.example")
+        .body(axum::body::Body::from("{}"))
+        .unwrap();
+    let resp = router.clone().oneshot(request).await.unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+
+    // Same-origin request passes (the dashboard's own fetches).
+    let request = hyper::Request::builder()
+        .method("GET")
+        .uri("/api/config")
+        .header("sec-fetch-site", "same-origin")
+        .header("origin", "http://127.0.0.1:3000")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = router.clone().oneshot(request).await.unwrap();
+    assert!(
+        resp.status().is_success() || resp.status() == axum::http::StatusCode::NOT_FOUND,
+        "same-origin request must not be blocked, got {}",
+        resp.status()
     );
 }

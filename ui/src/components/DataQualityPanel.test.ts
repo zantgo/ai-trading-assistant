@@ -8,6 +8,7 @@ const report: PipelineReliabilityMetrics = {
     coverage: 0.985,
     gap_count: 3,
     outliers_rejected: 7,
+    outliers_bypassed: 1,
     out_of_order_dropped: 0,
     total_candles_processed: 15240,
     reconstructed_candles: 12,

@@ -34,10 +34,10 @@ use serde_json;
 use tokio::sync::{Mutex, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use core_domain::models::MarketSnapshot;
 pub use core_domain::snapshot_export::{
     SnapshotEnvelope, SnapshotExportRuntime, SnapshotMetadata, ALL_TABS,
 };
-use core_domain::models::MarketSnapshot;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 
 /// Build a runtime from a static `SnapshotExportConfig`. Used at
@@ -139,7 +139,12 @@ pub async fn tick_once(
 ) -> Result<(), String> {
     let (enabled, output_path, tabs, retention) = {
         let r = runtime.read().await;
-        (r.enabled, r.output_path.clone(), r.tabs.clone(), r.max_snapshots_retained)
+        (
+            r.enabled,
+            r.output_path.clone(),
+            r.tabs.clone(),
+            r.max_snapshots_retained,
+        )
     };
 
     if !enabled {
@@ -152,7 +157,9 @@ pub async fn tick_once(
     let now = Utc::now();
     let date_part = now.format("%Y-%m-%d").to_string();
     let time_part = now.format("%Hh%Mm%Ss").to_string();
-    let base_dir = PathBuf::from(&output_path).join(&date_part).join(&time_part);
+    let base_dir = PathBuf::from(&output_path)
+        .join(&date_part)
+        .join(&time_part);
 
     if let Err(e) = tokio::fs::create_dir_all(&base_dir).await {
         let msg = format!("create_dir_all({}): {}", base_dir.display(), e);
@@ -171,13 +178,23 @@ pub async fn tick_once(
         // pattern used by the L7 Overview aggregator at
         // `crates/execution-daemon/src/main.rs`.
         let snaps = inst.active_pair.latest_snapshots_all_tf().await;
-        let slots = [
-            ("micro", 60_u64, snaps.0.as_ref()),
-            ("fast", 300, snaps.1.as_ref()),
-            ("slow", 900, snaps.2.as_ref()),
-            ("macro", 3600, snaps.3.as_ref()),
-        ];
-        for (slot_name, slot_secs, snap_opt) in slots {
+        // Slot names come from the snapshot itself (matches the WS wire
+        // and `/api/history` keys) and `timeframe_secs` comes from the
+        // snapshot's actual configured duration — never hardcoded
+        // defaults (a non-default micro=1s or macro=1800s config used to
+        // produce wrong metadata).
+        let mut snap_slots: Vec<(String, u64, &Option<MarketSnapshot>)> = Vec::with_capacity(4);
+        for slot_ref in [&snaps.0, &snaps.1, &snaps.2, &snaps.3] {
+            if let Some(s) = slot_ref.as_ref() {
+                let name = s
+                    .timeframe_slot
+                    .as_ref()
+                    .map(|ts| ts.as_str())
+                    .unwrap_or_default();
+                snap_slots.push((name, s.timeframe_secs, slot_ref));
+            }
+        }
+        for (slot_name, slot_secs, snap_opt) in snap_slots {
             let Some(snap) = snap_opt else { continue };
             for tab in &tabs {
                 let payload = build_tab_payload(tab, snap);
@@ -244,10 +261,12 @@ fn build_tab_payload(tab: &str, snap: &MarketSnapshot) -> serde_json::Value {
         "risk" => serde_json::to_value(&snap.risk).unwrap_or(serde_json::Value::Null),
         "analysis" => serde_json::to_value(&snap.analysis).unwrap_or(serde_json::Value::Null),
         "advisory" => serde_json::to_value(&snap.advisory).unwrap_or(serde_json::Value::Null),
-        "decision" => serde_json::to_value(&snap.decision_context).unwrap_or(serde_json::Value::Null),
+        "decision" => {
+            serde_json::to_value(&snap.decision_context).unwrap_or(serde_json::Value::Null)
+        }
         "metrics" => serde_json::to_value(snap).unwrap_or(serde_json::Value::Null),
         "mtf" => serde_json::json!({
-            "slot": format!("{:?}", snap.timeframe_slot),
+            "slot": snap.timeframe_slot.as_ref().map(|ts| ts.as_str()).unwrap_or_default(),
             "timeframe_secs": snap.timeframe_secs,
             "indicators": snap.indicators.len(),
             "alignment": snap.alignment,
@@ -404,7 +423,10 @@ mod tests {
         }
         let res = tick_once(&rt, &ws).await;
         assert!(res.is_ok());
-        assert!(!out.exists(), "disabled runtime must not create the output dir");
+        assert!(
+            !out.exists(),
+            "disabled runtime must not create the output dir"
+        );
     }
 
     #[tokio::test]
@@ -425,7 +447,11 @@ mod tests {
         let date_part = now.format("%Y-%m-%d").to_string();
         let time_part = now.format("%Hh%Mm%Ss").to_string();
         let tick_dir = out.join(&date_part).join(&time_part);
-        assert!(tick_dir.is_dir(), "tick dir should exist: {}", tick_dir.display());
+        assert!(
+            tick_dir.is_dir(),
+            "tick dir should exist: {}",
+            tick_dir.display()
+        );
         // No instances → no per-tab files, but counters must be updated.
         let r = rt.read().await;
         assert!(r.last_snapshot_at.is_some());

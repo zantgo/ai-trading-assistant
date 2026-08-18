@@ -58,14 +58,19 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `exchange` | `Exchange` enum | Yes | Originating venue (`Hyperliquid`, `Bitget`). |
 | `symbol` | `string` | No | Unified instrument key, e.g. `BTC-USDT`. |
 | `timeframe_secs` | `u64` | No | Candle duration in seconds (60 / 180 / 300 / 900). |
-| `timestamp` | `u64` | No | Candle close time (Unix epoch, milliseconds). |
+| `timestamp` | `u64` | No | Candle close time (Unix epoch, **seconds** — `start_time_ms / 1000`). |
 | `is_completed` | `bool` | Yes | `true` for a finalized candle; `false`/absent for a real-time "shadow" flicker snapshot. |
-| `mid_price` | `Decimal` | No | Mid of best bid/ask at snapshot time. |
+| `timeframe_slot` | `TimeframeSlot` | Yes | Stable slot identity (`Micro`/`Fast`/`Slow`/`Macro`/`Custom{id}`) stamped on every snapshot — the authoritative wire-side slot identifier (06-01 §3.1). |
+| `pipeline_state` | `CandlePipelineState` | No | `Initializing`/`Loading`/`Live`/`Stale`/`Failed` (DCP-05: `Stale` = no completed candle for `candle_buffer.stale_threshold_secs`; `Failed` = 2× window). Documented in [03-01-06-die-candle-pipeline-states.md](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
+| `indicator_lifecycle` | `map<string, IndicatorLifecycleStatus>` | No | Per-indicator lifecycle states (ILS-01..ILS-16) — see [03-02-15-mme-indicator-lifecycle-states.md](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md). |
+| `mid_price` | `Decimal` | No | Mid of best bid/ask at snapshot time — the **fresh order-book mid** `(best_bid + best_ask) / 2` when the book was updated within the grace window (AUDIT-V8-002; `grace_period_ms` = candle duration), else the candle close. No longer the candle volume/close blend. |
 | `bid_price` / `ask_price` | `Decimal` | No | Top-of-book quotes. |
-| `bid_size` / `ask_size` | `Decimal` | Yes | Top-of-book depth. |
+| `bid_size` / `ask_size` | `Decimal` | Yes | Top-of-book **level-1 resting sizes** (`best_bid_size` / `best_ask_size`); JSON `null` when the book is not fresh within the AUDIT-V8-002 grace window (no `skip_serializing_if` on these fields). No longer the candle volume. |
 | `funding_rate` | `Decimal` | Yes | Current perpetual funding rate. |
 | `open` / `high` / `low` / `close` | `Decimal` | Yes | OHLC of the candle. |
 | `volume` | `Decimal` | Yes | Candle volume. |
+| `volume_profile` | `VolumeProfileSnapshot` | Yes | Per-candle volume-profile histogram (POC/VAH/VAL, buy/sell bins) — see [03-02-13-mme-volume-profile-layer.md](../engines/market-monitoring-engine/03-02-13-mme-volume-profile-layer.md). `None` before the warmup gate. |
+| `quality_envelope` | `CandleQualityEnvelope` | Yes | Per-candle data-quality envelope (score, validity, gap/reconstruction provenance, sequence integrity) — canonical source: [02-03-data-quality-matrix.md](02-03-data-quality-matrix.md). |
 | `average_volume` | `Decimal` | Yes | Rolling average volume baseline. |
 | `open_interest` | `Decimal` | Yes | Open interest at snapshot time. |
 | `oi_delta_1h` | `Decimal` | Yes | 1-hour rolling open-interest change. |
@@ -75,7 +80,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `mark_index_spread_pct` | `f64` | Yes | Mark/index spread as percentage. Computed live from the in-memory mark/index writers (AUDIT-AIU-091); `null` until both are available. |
 | `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). `None` when liquidity extension disabled. |
 | `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). `None` when liquidity extension disabled. |
-| `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Always serialized** as an empty array (`[]`) when liquidity extension is disabled or no signals fired in this snapshot. Never omitted via `skip_serializing_if`. |
+| `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Omitted entirely when empty** via `skip_serializing_if = "Vec::is_empty"` (liquidity extension disabled or no signals fired this snapshot) — never serialized as a literal `[]`. |
 | `indicators` | `map<string, IndicatorEvaluation>` | No | The unified dual-representation indicator map (see §3). |
 | `context` | `MarketContext` | Yes | Synthesized per-timeframe context (see §5). |
 | `alignment` | `AlignmentMatrix` | Yes | Attached Alignment Matrix (populated on completed snapshots). |
@@ -85,7 +90,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `decision_context` | `DecisionContext` | Yes | Quantitative decision metadata. |
 | `opportunity` | `OpportunityMatrix` | Yes | Attached Opportunity Matrix — canonical source: 02-08-opportunity-matrix.md; null when no clear setup. |
 | `statistical_context` | `StatisticalContext` | Yes | Statistical intelligence — see schema in §3.4 below. |
-| `risk_profile` | `i64` | Yes | Associated risk-profile identifier (the integer primary key of the `risk_profiles` table per [06-02-database-schema-spec.md §3.3](../integration-and-api/06-02-database-schema-spec.md)). Serialized as JSON `null` when no profile is bound. |
+| `risk_profile` | `i32` | Yes | Associated risk-profile identifier (`Option<i32>` — the integer primary key of the `risk_profiles` table per [06-02-database-schema-spec.md §3.3](../integration-and-api/06-02-database-schema-spec.md)). Serialized as JSON `null`/omitted when no profile is bound. |
 | `metrics_config` | `Option<MetricsConfig>` | Yes | **Configurable Data Activation** (added v6.2). Optional block recording the active indicator/signal set the cascade considered. **Omitted entirely** when the active set is the registry default (all enabled). Canonical form, semantics, and gating rules: [03-02-12-mme-configurable-activation.md §3](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). `metrics_config.config_version` joins PAE attribution. |
 
 > #### 2.1.1 Single Source of Truth — v6.11 EMA Ribbon unification
@@ -173,20 +178,17 @@ Registry metadata: `group = Regime`, `class = Lagging`, `render = Pane`, `direct
 
 ### 3.4 `StatisticalContext` Schema
 
-The `StatisticalContext` sub-object carries the statistical-intelligence envelope that supports the Opportunity Matrix's Monte Carlo components and the Risk Matrix's z-score gates. Authoritative source: `crates/core-domain/src/statistics.rs::StatisticalContext`.
+The `StatisticalContext` sub-object is a **placeholder block** — populated on live completed frames by the SIL statistics engine (`statistical_context: Some(sil_ctx)` in `crates/market-analyzer/src/analyzer/mod.rs`, nulled pre-live and on shadow frames), but **consumed by no UI panel today** (placeholder semantics; the frontend carries the type defensively). Authoritative source: `crates/core-domain/src/models.rs::StatisticalContext`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `close_zscore` | `f64` | Rolling z-score of the close price against the trailing mean/σ (period = `zscore_period`). |
-| `rsi_zscore` | `f64` | Rolling z-score of the RSI value (period = `rsi_period`). |
-| `macd_zscore` | `f64` | Rolling z-score of the MACD histogram value (period = `macd_signal`). |
-| `monte_carlo_expected_return` | `f64` | Mean of the sign-randomized baseline return distribution (units: fractional return per bar). |
-| `monte_carlo_std_dev` | `f64` | Standard deviation of the sign-randomized baseline return distribution. |
-| `monte_carlo_sample_count` | `u32` | Number of Monte Carlo samples used to compute the above two fields (default `10_000`). |
-| `monte_carlo_p_value` | `f64` | Fraction of MC samples whose mean return meets or exceeds the actual realized mean return over the same window (one-tailed positive test). |
-| `window_bars` | `u32` | Number of completed bars included in the rolling statistical window. |
+| `close_z` | `Option<f64>` | Rolling z-score of the close price against the trailing mean/σ. |
+| `rsi_z` | `Option<f64>` | Rolling z-score of the RSI value. |
+| `macd_z` | `Option<f64>` | Rolling z-score of the MACD histogram value. |
+| `monte_carlo_expected` | `Option<f64>` | Monte Carlo expected value slot. |
+| `monte_carlo_stdev` | `Option<f64>` | Monte Carlo standard-deviation slot. |
 
-All fields are nullable in the wire payload when the rolling window has not yet accumulated enough bars (typically the first `max(period)` bars after warm-up). `Option::None` fields are omitted via `skip_serializing_if` per §6.1.
+All five fields are `Option<f64>` and the block is documented as a **placeholder**: the legacy `close_zscore` / `rsi_zscore` / `macd_zscore` / `monte_carlo_expected_return` / `monte_carlo_std_dev` / `monte_carlo_sample_count` / `monte_carlo_p_value` / `window_bars` schema is retired. `Option::None` fields are omitted via `skip_serializing_if` per §6.1.
 
 ---
 
@@ -223,26 +225,17 @@ Each `IndicatorSignal` in an indicator's `signals` array is a discrete detected 
 | `StackChange` | EMA ribbon reorders. | [stack-change.md](../engines/market-monitoring-engine/signals/05-02-11-stack-change.md) |
 | `PatternForming` | Chart/candlestick pattern detected. | [pattern-forming.md](../engines/market-monitoring-engine/signals/05-02-12-pattern-forming.md) |
 
-### 4.3 Signal Status State Machine
+### 4.3 Signal Status Semantics
 
-```
-        first detection
-             │
-             ▼
-      ┌─────────────┐   confirming condition met    ┌─────────────┐
-      │  POTENTIAL  │ ─────────────────────────────►│  CONFIRMED  │
-      └─────────────┘                                └─────────────┘
-             │                                              │
-             │ condition invalidated                        │ event persists
-             ▼                                              ▼
-        (dropped)                                     ┌─────────────┐
-                                                      │   ACTIVE    │
-                                                      └─────────────┘
-```
+Status is chosen **per-detector at emission time** — there is no server-side `POTENTIAL → CONFIRMED → ACTIVE` transition chain:
 
-- **Potential:** The event geometry is present but its confirming trigger (e.g. a decisive candle close through a level) has not yet occurred. Usable only as secondary confluence.
-- **Confirmed:** The confirming condition has fired. Contributes full weight and may boost indicator `confidence`.
-- **Active:** A confirmed state that persists over subsequent bars (e.g. an ongoing trend flip), tracked with an incrementing `age_bars`.
+| Status | Emitted by |
+|--------|------------|
+| `Potential` | `Divergence` geometry detected but not yet confirmed. |
+| `Confirmed` | `Divergence` (confirmed divergence state machine) and `StackChange` (EMA-stack reorder). |
+| `Active` | All other detectors — emitted immediately on the triggering bar. |
+
+`age_bars` is the **only persistence axis**: the analyzer's stateful ager re-emits surviving signals on subsequent bars with an incremented `age_bars` (or drops them when the condition lapses); a status never upgrades in place on a later bar.
 
 ---
 
@@ -313,7 +306,7 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 180,
-  "timestamp": 1752192000000,
+  "timestamp": 1752192000,
   "is_completed": true,
   "mid_price": 64012.5,
   "bid_price": 64012.0,
@@ -327,7 +320,7 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
       "state_label": "BULLISH_MOMENTUM",
       "confidence": 0.42,
       "signals": [
-        { "kind": "THRESHOLD", "direction": "BEARISH", "status": "ACTIVE",
+        { "kind": "Threshold", "direction": "Bearish", "status": "Active",
           "label": "OVERBOUGHT_DISTRIBUTION", "strength": 0.6, "age_bars": 2 }
       ]
     },
@@ -338,7 +331,7 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
       "values": { "line": 12.3, "signal": 9.8, "histogram": 2.5 },
       "confidence": 0.7,
       "signals": [
-        { "kind": "CROSSOVER", "direction": "BULLISH", "status": "CONFIRMED",
+        { "kind": "Crossover", "direction": "Bullish", "status": "Confirmed",
           "label": "MACD_BULLISH_CROSSOVER", "strength": 0.8, "age_bars": 0 }
       ]
     }
@@ -355,10 +348,11 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
 
 ### 6.1 Serialization Rules
 
-- All `Decimal` price fields serialize as **strings** to preserve precision.
+- All `Decimal` price fields serialize as **plain JSON numbers** (`rust_decimal` `serde-float` feature, `crates/core-domain/Cargo.toml`) — never strings.
+- `timestamp` is Unix epoch **seconds** (10-digit).
 - Optional fields use `skip_serializing_if = "Option::is_none"` — absent means "not computed", never "zero".
-- Empty `signals` arrays and null `values` maps are omitted to minimize frame size.
-- Enum variants serialize as `SCREAMING_SNAKE_CASE` (e.g. `BULLISH`, `OVERBOUGHT_DISTRIBUTION`).
+- Empty `signals` arrays, null `values` maps, and empty `liquidity_signals` vectors are omitted to minimize frame size.
+- Signal enums serialize **PascalCase** on the wire: `SignalKind` (`Threshold`, `Crossover`, …), `SignalDirection` (`Bullish` / `Bearish` / `Neutral`), `SignalStatus` (`Potential` / `Confirmed` / `Active`). `state_label` / `label` strings keep their SCREAMING display form (e.g. `OVERBOUGHT_DISTRIBUTION`, `MACD_BULLISH_CROSSOVER`).
 
 ---
 

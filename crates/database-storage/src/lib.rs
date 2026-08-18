@@ -14,10 +14,9 @@ pub use logger::{run_telemetry_logger, TelemetryMsg};
 // ─── Query re-exports ──────────────────────────────────────────────
 
 pub use queries::analytics::{
-    insert_optimization_report, insert_performance_matrix_snapshot,
-    insert_performance_summary, insert_risk_analytics, insert_strategy_analytics,
-    query_optimization_reports, query_performance_matrix_latest,
-    query_risk_analytics_latest, query_strategy_analytics_history,
+    insert_optimization_report, insert_performance_matrix_snapshot, insert_performance_summary,
+    insert_risk_analytics, insert_strategy_analytics, query_optimization_reports,
+    query_performance_matrix_latest, query_risk_analytics_latest, query_strategy_analytics_history,
 };
 pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,

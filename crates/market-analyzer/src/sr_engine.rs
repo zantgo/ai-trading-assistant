@@ -47,10 +47,15 @@ fn merge_proximate(levels: &mut Vec<TrackedLevel>) {
                 i
             };
             let drop = if keep == i { i + 1 } else { i };
-            if drop == i {
-                i += 1; // removed the earlier entry; re-check position
-            } else {
-                levels.remove(drop);
+            // AUDIT-M7: when the EARLIER entry loses the tie-break the old
+            // code advanced `i` without removing anything — both proximate
+            // levels survived and were both emitted as S/R levels. Remove
+            // the loser; when the loser was the earlier entry, the kept
+            // entry slides into position `i` and is re-checked against the
+            // next level.
+            levels.remove(drop);
+            if drop != i {
+                i += 1;
             }
         } else {
             i += 1;
@@ -217,17 +222,18 @@ impl SrRoleTracker {
     /// Check if a specific price is currently acting as support.
     /// AUDIT-AIU-006: relative 0.05% tolerance (was a fixed $0.01).
     pub fn is_support(&self, price: f64) -> bool {
-        self.levels
-            .iter()
-            .any(|l| (l.price - price).abs() <= l.price * MIN_LEVEL_GAP_PCT && l.role == LevelRole::Support)
+        self.levels.iter().any(|l| {
+            (l.price - price).abs() <= l.price * MIN_LEVEL_GAP_PCT && l.role == LevelRole::Support
+        })
     }
 
     /// Check if a specific price is currently acting as resistance.
     /// AUDIT-AIU-006: relative 0.05% tolerance (was a fixed $0.01).
     pub fn is_resistance(&self, price: f64) -> bool {
-        self.levels
-            .iter()
-            .any(|l| (l.price - price).abs() <= l.price * MIN_LEVEL_GAP_PCT && l.role == LevelRole::Resistance)
+        self.levels.iter().any(|l| {
+            (l.price - price).abs() <= l.price * MIN_LEVEL_GAP_PCT
+                && l.role == LevelRole::Resistance
+        })
     }
 }
 
@@ -310,5 +316,58 @@ mod tests {
         assert!(tracker.is_support(0.000010001));
         // 0.00002 is far outside the 0.05% gap.
         assert!(!tracker.is_support(0.00002));
+    }
+
+    #[test]
+    fn test_merge_removes_earlier_duplicate_when_later_wins() {
+        // AUDIT-M7: when the LATER entry has more flips (longer-confirmed
+        // role) the earlier duplicate must be removed — the old code
+        // advanced the cursor without removing, emitting BOTH proximate
+        // levels as S/R levels.
+        let mut levels = vec![
+            TrackedLevel {
+                price: 100.004,
+                role: LevelRole::Support,
+                original_role: LevelRole::Support,
+                last_flip_timestamp: None,
+                flip_count: 0,
+            },
+            TrackedLevel {
+                price: 100.006,
+                role: LevelRole::Support,
+                original_role: LevelRole::Support,
+                last_flip_timestamp: Some(500),
+                flip_count: 3,
+            },
+        ];
+        merge_proximate(&mut levels);
+        assert_eq!(levels.len(), 1, "proximate pair must collapse to one");
+        assert_eq!(
+            levels[0].price, 100.006,
+            "the higher-flip entry must survive the merge"
+        );
+    }
+
+    #[test]
+    fn test_merge_keeps_earlier_on_tie_and_drops_later() {
+        let mut levels = vec![
+            TrackedLevel {
+                price: 100.004,
+                role: LevelRole::Support,
+                original_role: LevelRole::Support,
+                last_flip_timestamp: Some(100),
+                flip_count: 1,
+            },
+            TrackedLevel {
+                price: 100.006,
+                role: LevelRole::Support,
+                original_role: LevelRole::Support,
+                last_flip_timestamp: Some(500),
+                flip_count: 1,
+            },
+        ];
+        merge_proximate(&mut levels);
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0].price, 100.004, "tie keeps the first entry");
     }
 }

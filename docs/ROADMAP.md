@@ -36,7 +36,7 @@ The platform is **not** in two categories ("done" vs. "not started"). It is in t
 ### 2.1 DIE — Data Infrastructure Engine ✅
 
 - **WebSocket ingestion** of Hyperliquid and Bitget ticks + order-book deltas — live, both venues.
-- **NTP clock monitor** with ≤50 µs UTC drift budget; configurable `BreachAction` (`Warn` / `Panic`).
+- **NTP clock monitor** with a 10 ms default UTC drift budget (`[clock_monitor] threshold_micros`); configurable `BreachAction` (`Warn` / `Panic`).
 - **Candle reconstruction** on reconnect gaps (≥ 1 min: REST backfill; < 1 min: EMA / last-N synthesis).
 - **Connection-quality tracker** (rolling 1h / 6h / 24h windows, composite score, 60-second persistence loop).
 - **Distribution channel** (`NormalizedCandle` broadcast) and `MarketSnapshot` analytical channel.
@@ -144,7 +144,8 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 
 | Item | Owner | Acceptance criterion |
 |---|---|---|
-| C1. `ConfigurableActivation`: denylists, `config_version`, `AUTO_PAUSED` | `config-models`, `market-analyzer`, `core-domain`, `database-storage`, `api-gateway`, `portfolio-supervisor`, UI | AUDIT-V6-208 … V6-214 closed in CHANGELOG §Open Items |
+| C1. `ConfigurableActivation`: denylists, `config_version`, `AUTO_PAUSED` | `config-models`, `market-analyzer`, `core-domain`, `database-storage`, `api-gateway`, `portfolio-supervisor`, UI | **Runtime wiring shipped** (2026-08-17 MME audit sweep): AUDIT-V6-208…210 closed, V6-211 cancelled (live-wire attribution, not persisted), V6-212 (activation REST surface) + V6-213 (`AUTO_PAUSED` policy state) + V6-214 (activation panel) remain open |
+| C1b. `instances[*].custom_pipelines` runtime wiring (custom TF slots) | `portfolio-supervisor`, `api-gateway` | PRI-07 code paths exist; until wired, config validation **rejects** custom-pipeline declarations at boot (fail-fast, see `config-models` `CustomTimeframesUnsupported`) |
 | C2. `PortfolioDashboard` activation panel renders live state | UI | Phase A2 + AUDIT-V6-214 closed |
 | C3. `safety_state` deterministic reconstruction algorithm unit-tested | `portfolio-supervisor`, `database-storage` | AUDIT-V4-046 closed |
 | C4. Pre-dispatch crash-recoverable persistence | `database-storage`, `api-gateway`, `portfolio-supervisor` | AUDIT-V4-079 closed; new `pre_dispatch_orders` table added |

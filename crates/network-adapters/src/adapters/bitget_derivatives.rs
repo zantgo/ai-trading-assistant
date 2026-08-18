@@ -313,7 +313,11 @@ mod tests {
         d.holding_amount = Some("1000".into());
         d.funding_rate = Some("0.0001".into());
         let evs = ticker_to_derivatives_events("BTC-USDT", &d, None);
-        assert_eq!(evs.len(), 3, "expected MarkPrice + OpenInterest + FundingRate");
+        assert_eq!(
+            evs.len(),
+            3,
+            "expected MarkPrice + OpenInterest + FundingRate"
+        );
         // Order: MarkPrice, OpenInterest, FundingRate.
         let NormalizedEvent::MarkPrice(mp) = &evs[0] else {
             panic!("expected MarkPrice at index 0");
@@ -339,11 +343,8 @@ mod tests {
         d.holding_amount = Some("500".into());
         d.funding_rate = Some("0.00005".into());
         // Override mark as 60_000.
-        let evs = ticker_to_derivatives_events(
-            "BTC-USDT",
-            &d,
-            Some(Decimal::from_str("60000").unwrap()),
-        );
+        let evs =
+            ticker_to_derivatives_events("BTC-USDT", &d, Some(Decimal::from_str("60000").unwrap()));
         // Funding rate emits without needing mark.
         // OI emits using override mark: 500 * 60000 = 30_000_000.
         // MarkPrice is NOT emitted (frame didn't carry one).
@@ -438,10 +439,7 @@ mod tests {
                 assert_eq!(l.price.to_string(), "65000.50");
                 assert_eq!(l.size.to_string(), "1.5");
                 assert_eq!(l.timestamp_ms, 1_700_000_000_000);
-                assert_eq!(
-                    l.exchange,
-                    core_domain::normalized::Exchange::Bitget
-                );
+                assert_eq!(l.exchange, core_domain::normalized::Exchange::Bitget);
             }
             _ => panic!("expected Liquidation event"),
         }

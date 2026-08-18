@@ -12,6 +12,7 @@
         pickBestOpportunity,
     } from '../../lib/tradeAggregates';
     import { biasColor, rrColor, scoreColor, formatRR } from '../../lib/dashboardColors';
+    import { demoteBiasForCoverage } from '../../lib/layerHeader';
     import styles from './HeaderKpiStrip.module.css';
 
     const app = useAppStore();
@@ -31,6 +32,16 @@
         const totalCount = instances.length;
         const withOpportunity = instances.filter((i) => i.opportunity).length;
         const coverage = totalCount > 0 ? (withOpportunity / totalCount) * 100 : 0;
+
+        // I-10 parity with the L7 header badge: under low coverage (≤2
+        // pairs) the STRONG_* token demotes one tier AND its color demotes
+        // with it — the KPI tile and the header never contradict each
+        // other (text or tint), and the pair count rides the sublabel.
+        const rawBias = (overview?.global_market_bias ?? 'NEUTRAL').toString();
+        const lowCoverage =
+            (overview?.low_coverage ?? false) ||
+            (overview?.instance_count ?? 0) <= 2;
+        const demotedBias = demoteBiasForCoverage(rawBias, lowCoverage, overview?.instance_count ?? null);
 
         return {
             validTrades: {
@@ -53,9 +64,11 @@
             },
             marketBias: {
                 label: 'MARKET BIAS',
-                value: (overview?.global_market_bias ?? 'Neutral').toString(),
-                sub: overview ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth` : 'local aggregation',
-                color: biasColor(overview?.global_market_bias ?? 'Neutral'),
+                value: demotedBias.displayBias ?? rawBias,
+                sub: overview
+                    ? `${(overview.breadth_pct ?? 0).toFixed(0)}% breadth${demotedBias.coverageSuffix}`
+                    : 'local aggregation',
+                color: biasColor(demotedBias.displayBias ?? rawBias),
             },
             avgRisk: {
                 label: 'AVG RISK',

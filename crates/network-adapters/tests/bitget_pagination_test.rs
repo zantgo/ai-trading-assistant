@@ -24,18 +24,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use core_domain::normalized::{NormalizedCandle, ReconstructionMethod};
-use network_adapters::adapters::bitget_historical_fetch::{
-    BitgetHistoricalFetch, PageFetcher,
-};
-use network_adapters::adapters::historical_fetch::{
-    HistoricalFetchPolicy, HistoricalFetchRequest,
-};
+use network_adapters::adapters::bitget_historical_fetch::{BitgetHistoricalFetch, PageFetcher};
+use network_adapters::adapters::historical_fetch::{HistoricalFetchPolicy, HistoricalFetchRequest};
 use rust_decimal::Decimal;
 
 const TEST_INTERNAL_SYMBOL: &str = "BTC-USDT";
 const TEST_EXCHANGE_SYMBOL: &str = "BTCUSDT";
 
-fn make_request(timeframe_secs: u64, target_count: usize, end_ts_ms: u64) -> HistoricalFetchRequest {
+fn make_request(
+    timeframe_secs: u64,
+    target_count: usize,
+    end_ts_ms: u64,
+) -> HistoricalFetchRequest {
     HistoricalFetchRequest {
         exchange_symbol: TEST_EXCHANGE_SYMBOL.to_string(),
         internal_symbol: TEST_INTERNAL_SYMBOL.to_string(),
@@ -54,7 +54,7 @@ fn make_request(timeframe_secs: u64, target_count: usize, end_ts_ms: u64) -> His
 /// Order in the returned vector is **newest-first** to match Bitget's
 /// per-page convention.
 fn generate_candles_newest_first(
-                    count: usize,
+    count: usize,
     start_ts_ms: u64,
     end_ts_ms: u64,
     interval_ms: u64,
@@ -65,8 +65,7 @@ fn generate_candles_newest_first(
     let mut out = Vec::with_capacity(count);
     while emitted < count {
         let i = emitted as u64;
-        let start = end_ts_ms
-            .saturating_sub((i + 1).saturating_mul(interval_ms));
+        let start = end_ts_ms.saturating_sub((i + 1).saturating_mul(interval_ms));
         if start < start_ts_ms {
             break;
         }
@@ -119,25 +118,26 @@ async fn bitget_paginated_fetch_returns_target_count() {
     let page_calls_for_pager = page_calls.clone();
     let call_counter_for_pager = call_counter.clone();
 
-    let pager: PageFetcher = Arc::new(move |_symbol, _internal, _product, _interval, start_ts,
-                end_ts, limit, _url| {
-        let calls = page_calls_for_pager.clone();
-        let counter = call_counter_for_pager.clone();
-        Box::pin(async move {
-            // Always return a full page (200 candles) up to `limit`.
-            // The window is wide enough to satisfy every call.
-            calls.lock().unwrap().push((start_ts, end_ts, limit));
-            counter.fetch_add(1, Ordering::SeqCst);
-            let count = (limit as usize).min(BITGET_PAGE_LIMIT_TEST);
-            Ok(generate_candles_newest_first(
-                count,
-                start_ts,
-                end_ts,
-                interval_ms,
-                63_000.0,
-            ))
-        })
-    });
+    let pager: PageFetcher = Arc::new(
+        move |_symbol, _internal, _product, _interval, start_ts, end_ts, limit, _url| {
+            let calls = page_calls_for_pager.clone();
+            let counter = call_counter_for_pager.clone();
+            Box::pin(async move {
+                // Always return a full page (200 candles) up to `limit`.
+                // The window is wide enough to satisfy every call.
+                calls.lock().unwrap().push((start_ts, end_ts, limit));
+                counter.fetch_add(1, Ordering::SeqCst);
+                let count = (limit as usize).min(BITGET_PAGE_LIMIT_TEST);
+                Ok(generate_candles_newest_first(
+                    count,
+                    start_ts,
+                    end_ts,
+                    interval_ms,
+                    63_000.0,
+                ))
+            })
+        },
+    );
 
     let fetch = BitgetHistoricalFetch::new_with_pager(
         "http://127.0.0.1:1".to_string(),
@@ -225,22 +225,24 @@ async fn bitget_paginated_fetch_breaks_on_short_page() {
     let call_counter = Arc::new(AtomicUsize::new(0));
     let call_counter_for_pager = call_counter.clone();
 
-    let pager: PageFetcher = Arc::new(move |_sym, _int, _prod, _interval, start_ts, end_ts, _limit, _url| {
-        let counter = call_counter_for_pager.clone();
-        Box::pin(async move {
-            let n = counter.fetch_add(1, Ordering::SeqCst);
-            // Page 1: full 200. Page 2: short (50 rows) — exchange signal
-            // "no more history". Loop must break here.
-            let page_size = if n == 0 { 200 } else { 50 };
-            Ok(generate_candles_newest_first(
-                                page_size,
-                start_ts,
-                end_ts,
-                interval_ms,
-                63_500.0,
-            ))
-        })
-    });
+    let pager: PageFetcher = Arc::new(
+        move |_sym, _int, _prod, _interval, start_ts, end_ts, _limit, _url| {
+            let counter = call_counter_for_pager.clone();
+            Box::pin(async move {
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                // Page 1: full 200. Page 2: short (50 rows) — exchange signal
+                // "no more history". Loop must break here.
+                let page_size = if n == 0 { 200 } else { 50 };
+                Ok(generate_candles_newest_first(
+                    page_size,
+                    start_ts,
+                    end_ts,
+                    interval_ms,
+                    63_500.0,
+                ))
+            })
+        },
+    );
 
     let fetch = BitgetHistoricalFetch::new_with_pager(
         "http://127.0.0.1:1".to_string(),
@@ -278,25 +280,27 @@ async fn bitget_paginated_fetch_does_not_saturate_after_page_one() {
     let call_counter = Arc::new(AtomicUsize::new(0));
     let call_counter_for_pager = call_counter.clone();
 
-    let pager: PageFetcher = Arc::new(move |_sym, _int, _prod, _interval, start_ts, end_ts, _limit, _url| {
-        let counter = call_counter_for_pager.clone();
-        Box::pin(async move {
-            let n = counter.fetch_add(1, Ordering::SeqCst);
-            // 200 + 200 + 100 (last page short → exchange signal "no more").
-            let page_size = match n {
-                0 => 200,
-                1 => 200,
-                _ => 100,
-            };
-            Ok(generate_candles_newest_first(
-                                page_size,
-                start_ts,
-                end_ts,
-                interval_ms,
-                64_000.0,
-            ))
-        })
-    });
+    let pager: PageFetcher = Arc::new(
+        move |_sym, _int, _prod, _interval, start_ts, end_ts, _limit, _url| {
+            let counter = call_counter_for_pager.clone();
+            Box::pin(async move {
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                // 200 + 200 + 100 (last page short → exchange signal "no more").
+                let page_size = match n {
+                    0 => 200,
+                    1 => 200,
+                    _ => 100,
+                };
+                Ok(generate_candles_newest_first(
+                    page_size,
+                    start_ts,
+                    end_ts,
+                    interval_ms,
+                    64_000.0,
+                ))
+            })
+        },
+    );
 
     let fetch = BitgetHistoricalFetch::new_with_pager(
         "http://127.0.0.1:1".to_string(),

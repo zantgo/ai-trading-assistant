@@ -197,9 +197,24 @@
         return `$${n.toFixed(0)}`;
     }
 
+    // AUDIT-FE-L4: `VolumeProfileSnapshot.total_volume` is summed BASE-UNIT
+    // volume across bins — NOT USD. The old `fmtUsd` labelled it `$12.34M`.
+    function fmtCount(n: number): string {
+        if (!Number.isFinite(n)) return '—';
+        const abs = Math.abs(n);
+        if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+        if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+        return n.toFixed(0);
+    }
+
     function fmtPct(n: number): string {
         if (!Number.isFinite(n)) return '—';
-        return `${(n * 100).toFixed(2)}%`;
+        // Wire value is already an absolute percentage (0.6 = 0.6%):
+        // `distance_from_mid_pct` is stored as `((peak - mid)/mid).abs() * 100`
+        // in core-domain liquidity/mod.rs. Multiplying again inflated the
+        // displayed distance 100× (e.g. 0.60% rendered as "60.00%").
+        return `${n.toFixed(2)}%`;
     }
 
     function confidenceOf(key: string): number {
@@ -275,7 +290,7 @@
                 </span>
                 <span class={styles.vpMeta}>·</span>
                 <span class={styles.vpMeta}>
-                    total {fmtUsd(vp.total_volume)}
+                    total {fmtCount(vp.total_volume)}
                 </span>
                 <span class={styles.vpPosition}>
                     {(() => {
@@ -327,7 +342,10 @@
                 </span>
             </header>
             <div class={styles.liqLadder}>
-                {#each topClusters.short as c (`s-${c.peak_price}-${c.dominant_leverage}`)}
+                <!-- AUDIT-FE-L5: peak-price + leverage can collide on the
+                     shared 0.1% binning grid; include the range so the key
+                     is unique per cluster. -->
+                {#each topClusters.short as c (`s-${c.peak_price}-${c.dominant_leverage}-${c.price_low}-${c.price_high}`)}
                     <div class="{styles.liqRow} {styles.liqRowShort ?? ''}">
                         <span class="{styles.liqSide} {styles.liqSideShort ?? ''}">SHORT</span>
                         <span class={styles.liqRange}>
@@ -342,7 +360,7 @@
                         <span class={styles.liqDist}>{fmtPct(c.distance_from_mid_pct)}</span>
                     </div>
                 {/each}
-                {#each topClusters.long as c (`l-${c.peak_price}-${c.dominant_leverage}`)}
+                {#each topClusters.long as c (`l-${c.peak_price}-${c.dominant_leverage}-${c.price_low}-${c.price_high}`)}
                     <div class="{styles.liqRow} {styles.liqRowLong ?? ''}">
                         <span class="{styles.liqSide} {styles.liqSideLong ?? ''}">LONG</span>
                         <span class={styles.liqRange}>

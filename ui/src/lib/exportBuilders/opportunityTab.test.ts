@@ -27,7 +27,7 @@ function makeOpportunity(): OpportunityMatrix {
         preconditions_met: 2,
         preconditions_total: 2,
         notes: 'Breakout',
-        direction_family: 'TrendRiding',
+        direction_family: 'TREND_RIDING',
         long_entry_zone: { low: 63320, high: 63340 },
         long_target_zone: { low: 63681, high: 64380 },
         long_invalidation_level: 63327,
@@ -38,7 +38,7 @@ function makeOpportunity(): OpportunityMatrix {
         short_invalidation_level: null,
         short_expected_rr_internal: 0,
         short_geometry_consistent: false,
-        trade_viability: 'Actionable',
+        trade_viability: 'ACTIONABLE',
       },
       {
         opportunity_type: 'NoClearOpportunity',
@@ -46,8 +46,8 @@ function makeOpportunity(): OpportunityMatrix {
         preconditions_met: 1,
         preconditions_total: 1,
         notes: 'NoClearOpportunity',
-        direction_family: 'Neutral',
-        trade_viability: 'NoClear',
+        direction_family: 'NEUTRAL',
+        trade_viability: 'NO_CLEAR',
       },
     ],
     forecast_confidence: 0.28,
@@ -73,7 +73,7 @@ function makeOpportunity(): OpportunityMatrix {
       { price: 63264.33, sources: ['ATR_FALLBACK'], strength: 35 },
     ],
     confluent_invalidation_levels: [],
-    direction_family: 'TrendRiding',
+    direction_family: 'TREND_RIDING',
     long_geometry_consistent: false,
     short_geometry_consistent: true,
   } as unknown as OpportunityMatrix;
@@ -102,8 +102,9 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
   } as unknown as AnalysisMatrix;
 }
 
-function makeDecisionContext(): DecisionContext {
+function makeDecisionContext(overrides: Partial<DecisionContext> = {}): DecisionContext {
   return {
+    ...overrides,
     score: 0,
     bias: 'Neutral',
     score_confidence: 0,
@@ -171,8 +172,57 @@ describe('buildOpportunityTabExport', () => {
       markPrice: 63369,
       headerSpec,
     }));
-    expect(typeof p.rr_internal.expected_rr_available).toBe('boolean');
-    expect('expected_rr_value' in p.rr_internal).toBe(true);
+    expect(p.rr_internal).toBeDefined();
+    expect(p.rr_internal.expected_rr_value).toBeTypeOf('number');
+    // reason is `string | null` — null when the active-side R:R resolved.
+    expect(
+      p.rr_internal.expected_rr_reason == null ||
+        typeof p.rr_internal.expected_rr_reason === 'string',
+    ).toBe(true);
+    expect(p.rr_internal.time_horizon).toBe('INTRADAY');
+  });
+
+  it('audit C2: confluent_rr mirrors the per-side Expected R:R section', () => {
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: makeOpportunity(),
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    // The fixture's confluent levels have no side tags, so the global
+    // no-row reason must be reported — the export must never fabricate a
+    // side row.
+    expect(p.confluent_rr.reason).toBe('incomplete confluent levels');
+    expect(p.confluent_rr.sides).toEqual([]);
+
+    // With side-tagged levels, the per-side rows surface with the exact
+    // screen magnitude labels.
+    const opp = makeOpportunity() as any;
+    opp.confluent_entry_levels = [
+      { price: 63552.71, sources: ['FIBONACCI'], strength: 100, side: 'LONG' },
+      { price: 64384.0, sources: ['FIBONACCI'], strength: 100, side: 'SHORT' },
+    ];
+    opp.confluent_target_levels = [
+      { price: 64117.07, sources: ['ATR_FALLBACK'], strength: 35, side: 'LONG' },
+      { price: 63310.0, sources: ['ATR_FALLBACK'], strength: 35, side: 'SHORT' },
+    ];
+    const p2 = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp,
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p2.confluent_rr.sides.length).toBe(2);
+    const long = p2.confluent_rr.sides.find((s: { side: string }) => s.side === 'LONG');
+    expect(long).toBeDefined();
+    expect(long.risk_basis).toBe('market_distance');
+    expect(long.rr).toBeTypeOf('number');
+    expect(long.rr_display).toMatch(/R(\+)?$/);
+    expect(long.reason).toBeNull();
   });
 
   it('v6.14: score_display prefers the backend display_score (drift guard)', () => {
@@ -250,8 +300,8 @@ describe('buildOpportunityTabExport', () => {
           preconditions_met: 2,
           preconditions_total: 2,
           notes: 'Pullback',
-          direction_family: 'Neutral',
-          trade_viability: 'DirectionalNeutral',
+          direction_family: 'NEUTRAL',
+          trade_viability: 'DIRECTIONAL_NEUTRAL',
           long_entry_zone: null,
           long_target_zone: null,
           long_invalidation_level: null,
@@ -269,8 +319,8 @@ describe('buildOpportunityTabExport', () => {
           preconditions_met: 1,
           preconditions_total: 1,
           notes: 'NoClearOpportunity',
-          direction_family: 'Neutral',
-          trade_viability: 'NoClear',
+          direction_family: 'NEUTRAL',
+          trade_viability: 'NO_CLEAR',
         },
       ],
     } as unknown as OpportunityMatrix;
@@ -330,7 +380,7 @@ describe('buildOpportunityTabExport', () => {
       headerSpec,
     }));
     expect(p.environment.timeframes_considered).toBe(4);
-    expect(p.environment.timeframes_considered_display).toBe('4/4 Timeframes considered');
+    expect(p.environment.timeframes_considered_display).toBe('4 Timeframes considered');
   });
 
   it('trade_setups carry badge_text mirroring screen badges', () => {
@@ -362,8 +412,8 @@ describe('buildOpportunityTabExport', () => {
           preconditions_met: 3,
           preconditions_total: 3,
           notes: 'pullback_to_EMA20',
-          direction_family: 'TrendRiding',
-          trade_viability: 'Actionable',
+          direction_family: 'TREND_RIDING',
+          trade_viability: 'ACTIONABLE',
         },
       ],
     } as unknown as OpportunityMatrix;
@@ -509,7 +559,7 @@ describe('buildOpportunityTabExport', () => {
       preconditions_met: 2,
       preconditions_total: 2,
       notes: 'MeanReversion',
-      direction_family: 'CounterTrend',
+      direction_family: 'COUNTER_TREND',
       long_entry_zone: { low: 62558.5, high: 63023.9 },
       long_target_zone: { low: 63134.4, high: 63416.2 },
       long_invalidation_level: 62558.2,
@@ -520,7 +570,7 @@ describe('buildOpportunityTabExport', () => {
       short_invalidation_level: null,
       short_expected_rr_internal: null,
       short_geometry_consistent: false,
-      trade_viability: 'Actionable',
+      trade_viability: 'ACTIONABLE',
     }];
     const dc = {
       ...makeDecisionContext(),
@@ -604,5 +654,79 @@ describe('buildOpportunityTabExport — v7.0 summary block', () => {
       headerSpec,
     }));
     expect(p.summary).toContain('Awaiting opportunity data');
+  });
+});
+
+describe('buildOpportunityTabExport — gross R:R side resolution (v2026-08)', () => {
+  it('resolves the gross R:R to the active side under a bearish verdict (no 0.0 leak)', () => {
+    // The wire fields are plain f64 (serde default 0.0), so a naive
+    // `long ?? short` fallback exports 0.0 for a valid SHORT bracket.
+    // The side-resolved chain (zone-presence-first) must pick the short
+    // side: the qualifying profile carries SHORT zones only.
+    const opp = {
+      ...makeOpportunity(),
+      profiles: [
+        {
+          opportunity_type: 'Breakout',
+          score: 60.12,
+          preconditions_met: 2,
+          preconditions_total: 2,
+          notes: 'Breakout',
+          direction_family: 'TREND_RIDING',
+          long_entry_zone: null,
+          long_target_zone: null,
+          long_invalidation_level: null,
+          long_expected_rr_internal: 0,
+          long_geometry_consistent: false,
+          short_entry_zone: { low: 64363, high: 64384 },
+          short_target_zone: { low: 63264, high: 63310 },
+          short_invalidation_level: 64384,
+          short_expected_rr_internal: 8.04,
+          short_geometry_consistent: true,
+          trade_viability: 'ACTIONABLE',
+        },
+      ],
+      long_gross_rr_internal: 0.0,
+      short_gross_rr_internal: 3.2,
+    } as unknown as OpportunityMatrix;
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp,
+      analysis: makeAnalysis({ bias: 'Bearish' }),
+      decisionContext: makeDecisionContext({ bias: 'Bearish', trade_readiness: 'READY' }),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.rr_internal.gross_rr_value).toBe(3.2);
+  });
+
+  it('exports null gross R:R under a NEUTRAL verdict with no qualifying side', () => {
+    // A neutral bias carries no actionable zones (02-08: "Neutral carries
+    // no actionable setup") — the side chain resolves NEUTRAL → null.
+    const opp = {
+      ...makeOpportunity(),
+      profiles: [
+        {
+          opportunity_type: 'NoClearOpportunity',
+          score: 0,
+          preconditions_met: 0,
+          preconditions_total: 1,
+          notes: 'No clear opportunity',
+          direction_family: 'NEUTRAL',
+          trade_viability: 'NO_CLEAR',
+        },
+      ],
+      long_gross_rr_internal: 0.0,
+      short_gross_rr_internal: 0.0,
+    } as unknown as OpportunityMatrix;
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp,
+      analysis: makeAnalysis({ bias: 'Neutral' }),
+      decisionContext: makeDecisionContext({ bias: 'Neutral' }),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.rr_internal.gross_rr_value).toBeNull();
   });
 });

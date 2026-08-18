@@ -132,11 +132,11 @@ async fn pristine_candle_scores_100() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
-Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-                    Arc::new(RwLock::new(VecDeque::with_capacity(8))),
-                                Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+            Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+            Arc::new(RwLock::new(None)),
             None,
-            None,  // heatmap_config (None)
+            None, // heatmap_config (None)
             OrderBookConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -148,9 +148,14 @@ Arc::new(RwLock::new(VecDeque::with_capacity(60))),
             None,
             None,
             5,
+            300,
             Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-            Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            Arc::new(RwLock::new(
+                core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+            )),
+            Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
         )
     });
 

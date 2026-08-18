@@ -418,6 +418,7 @@ function formatRaw(meta: IndicatorMeta, indicators: Record<string, IndicatorDto>
     if (v == null) return null;
     switch (valueFormat(meta)) {
         case 'percent1':  return Number(v.toFixed(1));
+        case 'percent4':  return Number((v * 100).toFixed(4));
         case 'price':     {
             const p = Math.abs(markPrice);
             const decls = p >= 10000 ? 1 : p >= 1000 ? 2 : p >= 100 ? 3 : p >= 10 ? 4 : p >= 1 ? 6 : 8;

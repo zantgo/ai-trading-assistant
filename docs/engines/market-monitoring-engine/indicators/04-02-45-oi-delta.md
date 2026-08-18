@@ -17,7 +17,7 @@ The delta is normalized to `[-1, 1]` via:
 
 $$\text{normalized} = \text{clamp}\left(\frac{\text{delta}}{\text{divisor}},\ -1,\ 1\right)$$
 
-> **Scaling note (v2.1).** The fixed divisor `1000` is a default that assumes an asset with OI in the thousands (typical for Hyperliquid/Bitget perpetuals). For assets with OI in the hundreds or tens of thousands, the normalized value will saturate at ±1 or flatline near 0. The divisor is configurable via `config.toml` `[indicators.oi_delta.divisor]` (default `1000`). For percentage-based scaling, use `divisor = total_open_interest × pct_threshold` (e.g. 1 % of total OI = `divisor = total_oi / 100`).
+> **Scaling note (v2.1).** The divisor `1000` is **hardcoded** in `normalize_oi_delta` (`crates/market-analyzer/src/indicators/normalized/derivatives.rs`) — it is **not** configurable via `config.toml`. It assumes an asset with OI in the thousands (typical for Hyperliquid/Bitget perpetuals); for assets with OI in the hundreds or tens of thousands, the normalized value will saturate at ±1 or flatline near 0.
 
 ## Interpretation
 
@@ -31,20 +31,20 @@ $$\text{normalized} = \text{clamp}\left(\frac{\text{delta}}{\text{divisor}},\ -1
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| Threshold | OI_SURGE | Delta > +500 — aggressive capital inflow | Bullish if in uptrend, Bearish if in downtrend |
-| Threshold | OI_DRAIN | Delta < −500 — aggressive outflow / liquidation | Bearish if in uptrend, Bullish if in downtrend (covering) |
-| ZeroLineCross | OI_DELTA_ZERO_CROSS | Delta crosses zero (±100 band) | Bullish (cross above 0) / Bearish (cross below 0) |
+| Threshold | OI_SURGE | `delta > +500` — aggressive capital inflow | Purely from the **delta sign**: `Bullish` when `delta > +500`, `Bearish` when `delta < −500` (no trend-context modifier). |
+| Threshold | OI_DRAIN | `delta < −500` — aggressive outflow / liquidation | Purely from the **delta sign** (see above). |
+| ZeroLineCross | OI_DELTA_ZERO_CROSS | **Strict sign change** versus the previous bar: `(prev_delta ≤ 0 && delta > 0)` or `(prev_delta ≥ 0 && delta < 0)` — a genuine zero-cross, not a ±100 band | Bullish (cross above 0) / Bearish (cross below 0) |
 
 ## Normalization
 
 ```
-normalized = clamp(delta / 1000, -1, 1)
+normalized = clamp(delta / 1000, -1, 1)        // divisor hardcoded /1000
 direction: positive delta → Bullish (>0.1), negative → Bearish (<-0.1), else Neutral
 ```
 
 ## Configuration
 
-`oi_delta_window` — the lookback window in seconds for the 1-hour delta calculation (configurable).
+`oi_delta_window` — the lookback window in seconds for the 1-hour delta calculation (**documented as configurable; the key is NOT wired** — the runtime hardcodes `OI_DELTA_WINDOW_SECS = 3600` in `analyzer/mod.rs`).
 
 ---
 

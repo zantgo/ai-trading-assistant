@@ -166,20 +166,17 @@ pub fn derive_signals(map: &mut Map) {
             ));
         }
         // Chart pattern forming.
-// Gated on `key == "patterns"` so a future label on another indicator
-// that happens to contain the substring "PATTERN" cannot accidentally
-// emit a `PatternForming` signal here (every other derive branch uses
-// the same `key == "X"` gate — see ema_stack, aroon, choppiness, hv,
-// supertrend, psar, adx, stochastic, obv, volume_profile, pivot_points,
-// smc_*, anchored_vwap). The `l != "NO_PATTERN"` guard avoids emitting
-// a "PatternForming" signal when the calculator ran but found nothing
-// (this is the common steady-state for the patterns indicator — emitting
-// a signal there would inflate GroupConfluenceGrid's signal count and
-// surface a misleading "PatternForming" entry in the Signals view).
-        if key == "patterns"
-            && l.contains("PATTERN")
-            && l != "NO_PATTERN"
-        {
+        // Gated on `key == "patterns"` so a future label on another indicator
+        // that happens to contain the substring "PATTERN" cannot accidentally
+        // emit a `PatternForming` signal here (every other derive branch uses
+        // the same `key == "X"` gate — see ema_stack, aroon, choppiness, hv,
+        // supertrend, psar, adx, stochastic, obv, volume_profile, pivot_points,
+        // smc_*, anchored_vwap). The `l != "NO_PATTERN"` guard avoids emitting
+        // a "PatternForming" signal when the calculator ran but found nothing
+        // (this is the common steady-state for the patterns indicator — emitting
+        // a signal there would inflate GroupConfluenceGrid's signal count and
+        // surface a misleading "PatternForming" entry in the Signals view).
+        if key == "patterns" && l.contains("PATTERN") && l != "NO_PATTERN" {
             let d = if l.contains("BULLISH") {
                 SignalDirection::Bullish
             } else if l.contains("BEARISH") {

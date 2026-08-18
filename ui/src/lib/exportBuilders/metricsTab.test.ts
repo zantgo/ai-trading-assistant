@@ -58,7 +58,7 @@ function makeTf(): TimeframeTelemetry {
       prev_day_px: 63532.45,
     },
     context: {
-      regime: 'TRENDING_BULL',
+      regime: 'TRENDING',
       overall_score: 0.62,
       overall_label: 'Bullish',
       trend: { score: 0.58, confidence: 0.75, label: 'Bullish' },

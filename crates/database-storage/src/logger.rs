@@ -71,8 +71,9 @@ async fn run_retention_cleanup(pool: &SqlitePool, liq_retention_days: u32) {
         eprintln!("DB cleanup error (market_snapshots): {}", e);
     }
 
-    let liq_cutoff_ms =
-        now_secs.saturating_sub(liq_retention_days as u64 * 86400).saturating_mul(1000) as i64;
+    let liq_cutoff_ms = now_secs
+        .saturating_sub(liq_retention_days as u64 * 86400)
+        .saturating_mul(1000) as i64;
     if let Err(e) = sqlx::query("DELETE FROM liquidation_events WHERE timestamp < ?1")
         .bind(liq_cutoff_ms)
         .execute(pool)
@@ -83,14 +84,25 @@ async fn run_retention_cleanup(pool: &SqlitePool, liq_retention_days: u32) {
 
     // Block D: 24h rolling retention for the price-bucketed aggregation.
     // last_updated_ms is also in milliseconds (matches `liquidation_events`).
-    let bucket_cutoff_ms =
-        now_secs.saturating_sub(86_400).saturating_mul(1000) as i64;
+    let bucket_cutoff_ms = now_secs.saturating_sub(86_400).saturating_mul(1000) as i64;
     if let Err(e) = sqlx::query("DELETE FROM liquidation_real_buckets WHERE last_updated_ms < ?1")
         .bind(bucket_cutoff_ms)
         .execute(pool)
         .await
     {
         eprintln!("DB cleanup error (liquidation_real_buckets): {}", e);
+    }
+
+    // M5 (production audit): connection-quality samples (written every
+    // 60 s × 3 windows × per-(pair, TF) scope) were never pruned — the
+    // table grew unbounded. 30-day rolling window.
+    let cq_cutoff_ms = now_secs.saturating_sub(30 * 86400).saturating_mul(1000) as i64;
+    if let Err(e) = sqlx::query("DELETE FROM connection_quality_samples WHERE timestamp_ms < ?1")
+        .bind(cq_cutoff_ms)
+        .execute(pool)
+        .await
+    {
+        eprintln!("DB cleanup error (connection_quality_samples): {}", e);
     }
 }
 

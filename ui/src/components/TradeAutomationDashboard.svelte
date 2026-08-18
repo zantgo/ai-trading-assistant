@@ -80,7 +80,7 @@
             condition_tree: [
                 { logic: 'AND', conditions: [
                     { field: 'decision.bias', operator: 'IN', value: '["StrongBullish","Bullish"]', passed: true },
-                    { field: 'analysis.market_regime', operator: 'IN', value: '["TRENDING_BULL","ACCUMULATION"]', passed: true },
+                    { field: 'analysis.market_regime', operator: 'IN', value: '["TrendingBull","Accumulation"]', passed: true },
                     { field: 'decision.confidence_assessment', operator: 'GTE', value: '0.6', passed: true },
                 ]},
                 { logic: 'AND', conditions: [
@@ -98,7 +98,7 @@
             trigger_mode: 'Interval { seconds: 60 }',
             condition_tree: [
                 { logic: 'AND', conditions: [
-                    { field: 'analysis.market_regime', operator: 'EQ', value: '"RANGE"', passed: true },
+                    { field: 'analysis.market_regime', operator: 'EQ', value: '"Range"', passed: true },
                     { field: 'decision.strategy_environment', operator: 'EQ', value: '"MeanReversion"', passed: true },
                     { field: 'risk.volatility_risk.score', operator: 'LTE', value: '30', passed: false },
                 ]},

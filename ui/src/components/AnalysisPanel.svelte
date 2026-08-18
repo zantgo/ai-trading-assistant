@@ -92,11 +92,12 @@
     }
 
     function phaseClass(p: string): string {
+        // Wire MarketPhase is PascalCase ("Markup", "Accumulation", ...).
         switch (p) {
-            case 'MARKUP': return styles.phaseMarkup;
-            case 'MARKDOWN': return styles.phaseMarkdown;
-            case 'ACCUMULATION': return styles.phaseAccumulation;
-            case 'DISTRIBUTION': return styles.phaseDistribution;
+            case 'Markup': return styles.phaseMarkup;
+            case 'Markdown': return styles.phaseMarkdown;
+            case 'Accumulation': return styles.phaseAccumulation;
+            case 'Distribution': return styles.phaseDistribution;
             default: return styles.phaseUnknown;
         }
     }
@@ -220,10 +221,13 @@
     }
 
     function tfRegimeCls(r: string): string {
+        // Per-TF regime is the MarketContext vocabulary
+        // (TRENDING/RANGE/EXPANSION/COMPRESSION only — the
+        // TRANSITION/CONTRACTION analysis-level regimes never appear here).
         const u = r.toUpperCase();
         if (u.includes('BULL')) return styles.tfRegimeBull;
         if (u.includes('BEAR')) return styles.tfRegimeBear;
-        if (u === 'TRANSITION' || u === 'CONTRACTION' || u === 'EXPANSION') return styles.tfRegimeVol;
+        if (u.includes('EXPANS') || u.includes('COMPRESS')) return styles.tfRegimeVol;
         return styles.tfRegimeNeutral;
     }
 
@@ -371,7 +375,7 @@
                 <span class={styles.rationaleValue}>{rationaleGrid.agreement != null ? `${Math.round(rationaleGrid.agreement)}%` : '—'}</span>
                 <span class={styles.rationaleSub}>
                     {rationaleGrid.agreement != null && rationaleGrid.tfs != null
-                        ? `${rationaleGrid.tfs}/4 timeframes aligned`
+                        ? `${rationaleGrid.tfs} timeframes aligned`
                         : '—'}
                 </span>
             </div>
@@ -400,9 +404,14 @@
             <span class={styles.signalLeanHeroMeta}>{signalLean.metaHtml}</span>
             {#if signalLean.bullish + signalLean.bearish > 0}
                 {@const total = signalLean.bullish + signalLean.bearish}
+                <!-- AUDIT-FE-L3: independent Math.round could make the two
+                     bars sum to 101%; allocate the bear share as the
+                     remainder so the row is exactly 100%. -->
+                {@const bullPct = Math.round(signalLean.bullish / total * 100)}
+                {@const bearPct = 100 - bullPct}
                 <div class={styles.signalLeanBar}>
-                    <div class={styles.signalLeanBarBull} style="width: {Math.round(signalLean.bullish / total * 100)}%"></div>
-                    <div class={styles.signalLeanBarBear} style="width: {Math.round(signalLean.bearish / total * 100)}%"></div>
+                    <div class={styles.signalLeanBarBull} style="width: {bullPct}%"></div>
+                    <div class={styles.signalLeanBarBear} style="width: {bearPct}%"></div>
                 </div>
             {/if}
         </div>

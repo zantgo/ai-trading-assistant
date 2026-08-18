@@ -101,22 +101,64 @@ fn label_sign_invariant_across_the_sampled_grid() {
     // SIGN agrees with the label semantics (bullish-family labels → ≥ 0,
     // bearish-family labels → ≤ 0, neutral labels → 0).
     let cases: Vec<(NormalizedIndicatorValue, &str)> = vec![
-        (NormalizationEngine::normalize_mfi(5.0), "MFI_OVERSOLD_ACCUMULATION"),
+        (
+            NormalizationEngine::normalize_mfi(5.0),
+            "MFI_OVERSOLD_ACCUMULATION",
+        ),
         (NormalizationEngine::normalize_mfi(30.0), "MFI_BEARISH_FLOW"),
         (NormalizationEngine::normalize_mfi(60.0), "MFI_BULLISH_FLOW"),
-        (NormalizationEngine::normalize_mfi(95.0), "MFI_OVERBOUGHT_DISTRIBUTION"),
-        (NormalizationEngine::normalize_stochastic(10.0, 5.0), "OVERSOLD_ACCUMULATION"),
-        (NormalizationEngine::normalize_stochastic(40.0, 30.0), "BULLISH_MOMENTUM_ALIGNMENT"),
-        (NormalizationEngine::normalize_stochastic(60.0, 70.0), "BEARISH_MOMENTUM_ALIGNMENT"),
-        (NormalizationEngine::normalize_stochastic(90.0, 85.0), "OVERBOUGHT_DISTRIBUTION"),
-        (NormalizationEngine::normalize_williams_r(-90.0), "WILLIAMS_R_OVERSOLD"),
-        (NormalizationEngine::normalize_williams_r(-40.0), "WILLIAMS_R_BULLISH_BIAS"),
-        (NormalizationEngine::normalize_williams_r(-60.0), "WILLIAMS_R_BEARISH_BIAS"),
-        (NormalizationEngine::normalize_williams_r(-10.0), "WILLIAMS_R_OVERBOUGHT"),
-        (NormalizationEngine::normalize_rsi(80.0, DivergenceState::None), "rsi_overbought"),
-        (NormalizationEngine::normalize_rsi(20.0, DivergenceState::None), "rsi_oversold"),
-        (NormalizationEngine::normalize_chandemo(60.0), "CLIMACTIC_BULL_EXHAUSTION"),
-        (NormalizationEngine::normalize_chandemo(-60.0), "CLIMACTIC_BEAR_EXHAUSTION"),
+        (
+            NormalizationEngine::normalize_mfi(95.0),
+            "MFI_OVERBOUGHT_DISTRIBUTION",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(10.0, 5.0),
+            "OVERSOLD_ACCUMULATION",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(40.0, 30.0),
+            "BULLISH_MOMENTUM_ALIGNMENT",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(60.0, 70.0),
+            "BEARISH_MOMENTUM_ALIGNMENT",
+        ),
+        (
+            NormalizationEngine::normalize_stochastic(90.0, 85.0),
+            "OVERBOUGHT_DISTRIBUTION",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-90.0),
+            "WILLIAMS_R_OVERSOLD",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-40.0),
+            "WILLIAMS_R_BULLISH_BIAS",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-60.0),
+            "WILLIAMS_R_BEARISH_BIAS",
+        ),
+        (
+            NormalizationEngine::normalize_williams_r(-10.0),
+            "WILLIAMS_R_OVERBOUGHT",
+        ),
+        (
+            NormalizationEngine::normalize_rsi(80.0, DivergenceState::None),
+            "rsi_overbought",
+        ),
+        (
+            NormalizationEngine::normalize_rsi(20.0, DivergenceState::None),
+            "rsi_oversold",
+        ),
+        (
+            NormalizationEngine::normalize_chandemo(60.0),
+            "CLIMACTIC_BULL_EXHAUSTION",
+        ),
+        (
+            NormalizationEngine::normalize_chandemo(-60.0),
+            "CLIMACTIC_BEAR_EXHAUSTION",
+        ),
     ];
     for (v, expected_label) in cases {
         let s = sign_of(&v);

@@ -10,7 +10,13 @@
         stateLabel = '',
     }: { label?: string; normalized?: number; stateLabel?: string } = $props();
 
-    const clamped = $derived(Math.max(-1, Math.min(1, normalized ?? 0)));
+    const clamped = $derived.by(() => {
+        // Audit fix (m8): a NaN `normalized` propagated into the needle
+        // position (`left: NaN%`) and the magnitude tone. Guard it.
+        const v = normalized ?? 0;
+        if (!Number.isFinite(v)) return 0;
+        return Math.max(-1, Math.min(1, v));
+    });
     const needleLeft = $derived((clamped + 1) * 50);
     const magnitude = $derived(Math.abs(clamped));
 

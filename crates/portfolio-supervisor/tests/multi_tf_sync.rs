@@ -4,11 +4,13 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use market_analyzer::analyzer;
 use config_models::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
-use market_analyzer::indicators::DivergenceDetector;
 use core_domain::models::MarketSnapshot;
-use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide};
+use core_domain::normalized::{
+    Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide,
+};
+use market_analyzer::analyzer;
+use market_analyzer::indicators::DivergenceDetector;
 
 #[tokio::test]
 async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
@@ -165,10 +167,15 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
                     None,
                     None,
-                1,
-                Arc::new(RwLock::new(None)),
-                Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-                Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+                    1,
+                    300,
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(
+                        core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+                    )),
+                    Arc::new(RwLock::new(
+                        core_domain::models::CandlePipelineState::Initializing,
+                    )),
                 )
                 .await;
             })

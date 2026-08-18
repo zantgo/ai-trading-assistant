@@ -293,7 +293,15 @@ pub fn normalize_spread(spread: f64, wide_threshold_pct: f64) -> NormalizedIndic
         signals: if widening {
             vec![IndicatorSignal {
                 kind: SignalKind::Threshold,
-                direction: SignalDirection::Bearish,
+                // AUDIT-M7b: spread is a declared NON-DIRECTIONAL gate
+                // (registry `directional: false`; ContextOnly per
+                // 04-02-49 §"non-directional gate" contract). The old
+                // Bearish direction let a gate-only indicator cast a
+                // directional vote in TAE policy matching and confluence
+                // grids — the exact anti-pattern retired for RVOL/BBWP/
+                // funding. A wide spread warns about execution quality,
+                // not market direction.
+                direction: SignalDirection::Neutral,
                 status: SignalStatus::Active,
                 label: "SPREAD_WIDE".to_string(),
                 strength: (spread / wide_threshold_pct).min(1.0),

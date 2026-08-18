@@ -133,12 +133,15 @@ async fn read_slot_status(
         "macro" => TimeframeSlot::Macro,
         _ => unreachable!("parse_slot already validated"),
     };
-    let pipe = pair.active_pair.pipeline_for_slot(slot_kind).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("slot '{}' not configured for {}", slot, pair.pair_key()),
-        )
-    })?;
+    let pipe = pair
+        .active_pair
+        .pipeline_for_slot(slot_kind)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("slot '{}' not configured for {}", slot, pair.pair_key()),
+            )
+        })?;
     let guard = pipe.cluster_status.read().await;
     // Derive `Stale` on the fly: a successful refresh whose TTL has
     // elapsed indicates the refresh task has crashed or stalled. The

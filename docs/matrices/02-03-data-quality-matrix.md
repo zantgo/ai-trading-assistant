@@ -22,7 +22,7 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `candle` | `NormalizedCandle` | The validated candle (from Market Data Matrix). |
+| `candle` | `NormalizedCandle` | The validated candle (from Market Data Matrix) — rides alongside the envelope on the snapshot; **not** a nested field of `quality_envelope`. |
 | `is_valid` | `bool` | Whether the candle passed all structural validity checks (`high ≥ low`, etc.). |
 | `is_gap_filled` | `bool` | `true` if this candle was synthetically filled (no data for this interval). |
 | `is_stale` | `bool` | `true` if the candle's last trade timestamp exceeds the staleness threshold. |
@@ -37,29 +37,29 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
 
 ## 3. JSON Serialization Contract
 
+The quality envelope rides **inside** `MarketSnapshot.quality_envelope`
+on every completed snapshot (it is not a standalone frame with a nested
+`candle` — the candle travels alongside as the snapshot's OHLCV fields):
+
 ```json
 {
-  "candle": {
-    "exchange": "Hyperliquid",
-    "symbol": "BTC-USDT",
-    "timeframe_secs": 60,
-    "timestamp": 1752192000000,
-    "open": 63890.0,
-    "high": 64120.0,
-    "low": 63850.0,
-    "close": 64012.5,
-    "volume": 182.4,
-    "trades_count": 345
-  },
-  "is_gap_filled": false,
-  "is_stale": false,
-  "spike_detected": false,
-  "sequence_integrity": "VALID",
   "quality_score": 100.0,
+  "is_valid": true,
+  "is_gap_filled": false,
+  "had_outliers_rejected": false,
+  "spike_detected": false,
+  "is_stale": false,
+  "sequence_integrity": "VALID",
   "gap_since_last": 60,
   "validated_at": 1752192001000
 }
 ```
+
+> `is_valid` mirrors the candle-validity gate (`false` when the validity
+> assertion fails, which also drives `quality_score = 0`).
+> `sequence_integrity` is currently always `VALID` at both production
+> construction sites — `OUT_OF_ORDER` / `DUPLICATE` are reserved for the
+> future sequence-audit path.
 
 ---
 

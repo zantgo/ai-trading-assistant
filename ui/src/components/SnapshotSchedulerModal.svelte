@@ -125,16 +125,20 @@
     });
 
     function tabLabel(id: SnapshotExportTabId): string {
+        // Audit C3: scheduled exports are SERVER-side raw serde dumps of
+        // the snapshot matrices (execution-daemon/snapshot_export.rs) —
+        // NOT the per-tab GUI builder shapes. Labels are honest about the
+        // payload type so the scheduler never implies UI parity.
         switch (id) {
-            case 'metrics': return 'Metrics (full per-TF snapshot)';
-            case 'mtf': return 'MTF (multi-timeframe)';
-            case 'alignment': return 'Alignment (L2)';
-            case 'opportunity': return 'Opportunity (L4)';
-            case 'risk': return 'Risk (L5)';
-            case 'analysis': return 'Analysis (L3)';
-            case 'advisory': return 'Advisory (L6)';
-            case 'decision': return 'Decision context (L6)';
-            case 'recommendation': return 'Recommendation (L6 derived)';
+            case 'metrics': return 'Metrics (full raw snapshot)';
+            case 'mtf': return 'MTF (raw: slot, indicators count, matrices)';
+            case 'alignment': return 'Alignment matrix (raw)';
+            case 'opportunity': return 'Opportunity matrix (raw)';
+            case 'risk': return 'Risk matrix (raw)';
+            case 'analysis': return 'Analysis matrix (raw)';
+            case 'advisory': return 'Advisory matrix (raw)';
+            case 'decision': return 'Decision context (raw)';
+            case 'recommendation': return 'Recommendation (raw: advisory + decision)';
         }
     }
 </script>

@@ -10,7 +10,7 @@ Volume Profile distributes traded volume across price levels over a rolling wind
 ## 2. Mathematical Formula
 
 ```
-Rolling window of N completed candles (default 100).
+Rolling window of N completed candles (library default 100; the shipped `config.toml` sets `volume_profile_window = 500`, and the emit gate is `window_size / 2` — 250 bars with the shipped config).
 Price range = highest high − lowest low in window.
 Divide range into M bins (default 30).
 For each candle:
@@ -41,6 +41,9 @@ The `values` sub-map carries: `poc`, `vah`, `val`, `total_volume`. HVN/LVN nodes
 | Breakout | VP_BREAKOUT_BELOW_VAL | Price closes below Value Area Low | Bearish |
 | LevelTest | VP_POC_SUPPORT_TEST | Price approaches POC from above within 0.3% | Bullish |
 | LevelTest | VP_POC_RESISTANCE_TEST | Price approaches POC from below within 0.3% | Bearish |
+| TrendFlip | VP_TRENDFLIP_BULLISH / VP_TRENDFLIP_BEARISH | Emitted together with the VAH/VAL Breakout (deriver pairs each breakout with a regime-flip marker). | Bullish / Bearish |
+
+> Registry manifest (`signal_types`): Breakout, LevelTest, TrendFlip.
 
 ## 5. Scoring
 

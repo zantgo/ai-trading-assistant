@@ -41,6 +41,9 @@ Labels include: `OVERBOUGHT_DISTRIBUTION` (%K ≥ 80), `OVERSOLD_ACCUMULATION` (
 | Threshold | OVERSOLD_ACCUMULATION | %K ≤ 20 | Bullish |
 | Threshold | STOCH_BULLISH_BIAS / BEARISH_BIAS | %K between 20-80 with directional momentum bias | Bullish / Bearish |
 | Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-stochastic divergence via SeriesDivergence (20-bar lookback). S/R gating upgrades Potential → Confirmed. | Bullish / Bearish |
+| ZeroLineCross | STOCH zero cross | %K crosses the 50 midline (registry-declared capability; the runtime deriver's `ZERO_CROSS_KEYS` does not yet include `stochastic` — emission pending). | Bullish / Bearish |
+
+> Registry manifest (`signal_types`): Crossover, Threshold, Divergence, ZeroLineCross. The table mirrors the registry; the ZeroLineCross row is declared capability that the deriver has not yet wired.
 
 ## 5. Scoring
 

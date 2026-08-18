@@ -66,6 +66,37 @@ run_foreground() {
     cargo run --bin execution-daemon -- --web
 }
 
+rotate_log() {
+    # M4 (production audit): engine.log previously grew unbounded (per-candle
+    # console lines, clock polls, reconnect logs) — rotate at 50 MB, keep 3.
+    if [ -f "$LOG_FILE" ] && [ "$(du -m "$LOG_FILE" | cut -f1)" -ge 50 ]; then
+        echo "🔄 Rotating $LOG_FILE (>50 MB)..."
+        rm -f "$LOG_FILE.3"
+        mv "$LOG_FILE.2" "$LOG_FILE.3" 2>/dev/null || true
+        mv "$LOG_FILE.1" "$LOG_FILE.2" 2>/dev/null || true
+        mv "$LOG_FILE" "$LOG_FILE.1"
+    fi
+}
+
+# M4 (production audit): record the DAEMON pid, not the `cargo run` wrapper.
+# `cargo run` spawns the binary as a child; killing the wrapper orphaned the
+# daemon on port 3000 (next start then panicked at bind). We build first and
+# exec the binary directly so $! IS the daemon.
+start_daemon() {
+    local mode_args="$1"
+    rotate_log
+    echo "🚀 Building engine..."
+    cargo build 2>&1 | tail -2
+    if [ ! -x target/debug/execution-daemon ]; then
+        echo "❌ Build failed — engine not started."
+        exit 1
+    fi
+    echo "📝 Logs will be written to: $LOG_FILE"
+    nohup target/debug/execution-daemon $mode_args > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "✅ Engine running under PID: $! (daemon, not cargo)"
+}
+
 run_silent() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
         echo "⚠️  Frontend build missing. Triggering compilation first..."
@@ -80,13 +111,7 @@ run_silent() {
         fi
     fi
 
-    echo "🚀 Starting Trading Platform in the background..."
-    echo "📝 Logs will be written to: $LOG_FILE"
-
-    # Run cargo in background and record PID
-    nohup cargo run --bin execution-daemon -- --web > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
-    echo "✅ Engine running under PID: $!"
+    start_daemon "--web"
 }
 
 run_headless() {
@@ -107,11 +132,7 @@ run_headless() {
     echo "   🔧 No Welcome Gate — session auto-initialised from config.toml"
     echo "   📡 Instances auto-spawned from workspace.instances[]"
     echo "   🌐 API server on port 3000 for monitoring"
-    echo "📝 Logs will be written to: $LOG_FILE"
-
-    nohup cargo run --bin execution-daemon -- --mode headless > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
-    echo "✅ Engine running in headless mode under PID: $!"
+    start_daemon "--mode headless"
 }
 
 stop_instance() {
@@ -119,6 +140,16 @@ stop_instance() {
         PID=$(cat "$PID_FILE")
         echo "🛑 Stopping background instance (PID: $PID)..."
         if kill "$PID" 2>/dev/null; then
+            # M4: SIGTERM now triggers the daemon's graceful shutdown (K4);
+            # give it up to 10 s to drain the telemetry queue, then SIGKILL.
+            for _ in $(seq 1 10); do
+                if ! kill -0 "$PID" 2>/dev/null; then break; fi
+                sleep 1
+            done
+            if kill -0 "$PID" 2>/dev/null; then
+                echo "⚠️  Graceful shutdown timed out — forcing kill."
+                kill -9 "$PID" 2>/dev/null || true
+            fi
             rm -f "$PID_FILE"
             echo "✅ Engine stopped."
         else
@@ -158,6 +189,7 @@ check_status() {
     fi
 
     echo "🔴 Engine status: STOPPED"
+    return 1
 }
 
 run_tests() {

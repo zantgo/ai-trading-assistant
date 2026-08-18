@@ -1109,19 +1109,34 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 180,
+  "timeframe_slot": "Fast",
   "timestamp": 1752192000000,
   "is_completed": true,
+  "pipeline_state": "Live",
+  "indicator_lifecycle": { "rsi": { "state": "Live", "bars_seen": 500, "bars_required": 15 } },
   "mid_price": 64012.5,
   "bid_price": 64012.0,
   "ask_price": 64013.0,
   "bid_size": 1.5,
   "ask_size": 0.8,
+  "quality_envelope": {
+    "quality_score": 100.0,
+    "is_valid": true,
+    "is_gap_filled": false,
+    "had_outliers_rejected": 0,
+    "spike_detected": false,
+    "is_stale": false,
+    "sequence_integrity": "Valid",
+    "gap_since_last": 180,
+    "validated_at": 1752192000000
+  },
   "funding_rate": 0.0001,
   "open": 63890.0,
   "high": 64120.0,
   "low": 63850.0,
   "close": 64012.5,
   "volume": 182.4,
+  "volume_profile": null,
   "average_volume": 150.1,
   "open_interest": 1250000.0,
   "oi_delta_1h": 5000.0,
@@ -1213,8 +1228,8 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
 ```
 
 **Key structural rules:**
-- All `Decimal` price/size fields serialize as **strings** for precision.
-- `Option::None` fields are omitted via `skip_serializing_if`.
+- All `Decimal` price/size fields serialize as **JSON numbers** (`rust_decimal` `serde-float`).
+- `Option::None` fields serialize as JSON `null`, unless the field carries `#[serde(skip_serializing_if)]` (e.g. `liquidity_signals`, `clusters`, `volume_profiles`).
 - Signals are **nested inside each indicator** under the `signals: [IndicatorSignal]` array — there is no top-level `signals` map.
 - Divergence signals use `kind: "DIVERGENCE"` and are pushed onto the parent indicator's `signals` array (e.g., a bullish RSI divergence appears under `rsi.signals`).
 
@@ -1231,16 +1246,16 @@ Full specification: [Alignment Matrix](../matrices/02-01-alignment-matrix.md).
   "symbol": "BTC-USDT",
   "timeframes_present": 4,
   "dimensions": [
-    { "score": 78.0, "state": "BULLISH", "confidence": 78.0 },
-    { "score": 65.0, "state": "NEUTRAL", "confidence": 65.0 },
-    { "score": 72.0, "state": "NEUTRAL", "confidence": 72.0 },
-    { "score": 75.0, "state": "NEUTRAL", "confidence": 75.0 },
-    { "score": 65.0, "state": "ALIGNED", "confidence": 65.0 },
-    { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
-    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
-    { "score": 88.0, "state": "ALIGNED", "confidence": 88.0 },
-    { "score": 70.0, "state": "ALIGNED", "confidence": 70.0 },
-    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 }
+    { "score": 78.0, "state": "Bullish", "confidence": 78.0 },
+    { "score": 65.0, "state": "Bullish", "confidence": 65.0 },
+    { "score": 55.0, "state": "Neutral", "confidence": 10.0 },
+    { "score": 60.0, "state": "Neutral", "confidence": 20.0 },
+    { "score": 65.0, "state": "Bullish", "confidence": 65.0 },
+    { "score": 75.0, "state": "Bullish", "confidence": 75.0 },
+    { "score": 100.0, "state": "StrongBullish", "confidence": 100.0 },
+    { "score": 88.0, "state": "StrongBullish", "confidence": 88.0 },
+    { "score": 70.0, "state": "Bullish", "confidence": 70.0 },
+    { "score": 100.0, "state": "StrongBullish", "confidence": 100.0 }
   ],
   "mtf_trend_alignment": 0.56,
   "mtf_momentum_alignment": 0.30,
@@ -1250,7 +1265,7 @@ Full specification: [Alignment Matrix](../matrices/02-01-alignment-matrix.md).
   "mtf_overall_label": "WEAK_BULL_MTF",
   "timeframe_alignments": [
     {
-      "timeframe": "micro60",
+      "timeframe": "MICRO",
       "timeframe_secs": 60,
       "trend_score": 0.5,
       "momentum_score": 0.3,
@@ -1290,16 +1305,16 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 ```json
 {
   "symbol": "BTC-USDT",
-  "bias": "BULLISH",
+  "bias": "Bullish",
   "state_confidence": 0.65,
-  "market_regime": "TRENDING_BULL",
-  "trend_assessment": "HEALTHY",
-  "momentum_assessment": "STABLE",
-  "structure_assessment": "HEALTHY",
-  "volatility_assessment": "EXPANDING",
-  "volume_assessment": "STRONG",
-  "market_quality": "GOOD",
-  "market_quality_score": 72.0,
+  "market_regime": "TrendingBull",
+  "trend_assessment": "Healthy",
+  "momentum_assessment": "Stable",
+  "structure_assessment": "Healthy",
+  "volatility_assessment": "Expanding",
+  "volume_assessment": "Strong",
+  "market_quality": "Good",
+  "market_quality_score": 65.75,
   "trend_score": 76.5,
   "momentum_score": 83.2,
   "structure_score": 81.4,
@@ -1313,12 +1328,12 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 }
 ```
 
-**Classification vocabularies:**
-- **MarketBias:** `STRONG_BULLISH` (`score > 40`), `BULLISH` (`20 < score ≤ 40`), `NEUTRAL` (`-20 ≤ score ≤ 20`), `BEARISH` (`-40 ≤ score < -20`), `STRONG_BEARISH` (`score < -40`) — half-open intervals so the same score never maps to two bands.
-- **MarketRegime:** `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION` *(canonical source: [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md); this appendix mirrors it)*
-- **QualityLevel:** `POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT`
+**Classification vocabularies (wire values are PascalCase — no serde rename on the analysis enums):**
+- **MarketBias:** `StrongBullish` (`score > 40`), `Bullish` (`20 < score ≤ 40`), `Neutral` (`-20 ≤ score ≤ 20`), `Bearish` (`-40 ≤ score < -20`), `StrongBearish` (`score < -40`) — half-open intervals so the same score never maps to two bands.
+- **MarketRegime:** `TrendingBull`, `TrendingBear`, `Range`, `Accumulation`, `Distribution`, `Expansion`, `Contraction`, `Transition` *(canonical source: [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md); this appendix mirrors it)*
+- **QualityLevel:** `Poor`, `Weak`, `Average`, `Good`, `Excellent`
 
-> Per [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md), the JSON key is **`state_confidence`** (not `confidence`). No backwards-compat alias.
+> Per [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md), the canonical JSON key is **`state_confidence`**. Code truth: `AnalysisMatrix` also serializes a `confidence` mirror with the identical value (a UI-facing duplicate retained since the institutional redesign — see [02-00b-confidence-hierarchy.md §2](../matrices/02-00b-confidence-hierarchy.md)); consumers should read `state_confidence`.
 
 The continuous **market_bias_score ∈ [−1, +1]** is the signed Alignment Matrix's `mtf_overall_score` divided by 100 (the score carries the sign of the dominant bias direction).
 
@@ -1333,13 +1348,13 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
 ```json
 {
   "symbol": "BTC-USDT",
-  "primary_opportunity": "TREND_CONTINUATION",
+  "primary_opportunity": "TrendContinuation",
   "opportunity_score": 85.0,
-  "setup_quality": "PRIME",
+  "setup_quality": "Prime",
   "forecast_confidence": 0.81,
   "profiles": [
     {
-      "opportunity_type": "TREND_CONTINUATION",
+      "opportunity_type": "TrendContinuation",
       "score": 85.0,
       "preconditions_met": 3,
       "preconditions_total": 3,
@@ -1389,15 +1404,15 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 ```json
 {
   "symbol": "BTC-USDT",
-  "market_risk": { "score": 35.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["High confidence"] },
-  "volatility_risk": { "score": 45.0, "level": "MODERATE", "state": "STABLE", "confidence": 50.0, "evidence": ["BBWP elevated"] },
-  "execution_liquidity_risk": { "score": 15.0, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong participation"] },
-  "structure_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
-  "momentum_risk": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
-  "signal_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
-  "execution_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "volatility_to_spread_ratio": 8.4 },
-  "cascade_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
-  "overall_risk": { "score": 28.3, "level": "LOW", "state": "STABLE", "confidence": 50.0 }
+  "market_risk": { "score": 35.0, "level": "Low", "state": "Stable", "confidence": 50.0, "evidence": ["High confidence"] },
+  "volatility_risk": { "score": 45.0, "level": "Moderate", "state": "Stable", "confidence": 50.0, "evidence": ["BBWP elevated"] },
+  "execution_liquidity_risk": { "score": 15.0, "level": "VeryLow", "state": "Stable", "confidence": 50.0, "evidence": ["Strong participation"] },
+  "structure_risk": { "score": 25.0, "level": "Low", "state": "Stable", "confidence": 50.0 },
+  "momentum_risk": { "score": 20.0, "level": "Low", "state": "Stable", "confidence": 50.0 },
+  "signal_risk": { "score": 30.0, "level": "Low", "state": "Stable", "confidence": 50.0 },
+  "execution_risk": { "score": 25.0, "level": "Low", "state": "Stable", "confidence": 50.0, "volatility_to_spread_ratio": 8.4 },
+  "cascade_risk": { "score": 30.0, "level": "Low", "state": "Stable", "confidence": 50.0 },
+  "overall_risk": { "score": 28.3, "level": "Low", "state": "Stable", "confidence": 50.0 }
 }
 ```
 
@@ -1414,7 +1429,7 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 | `cascade_risk` | Forced liquidation cascade danger (Phase 3) |
 | `overall_risk` | Weighted aggregate: `0.14M + 0.14V + 0.14L_ex + 0.10S + 0.14Mo + 0.10Sig + 0.10E + 0.14C` |
 
-**RiskLevel bands:** `score ≥ 80 → Extreme`, `≥ 60 → High`, `≥ 40 → Moderate`, `≥ 20 → Low`, else `VeryLow`.
+**RiskLevel bands (wire values PascalCase):** `score ≥ 80 → Extreme`, `≥ 60 → High`, `≥ 40 → Moderate`, `≥ 20 → Low`, else `VeryLow`.
 
 ---
 
@@ -1428,24 +1443,24 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 {
   "advisory": {
     "symbol": "BTC-USDT",
-    "directional_guidance": "LONG",
-    "market_stance": "CONSTRUCTIVE",
-    "strategy_environment": "TREND_FOLLOWING",
-    "entry_guidance": "PULLBACK",
-    "exit_guidance": "NO_WARNING",
-    "protection_strategy": "ATR_BASED",
-    "target_strategy": "RESISTANCE_BASED",
-    "trade_readiness": "FORMING",
-    "entry_danger": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
-    "expected_reward_risk_ratio": 1.79,
+    "directional_guidance": "Long",
+    "market_stance": "Constructive",
+    "strategy_environment": "TrendFollowing",
+    "entry_guidance": "Pullback",
+    "exit_guidance": "NoWarning",
+    "protection_strategy": "ATRBased",
+    "target_strategy": "ResistanceBased",
     "quality_to_risk_ratio": 3.53,
     "confidence_assessment": 46.61,
-    "final_recommendation": "Long bias forming: BULLISH with 46.6% confidence; PRIME setup; await confirmation before full sizing."
+    "final_recommendation": "Long bias forming: Bullish with 46.6% confidence; Prime setup; await confirmation before full sizing."
   },
   "decision_context": {
-    "score": 88.0,
-    "bias": "BULLISH",
-    "score_confidence": 0.88,
+    "score": 86.725,
+    "bias": "Bullish",
+    "score_confidence": 0.87,
+    "trade_readiness": "FORMING",
+    "entry_danger": { "score": 20.0, "level": "Low", "state": "Stable", "confidence": 50.0 },
+    "expected_reward_risk_ratio": 1.79,
     "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"]
   }
 }
@@ -1455,14 +1470,15 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 >
 > The JSON key for confidence in `decision_context` is **`score_confidence`** (not `confidence`). The `confidence_assessment` field on `advisory` is a separate terminal field (the risk-attenuated output, not part of the four-level pipeline confidence flow).
 >
-> **Institutional redesign fields.** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` were added to `advisory` in the institutional redesign. `opportunity_type` is gone (read from L4 instead).
+> **Institutional redesign fields.** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` live on **`decision_context`** (not `advisory`). `opportunity_type` is gone (read from L4 instead). `entry_danger.evidence` is not populated by the backend (the array is omitted from the wire).
 
-> **Worked example for the JSON above (matches Risk Matrix §A.5).** With `analysis.state_confidence = 0.65`, `L5.overall_risk.score = 28.3`, `L4.long_expected_rr_internal = 2.5` (active side for bullish bias), and `L4.opportunity_score = 85.0`:
+> **Worked example for the JSON above (matches Risk Matrix §A.5).** With `analysis.state_confidence = 0.65`, `L5.overall_risk.score = 28.3`, `L4.long_expected_rr_internal = 2.5` (active side for bullish bias), `L4.opportunity_score = 85.0`, and the L2 tradability dimension `100.0`:
 >
 > - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(25, 15) = 20.0` (GOOD quality ⇒ `quality_penalty = 25`)
 > - `expected_reward_risk_ratio = (active-side R:R) × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 1.79`
-> - `quality_to_risk_ratio = market_quality_score ÷ overall_risk.score = 100 ÷ 28.3 ≈ 3.53` (v6.11 setup-efficiency metric; `None` when risk = 0)
+> - `quality_to_risk_ratio = market_quality_score ÷ overall_risk.score = 65.75 ÷ 28.3 ≈ 2.32` (v6.11 setup-efficiency metric; `None` when risk = 0)
 > - `confidence_assessment = state_confidence × (1 − overall_risk / 100) × 100 = 0.65 × 0.717 × 100 = 46.61`
+> - `decision_context.score = 0.5 × tradability(100.0) + 0.3 × market_quality_score(65.75) + 0.2 × opportunity_score(85.0) = 86.725`
 >
 > See [Decision Matrix §6](../matrices/02-04-decision-matrix.md) for the corresponding worked calculation.
 

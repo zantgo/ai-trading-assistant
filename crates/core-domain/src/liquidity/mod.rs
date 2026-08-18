@@ -32,8 +32,8 @@
 //!
 //! The cascade-asymmetry score is the difference between
 //! short-cluster notional (above mid) and long-cluster notional
-//! (below mid), normalized by total OI. Negative = short squeeze
-//! risk (price likely to rally), positive = long squeeze risk
+//! (below mid), normalized by total OI. Positive = short squeeze
+//! risk (price likely to rally), negative = long squeeze risk
 //! (price likely to drop).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -294,16 +294,19 @@ impl LiquidityEventAccumulator {
 
         let (price_low, price_high) = self.bucket_price_range(anchor, bucket_index, bucket_size);
 
-        let b = self.bucket_map.entry(key).or_insert_with(|| RealLiquidationBucket {
-            bucket_index,
-            side: ev.side,
-            price_low,
-            price_high,
-            peak_price: price,
-            notional_usd: 0.0,
-            event_count: 0,
-            last_updated_ms: ev.timestamp_ms,
-        });
+        let b = self
+            .bucket_map
+            .entry(key)
+            .or_insert_with(|| RealLiquidationBucket {
+                bucket_index,
+                side: ev.side,
+                price_low,
+                price_high,
+                peak_price: price,
+                notional_usd: 0.0,
+                event_count: 0,
+                last_updated_ms: ev.timestamp_ms,
+            });
         b.notional_usd += notional;
         b.event_count = b.event_count.saturating_add(1);
         b.last_updated_ms = b.last_updated_ms.max(ev.timestamp_ms);
@@ -324,12 +327,7 @@ impl LiquidityEventAccumulator {
     /// Map `(anchor, bucket_index, bucket_size)` back to the absolute
     /// `[price_low, price_high]` window. Bucket index 0 corresponds to
     /// `[anchor*(1-bucket_size/2), anchor*(1+bucket_size/2)]`, etc.
-    fn bucket_price_range(
-        &self,
-        anchor: f64,
-        bucket_index: i64,
-        bucket_size: f64,
-    ) -> (f64, f64) {
+    fn bucket_price_range(&self, anchor: f64, bucket_index: i64, bucket_size: f64) -> (f64, f64) {
         let low_ratio = 1.0 + (bucket_index as f64 - 0.5) * bucket_size;
         let high_ratio = 1.0 + (bucket_index as f64 + 0.5) * bucket_size;
         (
@@ -676,13 +674,8 @@ mod tests {
     #[test]
     fn events_bucket_relative_to_mid() {
         let mut acc = LiquidityEventAccumulator::with_full_config(
-            "BTC-USDT",
-            100,
-            2.5,
-            5,
-            3,
-            0.001,    // 0.1% buckets
-            86_400,   // 24h retention
+            "BTC-USDT", 100, 2.5, 5, 3, 0.001,  // 0.1% buckets
+            86_400, // 24h retention
         );
         // Set mid to 50_000.
         acc.set_mid(50_000.0);
@@ -719,13 +712,7 @@ mod tests {
     #[test]
     fn stale_buckets_evicted_on_snapshot() {
         let mut acc = LiquidityEventAccumulator::with_full_config(
-            "BTC-USDT",
-            100,
-            2.5,
-            5,
-            3,
-            0.001,
-            60, // 60-second retention for the test
+            "BTC-USDT", 100, 2.5, 5, 3, 0.001, 60, // 60-second retention for the test
         );
         acc.set_mid(50_000.0);
         // Single event at t=1_000.
@@ -839,7 +826,8 @@ pub struct LiquidationClusterMatrix {
     pub short_clusters: Vec<LiquidationCluster>,
     /// Long liquidation clusters (price-below-mid; the "floor").
     pub long_clusters: Vec<LiquidationCluster>,
-    /// [-1, +1]; negative = short squeeze risk, positive = long squeeze risk.
+    /// [-1, +1]; positive = short squeeze risk, negative = long squeeze risk
+    /// (more short-cluster notional above mid than long-cluster below mid).
     pub cascade_asymmetry: f64,
     pub total_long_oi_usd: f64,
     pub total_short_oi_usd: f64,
@@ -1093,8 +1081,15 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    // Empty placeholder if no data.
-    if input.mid_price <= 0.0 || input.total_oi_usd <= 0.0 {
+    // Empty placeholder if no data (NaN inputs also fail these guards —
+    // NaN comparisons are false, so an explicit is_finite gate is required
+    // to keep `estimation_confidence` off the NaN → JSON-null path).
+    if !input.mid_price.is_finite()
+        || !input.total_oi_usd.is_finite()
+        || !input.funding_rate.is_finite()
+        || input.mid_price <= 0.0
+        || input.total_oi_usd <= 0.0
+    {
         return LiquidationClusterMatrix::empty(input.symbol, input.mid_price);
     }
 
@@ -1163,7 +1158,10 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         if swing_lows.is_empty() {
             if let Some(liq_px) = bucket_long(input.mid_price, *lev) {
                 let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                long_bins.entry(key).or_default().add(*lev, lev_notional_long);
+                long_bins
+                    .entry(key)
+                    .or_default()
+                    .add(*lev, lev_notional_long);
             }
         } else {
             let per_entry = lev_notional_long / swing_lows.len() as f64;
@@ -1177,7 +1175,10 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         if swing_highs.is_empty() {
             if let Some(liq_px) = bucket_short(input.mid_price, *lev) {
                 let key = (liq_px / input.mid_price / price_bin_pct).round() as i64;
-                short_bins.entry(key).or_default().add(*lev, lev_notional_short);
+                short_bins
+                    .entry(key)
+                    .or_default()
+                    .add(*lev, lev_notional_short);
             }
         } else {
             let per_entry = lev_notional_short / swing_highs.len() as f64;
@@ -1219,7 +1220,13 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
 
     // 7. Confidence: lower if OI is thin, if funding is extreme, or if
     //    volatility (here proxied by funding magnitude) is high.
-    let funding_mag_norm = (input.funding_rate.abs() / input.funding_extreme_pct).clamp(0.0, 2.0);
+    //    Guard: `funding_extreme_pct == 0` (operator misconfig) would make
+    //    `0/0 = NaN` and poison `estimation_confidence` on the wire.
+    let funding_mag_norm = if input.funding_extreme_pct > 0.0 {
+        (input.funding_rate.abs() / input.funding_extreme_pct).clamp(0.0, 2.0)
+    } else {
+        0.0
+    };
     let oi_adequacy = (input.total_oi_usd / 1_000_000.0).min(1.0); // 1M+ = full
     let confidence = (oi_adequacy * (1.0 - 0.3 * funding_mag_norm)).clamp(0.0, 1.0);
 
@@ -1272,9 +1279,7 @@ fn detect_clusters(
             continue;
         }
         let is_peak = series[i - half..i].iter().all(|(_, x, _)| *x <= v)
-            && series[i + 1..=i + half]
-                .iter()
-                .all(|(_, x, _)| *x <= v);
+            && series[i + 1..=i + half].iter().all(|(_, x, _)| *x <= v);
         if !is_peak {
             continue;
         }
@@ -1298,7 +1303,10 @@ fn detect_clusters(
         // Ties resolve to the highest leverage bucket (max-by-(lev, notional)).
         let mut best_lev_total: std::collections::HashMap<u32, f64> =
             std::collections::HashMap::new();
-        for entry in series[lo..=hi].iter().flat_map(|(_, _, bl)| bl.by_lev.iter()) {
+        for entry in series[lo..=hi]
+            .iter()
+            .flat_map(|(_, _, bl)| bl.by_lev.iter())
+        {
             *best_lev_total.entry(entry.0).or_insert(0.0) += entry.1;
         }
         let dominant_leverage = best_lev_total
@@ -1484,8 +1492,8 @@ mod cluster_tests {
     #[test]
     fn cascade_asymmetry_sign_matches_dominant_side() {
         let history = make_history(50_000.0, 100, 200.0);
-        // 90% short OI → short squeeze risk → cascade_asymmetry should be
-        // negative (short clusters dominate).
+        // 90% short OI → short liquidation clusters above mid dominate →
+        // positive asymmetry = short squeeze risk (canonical 02-13 v2.1).
         let input = ClusterEstimateInput {
             symbol: "BTC-USDT",
             mid_price: 50_000.0,
@@ -1501,16 +1509,42 @@ mod cluster_tests {
             min_cluster_notional_usd: 0.0,
         };
         let m = estimate_clusters(&input);
-        // Shorts dominate → positive asymmetry (long squeeze risk the
-        // *opposite* of short squeeze). The convention in the platform
-        // is: positive asymmetry = more pressure on longs = price likely
-        // to fall = long-squeeze risk. We verify the sign is well-defined
-        // and the magnitude is reasonable.
         assert!(m.cascade_asymmetry.is_finite());
+        assert!(
+            m.cascade_asymmetry > 0.0,
+            "short-heavy OI must yield positive asymmetry"
+        );
         assert!(
             m.cascade_asymmetry.abs() <= 1.0,
             "asymmetry must be in [-1, 1]"
         );
+    }
+
+    #[test]
+    fn cluster_confidence_stays_finite_with_zero_funding_extreme_pct() {
+        // Operator misconfig (`funding_extreme_pct = 0`) must not produce
+        // NaN in `estimation_confidence` (0/0) and poison the wire.
+        let history = make_history(50_000.0, 100, 200.0);
+        let input = ClusterEstimateInput {
+            symbol: "BTC-USDT",
+            mid_price: 50_000.0,
+            price_history: &history,
+            total_oi_usd: 1_000_000.0,
+            funding_rate: 0.0,
+            long_oi_pct: Some(0.5),
+            maintenance_margin_rate: 0.005,
+            funding_extreme_pct: 0.0,
+            funding_modulation_active: false,
+            leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
+            leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
+            min_cluster_notional_usd: 10_000.0,
+        };
+        let m = estimate_clusters(&input);
+        assert!(
+            m.estimation_confidence.is_finite(),
+            "confidence must be finite"
+        );
+        assert!(m.estimation_confidence >= 0.0 && m.estimation_confidence <= 1.0);
     }
 
     #[test]
@@ -1868,7 +1902,8 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
         } else {
             LiquidityDirection::Bullish
         };
-        let strength = ((input.funding_rate.abs() / input.funding_extreme_pct) * 50.0).min(100.0);
+        let strength =
+            ((input.funding_rate.abs() / input.funding_extreme_pct.max(1e-9)) * 50.0).min(100.0);
         out.push(LiquiditySignal {
             kind: LiquiditySignalKind::FundingExtreme,
             direction: dir,
@@ -1948,8 +1983,13 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 && c.notional_usd > input.min_cluster_notional_usd
             {
                 let dir = match c.cluster_kind {
-                    ClusterKind::BelowCurrentPrice => LiquidityDirection::Bullish,
-                    ClusterKind::AboveCurrentPrice => LiquidityDirection::Bearish,
+                    // Above-mid clusters are short-liq zones: price rallying
+                    // into them forces buy-to-cover → short squeeze → bullish
+                    // (canonical 02-13 §Cascade asymmetry; same convention as
+                    // ClusterPressureHigh). Below-mid long-liq zones drag
+                    // price down → bearish.
+                    ClusterKind::AboveCurrentPrice => LiquidityDirection::Bullish,
+                    ClusterKind::BelowCurrentPrice => LiquidityDirection::Bearish,
                     _ => LiquidityDirection::Neutral,
                 };
                 out.push(LiquiditySignal {
@@ -1971,10 +2011,14 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     // 6. Cluster pressure high: |cascade_asymmetry| > 0.5 (Phase 3 spec #4).
     if let Some(cluster) = input.cluster {
         if cluster.cascade_asymmetry.abs() > 0.5 {
+            // Positive = short liq above mid dominates = short squeeze
+            // risk (price likely to rally) = Bullish; negative = long
+            // squeeze risk = Bearish. Canonical per 02-13 §Cascade
+            // asymmetry (the v2.1 sign interpretation).
             let dir = if cluster.cascade_asymmetry > 0.0 {
-                LiquidityDirection::Bearish
-            } else {
                 LiquidityDirection::Bullish
+            } else {
+                LiquidityDirection::Bearish
             };
             let strength = (cluster.cascade_asymmetry.abs() * 100.0).min(100.0);
             out.push(LiquiditySignal {
@@ -1993,7 +2037,9 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
     // 7. Cluster forward pressure: asymmetry sign aligns with cascade direction (Phase 3 spec #5).
     if let (Some(flow), Some(cluster)) = (input.flow, input.cluster) {
         let cascade_bearish = flow.net_liquidation_usd > 0.0;
-        let asymmetry_bearish = cluster.cascade_asymmetry > 0.0;
+        // Positive asymmetry = short squeeze = bullish pressure (canonical
+        // sign interpretation); bearish asymmetry is the negative side.
+        let asymmetry_bearish = cluster.cascade_asymmetry < 0.0;
         if matches!(
             flow.cascade_state,
             CascadeState::Detected | CascadeState::Sustained
@@ -2310,10 +2356,9 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(!sigs.iter().any(|s| matches!(
-            s.kind,
-            LiquiditySignalKind::CascadeDetected
-        )));
+        assert!(!sigs
+            .iter()
+            .any(|s| matches!(s.kind, LiquiditySignalKind::CascadeDetected)));
     }
 
     /// AUDIT-AIU-007: the liquidity-layer OI-Price divergence direction must
@@ -2354,6 +2399,8 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(!sigs.iter().any(|s| s.kind == LiquiditySignalKind::OiPriceDivergence));
+        assert!(!sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::OiPriceDivergence));
     }
 }

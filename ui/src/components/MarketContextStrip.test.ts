@@ -11,7 +11,7 @@ import MarketContextStrip from './MarketContextStrip.svelte';
 
 function makeContext() {
   return {
-    regime: 'TRENDING_BULL',
+    regime: 'TRENDING',
     overall_score: 0.45,
     overall_label: 'WEAK_BULL',
     trend: { score: 0.4, confidence: 0.72, label: 'WEAK_BULL' },
@@ -32,7 +32,7 @@ describe('MarketContextStrip — five-dimension synthesis (M-1)', () => {
 
   it('renders the one-line header by default (regime + overall)', () => {
     render(MarketContextStrip, { props: { context: makeContext() } });
-    expect(screen.getByText('TRENDING_BULL')).toBeTruthy();
+    expect(screen.getByText('TRENDING')).toBeTruthy();
     expect(screen.getByText('+0.45')).toBeTruthy();
     // The five dimension chips are hidden until expanded.
     expect(screen.queryByText('+0.40')).toBeNull();

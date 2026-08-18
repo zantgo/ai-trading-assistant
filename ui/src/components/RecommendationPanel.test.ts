@@ -62,7 +62,6 @@ function makeDecisionContext(overrides: Partial<DecisionContext> = {}): Decision
     return {
         score: 0,
         bias: 'Neutral',
-        confidence: 0,
         score_confidence: 0,
         entry_danger: makeDanger(31),
         expected_reward_risk_ratio: 0.59,
@@ -78,7 +77,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
     // resolve to LONG. CounterTrend families (MeanReversion, Reversal) would
     // resolve to SHORT — but those don't appear in this fixture.
     const breakoutZones = {
-        direction_family: 'TrendRiding' as const,
+        direction_family: 'TREND_RIDING' as const,
         long_entry_zone: { low: 63520, high: 63800 },
         long_target_zone: { low: 64500, high: 65000 },
         long_invalidation_level: 63200,
@@ -89,7 +88,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
         short_expected_rr_internal: null,
     };
     const squeezeZones = {
-        direction_family: 'TrendRiding' as const,
+        direction_family: 'TREND_RIDING' as const,
         long_entry_zone: { low: 63600, high: 63900 },
         long_target_zone: { low: 64400, high: 64800 },
         long_invalidation_level: 63300,
@@ -100,7 +99,7 @@ function makeOpportunity(overrides: Partial<OpportunityMatrix> = {}): Opportunit
         short_expected_rr_internal: null,
     };
     const tcZones = {
-        direction_family: 'TrendRiding' as const,
+        direction_family: 'TREND_RIDING' as const,
         long_entry_zone: { low: 63000, high: 63200 },
         long_target_zone: { low: 65000, high: 65500 },
         long_invalidation_level: 62400,
@@ -289,6 +288,52 @@ describe('RecommendationPanel — L6 LayerHeader + safety flags (v7.0-prod)', ()
         expect(screen.getByText('3.20')).toBeTruthy();
     });
 
+    it('colors the Risk-Adjusted R:R KPI from the displayed fallback value', () => {
+        // Audit regression (M3-UI): the KPI number reads
+        // `riskAdjRrDisplay.value` — which falls back to
+        // `topSetup.rr × (1 − overall_risk/100)` when the raw
+        // `expected_reward_risk_ratio` is zero — but the color previously
+        // read the raw value, so a good adjusted ratio rendered in red.
+        // Color must track the resolved number.
+        seedPair('BTC-USDT');
+        const entry = useAppStore().instancesMap['BTC-USDT'];
+        entry.decisionContext = makeDecisionContext({ expected_reward_risk_ratio: 0 });
+        entry.risk = {
+            ...(entry.risk ?? ({} as any)),
+            overall_risk: makeDanger(1),
+        };
+        entry.opportunity = makeOpportunity({
+            profiles: [{
+                opportunity_type: 'Breakout',
+                score: 65,
+                preconditions_met: 2,
+                preconditions_total: 2,
+                notes: 'synthetic-breakout',
+                direction_family: 'TREND_RIDING',
+                long_entry_zone: { low: 63520, high: 63800 },
+                long_target_zone: { low: 64500, high: 65000 },
+                long_invalidation_level: 63200,
+                long_expected_rr_internal: 3.0,
+                short_entry_zone: null,
+                short_target_zone: null,
+                short_invalidation_level: null,
+                short_expected_rr_internal: null,
+                trade_viability: 'ACTIONABLE',
+            }],
+        });
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+
+        // Locate the KPI value span by its inline color style.
+        const kpiDiv = screen
+            .getAllByText(/Risk-Adjusted Reward-to-Risk/i)
+            .map((el) => el.closest('div'))
+            .find((d) => d && d.querySelector('[style*="color"]'));
+        const value = kpiDiv?.querySelector('[style*="color"]') as HTMLElement | null;
+        // 3.0 × (1 − 0.01) = 2.97 → green.
+        expect(value?.textContent).toBe('2.97');
+        expect(value?.style.color).toBe('rgb(34, 197, 94)');
+    });
+
     it('v6.11: Quality/Risk chip renders an em-dash when the ratio is absent', () => {
         seedPair('BTC-USDT');
         const entry = useAppStore().instancesMap['BTC-USDT'];
@@ -340,8 +385,8 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_total: 3,
                     display_score: 33,
                     notes: 'synthetic-breakout',
-                    direction_family: 'TrendRiding',
-                    trade_viability: 'Actionable',
+                    direction_family: 'TREND_RIDING',
+                    trade_viability: 'ACTIONABLE',
                     long_entry_zone: { low: 63520, high: 63800 },
                     long_target_zone: { low: 64500, high: 65000 },
                     long_invalidation_level: 63200,
@@ -375,7 +420,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 3,
                     preconditions_total: 3,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: { low: 63000, high: 63200 },
                     long_target_zone: { low: 65000, high: 65500 },
                     long_invalidation_level: 62400,
@@ -391,7 +436,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 2,
                     preconditions_total: 2,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: { low: 63520, high: 63800 },
                     long_target_zone: { low: 64500, high: 65000 },
                     long_invalidation_level: 63200,
@@ -407,7 +452,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 1,
                     preconditions_total: 3,
                     notes: '',
-                    direction_family: 'TrendRiding',
+                    direction_family: 'TREND_RIDING',
                     long_entry_zone: { low: 63600, high: 63900 },
                     long_target_zone: { low: 64400, high: 64800 },
                     long_invalidation_level: 63300,
@@ -442,7 +487,7 @@ describe('RecommendationPanel — Top Setup card', () => {
                     preconditions_met: 0,
                     preconditions_total: 1,
                     notes: '',
-                    direction_family: 'Neutral',
+                    direction_family: 'NEUTRAL',
                     long_entry_zone: null,
                     long_target_zone: null,
                     long_invalidation_level: null,

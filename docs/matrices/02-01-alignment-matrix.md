@@ -49,14 +49,14 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 | Field | Type | Range | Description |
 |-------|------|-------|-------------|
 | `score` | `f64` | `[0, 100]` | Alignment strength (higher = stronger agreement). |
-| `state` | `AlignState` | — | `BULLISH` / `BEARISH` / `NEUTRAL` / `MIXED` / `ALIGNED` / `PARTIAL` / `DIVERGENT`. |
+| `state` | `AlignState` | — | Wire values (PascalCase): `StrongBullish` / `Bullish` / `Bearish` / `StrongBearish` / `Neutral` / `Mixed` / `NoData` (the legacy `ALIGNED` / `PARTIAL` / `DIVERGENT` vocabulary was retired). |
 | `confidence` | `f64` | `[0, 100]` | Measurement confidence. |
 
 ### 2.3 TfAlignmentInfo (per-timeframe breakdown)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `timeframe` | `string` | Label, e.g. `fast180`. |
+| `timeframe` | `string` | Stable slot label, e.g. `MICRO` / `FAST` / `SLOW` / `MACRO`. |
 | `timeframe_secs` | `u64` | Duration in seconds. |
 | `trend_score` | `f64` | Local trend score `[-1, 1]`. |
 | `momentum_score` | `f64` | Local momentum score `[-1, 1]`. |
@@ -80,28 +80,36 @@ The `dimensions` array is ordered. Each index maps to a specific agreement axis:
 | 4 | **Structure** | S/R role agreement | % of TFs whose support/resistance label agrees. |
 | 5 | **Signal** | Cross-TF signal confluence | % of signals appearing in ≥2 TFs. |
 | 6 | **Regime** | Regime-classification agreement | % of TFs sharing the dominant regime. |
-| 7 | **Confidence** | Confidence consistency | `100 − sample_stddev(per_tf_confidence_scores)` (Bessel-corrected sample standard deviation, `N − 1` denominator). For N ≤ 1 timeframe, sample stddev is undefined and confidence defaults to the mean per-TF confidence score. |
+| 7 | **Confidence** | Confidence consistency | `100 − sqrt(population_variance(per_tf_confidence_scores))` — the population variance uses a `÷ N` denominator. For N < 2 timeframes the score is hardcoded `50.0` (no variance can be computed; the legacy Bessel `N − 1` sample variance and mean-confidence fallback are not used). |
 | 8 | **Liquidity** | RVOL consistency | `(1 − coefficient_of_variation)` of RVOL across TFs. |
 | 9 | **Tradability** | Cross-timeframe tradability agreement | % of TFs with non-neutral bias and non-compressed regime. *(Renamed from "Opportunity" in the institutional redesign — the L4 Opportunity Matrix is the canonical owner of opportunity concepts; this dimension measures TFs agreeing on whether conditions are tradable.)* |
 
 ### 3.1 AlignState Derivation
 
-The `AlignState` enum grows from four to seven values: `BULLISH` | `BEARISH` | `NEUTRAL` | `MIXED` | `ALIGNED` | `PARTIAL` | `DIVERGENT`.
+The `AlignState` enum has **seven** wire values: `StrongBullish` | `Bullish` | `Bearish` | `StrongBearish` | `Neutral` | `Mixed` | `NoData` (serialized PascalCase; the `Display` impl renders `STRONG_BULLISH` / `BULLISH` / `BEARISH` / `STRONG_BEARISH` / `NEUTRAL` / `MIXED` / `NO_DATA` for human-facing surfaces). The legacy `ALIGNED` / `PARTIAL` / `DIVERGENT` and 4-state `BULLISH/BEARISH/NEUTRAL/MIXED` vocabularies are retired.
 
-**Signed dimensions** (Trend, Momentum, Volume, Volatility):
+**Signed dimensions** (Trend, Momentum, Volume, Volatility) — derived from the signed weighted mean `m ∈ [-1, 1]` (`AlignmentDimension::from_signed`):
 
-- Inputs: signed mean `m ∈ [-1, 1]`; sign-agreement `a` = fraction of timeframes sharing the majority sign.
-- `score = a × 100` (magnitude of sign-agreement, independent of direction); `state` is derived from the signed mean `m` (direction). A dimension can show strong agreement on magnitude (high score) with a weak net direction (NEUTRAL state), or vice versa.
-- If `a < 0.6` → `MIXED`.
-- Else if `m > +0.3` → `BULLISH`.
-- Else if `m < -0.3` → `BEARISH`.
-- Else → `NEUTRAL`.
+- `score = (m + 1) / 2 × 100` (magnitude of the net signed mean, mapped to `[0, 100]`).
+- `confidence = |m| × 100`.
+- State from the signed mean `m` (first match wins):
+  - `m > +0.6` → `StrongBullish`
+  - `m > +0.3` → `Bullish`
+  - `m < -0.6` → `StrongBearish`
+  - `m < -0.3` → `Bearish`
+  - else → `Neutral`
 
-**Unsigned dimensions** (Structure, Signal, Regime, Confidence, Liquidity, Tradability):
+**Unsigned dimensions** (Structure, Signal, Regime, Confidence, Liquidity, Tradability) — derived from a `[0, 100]` score via `AlignmentDimension::new` (state is bucketed from the same 0-100 score; `confidence = score` because `new` sets `confidence = score / 100 × 100`):
 
-- `score ≥ 60` → `ALIGNED`.
-- `30 ≤ score < 60` → `PARTIAL`.
-- `score < 30` → `DIVERGENT`.
+- `score == 0` → `NoData`
+- `score ≥ 80` → `StrongBullish`
+- `score ≥ 60` → `Bullish`
+- `score > 40` (i.e. `40 < score < 60`) → `Neutral`
+- `score > 20` (i.e. `20 < score ≤ 40`) → `Bearish`
+- `score ≤ 20` (non-zero) → `StrongBearish`
+- `Mixed` is a declared variant but is **not reachable** under the current 0-100 mapping (the branch above 60 and below 60 never overlap); it remains reserved in the vocabulary.
+
+> **Wire-casing note.** The JSON values on the wire are PascalCase (`"StrongBullish"`, `"NoData"`, …). The SCREAMING_SNAKE form appears only in the Rust `Display` impl used for human-facing labels, never in serde output.
 
 ---
 
@@ -129,7 +137,7 @@ $$\text{mtf\_overall\_score} = \text{clamp}\big((0.5\,T + 0.3\,M + 0.1\,V_{t} + 
 
 where `T` = `mtf_trend_alignment`, `M` = `mtf_momentum_alignment`, `V_t` = `mtf_volatility_alignment`, `V_m` = `mtf_volume_alignment`.
 
-> **Thin-participation reweight (v6.10.16, FIX-H2).** When the volume dimension reads THIN/VERY_THIN (`dimensions[2].score < 25`) the blend switches to `0.55·T + 0.35·M + 0.05·V_t + 0.05·V_m` — the low-participation volume read is a participation qualifier, not a directional signal, so it can no longer veto four aligned timeframes into NEUTRAL. The **effective weights ride on the wire** (`blend_weights: [["T", 0.55], …]`) and the Alignment export's `score_calculation` block mirrors them exactly (v6.10.19d A: the on-screen formula line and the export `formula` field were removed — the weight chips are the display). Standard weights are the default; the reweight only applies in the thin regime. (The L3 grace band in [02-02 §3.1](./02-02-analysis-matrix.md) is the margin policy for the residual band; this reweight is the structural fix below it.)
+> **Thin-participation reweight (v6.10.16, FIX-H2).** When the volume dimension reads THIN/VERY_THIN (`dimensions[2].score < 25`) the blend switches to `0.55·T + 0.35·M + 0.05·V_t + 0.05·V_m` — the low-participation volume read is a participation qualifier, not a directional signal, so it can no longer veto four aligned timeframes into NEUTRAL. The **effective weights ride on the wire** (`blend_weights: [["Trend", 0.55], ["Momentum", 0.35], ["Volume", 0.05], ["Volatility", 0.05]]` — the keys are the **full dimension names**, never the `"T"` / `"Vt"` / `"Vm"` abbreviations, which mislabeled Volume/Volatility swapped vs. the spec) and the Alignment export's `score_calculation` block mirrors them exactly (v6.10.19d A: the on-screen formula line and the export `formula` field were removed — the weight chips are the display). Standard weights (`[["Trend", 0.5], ["Momentum", 0.3], ["Volume", 0.1], ["Volatility", 0.1]]`) are the default; the reweight only applies in the thin regime. (The L3 grace band in [02-02 §3.1](./02-02-analysis-matrix.md) is the margin policy for the residual band; this reweight is the structural fix below it.)
 
 ### 4.3 Trend Agreement Percentage
 
@@ -171,7 +179,7 @@ otherwise   → NEUTRAL_MTF
 | Condition | Result |
 |-----------|--------|
 | No timeframes supplied | `AlignmentMatrix::empty()` → `timeframes_present = 0`, `mtf_overall_label = "NO_DATA"`, 10 zero-score dimensions. |
-| Single timeframe | Dimensions still computed but agreement percentages reflect a single data point; confidence dimensions default to the single timeframe's per-TF confidence score (§3.2 per-dimension basis). |
+| Single timeframe | Dimensions still computed but agreement percentages reflect a single data point; the Confidence (dim 7) and Liquidity (dim 8) dimensions hardcode `score = 50.0` when `N < 2` (§3). |
 | Missing indicator (e.g. no S/R) | The affected dimension degrades to score `0` rather than failing. |
 
 ---
@@ -183,16 +191,16 @@ otherwise   → NEUTRAL_MTF
   "symbol": "BTC-USDT",
   "timeframes_present": 4,
   "dimensions": [
-    { "score": 78.0, "state": "BULLISH", "confidence": 78.0 },
-    { "score": 65.0, "state": "NEUTRAL", "confidence": 65.0 },
-    { "score": 72.0, "state": "NEUTRAL", "confidence": 72.0 },
-    { "score": 75.0, "state": "NEUTRAL", "confidence": 75.0 },
-    { "score": 65.0, "state": "ALIGNED", "confidence": 65.0 },
-    { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
-    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
-    { "score": 88.0, "state": "ALIGNED", "confidence": 88.0 },
-    { "score": 70.0, "state": "ALIGNED", "confidence": 70.0 },
-    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 }
+    { "score": 78.0, "state": "Bullish", "confidence": 78.0 },
+    { "score": 65.0, "state": "Bullish", "confidence": 65.0 },
+    { "score": 55.0, "state": "Neutral", "confidence": 10.0 },
+    { "score": 60.0, "state": "Neutral", "confidence": 20.0 },
+    { "score": 65.0, "state": "Bullish", "confidence": 65.0 },
+    { "score": 75.0, "state": "Bullish", "confidence": 75.0 },
+    { "score": 100.0, "state": "StrongBullish", "confidence": 100.0 },
+    { "score": 88.0, "state": "StrongBullish", "confidence": 88.0 },
+    { "score": 70.0, "state": "Bullish", "confidence": 70.0 },
+    { "score": 100.0, "state": "StrongBullish", "confidence": 100.0 }
   ],
   "mtf_trend_alignment": 0.56,
   "mtf_momentum_alignment": 0.30,
@@ -200,8 +208,9 @@ otherwise   → NEUTRAL_MTF
   "mtf_volatility_alignment": 0.20,
   "mtf_overall_score": 40.0,
   "mtf_overall_label": "WEAK_BULL_MTF",
+  "blend_weights": [["Trend", 0.5], ["Momentum", 0.3], ["Volume", 0.1], ["Volatility", 0.1]],
   "timeframe_alignments": [
-    { "timeframe": "micro60", "timeframe_secs": 60, "trend_score": 0.5,
+    { "timeframe": "MICRO", "timeframe_secs": 60, "trend_score": 0.5,
       "momentum_score": 0.3, "overall_score": 42, "regime": "TRENDING",
       "active_signals": 3, "price": 64012.5 }
   ],
@@ -210,6 +219,8 @@ otherwise   → NEUTRAL_MTF
 }
 ```
 
+> `AlignState` values on the wire are PascalCase (`"Bullish"`, `"Neutral"`, `"StrongBullish"`, …) — see §3.1 for the state mapping. Dimensions 2 and 3 carry the recomputed §6.1 scores (volume `mean = 0.10` → score 55.0 / confidence 10.0; volatility `mean = 0.20` → score 60.0 / confidence 20.0).
+
 > The example above is a 4-TF snapshot (`timeframes_present: 4`). Per the
 > §4.4 heuristic, `signal_cross_tf_count = round(0.3 × total signals)`;
 > the seed `3` corresponds to ~10 active signals summed across the four
@@ -217,19 +228,19 @@ otherwise   → NEUTRAL_MTF
 
 ### 6.1 Worked per-TF decomposition (Volume & Volatility)
 
-The Volume (72.0) and Volatility (75.0) dimension scores above decompose into per-timeframe signed scores as follows (weights per §4.1 with the default durations: micro 0.2, fast 0.2, slow 0.3333, macro 1.0; Σw = 1.7333):
+The Volume (55.0) and Volatility (60.0) dimension scores above decompose into per-timeframe signed scores as follows (weights per §4.1 with the default durations: micro 0.2, fast 0.2, slow 0.3333, macro 1.0; Σw = 1.7333):
 
 | Timeframe | Weight `w` | Volume `s` | Volatility `s` |
 |-----------|-----------|-----------|----------------|
-| micro60 | 0.2 | +0.50 | +0.30 |
-| fast180 | 0.2 | +0.50 | +0.30 |
-| slow300 | 0.3333 | +0.25 | −0.52 |
-| macro900 | 1.0 | −0.11 | +0.40 |
+| MICRO | 0.2 | +0.50 | +0.30 |
+| FAST | 0.2 | +0.50 | +0.30 |
+| SLOW | 0.3333 | +0.25 | −0.52 |
+| MACRO | 1.0 | −0.11 | +0.40 |
 
-- **Signed mean** `m = Σ w·s / Σw` (direction, §3.1): Volume `(0.100 + 0.100 + 0.08333 − 0.110) / 1.7333 = 0.17333 / 1.7333 = 0.10` → `mtf_volume_alignment = 0.10`; Volatility `(0.060 + 0.060 − 0.17333 + 0.400) / 1.7333 = 0.34667 / 1.7333 = 0.20` → `mtf_volatility_alignment = 0.20`. Both `|m| ≤ 0.3` → `NEUTRAL`.
-- **Sign agreement** (majority-sign share, conviction-weighted: `a = Σ w·|s|` over majority-sign TFs `/ Σ w·|s|` over all TFs): Volume `a = (0.100 + 0.100 + 0.08333) / (0.28333 + 0.110) = 0.28333 / 0.39333 = 0.7203 → 0.72` → score `72.0`; Volatility `a = (0.060 + 0.060 + 0.400) / (0.520 + 0.17333) = 0.520 / 0.69333 = 0.75` → score `75.0`. Both `a ≥ 0.6` (not `MIXED`).
+- **Signed mean** `m = Σ w·s / Σw` (direction, §3.1): Volume `(0.100 + 0.100 + 0.08333 − 0.110) / 1.7333 = 0.17333 / 1.7333 = 0.10` → `mtf_volume_alignment = 0.10`; Volatility `(0.060 + 0.060 − 0.17333 + 0.400) / 1.7333 = 0.34667 / 1.7333 = 0.20` → `mtf_volatility_alignment = 0.20`. Both `|m| ≤ 0.3` → `Neutral`.
+- **Score & confidence** (§3.1 `from_signed`): `score = (m + 1) / 2 × 100`, `confidence = |m| × 100`. Volume → `(0.10 + 1) / 2 × 100 = 55.0`, confidence `10.0`; Volatility → `(0.20 + 1) / 2 × 100 = 60.0`, confidence `20.0`. Both states are `Neutral` (neither mean crosses `±0.3`).
 
-> **Rounding note.** Per-TF values are rounded to 2 dp; weighted aggregates are computed from the unrounded values. Multiple valid per-TF decompositions exist; this one satisfies `m = 0.10` / `0.20` and `a → 0.72` / `0.75` simultaneously.
+> **Rounding note.** Per-TF values are rounded to 2 dp; weighted aggregates are computed from the unrounded values. Multiple valid per-TF decompositions exist; this one satisfies `m = 0.10` / `0.20` simultaneously. The legacy sign-agreement decomposition (`score = a × 100` → 72.0 / 75.0) does **not** match the code — `from_signed` derives the score from the signed mean, not from the majority-sign share.
 
 ---
 

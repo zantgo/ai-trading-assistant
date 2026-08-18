@@ -1,6 +1,6 @@
 //! # Market Analyzer Crate
 //!
-//! Owns the Market Monitoring Engine (MME): 50 indicators across 4
+//! Owns the Market Monitoring Engine (MME): 52 indicators across 4
 //! timeframes, signal detection, multi-timeframe alignment, opportunity
 //! and risk scoring, and the time-frame pipeline orchestrator that emits
 //! `MarketSnapshot`s.

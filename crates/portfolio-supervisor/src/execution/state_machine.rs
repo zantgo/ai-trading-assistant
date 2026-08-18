@@ -58,10 +58,7 @@ impl OrderLifecycle {
         };
 
         if !valid {
-            return Err(format!(
-                "Invalid transition: {:?} -> {:?}",
-                self.status, to
-            ));
+            return Err(format!("Invalid transition: {:?} -> {:?}", self.status, to));
         }
 
         self.transitions.push(OrderTransition {
@@ -82,8 +79,10 @@ impl OrderLifecycle {
     ) {
         self.filled_size += fill_qty;
         self.fill_price = Some(fill_price);
-        let _ = self.transition(OrderStatus::PartiallyFilled, timestamp_ms, Some(
-            format!("filled {} @ {}", fill_qty, fill_price)
-        ));
+        let _ = self.transition(
+            OrderStatus::PartiallyFilled,
+            timestamp_ms,
+            Some(format!("filled {} @ {}", fill_qty, fill_price)),
+        );
     }
 }

@@ -77,11 +77,9 @@ function clusterIntensity(cluster: LiquidationCluster, maxNotional: number): num
 }
 
 /// v7.0-prod — leverage-tier highlight. A cluster's `dominant_leverage`
-/// matches an operator-selected integer tier (1..100, inclusive) when
-/// the integer-rounded value falls within ±0.5 of the wire-side float.
-/// The epsilon covers the Rust estimator's float rounding so e.g. a
-/// cluster whose dominant_leverage is 9.7 still lights up under the
-/// `10×` chip.
+/// is an integer on the wire (`u32` in the Rust DTO, e.g. 10 for the
+/// 10× tier). The ±0.5 epsilon is retained defensively so a float-typed
+/// payload from an older producer still lights up under the right chip.
 export function clusterInHighlight(cluster: LiquidationCluster, tiers: number[] | null | undefined): boolean {
     if (!Array.isArray(tiers) || tiers.length === 0) return false;
     const dl = cluster.dominant_leverage;

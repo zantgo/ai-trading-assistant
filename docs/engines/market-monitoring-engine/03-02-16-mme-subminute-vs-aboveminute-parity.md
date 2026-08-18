@@ -103,6 +103,7 @@ Legend: G1 = candle state machine (warmup via state replay, Group 1); G2 = histo
 | 49 | spread | G3 | Threshold | – | ❌ | live | Same |
 | 50 | depth_bias | G3 | Threshold | – | ❌ | live | Same |
 | 51 | mark_index_spread | G3 | Threshold | – | ❌ | live | Same |
+| 52 | price_trend_sharpe | G2 | Threshold | – | ❌ | live at 300 closes | Same; Sharpe window rolls from first real close (PRI-06) |
 
 "Detector" divergence = `DivergenceDetector` (rsi + macd); "Series" divergence = `SeriesDivergence` (stochastic/chandemo/mfi/cmf/obv/squeeze). Divergence signals are emitted only on completed candles; shadow frames never re-emit them (frontend preserves last completed values). Divergence **confirmation** is S/R-gated on both regimes.
 
@@ -119,7 +120,7 @@ Legend: G1 = candle state machine (warmup via state replay, Group 1); G2 = histo
 | `history` buffer (fib/pivots/S-R/pattern/cluster input) | REST candles | seeded + PRI-06 continuity | Same |
 | `bar_count` / lifecycle `bars_seen` | warmed length | Live at 1st close | Same; `bars_seen_real` added (PRI-12) |
 
-### §3.3 Liquidity & analytical layers (AIU beyond the 51)
+### §3.3 Liquidity & analytical layers (AIU beyond the 52)
 
 | Layer | Group | Computed per | Above-minute | Sub-minute (post-PRI) |
 |---|---|---|---|---|
@@ -127,8 +128,8 @@ Legend: G1 = candle state machine (warmup via state replay, Group 1); G2 = histo
 | LiquidationClusterMatrix (Phase 2) | G2 | per-TF refresh task — **config-driven cadence**: slot `duration_seconds` or `cluster_refresh_secs` override; candle-close-synced; spawned for every active slot including Custom | own cadence | same; reads warmed `history` (PRI-06) so the heatmap renders from startup even on quiet markets |
 | VolumeProfileSnapshot | G1 | completed candle (strict `window/2` gate) | 1st close (warm) | 1st close (warmed window) |
 | Liquidity signals (Phase 3, 11 kinds) | G3 | completed candle from flow+cluster+funding+OI+book | every close | every real close |
-| Market Context (L1.5) | G1-derived | completed candle | 1st close (Live gate) | 1st close (warmed bar_count) |
-| Statistical context (L2.5 SIL) | G1 | completed candle + MC every configured N | 1st close | 1st close; MC cadence per config |
+| Market Context (L1) | G1-derived | completed candle | 1st close (Live gate) | 1st close (warmed bar_count) |
+| Statistical context (L2 statistical layer) | G1 | completed candle + MC every configured N | 1st close | 1st close; MC cadence per config |
 | Cross-TF matrices (L2–L6: Alignment/Analysis/Risk/Advisory/Opportunity/DecisionContext) | G1-derived | closing slot's synthesis (`synthesize_cross_tf`, D4 freshness budget per PRI-07) | 1st close (warm siblings) | 1st close; D4 spin budget `min(duration/4, 250 ms)`, skipped pre-live |
 | Indicator lifecycle badges | G1 | per indicator per TF | Live at 1st close | Live at 1st close (warmed `bars_seen`); `bars_seen_real` available |
 
@@ -147,21 +148,21 @@ Replayed warm data is real price history at a coarser scale. Consequences, valid
 
 | ID | Item | Status |
 |----|------|--------|
-| PRI-02/PRI-03 | Warmup: ≥ 1 m REST bootstrap + sub-minute state replay | Planned (F1) |
-| PRI-05 | Uniform live floor replaces 50-vs-500 split | Planned (F3) |
-| PRI-06 | Force-close candles feed `history` | Planned (F2) |
-| PRI-07 | Cadence adaptation: shadow throttle, D4 budget, SIL MC cadence, cluster sync | Planned (F6/F7) |
-| PRI-09 | Per-slot matrix guard | Planned (F9) |
-| PRI-10 | ema_stack raw/value contract + no raw fallback in history layer | Planned (F5/F8) |
-| PRI-11 | Per-TF shadow throttle + frontend `values` deep-merge | Planned (F6/F8) |
-| PRI-12 | `bars_seen_real` in lifecycle | Planned (F9) |
+| PRI-02/PRI-03 | Warmup: ≥ 1 m REST bootstrap + sub-minute state replay | ✅ Implemented (`warm.rs`, bootstrap pagination) |
+| PRI-05 | Uniform live floor replaces 50-vs-500 split | ✅ Implemented (`derive_pipeline_state`, `max(buffer_size/10, 50)`) |
+| PRI-06 | Force-close candles feed `history` | ✅ Implemented (PRI-06 continuity + AUDIT-H8 mid-widened closes) |
+| PRI-07 | Cadence adaptation: shadow throttle, D4 budget, SIL MC cadence, cluster sync | ✅ Implemented |
+| PRI-09 | Per-slot matrix guard | ✅ Implemented |
+| PRI-10 | ema_stack raw/value contract + no raw fallback in history layer | ✅ Implemented |
+| PRI-11 | Per-TF shadow throttle + frontend `values` deep-merge | ✅ Implemented |
+| PRI-12 | `bars_seen_real` in lifecycle | ✅ Implemented (`bars_seen_real` on the wire) |
 
 ## §6 References
 
 - `03-02-14-mme-sub-min-tf-feasibility.md` — feasibility/cost analysis (superseded on behavioral claims by this document)
 - `03-02-15-mme-indicator-lifecycle-states.md` — lifecycle state machine (extended by PRI-12)
 - `03-02-11-mme-liquidity-extension.md` — Phase 0-4 Liquidity Intelligence
-- `crates/market-analyzer/src/indicators/registry.rs` — authoritative 51-indicator manifest
+- `crates/market-analyzer/src/indicators/registry.rs` — authoritative 52-indicator manifest
 - `crates/portfolio-supervisor/src/registry/bootstrap.rs` — warmup/fetch policy (HFP-03…HFP-10)
 - `crates/portfolio-supervisor/src/registry/pipelines.rs` — cluster refresh tasks
 - `crates/market-analyzer/src/analyzer/mod.rs` — completion paths + `synthesize_completed_candle`

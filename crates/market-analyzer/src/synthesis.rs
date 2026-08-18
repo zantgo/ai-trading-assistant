@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 
 use core_domain::advisory;
 use core_domain::alignment::{self, AlignmentMatrix};
+use core_domain::analysis::PriceRange;
 use core_domain::analysis::{
     self, AnalysisMatrix, OpportunityProfile, OpportunityType, SetupQuality,
 };
@@ -13,7 +14,6 @@ use core_domain::market_context::MarketContext;
 use core_domain::models::MarketSnapshot;
 use core_domain::models::TimeframeSlot;
 use core_domain::opportunity::{ConfluentLevel, LevelSource, NeutralBracket, OpportunityMatrix};
-use core_domain::analysis::PriceRange;
 use core_domain::risk::{self, RiskMatrix};
 use std::collections::HashMap;
 
@@ -510,7 +510,11 @@ impl ConfluentRole {
             ConfluentRole::Target => above,
             ConfluentRole::Entry | ConfluentRole::Invalidation => below,
         };
-        Some(if is_long { "LONG".to_string() } else { "SHORT".to_string() })
+        Some(if is_long {
+            "LONG".to_string()
+        } else {
+            "SHORT".to_string()
+        })
     }
 }
 
@@ -607,7 +611,11 @@ fn derive_confluent_zones(
                 confluence_count: 1,
                 sources: vec![LevelSource::AtrFallback],
                 strength: 35.0, // synthetic strength below typical real levels
-                side: Some(if bias_bullish { "LONG".to_string() } else { "SHORT".to_string() }),
+                side: Some(if bias_bullish {
+                    "LONG".to_string()
+                } else {
+                    "SHORT".to_string()
+                }),
             });
         }
         if target_levels.is_empty() && atr > 0.0 {
@@ -621,7 +629,11 @@ fn derive_confluent_zones(
                 confluence_count: 1,
                 sources: vec![LevelSource::AtrFallback],
                 strength: 35.0,
-                side: Some(if bias_bullish { "LONG".to_string() } else { "SHORT".to_string() }),
+                side: Some(if bias_bullish {
+                    "LONG".to_string()
+                } else {
+                    "SHORT".to_string()
+                }),
             });
         }
     }
@@ -671,7 +683,8 @@ fn derive_confluent_zones(
     };
 
     let inval_clusters = cluster_levels(&invalidation_candidates, tolerance);
-    let invalidation_levels = clusters_to_confluent(inval_clusters, close, ConfluentRole::Invalidation);
+    let invalidation_levels =
+        clusters_to_confluent(inval_clusters, close, ConfluentRole::Invalidation);
 
     (entry_levels, target_levels, invalidation_levels)
 }
@@ -799,6 +812,14 @@ fn derive_side_zones(
     // The legacy implementation picked `confluent_inval[0].price`
     // regardless of side, which surfaced the screenshot bug where
     // SL = $63937 sat at entry.low (= $63937).
+    // AUDIT-H8b: on a perfectly flat series (`atr == 0`) the ATR-fallback
+    // stop distance collapses to zero — `entry.low - 0 = entry.low` — and
+    // the geometry assertions panicked on legitimate market data. Floor
+    // the stop distance and the side margins at a tiny relative epsilon
+    // of the reference price so the stop always clears the entry zone.
+    let atr_floor = close.abs() * 1e-6;
+    let stop_distance = (atr * stop_atr_multiple).max(atr_floor);
+    let margin = (atr * 0.05).max(atr_floor);
     let invalidation_level = if has_confluent_inval {
         // Side-prune the candidates: keep only those on the correct
         // side of the entry zone. If none survive, fall through to the
@@ -822,9 +843,9 @@ fn derive_side_zones(
         // when it is already tighter than the horizon budget.
         let entry_mid = (entry_zone.low + entry_zone.high) / 2.0;
         let horizon_stop = if bias_long {
-            (entry_mid - atr * stop_atr_multiple).max(0.0)
+            (entry_mid - stop_distance).max(0.0)
         } else {
-            entry_mid + atr * stop_atr_multiple
+            entry_mid + stop_distance
         };
         let structural = survivors.first().map(|c| c.price.max(0.0));
         let chosen = match (structural, bias_long) {
@@ -836,14 +857,14 @@ fn derive_side_zones(
             (None, false) => horizon_stop,
         };
         if bias_long {
-            chosen.min(entry_zone.low - atr * 0.05).max(0.0)
+            chosen.min(entry_zone.low - margin).max(0.0)
         } else {
-            chosen.max(entry_zone.high + atr * 0.05)
+            chosen.max(entry_zone.high + margin)
         }
     } else if bias_long {
-        (entry_zone.low - atr * stop_atr_multiple).max(0.0)
+        (entry_zone.low - stop_distance).max(0.0)
     } else {
-        entry_zone.high + atr * stop_atr_multiple
+        entry_zone.high + stop_distance
     };
 
     // ── Geometry invariant assertions ────────────────────────────────
@@ -1011,10 +1032,7 @@ fn resolve_countertrend_side(
 ) -> Option<bool> {
     match primary {
         core_domain::analysis::OpportunityType::MeanReversion => {
-            let z = indicators
-                .get("zscore")
-                .map(|v| v.raw_value)
-                .unwrap_or(0.0);
+            let z = indicators.get("zscore").map(|v| v.raw_value).unwrap_or(0.0);
             if z >= ZSCORE_MEAN_REVERSION_SIDE_THRESHOLD {
                 Some(false)
             } else if z <= -ZSCORE_MEAN_REVERSION_SIDE_THRESHOLD {
@@ -1090,11 +1108,9 @@ fn compute_opportunity(
     //      check would miss this entirely, breaking the L1.5→L4→L6
     //      Reversal flow. We now match any label containing the substring
     //      `DIVERGENCE`, which subsumes both label families.
-    let has_confirmed_divergence = indicators.values().any(|v| {
-        v.signals
-            .iter()
-            .any(|s| s.label.contains("DIVERGENCE"))
-    });
+    let has_confirmed_divergence = indicators
+        .values()
+        .any(|v| v.signals.iter().any(|s| s.label.contains("DIVERGENCE")));
 
     let momentum_exhausted = momentum_dim < 25.0;
     let structure_broken = struct_dim < 40.0;
@@ -1195,16 +1211,8 @@ fn compute_opportunity(
     // bracket when `primary_score >= 70.0`, so the value must be in hand
     // before `derive_side_zones` is called. We collect everything we need
     // for the second pass into a Vec.
-    let mut scored: Vec<(
-        OpportunityType,
-        f64,
-        String,
-        f64,
-        f64,
-        f64,
-        u32,
-        u32,
-    )> = Vec::with_capacity(candidates.len());
+    let mut scored: Vec<(OpportunityType, f64, String, f64, f64, f64, u32, u32)> =
+        Vec::with_capacity(candidates.len());
     for ot in &candidates {
         let (met, total) = match ot {
             OpportunityType::LiquiditySqueeze => (
@@ -1219,7 +1227,12 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::Scalp => (
-                if bbwp >= 70.0 && bbwp < 95.0 && struct_dim >= 70.0 && bias_directional && is_trending {
+                if bbwp >= 70.0
+                    && bbwp < 95.0
+                    && struct_dim >= 70.0
+                    && bias_directional
+                    && is_trending
+                {
                     3
                 } else {
                     0
@@ -1234,9 +1247,14 @@ fn compute_opportunity(
                 },
                 3,
             ),
-            OpportunityType::Breakout => {
-                (if vol_dim >= 70.0 && struct_dim >= 60.0 { 2 } else { 0 }, 2)
-            }
+            OpportunityType::Breakout => (
+                if vol_dim >= 70.0 && struct_dim >= 60.0 {
+                    2
+                } else {
+                    0
+                },
+                2,
+            ),
             OpportunityType::Reversal => (
                 if has_confirmed_divergence && structure_broken && momentum_exhausted {
                     3
@@ -1245,12 +1263,15 @@ fn compute_opportunity(
                 },
                 3,
             ),
-            OpportunityType::Pullback => {
-                (if trend_dim >= 60.0 && momentum_weakening { 2 } else { 0 }, 2)
-            }
-            OpportunityType::MeanReversion => {
-                (if vol_dim <= 30.0 && is_range { 2 } else { 0 }, 2)
-            }
+            OpportunityType::Pullback => (
+                if trend_dim >= 60.0 && momentum_weakening {
+                    2
+                } else {
+                    0
+                },
+                2,
+            ),
+            OpportunityType::MeanReversion => (if vol_dim <= 30.0 && is_range { 2 } else { 0 }, 2),
             // v6.10.19a (N1): NoClearOpportunity is the unconditional
             // "no setup detected" sentinel — it must never read "met".
             // The previous `tradability_dim < 30` gate let a weak-market
@@ -1425,8 +1446,7 @@ fn compute_opportunity(
 
     let time_horizon = default_time_horizon(primary_opportunity).to_string();
 
-    let forecast_confidence =
-        (analysis.state_confidence * (primary_score / 100.0)).clamp(0.0, 1.0);
+    let forecast_confidence = (analysis.state_confidence * (primary_score / 100.0)).clamp(0.0, 1.0);
 
     // Second pass: build each `OpportunityProfile` from precomputed zones,
     // R:R ratios, and the profile's own `direction_family` (which is a
@@ -1453,65 +1473,73 @@ fn compute_opportunity(
         // The tuple is (long_ez, long_tz, long_inv, long_rr, short_ez,
         // short_tz, short_inv, short_rr). Sides that don't apply carry
         // `None` for zones and 0.0 for R:R.
-        let (pf_long_ez, pf_long_tz, pf_long_inv, pf_long_rr, pf_short_ez, pf_short_tz, pf_short_inv, pf_short_rr) =
-            match (profile_family, bias_bullish, bias_bearish) {
-                (analysis::DirectionFamily::TrendRiding, true, _) => (
-                    Some(long_entry_zone.clone()),
-                    Some(long_target_zone.clone()),
-                    Some(long_invalidation_level),
-                    long_expected_rr_internal.unwrap_or(0.0),
-                    None,
-                    None,
-                    None,
-                    0.0,
-                ),
-                (analysis::DirectionFamily::TrendRiding, false, true) => (
-                    None,
-                    None,
-                    None,
-                    0.0,
-                    Some(short_entry_zone.clone()),
-                    Some(short_target_zone.clone()),
-                    Some(short_invalidation_level),
-                    short_expected_rr_internal.unwrap_or(0.0),
-                ),
-                (analysis::DirectionFamily::CounterTrend, true, _)
-                | (analysis::DirectionFamily::CounterTrend, false, true) => {
-                    // 4b: CounterTrend profiles surface the side the
-                    // market data supports (z-score for MeanReversion,
-                    // divergence direction for Reversal); family × bias
-                    // is the fallback when the data is ambiguous.
-                    let ct_long = countertrend_resolved_long.unwrap_or(!bias_bullish);
-                    if ct_long {
-                        (
-                            Some(long_entry_zone.clone()),
-                            Some(long_target_zone.clone()),
-                            Some(long_invalidation_level),
-                            long_expected_rr_internal.unwrap_or(0.0),
-                            None,
-                            None,
-                            None,
-                            0.0,
-                        )
-                    } else {
-                        (
-                            None,
-                            None,
-                            None,
-                            0.0,
-                            Some(short_entry_zone.clone()),
-                            Some(short_target_zone.clone()),
-                            Some(short_invalidation_level),
-                            short_expected_rr_internal.unwrap_or(0.0),
-                        )
-                    }
+        let (
+            pf_long_ez,
+            pf_long_tz,
+            pf_long_inv,
+            pf_long_rr,
+            pf_short_ez,
+            pf_short_tz,
+            pf_short_inv,
+            pf_short_rr,
+        ) = match (profile_family, bias_bullish, bias_bearish) {
+            (analysis::DirectionFamily::TrendRiding, true, _) => (
+                Some(long_entry_zone.clone()),
+                Some(long_target_zone.clone()),
+                Some(long_invalidation_level),
+                long_expected_rr_internal.unwrap_or(0.0),
+                None,
+                None,
+                None,
+                0.0,
+            ),
+            (analysis::DirectionFamily::TrendRiding, false, true) => (
+                None,
+                None,
+                None,
+                0.0,
+                Some(short_entry_zone.clone()),
+                Some(short_target_zone.clone()),
+                Some(short_invalidation_level),
+                short_expected_rr_internal.unwrap_or(0.0),
+            ),
+            (analysis::DirectionFamily::CounterTrend, true, _)
+            | (analysis::DirectionFamily::CounterTrend, false, true) => {
+                // 4b: CounterTrend profiles surface the side the
+                // market data supports (z-score for MeanReversion,
+                // divergence direction for Reversal); family × bias
+                // is the fallback when the data is ambiguous.
+                let ct_long = countertrend_resolved_long.unwrap_or(!bias_bullish);
+                if ct_long {
+                    (
+                        Some(long_entry_zone.clone()),
+                        Some(long_target_zone.clone()),
+                        Some(long_invalidation_level),
+                        long_expected_rr_internal.unwrap_or(0.0),
+                        None,
+                        None,
+                        None,
+                        0.0,
+                    )
+                } else {
+                    (
+                        None,
+                        None,
+                        None,
+                        0.0,
+                        Some(short_entry_zone.clone()),
+                        Some(short_target_zone.clone()),
+                        Some(short_invalidation_level),
+                        short_expected_rr_internal.unwrap_or(0.0),
+                    )
                 }
-                (analysis::DirectionFamily::Neutral, _, _)
-                | (analysis::DirectionFamily::TrendRiding, _, _)
-                | (analysis::DirectionFamily::CounterTrend, _, _) => (
-                    None, None, None, 0.0, None, None, None, 0.0,
-                ),
-            };
+            }
+            (analysis::DirectionFamily::Neutral, _, _)
+            | (analysis::DirectionFamily::TrendRiding, _, _)
+            | (analysis::DirectionFamily::CounterTrend, _, _) => {
+                (None, None, None, 0.0, None, None, None, 0.0)
+            }
+        };
 
         // Per-profile `trade_viability`: only set when the profile is
         // the PRIMARY opportunity. The frontend uses this to highlight
@@ -1586,8 +1614,7 @@ fn compute_opportunity(
         .iter()
         .filter(|p| {
             p.preconditions_met > 0
-                && p.opportunity_type
-                    != core_domain::analysis::OpportunityType::NoClearOpportunity
+                && p.opportunity_type != core_domain::analysis::OpportunityType::NoClearOpportunity
         })
         .max_by(|a, b| {
             a.score
@@ -1705,13 +1732,12 @@ fn compute_opportunity(
     // when the primary is NoClearOpportunity AND the regime reads as a
     // range — a valid non-directional frame so the Range folder never
     // sits empty, informational only (never Actionable).
-    let neutral_reference_bracket = if primary_opportunity == OpportunityType::NoClearOpportunity
-        && is_range
-    {
-        derive_neutral_bracket(indicators, close)
-    } else {
-        None
-    };
+    let neutral_reference_bracket =
+        if primary_opportunity == OpportunityType::NoClearOpportunity && is_range {
+            derive_neutral_bracket(indicators, close)
+        } else {
+            None
+        };
 
     Some(OpportunityMatrix {
         symbol: analysis.symbol.clone(),
@@ -1759,8 +1785,13 @@ pub fn synthesize_cross_tf(
     previous_volume_dim: Option<f64>,
     previous_bias: Option<core_domain::analysis::MarketBias>,
 ) -> CrossTfSynthesisResult {
-    let tf_data: Vec<(
-        &str,
+    // AUDIT-C2: labels are collected as owned `String`s first, then borrowed
+    // for the alignment call. Previously the label was created *inside* the
+    // filter_map closure and coerced to `&'static str` via `Box::leak` — one
+    // leaked allocation per timeframe per candle close, unbounded over the
+    // daemon lifetime (10+ MB/day on 1 s TFs). No allocation escapes here.
+    let tf_data_owned: Vec<(
+        String,
         u64,
         f64,
         &HashMap<String, NormalizedIndicatorValue>,
@@ -1770,9 +1801,18 @@ pub fn synthesize_cross_tf(
         .filter_map(|(secs, snap)| {
             let ctx = snap.context.as_ref()?;
             let price = snap.close.as_ref().and_then(|d| d.to_f64()).unwrap_or(0.0);
-            let label = slot_label(snap);
-            Some((label_box_to_static(&label), *secs, price, &snap.indicators, ctx))
+            Some((slot_label(snap), *secs, price, &snap.indicators, ctx))
         })
+        .collect();
+    let tf_data: Vec<(
+        &str,
+        u64,
+        f64,
+        &HashMap<String, NormalizedIndicatorValue>,
+        &MarketContext,
+    )> = tf_data_owned
+        .iter()
+        .map(|(label, secs, price, map, ctx)| (label.as_str(), *secs, *price, *map, *ctx))
         .collect();
 
     let alignment = alignment::compute_alignment(symbol, &tf_data);
@@ -1790,8 +1830,7 @@ pub fn synthesize_cross_tf(
     // iteration order of `tf_snapshots` (micro, fast, slow, macro —
     // fastest candle first, so a populated faster TF shadows a stale
     // slower TF).
-    let mut representative_indicators: HashMap<String, NormalizedIndicatorValue> =
-        HashMap::new();
+    let mut representative_indicators: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
     for (_, snap) in tf_snapshots {
         for (k, v) in &snap.indicators {
             representative_indicators
@@ -1923,17 +1962,11 @@ fn sync_analysis_opportunity(
     } else if analysis.market_interpretation.is_empty() {
         analysis.market_interpretation = clause.to_string();
     } else {
-        analysis.market_interpretation.push_str(&format!(" {}", clause));
+        analysis
+            .market_interpretation
+            .push_str(&format!(" {}", clause));
     }
     analysis
-}
-
-/// Leak a per-call `slot_label` String into a `&'static str`. Acceptable in
-/// the small-N synthesis path (≤ 16 timeframes per call) — the leaked
-/// memory is bounded by the per-call allocation cost and is reclaimed when
-/// the host process exits.
-fn label_box_to_static(s: &String) -> &'static str {
-    Box::leak(s.clone().into_boxed_str())
 }
 
 #[allow(dead_code)]
@@ -2148,7 +2181,17 @@ mod tests {
     fn synthesize_single_tf_works() {
         let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
         let snap = make_snapshot(60, 64000.0, ctx);
-        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, &[], None, None, None, None);
+        let result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &snap)],
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            None,
+        );
         assert_eq!(result.alignment.timeframes_present, 1);
         assert_eq!(result.alignment.dimensions.len(), 10);
         assert!(result.analysis.state_confidence <= 0.5);
@@ -2175,7 +2218,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         assert_eq!(result.alignment.timeframes_present, 4);
         assert!(result.alignment.mtf_overall_score > 0.0);
@@ -2209,7 +2252,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         assert!(result.alignment.mtf_overall_score.abs() < 40.0);
     }
@@ -2235,7 +2278,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(opp.long_entry_zone.high >= opp.long_entry_zone.low);
@@ -2328,7 +2371,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(
@@ -2374,13 +2417,11 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
-        let long_target_mid =
-            (opp.long_target_zone.low + opp.long_target_zone.high) / 2.0;
-        let short_target_mid =
-            (opp.short_target_zone.low + opp.short_target_zone.high) / 2.0;
+        let long_target_mid = (opp.long_target_zone.low + opp.long_target_zone.high) / 2.0;
+        let short_target_mid = (opp.short_target_zone.low + opp.short_target_zone.high) / 2.0;
         let close = 64000.0;
         assert!(
             long_target_mid >= close,
@@ -2413,7 +2454,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         let close = 64000.0;
@@ -2450,7 +2491,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(matches!(
@@ -2485,7 +2526,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(matches!(
@@ -2496,7 +2537,7 @@ mod tests {
         assert_eq!(opp.entry_zone.high, opp.short_entry_zone.high);
         assert_eq!(opp.target_zone.low, opp.short_target_zone.low);
         assert_eq!(opp.target_zone.high, opp.short_target_zone.high);
-            assert_eq!(opp.invalidation_level, opp.short_invalidation_level);
+        assert_eq!(opp.invalidation_level, opp.short_invalidation_level);
     }
 
     // ─── v6.10.1 (bug-fix): the four regression-locking tests for the
@@ -2528,16 +2569,22 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
 
-        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let opp = result
+            .opportunity
+            .as_ref()
+            .expect("opportunity must be emitted");
         assert!(!opp.profiles.is_empty());
 
         // Every non-NoClear profile must have a non-zero score now
         // (the previous v6.10 implementation forced every score with
         // 0/N preconditions to 0).
-        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let opp = result
+            .opportunity
+            .as_ref()
+            .expect("opportunity must be emitted");
         for p in &opp.profiles {
             if p.opportunity_type != analysis::OpportunityType::NoClearOpportunity {
                 assert!(
@@ -2569,16 +2616,22 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
 
-        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let opp = result
+            .opportunity
+            .as_ref()
+            .expect("opportunity must be emitted");
         let no_clear = opp
             .profiles
             .iter()
             .find(|p| p.opportunity_type == analysis::OpportunityType::NoClearOpportunity)
             .expect("NoClearOpportunity profile must be present in every OpportunityMatrix");
-        assert_eq!(no_clear.score, 0.0, "NoClearOpportunity must stay at score 0");
+        assert_eq!(
+            no_clear.score, 0.0,
+            "NoClearOpportunity must stay at score 0"
+        );
     }
 
     #[test]
@@ -2599,10 +2652,13 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
 
-        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let opp = result
+            .opportunity
+            .as_ref()
+            .expect("opportunity must be emitted");
         for p in &opp.profiles {
             let sf = p
                 .scoring_factors
@@ -2674,10 +2730,13 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
 
-        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let opp = result
+            .opportunity
+            .as_ref()
+            .expect("opportunity must be emitted");
         assert!(!opp.profiles.is_empty());
         let mut saw_dead_with_raw_viability = false;
         for p in &opp.profiles {
@@ -2691,9 +2750,17 @@ mod tests {
             }
             if p.preconditions_met == 0 {
                 // 0/N → the operator-facing score is muted to 0 …
-                assert_eq!(display, 0.0, "{:?} with 0/N preconditions must display 0", p.opportunity_type);
+                assert_eq!(
+                    display, 0.0,
+                    "{:?} with 0/N preconditions must display 0",
+                    p.opportunity_type
+                );
                 // … but the raw viability blend must still surface.
-                assert!(p.score > 0.0, "{:?} raw score must survive the scale", p.opportunity_type);
+                assert!(
+                    p.score > 0.0,
+                    "{:?} raw score must survive the scale",
+                    p.opportunity_type
+                );
                 saw_dead_with_raw_viability = true;
             }
         }
@@ -2721,13 +2788,16 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
 
         // The headline `opportunity_score` equals the selected primary
         // profile's `score` (synthesis.rs:916-920). After the fix both
         // are equal to the primary profile's raw viability.
-        let opp = result.opportunity.as_ref().expect("opportunity must be emitted");
+        let opp = result
+            .opportunity
+            .as_ref()
+            .expect("opportunity must be emitted");
         let primary_type = opp.primary_opportunity;
         let primary_profile = opp
             .profiles
@@ -2783,7 +2853,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
 
@@ -2793,8 +2863,7 @@ mod tests {
         // fibonacci from TF4 (or whichever later TF has it) and the
         // entry/target pools populate.
         assert!(
-            !opp.confluent_entry_levels.is_empty()
-                || !opp.confluent_target_levels.is_empty(),
+            !opp.confluent_entry_levels.is_empty() || !opp.confluent_target_levels.is_empty(),
             "confluent levels must populate from a later TF even when TF1 \
              lacks fibonacci (got entry={:?}, target={:?})",
             opp.confluent_entry_levels.len(),
@@ -2829,7 +2898,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
 
@@ -2875,7 +2944,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let bull_opp = bull_result.opportunity.expect("bullish opp");
         let close = 64000.0_f64;
@@ -2910,7 +2979,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
         let bear_opp = bear_result.opportunity.expect("bearish opp");
         let bear_entry = bear_opp
@@ -2932,7 +3001,6 @@ mod tests {
             bear_target.price
         );
     }
-
 
     #[test]
 
@@ -2973,7 +3041,7 @@ mod tests {
             None,
             None,
             None,
-        None,
+            None,
         );
 
         let rows = &result.alignment.timeframe_alignments;
@@ -3024,7 +3092,10 @@ mod tests {
         analysis.market_regime = MarketRegime::Range;
         let opp_range = compute_opportunity(&analysis, &alignment, &indicators, None, None, 100.0)
             .expect("range opportunity");
-        assert_eq!(opp_range.primary_opportunity, OpportunityType::MeanReversion);
+        assert_eq!(
+            opp_range.primary_opportunity,
+            OpportunityType::MeanReversion
+        );
         let p = opp_range
             .profiles
             .iter()
@@ -3108,7 +3179,8 @@ mod tests {
         use std::collections::HashMap;
 
         let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
-        let insert_divergence = |ind: &mut HashMap<String, NormalizedIndicatorValue>, label: &str| {
+        let insert_divergence = |ind: &mut HashMap<String, NormalizedIndicatorValue>,
+                                 label: &str| {
             ind.insert(
                 "rsi".into(),
                 NormalizedIndicatorValue {
@@ -3162,8 +3234,6 @@ mod tests {
         let mut alignment = AlignmentMatrix::empty("BTC-USD");
         alignment.mtf_volatility_alignment = -0.5;
 
-
-
         // z ≥ +threshold → SHORT (sell the rip): the profile surfaces
         // SHORT zones, and the 4a matrix-level surfaces follow it.
         let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
@@ -3175,7 +3245,10 @@ mod tests {
             .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::MeanReversion);
         let p = find_profile(&opp, OpportunityType::MeanReversion);
-        assert!(p.long_entry_zone.is_none(), "z>0 must not surface LONG zones");
+        assert!(
+            p.long_entry_zone.is_none(),
+            "z>0 must not surface LONG zones"
+        );
         assert!(
             p.short_entry_zone.is_some(),
             "z>0 must surface SHORT zones (sell the rip)"
@@ -3198,7 +3271,10 @@ mod tests {
         let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0)
             .expect("opportunity");
         let p = find_profile(&opp, OpportunityType::MeanReversion);
-        assert!(p.short_entry_zone.is_none(), "z<0 must not surface SHORT zones");
+        assert!(
+            p.short_entry_zone.is_none(),
+            "z<0 must not surface SHORT zones"
+        );
         assert!(
             p.long_entry_zone.is_some(),
             "z<0 must surface LONG zones (buy the dip)"
@@ -3250,8 +3326,6 @@ mod tests {
         }
         alignment.mtf_momentum_alignment = -0.8; // momentum_dim = 10
 
-
-
         let divergence_label = |label: &str| {
             let mut ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
             ind.insert(
@@ -3284,8 +3358,12 @@ mod tests {
         )
         .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::Reversal);
-        assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_some());
-        assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_none());
+        assert!(find_profile(&opp, OpportunityType::Reversal)
+            .long_entry_zone
+            .is_some());
+        assert!(find_profile(&opp, OpportunityType::Reversal)
+            .short_entry_zone
+            .is_none());
         assert!(opp.invalidation_note.starts_with("A close below "));
 
         let opp = compute_opportunity(
@@ -3298,8 +3376,12 @@ mod tests {
         )
         .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::Reversal);
-        assert!(find_profile(&opp, OpportunityType::Reversal).short_entry_zone.is_some());
-        assert!(find_profile(&opp, OpportunityType::Reversal).long_entry_zone.is_none());
+        assert!(find_profile(&opp, OpportunityType::Reversal)
+            .short_entry_zone
+            .is_some());
+        assert!(find_profile(&opp, OpportunityType::Reversal)
+            .long_entry_zone
+            .is_none());
         assert!(opp.invalidation_note.starts_with("A close above "));
     }
 
@@ -3445,7 +3527,10 @@ mod tests {
             bracket.target_zone.low,
             bracket.entry_zone.high
         );
-        assert!(bracket.expected_rr_internal > 0.0, "valid frame must carry R:R");
+        assert!(
+            bracket.expected_rr_internal > 0.0,
+            "valid frame must carry R:R"
+        );
         assert!(
             !bracket.rationale.is_empty(),
             "rationale must explain the frame origin"

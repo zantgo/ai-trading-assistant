@@ -265,6 +265,12 @@ pub struct IndicatorsConfig {
     pub rvol_threshold_institutional: f64,
     #[serde(default = "default_rvol_threshold_climax")]
     pub rvol_threshold_climax: f64,
+    /// Operator-selected integer × leverage tiers for the liquidation
+    /// heatmap tier highlight (each ∈ [1, 100], default `[10]`). The
+    /// dashboard's heatmap tier picker persists selections here; the
+    /// frontend consumes it via `/api/config` so tiers survive reloads.
+    #[serde(default = "default_heatmap_leverage_tiers")]
+    pub heatmap_leverage_tiers: Vec<u32>,
     /// AUDIT-AIU-072: the pivot-points method (classic/fibonacci/camarilla/
     /// woodie) was declared in the registry `config_params` but never wired —
     /// the analyzer hardcoded `Classic`.
@@ -356,6 +362,7 @@ impl Default for IndicatorsConfig {
             volume_average_period: default_volume_average_period(),
             rvol_threshold_institutional: default_rvol_threshold_institutional(),
             rvol_threshold_climax: default_rvol_threshold_climax(),
+            heatmap_leverage_tiers: default_heatmap_leverage_tiers(),
             pivot_points_method: default_pivot_points_method(),
             candlestick_min_confidence: default_candlestick_min_confidence(),
             ichimoku_tenkan: default_ichimoku_tenkan(),
@@ -518,6 +525,10 @@ fn default_rvol_threshold_institutional() -> f64 {
 fn default_rvol_threshold_climax() -> f64 {
     3.0
 }
+
+fn default_heatmap_leverage_tiers() -> Vec<u32> {
+    vec![10]
+}
 fn default_pivot_points_method() -> String {
     "classic".to_string()
 }
@@ -561,7 +572,7 @@ fn default_smc_lookback() -> usize {
     20
 }
 fn default_volume_profile_bins() -> usize {
-    50
+    100
 }
 fn default_volume_profile_window() -> usize {
     500
@@ -645,7 +656,10 @@ fn default_ob_wall_threshold() -> f64 {
     // against the total top-N volume (a ratio mathematically ≤ 1.0), so any
     // threshold > 1.0 can never fire. 0.5 = a wall holding ≥ 50% of the
     // top-of-book volume. Unit tests used 0.15–0.5; production now uses a
-    // sane default and the config is overridable via `[order_book]`.
+    // sane default. NOTE (2026-08-17 audit): despite the historical claim,
+    // there is NO `[order_book]` section in the config surface — the
+    // runtime hardcodes `OrderBookConfig::default()` in the pipeline
+    // constructor; tuning these defaults requires a code change.
     0.5
 }
 fn default_ob_spread_warning() -> f64 {
@@ -876,7 +890,10 @@ impl OperationalMode {
     /// True when this mode permits the execution layer to submit orders
     /// (either simulated or real).
     pub fn is_trading(&self) -> bool {
-        matches!(self, OperationalMode::PaperTrading | OperationalMode::LiveTrading)
+        matches!(
+            self,
+            OperationalMode::PaperTrading | OperationalMode::LiveTrading
+        )
     }
 }
 
@@ -1013,13 +1030,11 @@ impl Default for DefaultsConfig {
     }
 }
 
-/// Opportunity-matrix knobs (v6.10). The confluent-level synthesis in
-/// `market-analyzer::synthesis::derive_confluent_zones` consults
-/// `confluent_atr_fallback.enabled` — when true and every structural
-/// source (Fibonacci / Volume Profile / Pivot Points / Liquidation
-/// Clusters) is empty, the synthesis emits a single entry and target
-/// level derived from `close ± k·ATR` so the Opportunities panel never
-/// shows "No confluent levels" for a healthy market.
+/// Opportunity-matrix knobs (v6.10). **Advisory-only (2026-08-17 audit):
+/// no runtime reader exists** — `market-analyzer::synthesis::derive_confluent_zones`
+/// hardcodes `FALLBACK_ENABLED = true`, `K_ENTRY = 1.5`, `K_TARGET = 2.5`
+/// (the workspace-config threading is a tracked follow-up). Tuning these
+/// keys currently has NO effect on the emitted levels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpportunityMatrixConfig {
     #[serde(default = "default_confluent_atr_fallback_enabled")]
@@ -1276,6 +1291,44 @@ impl Default for LiquidityConfig {
             hyperliquid_user_address: String::new(),
         }
     }
+}
+
+/// API-failover tolerance knobs for the derivatives-data pollers.
+/// `max_consecutive_failures` is consumed by the Hyperliquid derivatives
+/// poller (it permanently disables the poller after this many consecutive
+/// REST failures); `max_retries_per_call` / `retry_delay_seconds` are
+/// reserved for per-call retry behavior and carried for operator
+/// visibility and future wiring.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ApiFailoverConfig {
+    #[serde(default = "default_failover_max_retries")]
+    pub max_retries_per_call: u32,
+    #[serde(default = "default_failover_retry_delay_seconds")]
+    pub retry_delay_seconds: u32,
+    #[serde(default = "default_failover_max_consecutive_failures")]
+    pub max_consecutive_failures: u32,
+}
+
+impl Default for ApiFailoverConfig {
+    fn default() -> Self {
+        Self {
+            max_retries_per_call: default_failover_max_retries(),
+            retry_delay_seconds: default_failover_retry_delay_seconds(),
+            max_consecutive_failures: default_failover_max_consecutive_failures(),
+        }
+    }
+}
+
+fn default_failover_max_retries() -> u32 {
+    5
+}
+
+fn default_failover_retry_delay_seconds() -> u32 {
+    30
+}
+
+fn default_failover_max_consecutive_failures() -> u32 {
+    30
 }
 
 /// AUDIT-AIU-057: per-signal confidence defaults for the liquidity layer.
@@ -1699,11 +1752,21 @@ pub struct ReconnectConfig {
     pub disconnect_grace_ms: u64,
 }
 
-fn default_reconnect_initial_ms() -> u64 { 1000 }
-fn default_reconnect_max_ms() -> u64 { 30000 }
-fn default_reconnect_jitter() -> f64 { 0.2 }
-fn default_reconnect_connect_grace_ms() -> u64 { 2000 }
-fn default_reconnect_disconnect_grace_ms() -> u64 { 5000 }
+fn default_reconnect_initial_ms() -> u64 {
+    1000
+}
+fn default_reconnect_max_ms() -> u64 {
+    30000
+}
+fn default_reconnect_jitter() -> f64 {
+    0.2
+}
+fn default_reconnect_connect_grace_ms() -> u64 {
+    2000
+}
+fn default_reconnect_disconnect_grace_ms() -> u64 {
+    5000
+}
 
 impl Default for ReconnectConfig {
     fn default() -> Self {

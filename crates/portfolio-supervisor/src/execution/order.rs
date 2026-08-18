@@ -1,6 +1,4 @@
-use config_models::{
-    Direction, OrderPacket, OrderSide, OrderType, Stance,
-};
+use config_models::{Direction, OrderPacket, OrderSide, OrderType, Stance};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -20,7 +18,12 @@ pub fn construct_order(
         "{}_{}_{}",
         trigger.policy_id,
         trigger.trigger_timestamp,
-        uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect::<String>()
+        uuid::Uuid::new_v4()
+            .simple()
+            .to_string()
+            .chars()
+            .take(8)
+            .collect::<String>()
     );
 
     let side = match trigger.direction {

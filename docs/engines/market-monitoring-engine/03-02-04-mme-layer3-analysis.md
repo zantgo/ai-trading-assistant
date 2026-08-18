@@ -66,10 +66,12 @@ The layer classifies the structural regime from the alignment score and per-time
 | `CONTRACTION` | `bbwp ≤ 10` (priority 1) |
 | `TRENDING_BULL` | `adx ≥ 25` AND `score > +20` (priority 2) |
 | `TRENDING_BEAR` | `adx ≥ 25` AND `score < -20` (priority 2) |
-| `ACCUMULATION` | bullish slope (score rising over 3 bars) AND `score ≥ 0` AND no expansion (priority 3) |
-| `DISTRIBUTION` | bearish slope (score falling over 3 bars) AND `score ≤ 0` AND no expansion (priority 4) |
-| `TRANSITION` | `adx < 25` AND `bbwp` in `(10, 85)` AND regime shifted within last 3 bars (priority 5) |
+| `ACCUMULATION` | 1-bar score delta (`score − previous_score`) `> 0` AND `score ≥ 0` AND no expansion (priority 3) |
+| `DISTRIBUTION` | 1-bar score delta `< 0` AND `score ≤ 0` AND no expansion (priority 4) |
+| `TRANSITION` | `adx < 25` AND `bbwp` in `(10, 85)` AND `previous_regime != RANGE` on the previous **1** bar (priority 5) |
 | `RANGE` | default — none of the above (priority 6) |
+
+`ACCUMULATION` / `DISTRIBUTION` fire on the **single-bar score delta** (the prior bar's `mtf_overall_score` — not a 3-bar slope), and `TRANSITION` fires when the **previous bar's** regime was not `RANGE` (a 1-bar shift, not a 3-bar window). Regime enum values serialize PascalCase on the wire (`TrendingBull` / `TrendingBear` / `Range` / `Accumulation` / `Distribution` / `Expansion` / `Contraction` / `Transition`); the SCREAMING forms above are the `Display` vocabulary.
 
 The full decision tree with detailed conditions lives in the canonical Analysis Matrix spec; this layer is a thin executor of that tree. Regime detection is continuous — it re-evaluates on every completed candle, enabling downstream layers to adapt (e.g. the Decision Layer's strategy environment).
 
@@ -83,16 +85,16 @@ Each is derived from a specific alignment dimension score (see [Analysis Matrix 
 
 | Assessment | Source dim | Vocabulary |
 |-----------|-----------|-----------|
-| Trend | 0 | `WEAK` / `DEVELOPING` / `HEALTHY` / `STRONG` / `EXHAUSTED` / `UNKNOWN` |
-| Momentum | 1 | `INCREASING` / `STABLE` / `WEAKENING` / `REVERSING` / `UNKNOWN` |
-| Volume | 2 | `WEAK` / `NORMAL` / `STRONG` / `EXCEPTIONAL` / `UNKNOWN` |
-| Volatility | 3 | `COMPRESSED` / `NORMAL` / `EXPANDING` / `EXTREME` / `UNSTABLE` / `UNKNOWN` |
+| Trend | 0 | `WEAK` / `DEVELOPING` / `HEALTHY` / `STRONG` / `EXHAUSTED` |
+| Momentum | 1 | `INCREASING` / `STABLE` / `WEAKENING` / `EXHAUSTED` / `REVERSING` |
+| Volume | 2 | `WEAK` / `NORMAL` / `STRONG` / `EXCEPTIONAL` |
+| Volatility | 3 | `COMPRESSED` / `NORMAL` / `EXPANDING` / `EXTREME` / `UNSTABLE` |
 | Structure | 4 | `STRONG` / `HEALTHY` / `WEAK` / `BROKEN` / `UNKNOWN` |
 | Quality | mean(0,1,2,4) | `POOR` / `WEAK` / `AVERAGE` / `GOOD` / `EXCELLENT` |
 
 *Note: the `Opportunity` assessment was removed in the institutional redesign — `OpportunityType` is now produced by L4 (the [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md)) as a forecast field, not a state interpretation.*
 
-*Note: `UNKNOWN` is the empty-state sentinel admitted by every assessment enum (mirroring [02-02-analysis-matrix.md §3.5–3.8](../../matrices/02-02-analysis-matrix.md)); the Structure enum's former `UNCLEAR` value was renamed `UNKNOWN`, and enum values serialize as `SCREAMING_SNAKE_CASE`.*
+*Note: only `StructureAssessment` admits `UNKNOWN`; Trend / Momentum / Volatility / Volume have **no** `UNKNOWN` variant (their fall-through bands are `EXHAUSTED` / `REVERSING` / `UNSTABLE` / `WEAK`). Enum values serialize **PascalCase** on the wire (`Weak` / `Developing` / `Healthy` / `Strong` / `Exhausted`; `Compressed` / `Normal` / `Expanding` / `Extreme` / `Unstable`; `Poor` / `Weak` / `Average` / `Good` / `Excellent`); the SCREAMING forms above are the `Display` vocabulary.*
 
 ### 4.1 Numeric companions (v6.12)
 

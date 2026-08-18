@@ -51,12 +51,14 @@ describe('SnapshotSchedulerModal — empty state', () => {
     it('renders the title + form with all 9 tabs when no status loaded', () => {
         renderModal();
         expect(screen.getByText('SCHEDULE SNAPSHOTS', { selector: 'h3' })).toBeTruthy();
-        // All 9 tabs should be present as chips.
-        expect(screen.getByText(/Alignment \(L2\)/)).toBeTruthy();
-        expect(screen.getByText(/Opportunity \(L4\)/)).toBeTruthy();
-        expect(screen.getByText(/Risk \(L5\)/)).toBeTruthy();
-        expect(screen.getByText(/Analysis \(L3\)/)).toBeTruthy();
-        expect(screen.getByText(/Advisory \(L6\)/)).toBeTruthy();
+        // All 9 tabs should be present as chips. Labels are honest about
+        // the payload type: scheduled exports are server-side raw serde
+        // dumps, NOT the per-tab GUI builder shapes (audit C3).
+        expect(screen.getByText(/Alignment matrix \(raw\)/)).toBeTruthy();
+        expect(screen.getByText(/Opportunity matrix \(raw\)/)).toBeTruthy();
+        expect(screen.getByText(/Risk matrix \(raw\)/)).toBeTruthy();
+        expect(screen.getByText(/Analysis matrix \(raw\)/)).toBeTruthy();
+        expect(screen.getByText(/Advisory matrix \(raw\)/)).toBeTruthy();
     });
 });
 

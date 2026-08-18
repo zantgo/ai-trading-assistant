@@ -27,10 +27,7 @@ pub async fn reconstruct_trades(pool: &SqlitePool) -> Vec<TradeAnalyticsRecord> 
     records
 }
 
-async fn build_record(
-    pool: &SqlitePool,
-    row: &TelemetryQueryRow,
-) -> TradeAnalyticsRecord {
+async fn build_record(pool: &SqlitePool, row: &TelemetryQueryRow) -> TradeAnalyticsRecord {
     let hold_time_seconds = ((row.exit_timestamp - row.entry_timestamp).max(0) / 1000) as u64;
     let gross_pnl = row.realized_pnl;
     let fees = row.commission_fees + row.funding_fees;
@@ -64,10 +61,7 @@ async fn build_record(
     }
 }
 
-async fn build_paper_record(
-    pool: &SqlitePool,
-    row: &PaperTradeQueryRow,
-) -> TradeAnalyticsRecord {
+async fn build_paper_record(pool: &SqlitePool, row: &PaperTradeQueryRow) -> TradeAnalyticsRecord {
     let hold_time_seconds = ((row.exit_timestamp - row.entry_timestamp).max(0) / 1000) as u64;
     let gross_pnl = row.realized_pnl;
     let net_pnl = row.realized_pnl;
@@ -116,12 +110,23 @@ async fn estimate_slippage(_pool: &SqlitePool, row: &TelemetryQueryRow) -> f64 {
     diff.min(expected_per_unit.abs())
 }
 
-async fn compute_mfe_mae(
-    pool: &SqlitePool,
-    row: &TelemetryQueryRow,
-) -> (f64, f64) {
-    let mfe_val = query_market_extreme(pool, &row.symbol, row.entry_timestamp, row.exit_timestamp, true).await;
-    let mae_val = query_market_extreme(pool, &row.symbol, row.entry_timestamp, row.exit_timestamp, false).await;
+async fn compute_mfe_mae(pool: &SqlitePool, row: &TelemetryQueryRow) -> (f64, f64) {
+    let mfe_val = query_market_extreme(
+        pool,
+        &row.symbol,
+        row.entry_timestamp,
+        row.exit_timestamp,
+        true,
+    )
+    .await;
+    let mae_val = query_market_extreme(
+        pool,
+        &row.symbol,
+        row.entry_timestamp,
+        row.exit_timestamp,
+        false,
+    )
+    .await;
 
     let is_long = row.direction.to_uppercase() == "LONG";
     let (mfe, mae) = if is_long {
@@ -153,12 +158,23 @@ async fn compute_mfe_mae(
     (mfe.max(0.0), mae.min(0.0))
 }
 
-async fn compute_mfe_mae_for_paper(
-    pool: &SqlitePool,
-    row: &PaperTradeQueryRow,
-) -> (f64, f64) {
-    let mfe_val = query_market_extreme(pool, &row.symbol, row.entry_timestamp, row.exit_timestamp, true).await;
-    let mae_val = query_market_extreme(pool, &row.symbol, row.entry_timestamp, row.exit_timestamp, false).await;
+async fn compute_mfe_mae_for_paper(pool: &SqlitePool, row: &PaperTradeQueryRow) -> (f64, f64) {
+    let mfe_val = query_market_extreme(
+        pool,
+        &row.symbol,
+        row.entry_timestamp,
+        row.exit_timestamp,
+        true,
+    )
+    .await;
+    let mae_val = query_market_extreme(
+        pool,
+        &row.symbol,
+        row.entry_timestamp,
+        row.exit_timestamp,
+        false,
+    )
+    .await;
 
     let is_long = row.direction.to_uppercase() == "LONG";
     let (mfe, mae) = if is_long {
@@ -203,7 +219,10 @@ async fn query_market_extreme(
          WHERE symbol = ?1 AND timestamp >= ?2 AND timestamp <= ?3
          AND {} IS NOT NULL AND {} != ''
          ORDER BY CAST({} AS REAL) {} LIMIT 1",
-        column, column, column, column,
+        column,
+        column,
+        column,
+        column,
         if is_high { "DESC" } else { "ASC" }
     );
 
@@ -324,7 +343,10 @@ mod tests {
 
     #[test]
     fn test_derive_exit_reason_take_profit() {
-        assert_eq!(derive_exit_reason("TAKE_PROFIT_TARGET", 100.0), "TAKE_PROFIT");
+        assert_eq!(
+            derive_exit_reason("TAKE_PROFIT_TARGET", 100.0),
+            "TAKE_PROFIT"
+        );
         assert_eq!(derive_exit_reason("TP_LEVEL", 75.0), "TAKE_PROFIT");
     }
 
@@ -336,7 +358,10 @@ mod tests {
 
     #[test]
     fn test_derive_exit_reason_liquidation() {
-        assert_eq!(derive_exit_reason("LIQUIDATION", -200.0), "EMERGENCY_LIQUIDATION");
+        assert_eq!(
+            derive_exit_reason("LIQUIDATION", -200.0),
+            "EMERGENCY_LIQUIDATION"
+        );
         assert_eq!(derive_exit_reason("LIQ", -200.0), "EMERGENCY_LIQUIDATION");
     }
 

@@ -5,6 +5,7 @@
 // new R:R availability helper. Adds the missing visual blocks
 // (directional bars, no-clear strip, hold scenario note, viability).
 
+import { normalizeViability } from '../viability';
 import type {
   OpportunityMatrix,
   OpportunityProfile,
@@ -17,7 +18,9 @@ import {
   computeDecisionRank,
   profileSummary,
   resolveActiveRr,
+  selectProfileSide,
   sideBracketSummary,
+  topQualifyingProfile,
   neutralBracketSummary,
   type SideBracketSummary,
   type NeutralBracketSummary,
@@ -35,6 +38,7 @@ import { computeOpportunityBars, rankSectionsByCount } from '../../lib/opportuni
 import { LEVEL_SOURCE_ABBREV } from '../levelSourceAbbrev';
 import { confluenceStrengthLabel } from '../confluenceStrength';
 import { buildOpportunitySummary, highlightOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../opportunitySummary';
+import { computeConfluentRr, fmtConfluentRrMagnitude } from '../confluentRr';
 
 // ── Payload types ────────────────────────────────────────────────────────
 
@@ -163,6 +167,26 @@ export interface OpportunityPayload {
    *  score, preconditions, geometry, badge, notes). Always present. */
   trade_setup_sections: TradeSetupSection[];
   rr_internal: RrInternalBlock;
+  /** Audit C2: the per-side "Expected Reward-to-Risk Ratio" section —
+   *  the confluent-geometry LONG/SHORT R-multiplier cards the panel
+   *  renders via `computeConfluentRr` (OpportunitiesPanel.svelte:741-777).
+   *  Distinct from `rr_internal` (the resolved active-side R:R from the
+   *  decision chain). */
+  confluent_rr: {
+    sides: Array<{
+      side: 'LONG' | 'SHORT';
+      entry_avg: number;
+      target_avg: number;
+      invalidation_avg: number | null;
+      risk_basis: 'invalidation' | 'market_distance';
+      rr: number | null;
+      /** The exact magnitude label the screen renders ("1.5R", "10R+"). */
+      rr_display: string;
+      reason: string | null;
+    }>;
+    /** Global N/A reason when NO side produced a row. */
+    reason: string | null;
+  };
   invalidation_note: string;
   evaluated_setups: EvaluatedSetupRow[];
   confluent_entry_levels: ConfluentLevelRow[];
@@ -307,8 +331,13 @@ function buildTradeSetups(
   // `TOP · ACTIONABLE` goes to the FIRST Actionable card in panel order
   // (the HOLD-verdict gate is removed), and the quality pill bands the
   // DISPLAYED score exactly like the screen.
+  // Audit G-5: `rank_idx` is ALSO remapped to the final sorted index so
+  // the export matches the panel's rankIdx (the M7 fix remapped the panel
+  // only; the export previously kept the pre-sort index and drifted in
+  // mixed-tier lists).
   const firstActionableIdx = ranked.findIndex((r) => r.viability === 'Actionable');
   ranked.forEach((r, i) => {
+    r.rank_idx = i;
     r.badge_text = setupBadgeText(r.viability, r.geometry_consistent, i === firstActionableIdx);
     r.is_top = i === firstActionableIdx && r.viability === 'Actionable';
     r.quality = setupQuality(r.score_display);
@@ -396,7 +425,11 @@ function buildEvaluatedSetups(opportunity: OpportunityMatrix | null): EvaluatedS
       opportunity_type: prettifyOpportunityType(p.opportunity_type),
       // v6.10.17 (P1): a profile with met preconditions but a null wire
       // viability is QUALIFYING (a real bracket) — never NoClear.
-      viability: p.trade_viability ?? (p.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
+      // v2026-08: normalize the SCREAMING wire token to PascalCase so this
+      // field matches `trade_setups[].viability` (same export, same
+      // vocabulary — previously the raw "ACTIONABLE" sat next to
+      // "Actionable" rows).
+      viability: p.trade_viability ? normalizeViability(p.trade_viability) : (p.preconditions_met > 0 ? 'Qualifying' : 'NoClear'),
       score: p.score,
       // v6.10.19 (T1): the operator-facing score scales by precondition
       // ratio; the raw wire value stays in `score`. v6.14: wire-first —
@@ -443,7 +476,7 @@ function buildEnvironment(analysis: AnalysisMatrix | null): EnvironmentBlock {
   const confidencePct = analysis ? Math.round(analysis.confidence * 100) : 0;
   return {
     timeframes_considered: tf,
-    timeframes_considered_display: `${tf}/4 Timeframes considered`,
+    timeframes_considered_display: `${tf} Timeframes considered`,
     confidence_pct: confidencePct,
     confidence_display: analysis ? `${confidencePct}%` : '\u2014',
   };
@@ -514,11 +547,36 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
     const resolved = resolveActiveRr(opp, args.decisionContext, args.analysis);
     return resolved.available ? resolved.value : 0;
   })();
+  // v6.10.19b (B1): resolve the active side with the SAME chain as
+  // `resolveActiveRr` so the gross R:R follows the verdict/bias side —
+  // the wire fields are always numbers (serde default 0.0), so a naive
+  // `??` fallback never fires and exported 0.0 for valid short/neutral
+  // brackets (gross_rr_side mismatch bug).
+  const grossRrSide = ((): 'LONG' | 'SHORT' | 'NEUTRAL' => {
+    if (!opp) return 'NEUTRAL';
+    const bias = args.decisionContext?.bias ?? args.analysis?.bias ?? null;
+    const top = topQualifyingProfile(opp);
+    if (top) return selectProfileSide(top, bias);
+    return bias === 'Bullish' || bias === 'StrongBullish'
+      ? 'LONG'
+      : bias === 'Bearish' || bias === 'StrongBearish'
+        ? 'SHORT'
+        : 'NEUTRAL';
+  })();
+  const grossRrValue =
+    grossRrSide === 'LONG'
+      ? opp?.long_gross_rr_internal ?? null
+      : grossRrSide === 'SHORT'
+        ? opp?.short_gross_rr_internal ?? null
+        : null;
   const expectedRrBlock =
     rank.top === 'HOLD' && (activeSideRr === null || activeSideRr === 0)
       ? { available: false as const, value: null, reason: 'no_directional_bias' as string | null }
       : { available: true as const, value: activeSideRr ?? 0, reason: null as string | null };
   const tradeSetupRows = buildTradeSetups(opp, args.analysis, args.decisionContext, args.markPrice ?? 0);
+  // Audit C2: the per-side confluent-geometry R:R the panel shows under
+  // "Expected Reward-to-Risk Ratio" — same resolver, same markPrice.
+  const confluentRr = computeConfluentRr(opp, args.markPrice ?? 0);
   const payload: OpportunityPayload = {
     source_tab: 'opportunity',
     meta,
@@ -539,11 +597,26 @@ export function buildOpportunityTabExport(args: OpportunityTabInputs): string {
       expected_rr_available: expectedRrBlock.available,
       expected_rr_value: expectedRrBlock.value,
       // v6.10.19 (P5): the GROSS geometric R:R (pre-cost) for offline
-      // analysis — the net lives in `expected_rr_value`.
-      gross_rr_value: opp?.long_gross_rr_internal ?? opp?.short_gross_rr_internal ?? null,
+      // analysis — the net lives in `expected_rr_value`. Side-resolved
+      // from the verdict/bias chain (B1) so a valid SHORT/NEUTRAL bracket
+      // never exports 0.0 from the long-side wire default.
+      gross_rr_value: grossRrValue,
       expected_rr_reason: expectedRrBlock.reason,
       // Screen renders "—" when the horizon is absent.
       time_horizon: opp?.time_horizon ?? '\u2014',
+    },
+    confluent_rr: {
+      sides: confluentRr.sides.map((s) => ({
+        side: s.side,
+        entry_avg: s.entryAvg,
+        target_avg: s.targetAvg,
+        invalidation_avg: s.invalidationAvg,
+        risk_basis: s.riskBasis,
+        rr: s.rr,
+        rr_display: s.rr != null ? fmtConfluentRrMagnitude(s.rr) : 'N/A',
+        reason: s.reason,
+      })),
+      reason: confluentRr.reason,
     },
     invalidation_note:
       opp?.invalidation_note ??

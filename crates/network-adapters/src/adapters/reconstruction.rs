@@ -24,9 +24,9 @@
 //! downstream consumers can filter, down-weight, or surface them in the UI.
 
 use async_trait::async_trait;
+use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
-use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 
 /// A candle that has been synthesized to fill a WebSocket gap.
 ///
@@ -107,7 +107,11 @@ impl CandleReconstructor {
     /// Construct with a non-default volume baseline. Used by `main.rs`
     /// to hydrate the reconstructor from `[reconstruction]
     /// volume_per_sec_baseline` in `config.toml`.
-    pub fn with_volume_baseline(ema_window: usize, min_history_for_ema: usize, volume_per_sec_baseline: f64) -> Self {
+    pub fn with_volume_baseline(
+        ema_window: usize,
+        min_history_for_ema: usize,
+        volume_per_sec_baseline: f64,
+    ) -> Self {
         Self {
             ema_window,
             min_history_for_ema,
@@ -143,7 +147,12 @@ impl CandleReconstructor {
         if recent_closes.len() >= self.min_history_for_ema {
             Some(self.reconstruct_ema(exchange, interval_start_ms, interval_end_ms, recent_closes))
         } else if recent_closes.len() >= 2 {
-            Some(self.reconstruct_interpolation(exchange, interval_start_ms, interval_end_ms, recent_closes))
+            Some(self.reconstruct_interpolation(
+                exchange,
+                interval_start_ms,
+                interval_end_ms,
+                recent_closes,
+            ))
         } else {
             None
         }
@@ -399,10 +408,14 @@ mod tests {
     fn reconstruct_returns_none_with_no_history() {
         let r = CandleReconstructor::new();
         let closes: Vec<f64> = vec![];
-        assert!(r.reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &closes).is_none());
+        assert!(r
+            .reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &closes)
+            .is_none());
 
         let one = vec![100.0];
-        assert!(r.reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &one).is_none());
+        assert!(r
+            .reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &one)
+            .is_none());
     }
 
     // ---- EMA math -----------------------------------------------------------

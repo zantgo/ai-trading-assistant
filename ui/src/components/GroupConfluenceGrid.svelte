@@ -94,11 +94,18 @@
             const bucket = map.get(m.group);
             if (!bucket) continue;
             const dto = indicators[m.key];
-            bucket.total += 1;
+            // Audit fix (m7): the header comment claims gates are
+            // "filtered out of the main count", but `total` was
+            // incremented BEFORE the gate branch — the total drifted
+            // from the bull/bear/flat split (e.g. "7" total with "◐ 2
+            // gates" while the 5 dots sum to 5). Count only
+            // directional indicators in the total; gates are reported
+            // separately.
             if (!m.directional) {
                 bucket.gates += 1;
                 continue;
             }
+            bucket.total += 1;
             const n = dto?.normalized ?? 0;
             if (n > BULL_THRESHOLD) bucket.bullish += 1;
             else if (n < BEAR_THRESHOLD) bucket.bearish += 1;
@@ -111,7 +118,11 @@
         }
         return GROUP_ORDER
             .map((g) => map.get(g)!)
-            .filter((s) => s.total > 0);
+            // A group with ANY configured member keeps its card (a
+            // gates-only group — all non-directional — still shows the
+            // context dimension chip and its "◐ N gates" line); `total`
+            // itself only counts directional indicators.
+            .filter((s) => s.total > 0 || s.gates > 0);
     });
 
     function dominantKind(s: GroupStats): 'bull' | 'bear' | 'neutral' {
@@ -124,8 +135,16 @@
         const total = Math.max(s.bullish + s.bearish + s.neutral, 1);
         const out: Array<'bull' | 'bear' | 'neutral'> = [];
         const slots = Math.min(total, 5);
-        const bullSlots = Math.round((s.bullish / total) * slots);
-        const bearSlots = Math.round((s.bearish / total) * slots);
+        // AUDIT-FE-L1: `Math.round` on both shares independently could sum
+        // to 6 dots in a 5-slot row (4:4 split → round(2.5)+round(2.5)).
+        // Allocate by rounding the CUMULATIVE boundary instead so the
+        // output always has exactly `slots` dots.
+        let bullSlots = 0;
+        let bearSlots = 0;
+        if (s.bullish > 0) bullSlots = Math.round((s.bullish / total) * slots);
+        if (s.bearish > 0) bearSlots = Math.round(((s.bullish + s.bearish) / total) * slots) - bullSlots;
+        bullSlots = Math.min(bullSlots, slots);
+        bearSlots = Math.max(0, Math.min(bearSlots, slots - bullSlots));
         for (let i = 0; i < bullSlots; i++) out.push('bull');
         for (let i = 0; i < bearSlots; i++) out.push('bear');
         while (out.length < slots) out.push('neutral');

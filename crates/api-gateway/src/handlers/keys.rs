@@ -130,14 +130,48 @@ pub async fn add_key(
 
     let is_active_int = if req.is_active { 1 } else { 0 };
 
+    // AUDIT-H10: the documented contract (§2.10 / 06-02 §3.5) requires
+    // AES-256-GCM at rest. The old code INSERTed the raw secret —
+    // contradicting `verify_encryption_or_panic` at daemon boot, which
+    // asserts every existing row is encrypted. Refuse to store plaintext
+    // when no master key is provisioned.
+    let master_key_ok = database_storage::crypto::master_key_available();
+    let encrypted_secret = if master_key_ok {
+        database_storage::crypto::encrypt_field(&req.api_secret)
+    } else {
+        Err("EXCHANGE_SECRET_KEY is not set".to_string())
+    };
+    let encrypted_passphrase = if req.passphrase.is_empty() {
+        Ok(String::new())
+    } else if master_key_ok {
+        database_storage::crypto::encrypt_field(&req.passphrase)
+    } else {
+        Err("EXCHANGE_SECRET_KEY is not set".to_string())
+    };
+    let (secret, passphrase) = match (encrypted_secret, encrypted_passphrase) {
+        (Ok(s), Ok(p)) => (s, p),
+        (Err(e), _) | (_, Err(e)) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "Cannot store exchange credentials: {} — set EXCHANGE_SECRET_KEY in the environment to enable encrypted storage",
+                        e
+                    )
+                })),
+            )
+                .into_response();
+        }
+    };
+
     let result = sqlx::query(
         "INSERT INTO exchange_keys (exchange, account_name, api_key, api_secret, passphrase, referred_uid, is_active, last_sync_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
     )
     .bind(&req.exchange)
     .bind(&req.account_name)
     .bind(&req.api_key)
-    .bind(&req.api_secret)
-    .bind(&req.passphrase)
+    .bind(&secret)
+    .bind(&passphrase)
     .bind(&req.referred_uid)
     .bind(is_active_int)
     .execute(&state.pool)

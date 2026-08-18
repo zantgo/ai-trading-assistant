@@ -1,9 +1,9 @@
-use rust_decimal::Decimal;
-use serde::Deserialize;
 use core_domain::normalized::{
     Exchange, FundingRateEvent, MarkPriceEvent, NormalizedCandle, NormalizedEvent,
     OpenInterestEvent, ReconstructionMethod,
 };
+use rust_decimal::Decimal;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct CandleSnapshot {
@@ -203,9 +203,7 @@ fn parse_ctx_decimal(v: &Option<serde_json::Value>) -> Option<Decimal> {
     match v {
         None => None,
         Some(serde_json::Value::String(s)) => s.parse::<Decimal>().ok(),
-        Some(serde_json::Value::Number(n)) => {
-            n.as_f64().and_then(|f| Decimal::from_f64_retain(f))
-        }
+        Some(serde_json::Value::Number(n)) => n.as_f64().and_then(|f| Decimal::from_f64_retain(f)),
         _ => None,
     }
 }
@@ -255,13 +253,18 @@ pub async fn fetch_meta_and_asset_ctxs(
     // positional; the i-th entry of each refers to the same coin. We
     // reuse the existing `HlMeta` struct (only `universe` is read) so the
     // JSON shape is forgiving: extra fields in `meta` are ignored.
-    let meta: HlMeta = serde_json::from_value(meta_json).map_err(|e| {
-        format!("Failed to parse Hyperliquid meta universe: {e}")
-    })?;
+    let meta: HlMeta = serde_json::from_value(meta_json)
+        .map_err(|e| format!("Failed to parse Hyperliquid meta universe: {e}"))?;
     let universe_index_to_name: Vec<Option<String>> = meta
         .universe
         .into_iter()
-        .map(|a| if a.name.is_empty() { None } else { Some(a.name) })
+        .map(|a| {
+            if a.name.is_empty() {
+                None
+            } else {
+                Some(a.name)
+            }
+        })
         .collect();
 
     let mut map = std::collections::HashMap::with_capacity(asset_ctxs.len());

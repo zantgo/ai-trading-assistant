@@ -5,10 +5,7 @@ use core_domain::performance::{
     StrategyAnalyticsRow,
 };
 
-pub async fn insert_strategy_analytics(
-    pool: &SqlitePool,
-    row: &StrategyAnalyticsRow,
-) -> i64 {
+pub async fn insert_strategy_analytics(pool: &SqlitePool, row: &StrategyAnalyticsRow) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -223,10 +220,7 @@ fn parse_compatibility(s: &str) -> core_domain::performance::RegimeCompatibility
     }
 }
 
-pub async fn insert_risk_analytics(
-    pool: &SqlitePool,
-    row: &RiskAnalyticsRow,
-) -> i64 {
+pub async fn insert_risk_analytics(pool: &SqlitePool, row: &RiskAnalyticsRow) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -334,10 +328,7 @@ pub async fn insert_performance_summary(
     }
 }
 
-pub async fn insert_optimization_report(
-    pool: &SqlitePool,
-    report: &OptimizationReport,
-) -> i64 {
+pub async fn insert_optimization_report(pool: &SqlitePool, report: &OptimizationReport) -> i64 {
     match sqlx::query(
         "INSERT INTO optimization_reports
          (timestamp, total_trades, regime_reports_json, recommendations_json)
@@ -358,10 +349,7 @@ pub async fn insert_optimization_report(
     }
 }
 
-pub async fn query_optimization_reports(
-    pool: &SqlitePool,
-    limit: u32,
-) -> Vec<OptimizationReport> {
+pub async fn query_optimization_reports(pool: &SqlitePool, limit: u32) -> Vec<OptimizationReport> {
     let rows: Result<Vec<OptimizationReportQueryRow>, _> = sqlx::query_as(
         "SELECT timestamp, total_trades, regime_reports_json, recommendations_json
          FROM optimization_reports

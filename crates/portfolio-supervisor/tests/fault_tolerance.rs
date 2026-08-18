@@ -1,9 +1,9 @@
-use network_adapters::adapters;
-use market_analyzer::analyzer;
 use config_models::{FibonacciConfig, TimeframeConfig};
-use market_analyzer::indicators::DivergenceDetector;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
+use market_analyzer::analyzer;
+use market_analyzer::indicators::DivergenceDetector;
+use network_adapters::adapters;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -51,6 +51,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             activation: Default::default(),
             opportunity_matrix: Default::default(),
             config_version: 1,
+            api_failover: Default::default(),
             instances: Vec::new(),
             execution_policies: Vec::new(),
             execution: Default::default(),
@@ -107,11 +108,15 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 None,
                 1,
+                300,
                 Arc::new(RwLock::new(None)),
-                Arc::new(RwLock::new(core_domain::indicator_dtos::IndicatorLifecycleMap::new())),
-                Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
-
-        )
+                Arc::new(RwLock::new(
+                    core_domain::indicator_dtos::IndicatorLifecycleMap::new(),
+                )),
+                Arc::new(RwLock::new(
+                    core_domain::models::CandlePipelineState::Initializing,
+                )),
+            )
             .await;
         });
 

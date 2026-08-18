@@ -483,12 +483,13 @@ pub fn build_indicator_map(
     // L3 analysis, L4 opportunity, L5 risk, L6 advisory) can read a
     // disabled indicator because it's filtered out before they see it.
     map.retain(|key, _| active_set.is_indicator_enabled(key));
-    // Disable signal kinds globally (any indicator emitting a
-    // disabled SignalKind has that signal filtered). This preserves the
-    // indicator entry itself if it's not disabled at the indicator level.
-    // SignalKind filtering happens at derive_signals step (not here).
-    // For pair-level disabled signals (indicator+kind), the registry's
-    // derive_signals path consults active_set at signal-emit time.
+    // AUDIT-H2: enforce the signal denylist at emit time. `derive_signals`
+    // and the structured signal pushes in `normalize_all` are stateless
+    // and cannot consult the ActiveSet — the denylist used to be parsed
+    // and advertised in `metrics_config` but never applied. Filtering here
+    // covers the live path (completed + shadow) and the warm-up path (both
+    // flow through `build_indicator_map`).
+    active_set.filter_map_signals(&mut map);
 
     // Preserve the raw Fibonacci resting levels on the fibonacci entry so they
     // can be persisted to dedicated DB columns and rendered on charts.
@@ -640,14 +641,19 @@ fn inject_sharpe_ratio(
     }
     if let Some(sharpe) = price_trend_sharpe {
         let normalized = (sharpe / 3.0).clamp(-1.0, 1.0);
+        // AUDIT-L13: a flat window (sharpe == 0.0) fell into the
+        // NEGATIVE_SHARPE band — a market that didn't move is not a
+        // downtrend. Neutral label for |sharpe| <= 0.05.
         let state_label = if sharpe >= 2.0 {
             "STRONG_POSITIVE_SHARPE"
-        } else if sharpe > 0.0 {
+        } else if sharpe > 0.05 {
             "POSITIVE_SHARPE"
         } else if sharpe <= -2.0 {
             "STRONG_NEGATIVE_SHARPE"
-        } else {
+        } else if sharpe < -0.05 {
             "NEGATIVE_SHARPE"
+        } else {
+            "FLAT_SHARPE"
         };
         map.insert(
             "price_trend_sharpe".into(),
@@ -775,7 +781,12 @@ mod tests {
         // `crates/market-analyzer/src/indicators/normalized/mod.rs::
         // warming_fill_covers_all_registry_keys`. This test pins the
         // registry-level contract that the gate depends on.
-        for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+        for key in [
+            "smc_structure",
+            "smc_liquidity",
+            "smc_fvg",
+            "smc_order_blocks",
+        ] {
             let meta = get(key).unwrap_or_else(|| panic!("{key} registered"));
             assert_eq!(
                 meta.data_source,
@@ -785,9 +796,72 @@ mod tests {
             // `bars_required` is still 50: the lifecycle builder reads
             // this directly (not through `bars_needed`) to drive the
             // `Loading → Live` transition. The SMC calculator needs
-            // enough bars to bootstrap (≥5 for swing detection at the
-            // minimum, and the registry default is 50).
+            // enough bars to bootstrap (≥5 for swing detection at the            // minimum, and the registry default is 50).
             assert_eq!(meta.bars_required, 50, "{key}: bars_required must be 50");
         }
+    }
+
+    // AUDIT-TEST: `inject_volume` — the `volume` indicator's banding and
+    // the VolumeClimax signal were completely untested. The AUDIT-AIU-037
+    // fix (climax band 2.0×→3.0×) had no regression pin, so the early
+    // VolumeClimax firing could silently return.
+    use super::*;
+    use crate::indicators::normalized::SignalKind;
+
+    fn volume_map(vol: f64, avg: Option<f64>) -> HashMap<String, NormalizedIndicatorValue> {
+        let mut map = HashMap::new();
+        inject_volume(&mut map, Some(vol), avg);
+        map
+    }
+
+    #[test]
+    fn volume_climax_requires_rvol_3x() {
+        // AUDIT-AIU-037: band is 3.0×, aligned with the rvol producer.
+        let m = volume_map(2.9, Some(1.0));
+        assert_eq!(m["volume"].state_label, "HIGH_PARTICIPATION");
+        assert!(m["volume"].signals.is_empty(), "2.9× must NOT fire climax");
+        let m = volume_map(3.0, Some(1.0));
+        assert_eq!(m["volume"].state_label, "VOLUME_CLIMAX");
+        assert_eq!(m["volume"].signals.len(), 1);
+        assert_eq!(m["volume"].signals[0].kind, SignalKind::VolumeClimax);
+        assert_eq!(m["volume"].signals[0].label, "VOLUME_CLIMAX");
+    }
+
+    #[test]
+    fn volume_bands_at_1_5x_and_0_5x() {
+        let m = volume_map(1.5, Some(1.0));
+        assert_eq!(m["volume"].state_label, "HIGH_PARTICIPATION");
+        assert!(m["volume"].signals.is_empty());
+        let m = volume_map(0.49, Some(1.0));
+        assert_eq!(m["volume"].state_label, "LOW_PARTICIPATION");
+        // Strict `<` boundary: exactly 0.5× is NORMAL.
+        let m = volume_map(0.5, Some(1.0));
+        assert_eq!(m["volume"].state_label, "NORMAL_PARTICIPATION");
+        let m = volume_map(1.2, Some(1.0));
+        assert_eq!(m["volume"].state_label, "NORMAL_PARTICIPATION");
+    }
+
+    #[test]
+    fn volume_missing_average_falls_back_to_normal() {
+        let m = volume_map(500.0, None);
+        assert_eq!(m["volume"].state_label, "NORMAL_PARTICIPATION");
+        assert!(m["volume"].signals.is_empty());
+        // Zero/negative averages never divide — no panic, no climax.
+        let m = volume_map(500.0, Some(0.0));
+        assert_eq!(m["volume"].state_label, "NORMAL_PARTICIPATION");
+    }
+
+    #[test]
+    fn volume_none_input_leaves_map_untouched() {
+        let mut map = HashMap::new();
+        inject_volume(&mut map, None, Some(1.0));
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn volume_values_carry_the_average_subkey() {
+        let m = volume_map(120.0, Some(80.0));
+        let vals = m["volume"].values.as_ref().expect("average sub-key");
+        assert_eq!(vals["average"], 80.0);
     }
 }

@@ -32,6 +32,10 @@ impl ZScore {
         let n = self.closes.len() as f64;
         let mean = self.closes.iter().sum::<f64>() / n;
         let var = self.closes.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+        // Flat series: var == 0 → std 0 → return 0 (no NaN from 0/0).
+        if !var.is_finite() || var < 0.0 {
+            return Some(0.0);
+        }
         let std = var.sqrt();
         if std < f64::EPSILON {
             return Some(0.0);

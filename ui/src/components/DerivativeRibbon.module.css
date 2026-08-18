@@ -105,6 +105,9 @@
 .neutral {
     color: #8f929d;
 }
+.warning {
+    color: #ff9800;
+}
 .bullishBg {
     background: rgba(38, 166, 154, 0.12);
     border-color: rgba(38, 166, 154, 0.35);

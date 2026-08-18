@@ -8,6 +8,20 @@ This document was introduced as part of the institutional-grade architectural re
 
 ---
 
+## 0. Wire-Casing Conventions (two families)
+
+Serde casing on the wire is **per-enum**, split into two families. When documenting or matching wire JSON, check which family the enum belongs to:
+
+| Family | Rule | Enums |
+|--------|------|-------|
+| **PascalCase** (no `#[serde(rename_all)]`) | JSON values like `"StrongBullish"`, `"Healthy"`, `"TrendingBull"` | `AlignState`, `MarketBias`, `MarketRegime`, `TrendAssessment`, `MomentumAssessment`, `StructureAssessment`, `VolatilityAssessment`, `VolumeAssessment`, `MarketPhase`, `QualityLevel`, `SetupQuality`, `OpportunityType`, `TimeHorizon`-family (see note), `RiskLevel`, `RiskState`, `SignalKind`, `SignalDirection`, `SignalStatus`, `IndicatorLifecycleState`, `DirectionalGuidance`, `MarketStance`, `OpportunityClass`, `StrategyEnvironment`, `EntryGuidance`, `ExitGuidance`, `ProtectionStrategy`, `TargetStrategy` |
+| **SCREAMING_SNAKE_CASE** (has `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`) | JSON values like `"TREND_RIDING"`, `"STRONG_BULLISH"` | `DirectionFamily`, `TradeViability`, `LevelSource`, `CandlePipelineState`, `GlobalBias`, `MarketBreadth`, `SyncLevel`, `HealthLevel`, `SequenceIntegrity`, `ReconstructionMethod`, all liquidity enums (`LiquiditySignalKind`, `LiquidationSide`, `ClusterKind`, `CascadeState`, `ClusterRefreshStatus`), `TimeframeSlot` (snake_case custom) |
+| **Plain string / Debug-format** | Not serde enums at all | `time_horizon` (String, SCREAMING values), `AssetRank.bias` / `regime` (Rust `Debug`-format PascalCase), `mtf_overall_label` / `mtf_label` (literal `STRONG_BULL_MTF` … strings), `regime_distribution` / `opportunity_distribution` keys (custom key sets) |
+
+> **`TimeHorizon` note.** No `TimeHorizon` enum exists in the Rust code — `OpportunityMatrix.time_horizon` is a `String` carrying the SCREAMING values (`"SCALP"` / `"INTRADAY"` / `"SWING"` / `"POSITION"`).
+
+---
+
 ## 1. Ownership Hierarchy
 
 ```
@@ -112,9 +126,9 @@ Owns: pure state interpretation. **No forecast, no reward, no danger.**
 | Field | Producer | Notes |
 |---|---|---|
 | `symbol` | L3 | |
-| `bias` (`MarketBias` 5-state) | L3 | `STRONG_BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG_BEARISH` |
+| `bias` (`MarketBias` 5-state) | L3 | `STRONG_BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG_BEARISH` (wire PascalCase: `StrongBullish` / `Bullish` / `Neutral` / `Bearish` / `StrongBearish`). |
 | `state_confidence` (`f64`, [0,1]) | L3 | Renamed from `confidence` for clarity in the institutional redesign |
-| `market_regime` (`MarketRegime` 8-state) | L3 | |
+| `market_regime` (`MarketRegime` 8-state) | L3 | Wire PascalCase: `TrendingBull` / `TrendingBear` / `Range` / `Accumulation` / `Distribution` / `Expansion` / `Contraction` / `Transition` |
 | `trend_assessment`, `momentum_assessment`, `structure_assessment`, `volatility_assessment`, `volume_assessment` | L3 | Five qualitative assessments |
 | `trend_score`, `momentum_score`, `structure_score`, `volatility_score`, `volume_score` | L3 | **v6.12 numeric companions.** The exact 0-100 alignment dimension scores each assessment is bucketed from — the disaggregated siblings of `market_quality_score` (allowed `L3 ← L2` derivation, same model; see [02-02-analysis-matrix.md §3.4.1–3.7.1](02-02-analysis-matrix.md)) |
 | `market_quality` (`QualityLevel` 5-state) | L3 | |
@@ -127,7 +141,7 @@ Owns: pure state interpretation. **No forecast, no reward, no danger.**
 | `timeframes_considered` | L3 | |
 
 **Removed (architectural redesign):**
-- ~~`opportunity_analysis`~~ — moved to Opportunity Matrix (L4) as `primary_opportunity` (canonical source).
+- ~~`opportunity_analysis`~~ — the field is **retained on the wire** for backward compatibility: `AnalysisMatrix.opportunity_analysis` (`OpportunityType`) still exists in `crates/core-domain/src/analysis.rs` and is emitted on every snapshot, mirroring the L4 selection with a coarser derivation (see [02-08-opportunity-matrix.md §8](../matrices/02-08-opportunity-matrix.md)). It is **not** the canonical source — `primary_opportunity` (L4) is. The UI reads `primary_opportunity`, never the L3 label.
 
 ### 2.4 Opportunity Matrix (L4) — `02-08-opportunity-matrix.md`
 
@@ -155,7 +169,7 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 - The setup-selection decision tree (formerly in `02-02-analysis-matrix.md §4.3`) is **moved** to the Opportunity Matrix and is the canonical source for `OpportunityType`.
 - L4 reads from L3 (Analysis) for `bias`, `state_confidence`, `market_quality`, and the qualitative assessments.
 
-> **Serialization convention.** `primary_opportunity` and `time_horizon` serialize as **SCREAMING_SNAKE_CASE strings on the wire / in policy conditions** (`"BREAKOUT"`, `"LIQUIDITY_SQUEEZE"`, `"INTRADAY"`, …); PascalCase is reserved for Rust internals. See the canonical note in [02-08-opportunity-matrix.md §7 Serialization note](../matrices/02-08-opportunity-matrix.md).
+> **Serialization convention.** `primary_opportunity` (`OpportunityType`) and `setup_quality` (`SetupQuality`) serialize **PascalCase strings on the wire** (`"TrendContinuation"`, `"LiquiditySqueeze"`, `"Prime"`, …). `time_horizon` is a plain `String` carrying the SCREAMING values (`"SWING"`, `"INTRADAY"`, …). `direction_family` serializes SCREAMING (`TREND_RIDING` / `COUNTER_TREND` / `NEUTRAL`). See the canonical note in [02-08-opportunity-matrix.md §7](../matrices/02-08-opportunity-matrix.md).
 
 ### 2.5 Risk Matrix (L5) — `02-11-risk-matrix.md`
 
@@ -192,20 +206,22 @@ Owns: the **only synthesis point** in the pipeline. Combines L3 (state) + L4 (op
 | `protection_strategy` (`ProtectionStrategy` 5-state) | L6 | |
 | `target_strategy` (`TargetStrategy` 5-state) | L6 | |
 | `confidence_assessment` (`f64`, [0,100]) | L6 | Risk-attenuated: `clamp(L3.state_confidence × (1 − L5.overall_risk/100) × 100, 0, 100)` |
-| `trade_readiness` (`TradeReadiness` 4-state) | L6 | **Added in institutional redesign** — was documented in §4 but missing from §2.1 schema |
-| `entry_danger` (`RiskDimension`) | L6 | **Renamed from `risk_favorability` in v2.1** (semantic successor of `Risk.expected_rr`). The RiskDimension convention is **high score = danger, low score = safe** — consistent with all other Risk Matrix dimensions. |
-| `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — risk-discounted synthesis: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)` (canonical: [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md)). Note the `/100.0` divisor — `overall_risk` is on the canonical `[0, 100]` scale. |
 | `final_recommendation` (string) | L6 | Natural-language summary |
-| `stop_loss_distance_pct` (`f64`) | L6 | **Type-boundary handoff.** Raw percent float carried into TAE Position Sizing Protocol; cast to `Decimal` at the MME L6 → TAE L2 boundary. See `03-03-03-tae-layer2-execution.md §2` and `01-02-global-architecture.md §6.3`. |
+| `stop_loss_distance_pct` (`f64`) | L6 | **Type-boundary handoff.** Raw percent float carried into TAE Position Sizing Protocol; cast to `Decimal` at the MME L6 → TAE L2 boundary. Computed by the §3.6 volatility/structure-scaled formula (base `(1.0 | 1.5) × 2.0%` + `volatility_risk.score / 10` bump, clamped `[0.5, 15]` percent — **not** ATR-derived). See `03-03-03-tae-layer2-execution.md §2` and `01-02-global-architecture.md §6.3`. |
 
 **`DecisionContext` (quantitative metadata):**
 
 | Field | Producer | Notes |
 |---|---|---|
 | `score` (`f64`) | L6 | Quantitative confluence score |
-| `bias` (`MarketBias` 5-state) | L6 | Mirror of L3 `bias` (5-state per platform convention; no 3-state collapse) |
+| `bias` (`MarketBias` 5-state) | L6 | Mirror of L3 `bias` (5-state per platform convention; no 3-state collapse). Wire PascalCase (`"StrongBullish"`, …) |
 | `score_confidence` (`f64`, [0,1]) | L6 | Renamed from `confidence` |
 | `contributing_indicators` | L6 | |
+| `trade_readiness` (String) | L6 | **Populated on `DecisionContext`** — `READY / FORMING / WATCH / STAND_ASIDE` (plain wire `String` with SCREAMING values, not a serde enum); not an `AdvisoryMatrix` field |
+| `entry_danger` (`RiskDimension`) | L6 | **Populated on `DecisionContext`** — renamed from `risk_favorability` in v2.1 (semantic successor of `Risk.expected_rr`). The RiskDimension convention is **high score = danger, low score = safe**; `evidence` is left empty and omitted from the wire |
+| `expected_reward_risk_ratio` (`f64`) | L6 | **Populated on `DecisionContext`** — risk-discounted synthesis: `active-side R:R × (1 − L5.overall_risk / 100.0)` (canonical: [Decision Matrix §2.2](../matrices/02-04-decision-matrix.md)). Note the `/100.0` divisor — `overall_risk` is on the canonical `[0, 100]` scale |
+| `long_probability` / `short_probability` / `hold_probability` / `net_bias_pct` | L6 | Normalized probability split (0–100) + net bias; canonical server-side source of truth (see [Decision Matrix §2.4](../matrices/02-04-decision-matrix.md)) |
+| `lean_floor_applied` (`bool`) | L6 | **v6.10.19 (P6).** `true` when the graded-lean floors adjusted the split (HOLD cap 60% / directional floor 15%) |
 
 ### 2.7 Overview Matrix (L7) — `02-09-overview-matrix.md`
 
@@ -219,12 +235,12 @@ Owns: cross-symbol aggregation.
 | `regime_distribution` (`map<string, f64>`) | L7 | |
 | `opportunity_distribution` (`map<string, u32>`) | L7 | Aggregated from L4 `primary_opportunity` |
 | `risk_distribution` (`RiskDistribution`) | L7 | |
-| `cascade_risk_index` (`RiskDimension` placeholder) | L7 | Stable contract only; not yet aggregated into `systemic_risk_score` (see `01-05 §Open questions`). |
+| `cascade_risk_index` (`RiskDimension`) | L7 | **Fully computed/aggregated** — the mean of the per-symbol L5 `cascade_risk.score` values across active instances (`cascade_risk_index = RiskDimension { score: mean, level, state, confidence: coverage × 100 }` in `overview.rs`). Stable contract; consumed by the dashboard as the cascade-only aggregate (distinct from `systemic_risk_score`). |
 | `asset_ranking` (`AssetRank[]`) | L7 | score = `0.5 × confidence_assessment + 50` |
 | `market_synchronization` (`SyncLevel` 5-state) | L7 | |
 | `market_health` (`HealthLevel` 5-state) | L7 | |
 | `global_summary` (string) | L7 | |
-| `instance_count`, `active_symbols` | L7 | **Invariant:** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. |
+| `instance_count`, `active_symbols` | L7 | **Coincide in single-instance-per-symbol deployments** (`instance_count == active_symbols.length`); `active_symbols` is the union of instance + advisory symbols, so equality is not code-enforced (see [02-09 §2.1](../../docs/matrices/02-09-overview-matrix.md)). |
 | `systemic_risk_score` (derived) | L7 | `0.6 × high_pct + 0.4 × sync_penalty` |
 | `alignment_distribution` (`map<string, u32>`) (v6.10.3+) | L7 | Count of assets per `AlignmentMatrix.mtf_overall_label`. Aggregated from L2. |
 | `alignment_consensus_index` (`f64`, [-100, 100]) (v6.10.3+) | L7 | Mean of per-symbol `AlignmentMatrix.mtf_overall_score`. Cross-timeframe counterpart to `breadth_pct`. Aggregated from L2. |
@@ -273,7 +289,7 @@ Owns: persistent log of all order state transitions. Materialized as the `open_o
 
 | Removed From | Old Field | New Location | Migration Note |
 |---|---|---|---|
-| Analysis Matrix (L3) | `opportunity_analysis` | Opportunity Matrix (L4) `primary_opportunity` | The setup selector moved to where it belongs: L4 owns forecasts. |
+| Analysis Matrix (L3) | ~~`opportunity_analysis`~~ (canonical producer) | Opportunity Matrix (L4) `primary_opportunity` | The setup selector moved to where it belongs: L4 owns forecasts. **The L3 field is retained on the wire** for backward compatibility only (coarser derivation; see §2.3) — the UI reads `primary_opportunity`. |
 | Risk Matrix (L5) | `expected_rr` | Decision Matrix (L6) `entry_danger` | The reward dimension is a synthesis, not pure danger; moved to L6. |
 
 ---

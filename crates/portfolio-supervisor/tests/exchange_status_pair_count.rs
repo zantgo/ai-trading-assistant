@@ -63,7 +63,9 @@ async fn build_context() -> (Arc<RegistryContext>, Arc<ExchangeStatusTracker>) {
     (Arc::new(ctx), exchange_status)
 }
 
-fn active_pairs_by_name(report: &network_adapters::exchange_status_tracker::ExchangeStatusReport) -> std::collections::HashMap<String, u32> {
+fn active_pairs_by_name(
+    report: &network_adapters::exchange_status_tracker::ExchangeStatusReport,
+) -> std::collections::HashMap<String, u32> {
     report
         .exchanges
         .iter()
@@ -82,13 +84,13 @@ fn build_stub_instance(
     base: &str,
     quote: &str,
 ) -> Arc<portfolio_supervisor::instance::Instance> {
-    use std::collections::VecDeque;
+    use config_models::FibonacciConfig;
     use core_domain::normalized::NormalizedEvent;
     use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
     use market_analyzer::indicators::DivergenceDetector;
     use market_analyzer::sr_engine::SrRoleTracker;
-    use config_models::FibonacciConfig;
     use portfolio_supervisor::instance::TimeframeBuffers;
+    use std::collections::VecDeque;
 
     let (bcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(8);
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
@@ -112,7 +114,9 @@ fn build_stub_instance(
         cluster_status: Arc::new(RwLock::new(
             core_domain::liquidity::ClusterStatusSnapshot::pending("TEST-USD", &slot.as_str()),
         )),
-        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
         advisory: Arc::new(RwLock::new(None)),
         tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
@@ -123,9 +127,9 @@ fn build_stub_instance(
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: build_pipe(TimeframeSlot::Micro,   60,  bcast_tx.clone()),
-        fast: build_pipe(TimeframeSlot::Fast,    180,  bcast_tx.clone()),
-        slow: build_pipe(TimeframeSlot::Slow,    300,  bcast_tx.clone()),
+        micro: build_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone()),
+        fast: build_pipe(TimeframeSlot::Fast, 180, bcast_tx.clone()),
+        slow: build_pipe(TimeframeSlot::Slow, 300, bcast_tx.clone()),
         r#macro: build_pipe(TimeframeSlot::Macro, 900, bcast_tx),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
@@ -133,15 +137,31 @@ fn build_stub_instance(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
-    let micro_buf = TimeframeBuffers { history: active.micro.history.clone(),   latest: active.micro.latest_snapshot.clone(),    snapshot_history: snap_hist.clone() };
-    let fast_buf  = TimeframeBuffers { history: active.fast.history.clone(),    latest: active.fast.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
-    let slow_buf  = TimeframeBuffers { history: active.slow.history.clone(),    latest: active.slow.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
-    let macro_buf = TimeframeBuffers { history: active.r#macro.history.clone(), latest: active.r#macro.latest_snapshot.clone(),  snapshot_history: snap_hist.clone() };
+    let micro_buf = TimeframeBuffers {
+        history: active.micro.history.clone(),
+        latest: active.micro.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let fast_buf = TimeframeBuffers {
+        history: active.fast.history.clone(),
+        latest: active.fast.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let slow_buf = TimeframeBuffers {
+        history: active.slow.history.clone(),
+        latest: active.slow.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let macro_buf = TimeframeBuffers {
+        history: active.r#macro.history.clone(),
+        latest: active.r#macro.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
 
     Arc::new(portfolio_supervisor::instance::Instance::new(
         id.to_string(),
@@ -172,40 +192,51 @@ async fn sync_updates_hyperliquid_count_after_instance_added() {
     // Baseline: both seeded with 0.
     let initial = active_pairs_by_name(&exchange_status.report().await);
     assert_eq!(initial.get("Hyperliquid"), Some(&0));
-    assert_eq!(initial.get("Bitget"),    Some(&0));
+    assert_eq!(initial.get("Bitget"), Some(&0));
 
     // Seed the workspace directly with one BTC-USDC instance via the
     // low-level WorkspaceState::insert. The exchange-status helper counts
     // any Arc<Instance> in the live map whose pair base starts with one
     // of the registered exchange names; manually inserting keeps the test
     // free of the full `add_instance` pipeline machinery.
-    ctx.workspace.insert(
-        HL_PAIR.to_string(),
-        build_stub_instance(ctx.pool.clone(), ctx.workspace.clone(), "inst_btc", "BTC", "USDC"),
-    ).await;
+    ctx.workspace
+        .insert(
+            HL_PAIR.to_string(),
+            build_stub_instance(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                "inst_btc",
+                "BTC",
+                "USDC",
+            ),
+        )
+        .await;
     sync_exchange_status_active_pairs(&ctx).await;
     let after = active_pairs_by_name(&exchange_status.report().await);
-    assert_eq!(after.get("Hyperliquid"), Some(&1), "Hyperliquid count must reflect the live workspace");
-    assert_eq!(after.get("Bitget"),    Some(&0));
+    assert_eq!(
+        after.get("Hyperliquid"),
+        Some(&1),
+        "Hyperliquid count must reflect the live workspace"
+    );
+    assert_eq!(after.get("Bitget"), Some(&0));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_handles_multiple_exchanges_independently() {
     let (ctx, exchange_status) = build_context().await;
 
-    for (id, base) in [("inst_btc", "BTC"), ("inst_eth", "ETH"), ("inst_sol", "SOL")] {
+    for (id, base) in [
+        ("inst_btc", "BTC"),
+        ("inst_eth", "ETH"),
+        ("inst_sol", "SOL"),
+    ] {
         let pair = format!("{}-USDC", base);
-        ctx.workspace.insert(
-            pair,
-            build_stub_instance(
-                ctx.pool.clone(),
-                ctx.workspace.clone(),
-                id,
-                base,
-                "USDC",
-            ),
-        )
-        .await;
+        ctx.workspace
+            .insert(
+                pair,
+                build_stub_instance(ctx.pool.clone(), ctx.workspace.clone(), id, base, "USDC"),
+            )
+            .await;
     }
     sync_exchange_status_active_pairs(&ctx).await;
 
@@ -214,35 +245,37 @@ async fn sync_handles_multiple_exchanges_independently() {
     // The helper doesn't filter by quote, only by base, so all three
     // roll up into the Hyperliquid bucket.
     assert_eq!(after.get("Hyperliquid"), Some(&3));
-    assert_eq!(after.get("Bitget"),    Some(&0));
+    assert_eq!(after.get("Bitget"), Some(&0));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_resets_count_after_instance_removed() {
     let (ctx, exchange_status) = build_context().await;
 
-    ctx.workspace.insert(
-        "BTC-USDC".into(),
-        build_stub_instance(
-            ctx.pool.clone(),
-            ctx.workspace.clone(),
-            "inst_a",
-            "BTC",
-            "USDC",
-        ),
-    )
-    .await;
-    ctx.workspace.insert(
-        "BTC2-USDC".into(),
-        build_stub_instance(
-            ctx.pool.clone(),
-            ctx.workspace.clone(),
-            "inst_b",
-            "BTC",
-            "USDC",
-        ),
-    )
-    .await;
+    ctx.workspace
+        .insert(
+            "BTC-USDC".into(),
+            build_stub_instance(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                "inst_a",
+                "BTC",
+                "USDC",
+            ),
+        )
+        .await;
+    ctx.workspace
+        .insert(
+            "BTC2-USDC".into(),
+            build_stub_instance(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                "inst_b",
+                "BTC",
+                "USDC",
+            ),
+        )
+        .await;
     sync_exchange_status_active_pairs(&ctx).await;
     assert_eq!(
         active_pairs_by_name(&exchange_status.report().await).get("Hyperliquid"),
@@ -261,11 +294,18 @@ async fn sync_resets_count_after_instance_removed() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_is_idempotent() {
     let (ctx, exchange_status) = build_context().await;
-    ctx.workspace.insert(
-        HL_PAIR.to_string(),
-        build_stub_instance(ctx.pool.clone(), ctx.workspace.clone(), "inst_x", "BTC", "USDC"),
-    )
-    .await;
+    ctx.workspace
+        .insert(
+            HL_PAIR.to_string(),
+            build_stub_instance(
+                ctx.pool.clone(),
+                ctx.workspace.clone(),
+                "inst_x",
+                "BTC",
+                "USDC",
+            ),
+        )
+        .await;
 
     sync_exchange_status_active_pairs(&ctx).await;
     let first = exchange_status.report().await;
@@ -274,8 +314,16 @@ async fn sync_is_idempotent() {
     let second = exchange_status.report().await;
 
     assert_eq!(
-        first.exchanges.iter().find(|e| e.name == "Hyperliquid").map(|e| e.active_pairs),
-        second.exchanges.iter().find(|e| e.name == "Hyperliquid").map(|e| e.active_pairs),
+        first
+            .exchanges
+            .iter()
+            .find(|e| e.name == "Hyperliquid")
+            .map(|e| e.active_pairs),
+        second
+            .exchanges
+            .iter()
+            .find(|e| e.name == "Hyperliquid")
+            .map(|e| e.active_pairs),
         "calling sync twice in a row must be a no-op"
     );
 }
@@ -292,32 +340,34 @@ async fn sync_buckets_per_exchange() {
     let (ctx, exchange_status) = build_context().await;
 
     // HL: 1 instance
-    ctx.workspace.insert(
-        HL_PAIR.to_string(),
-        build_stub_instance_v2(
-            ctx.pool.clone(),
-            ctx.workspace.clone(),
-            "inst_btc",
-            "BTC",
-            "USDC",
-            ExchangeChoice::Hyperliquid,
-        ),
-    )
-    .await;
-    // BG: 2 instances
-    for (id, base) in [("inst_eth", "ETH"), ("inst_sol_bg", "SOL")] {
-        ctx.workspace.insert(
-            format!("{}-USDT", base),
+    ctx.workspace
+        .insert(
+            HL_PAIR.to_string(),
             build_stub_instance_v2(
                 ctx.pool.clone(),
                 ctx.workspace.clone(),
-                id,
-                base,
-                "USDT",
-                ExchangeChoice::Bitget,
+                "inst_btc",
+                "BTC",
+                "USDC",
+                ExchangeChoice::Hyperliquid,
             ),
         )
         .await;
+    // BG: 2 instances
+    for (id, base) in [("inst_eth", "ETH"), ("inst_sol_bg", "SOL")] {
+        ctx.workspace
+            .insert(
+                format!("{}-USDT", base),
+                build_stub_instance_v2(
+                    ctx.pool.clone(),
+                    ctx.workspace.clone(),
+                    id,
+                    base,
+                    "USDT",
+                    ExchangeChoice::Bitget,
+                ),
+            )
+            .await;
     }
 
     sync_exchange_status_active_pairs(&ctx).await;
@@ -344,13 +394,13 @@ fn build_stub_instance_v2(
     quote: &str,
     exchange: portfolio_supervisor::session::ExchangeChoice,
 ) -> Arc<portfolio_supervisor::instance::Instance> {
-    use std::collections::VecDeque;
+    use config_models::FibonacciConfig;
     use core_domain::normalized::NormalizedEvent;
     use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
     use market_analyzer::indicators::DivergenceDetector;
     use market_analyzer::sr_engine::SrRoleTracker;
-    use config_models::FibonacciConfig;
     use portfolio_supervisor::instance::TimeframeBuffers;
+    use std::collections::VecDeque;
 
     let (bcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(8);
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
@@ -374,7 +424,9 @@ fn build_stub_instance_v2(
         cluster_status: Arc::new(RwLock::new(
             core_domain::liquidity::ClusterStatusSnapshot::pending("TEST-USD", &slot.as_str()),
         )),
-        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        pipeline_state: Arc::new(RwLock::new(
+            core_domain::models::CandlePipelineState::Initializing,
+        )),
         indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
         advisory: Arc::new(RwLock::new(None)),
         tf_leverage_config: Arc::new(config_models::TfLeverageConfig::default()),
@@ -385,9 +437,9 @@ fn build_stub_instance_v2(
     let active = Arc::new(ActivePair {
         symbol: format!("{}-{}", base, quote),
         custom_pipelines: std::collections::HashMap::new(),
-        micro: build_pipe(TimeframeSlot::Micro,   60,  bcast_tx.clone()),
-        fast: build_pipe(TimeframeSlot::Fast,    180, bcast_tx.clone()),
-        slow: build_pipe(TimeframeSlot::Slow,    300, bcast_tx.clone()),
+        micro: build_pipe(TimeframeSlot::Micro, 60, bcast_tx.clone()),
+        fast: build_pipe(TimeframeSlot::Fast, 180, bcast_tx.clone()),
+        slow: build_pipe(TimeframeSlot::Slow, 300, bcast_tx.clone()),
         r#macro: build_pipe(TimeframeSlot::Macro, 900, bcast_tx),
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
@@ -395,15 +447,31 @@ fn build_stub_instance_v2(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
-    let micro_buf = TimeframeBuffers { history: active.micro.history.clone(),   latest: active.micro.latest_snapshot.clone(),    snapshot_history: snap_hist.clone() };
-    let fast_buf  = TimeframeBuffers { history: active.fast.history.clone(),    latest: active.fast.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
-    let slow_buf  = TimeframeBuffers { history: active.slow.history.clone(),    latest: active.slow.latest_snapshot.clone(),     snapshot_history: snap_hist.clone() };
-    let macro_buf = TimeframeBuffers { history: active.r#macro.history.clone(), latest: active.r#macro.latest_snapshot.clone(),  snapshot_history: snap_hist.clone() };
+    let micro_buf = TimeframeBuffers {
+        history: active.micro.history.clone(),
+        latest: active.micro.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let fast_buf = TimeframeBuffers {
+        history: active.fast.history.clone(),
+        latest: active.fast.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let slow_buf = TimeframeBuffers {
+        history: active.slow.history.clone(),
+        latest: active.slow.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
+    let macro_buf = TimeframeBuffers {
+        history: active.r#macro.history.clone(),
+        latest: active.r#macro.latest_snapshot.clone(),
+        snapshot_history: snap_hist.clone(),
+    };
 
     Arc::new(portfolio_supervisor::instance::Instance::new(
         id.to_string(),

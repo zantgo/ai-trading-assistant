@@ -8,7 +8,8 @@
     import SummaryCard from './SummaryCard.svelte';
     import { buildL4OpportunityHeader, type LayerHeaderSpec } from '../lib/layerHeader';
     import styles from './OpportunitiesPanel.module.css';
-    import { computeDecisionRank, computeSymmetricSetups, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
+    import { computeDecisionRank, selectProfileSide, profileZones, profileSummary, topQualifyingProfile, sideBracketSummary, neutralBracketSummary, type SideBracketSummary, type NeutralBracketSummary } from '../lib/decisionRank';
+    import { normalizeViability } from '../lib/viability';
     import { computeOpportunityBars, rankSectionsByCount, type DirectionalBars } from '../lib/opportunityBars';
     import { computeConfluentRr, fmtConfluentRrMagnitude, rrBarPct, riskBasisLabel } from '../lib/confluentRr';
     import { buildOpportunitySummary, highlightOpportunitySummary, OPPORTUNITY_SUMMARY_LABEL } from '../lib/opportunitySummary';
@@ -82,13 +83,6 @@
         { id: 'range', label: 'RANGE', value: directionBars.hold, cls: 'range' },
     ]
         .sort((a, b) => b.value - a.value));
-
-    const setups = $derived(computeSymmetricSetups({
-        opportunity,
-        markPrice,
-        topAction: rank.top,
-        readiness: rank.headline.state,
-    }));
 
     // ── Per-profile Trade Setup cards ──────────────────────────────────────
     // The Opportunities panel renders the full leaderboard: every
@@ -179,12 +173,21 @@
             });
         });
         // Sort by viability tier (Actionable first), then by score desc.
-        return out.sort((a, b) => {
-            const va = viabilityRank[a.viability];
-            const vb = viabilityRank[b.viability];
-            if (va !== vb) return va - vb;
-            return b.score - a.score;
-        });
+        // Audit fix (M7): `rankIdx` must be the FINAL display index in the
+        // viability-tier-sorted array — previously it captured the
+        // pre-sort (score-only) index, so `TOP · ACTIONABLE` compared two
+        // different orderings and flagged the wrong card whenever tiers
+        // mixed (e.g. a Qualifying profile outscoring an Actionable one).
+        // The export builder (opportunityTab.ts) already used the final
+        // index, so screen and clipboard disagreed exactly here.
+        return out
+            .sort((a, b) => {
+                const va = viabilityRank[a.viability];
+                const vb = viabilityRank[b.viability];
+                if (va !== vb) return va - vb;
+                return b.score - a.score;
+            })
+            .map((s, i) => ({ ...s, rankIdx: i }));
     });
     // v6.10.21: index of the top-ranked Actionable card (the `TOP ·
     // ACTIONABLE` holder) — computed after the viability-tier sort.
@@ -823,8 +826,8 @@
                                          style="width: {profile.preconditions_total > 0 ? (profile.preconditions_met / profile.preconditions_total * 100).toFixed(0) : '0'}%; background: {scoreColor(profile.score)}"></div>
                                 </div>
                             </div>
-                            {#if profile.trade_viability && profile.trade_viability !== 'NoClear'}
-                                <div class={styles.profileViability}>{profile.trade_viability}</div>
+                            {#if profile.trade_viability && normalizeViability(profile.trade_viability) !== 'NoClear'}
+                                <div class={styles.profileViability}>{normalizeViability(profile.trade_viability)}</div>
                             {/if}
                             {#if profile.notes}
                                 <div class={styles.profileNotes}>{profile.notes}</div>

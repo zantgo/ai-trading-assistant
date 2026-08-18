@@ -125,7 +125,7 @@ The MME follows a Welcome-Gate pattern: no pipelines spawn until a **session** (
 
 ## 5. Indicator & Signal System
 
-The MME computes **51 technical indicators** across 8 functional groups, with **101 signal-kind declarations** across 12 SignalKind types (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
+The MME computes **52 technical indicators** across 8 functional groups, with **101 signal-kind declarations** across 12 SignalKind types (post-v6.6; the historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md), and the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
 
 - Per-indicator specifications: [indicators/](indicators/04-02-00-indicator-index.md)
 - Indicator rulebook: [mme-indicators-guide.md](03-02-09-mme-indicators-guide.md)
@@ -138,7 +138,7 @@ The MME computes **51 technical indicators** across 8 functional groups, with **
 | Metric | Target |
 |--------|--------|
 | Full 7-layer cascade per candle | ≤ 15 ms (MME share of the 25 ms end-to-end observation loop: DIE Raw→Distribution ≤ 10 ms + MME cascade ≤ 15 ms; see [01-03 §4](../../conceptual-foundations/01-03-systemic-data-flow.md)) |
-| Indicator computation (50) | < 10 ms |
+| Indicator computation (52) | < 10 ms |
 | Cross-TF synthesis (L2–L6) | < 5 ms |
 | Shadow / pipeline overhead (L3 quality stamp, L7 rollup) | ≤ 3 ms |
 | Live shadow update | < 5 ms |

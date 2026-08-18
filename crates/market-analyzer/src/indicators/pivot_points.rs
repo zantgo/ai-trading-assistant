@@ -377,7 +377,10 @@ mod tests {
         // Woodie:  P = (120+90+2*80)/4 = 370/4 = 92.5
         let classic = finalize(PivotMethod::Classic, 120.0, 90.0, 80.0);
         let woodie = finalize(PivotMethod::Woodie, 120.0, 90.0, 80.0);
-        assert!(classic.pivot > woodie.pivot, "Woodie should weight close more heavily than Classic when close < mid");
+        assert!(
+            classic.pivot > woodie.pivot,
+            "Woodie should weight close more heavily than Classic when close < mid"
+        );
     }
 
     #[test]
@@ -393,23 +396,99 @@ mod tests {
             let h = 100.0 + (i as f64) * 1.3;
             let l = h - 5.0 - ((i % 7) as f64) * 0.5;
             let c = l + ((i % 13) as f64) * 0.31;
-            for m in [PivotMethod::Classic, PivotMethod::Fibonacci, PivotMethod::Woodie] {
+            for m in [
+                PivotMethod::Classic,
+                PivotMethod::Fibonacci,
+                PivotMethod::Woodie,
+            ] {
                 let lv = finalize(m, h, l, c);
-                assert!(lv.s3 < lv.s2, "{:?} iter={}: s3 {} >= s2 {}", m, i, lv.s3, lv.s2);
-                assert!(lv.s2 < lv.s1, "{:?} iter={}: s2 {} >= s1 {}", m, i, lv.s2, lv.s1);
-                assert!(lv.s1 < lv.pivot, "{:?} iter={}: s1 {} >= p {}", m, i, lv.s1, lv.pivot);
-                assert!(lv.pivot < lv.r1, "{:?} iter={}: p {} >= r1 {}", m, i, lv.pivot, lv.r1);
-                assert!(lv.r1 < lv.r2, "{:?} iter={}: r1 {} >= r2 {}", m, i, lv.r1, lv.r2);
-                assert!(lv.r2 < lv.r3, "{:?} iter={}: r2 {} >= r3 {}", m, i, lv.r2, lv.r3);
+                assert!(
+                    lv.s3 < lv.s2,
+                    "{:?} iter={}: s3 {} >= s2 {}",
+                    m,
+                    i,
+                    lv.s3,
+                    lv.s2
+                );
+                assert!(
+                    lv.s2 < lv.s1,
+                    "{:?} iter={}: s2 {} >= s1 {}",
+                    m,
+                    i,
+                    lv.s2,
+                    lv.s1
+                );
+                assert!(
+                    lv.s1 < lv.pivot,
+                    "{:?} iter={}: s1 {} >= p {}",
+                    m,
+                    i,
+                    lv.s1,
+                    lv.pivot
+                );
+                assert!(
+                    lv.pivot < lv.r1,
+                    "{:?} iter={}: p {} >= r1 {}",
+                    m,
+                    i,
+                    lv.pivot,
+                    lv.r1
+                );
+                assert!(
+                    lv.r1 < lv.r2,
+                    "{:?} iter={}: r1 {} >= r2 {}",
+                    m,
+                    i,
+                    lv.r1,
+                    lv.r2
+                );
+                assert!(
+                    lv.r2 < lv.r3,
+                    "{:?} iter={}: r2 {} >= r3 {}",
+                    m,
+                    i,
+                    lv.r2,
+                    lv.r3
+                );
             }
             // Camarilla-specific invariant: each pair strictly separated by
             // its multiplier (k1 < k2 < k3 on both sides of close).
             let lv = finalize(PivotMethod::Camarilla, h, l, c);
-            assert!(lv.s3 < lv.s2, "Camarilla iter={}: s3 {} >= s2 {}", i, lv.s3, lv.s2);
-            assert!(lv.s2 < lv.s1, "Camarilla iter={}: s2 {} >= s1 {}", i, lv.s2, lv.s1);
-            assert!(lv.s1 < lv.r1, "Camarilla iter={}: s1 {} >= r1 {}", i, lv.s1, lv.r1);
-            assert!(lv.r1 < lv.r2, "Camarilla iter={}: r1 {} >= r2 {}", i, lv.r1, lv.r2);
-            assert!(lv.r2 < lv.r3, "Camarilla iter={}: r2 {} >= r3 {}", i, lv.r2, lv.r3);
+            assert!(
+                lv.s3 < lv.s2,
+                "Camarilla iter={}: s3 {} >= s2 {}",
+                i,
+                lv.s3,
+                lv.s2
+            );
+            assert!(
+                lv.s2 < lv.s1,
+                "Camarilla iter={}: s2 {} >= s1 {}",
+                i,
+                lv.s2,
+                lv.s1
+            );
+            assert!(
+                lv.s1 < lv.r1,
+                "Camarilla iter={}: s1 {} >= r1 {}",
+                i,
+                lv.s1,
+                lv.r1
+            );
+            assert!(
+                lv.r1 < lv.r2,
+                "Camarilla iter={}: r1 {} >= r2 {}",
+                i,
+                lv.r1,
+                lv.r2
+            );
+            assert!(
+                lv.r2 < lv.r3,
+                "Camarilla iter={}: r2 {} >= r3 {}",
+                i,
+                lv.r2,
+                lv.r3
+            );
             // The 6 R/S levels must stay within [L − k3·range, H + k3·range].
             let l_dec = Decimal::from_f64_retain(l).unwrap();
             let h_dec = Decimal::from_f64_retain(h).unwrap();

@@ -24,7 +24,7 @@ const registry: IndicatorMeta[] = [
 const indicators: Record<string, IndicatorDto> = {};
 
 const context: MarketContext = {
-    regime: 'TRENDING_BULL',
+    regime: 'TRENDING',
     overall_score: 0.62,
     overall_label: 'STRONG_BULLISH',
     trend: { score: 0.7, confidence: 0.8, label: 'BULLISH' },

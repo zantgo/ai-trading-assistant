@@ -1,6 +1,6 @@
+use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 
 #[derive(Debug, Deserialize)]
 struct BitgetCandleResponse {

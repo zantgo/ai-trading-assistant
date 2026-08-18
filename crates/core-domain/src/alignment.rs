@@ -10,7 +10,7 @@
 use crate::indicator_dtos::NormalizedIndicatorValue;
 use crate::market_context::MarketContext;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Alignment state classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,14 +206,13 @@ impl AlignmentMatrix {
         AlignmentDimension::new(score)
     }
 
-    /// Compute signal alignment: % of signals appearing in ≥2 TFs.
+    /// Compute signal alignment: % of TFs hosting a signal that also
+    /// appears in ≥2 TFs (honest cross-TF breadth since AUDIT-H1).
     ///
     /// Bug-fix #19: the legacy formula
     /// `signal_cross_tf / tf_count * 33.3` was inconsistent with the
-    /// upstream `cross_tf_count = total_signals * 0.3` computation
-    /// (line 369). The two formulas lived in different units (one
-    /// counts cross-TF signals, the other scales total signals by
-    /// 0.3) and the 33.3 multiplier in the score formula meant
+    /// upstream `cross_tf_count` computation. The two formulas lived in
+    /// different units and the 33.3 multiplier in the score formula meant
     /// "every TF has a cross-TF signal" still produced a 33% score
     /// rather than 100%. We now use the canonical %-of-TFs formula
     /// `signal_cross_tf / tf_count * 100` which matches the trend /
@@ -322,16 +321,29 @@ pub fn compute_alignment(
     let mut total_weight = 0.0;
     let mut positive_tf_count = 0u32;
     let mut negative_tf_count = 0u32;
-    let mut total_signals = 0u32;
     let mut regimes: Vec<String> = Vec::new();
     let mut confidences: Vec<f64> = Vec::new();
     let mut ctxs: Vec<MarketContext> = Vec::new();
+    // Per-TF set of distinct signal identities (indicator, label, kind) —
+    // the basis for the real cross-TF signal count (see below).
+    let mut per_tf_signal_sets: Vec<HashSet<(String, String, String)>> =
+        Vec::with_capacity(tf_data.len());
 
     let divisor = tf_data.iter().map(|d| d.1).max().unwrap_or(900) as f64;
 
     for &(label, secs, price, map, ctx) in tf_data {
         let tf_signals: u32 = map.values().map(|v| v.signals.len() as u32).sum();
-        total_signals += tf_signals;
+        let mut tf_signal_set: HashSet<(String, String, String)> = HashSet::new();
+        for (ind_key, val) in map {
+            for sig in &val.signals {
+                tf_signal_set.insert((
+                    ind_key.clone(),
+                    sig.label.clone(),
+                    format!("{:?}", sig.kind),
+                ));
+            }
+        }
+        per_tf_signal_sets.push(tf_signal_set);
 
         let weight = (secs as f64 / divisor).max(0.2).min(1.0);
         total_weight += weight;
@@ -424,8 +436,21 @@ pub fn compute_alignment(
         0.0
     };
 
+    // AUDIT-H1: `signal_cross_tf_count` is now the REAL count of distinct
+    // signals (same indicator + label + kind) active in ≥2 timeframes.
+    // The previous `round(0.3 × total_signals)` fabrication saturated the
+    // signal-alignment dimension at 100% with ≥13 signals regardless of
+    // actual cross-TF agreement, and made every downstream `≥ 3` gate
+    // trivially true. The dimension formula (`cross_tf / tf_count * 100`)
+    // is unchanged — only its input is honest now.
     let cross_tf_count = if tf_data.len() >= 2 {
-        (total_signals as f64 * 0.3).round() as u32
+        let mut signal_tf_counts: HashMap<(String, String, String), u32> = HashMap::new();
+        for set in &per_tf_signal_sets {
+            for key in set {
+                *signal_tf_counts.entry(key.clone()).or_insert(0) += 1;
+            }
+        }
+        signal_tf_counts.values().filter(|&&n| n >= 2).count() as u32
     } else {
         0
     };
@@ -480,6 +505,7 @@ fn clamp01f(x: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::indicator_dtos::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
     use crate::market_context::ContextDimension;
 
     fn build_map(
@@ -639,7 +665,13 @@ mod tests {
             ],
         );
         assert_eq!(c.blend_weights.len(), 4);
-        let w = |k: &str| c.blend_weights.iter().find(|(kk, _)| kk == k).map(|(_, v)| *v).unwrap();
+        let w = |k: &str| {
+            c.blend_weights
+                .iter()
+                .find(|(kk, _)| kk == k)
+                .map(|(_, v)| *v)
+                .unwrap()
+        };
         assert_eq!(w("Trend"), 0.5);
         assert_eq!(w("Momentum"), 0.3);
         assert_eq!(w("Volume"), 0.1);
@@ -674,7 +706,13 @@ mod tests {
             ],
         );
         assert!(c.dimensions[2].score < 25.0, "volume dim must read THIN");
-        let w = |k: &str| c.blend_weights.iter().find(|(kk, _)| kk == k).map(|(_, v)| *v).unwrap();
+        let w = |k: &str| {
+            c.blend_weights
+                .iter()
+                .find(|(kk, _)| kk == k)
+                .map(|(_, v)| *v)
+                .unwrap()
+        };
         assert_eq!(w("Trend"), 0.55);
         assert_eq!(w("Momentum"), 0.35);
         assert_eq!(w("Volume"), 0.05);
@@ -690,6 +728,87 @@ mod tests {
             "reweighted composite must beat the standard blend under thin participation"
         );
     }
+
+    fn map_with_signal(key: &str, label: &str) -> HashMap<String, NormalizedIndicatorValue> {
+        let mut m = build_map(40.0, 0.6, 30.0, 55.0, 1.2);
+        m.insert(
+            key.to_string(),
+            NormalizedIndicatorValue {
+                raw_value: 70.0,
+                normalized: 0.5,
+                state_label: "X".to_string(),
+                values: None,
+                confidence: 0.5,
+                signals: vec![IndicatorSignal {
+                    kind: SignalKind::Threshold,
+                    direction: SignalDirection::Bullish,
+                    status: SignalStatus::Confirmed,
+                    label: label.to_string(),
+                    strength: 1.0,
+                    age_bars: 0,
+                    points: None,
+                }],
+            },
+        );
+        m
+    }
+
+    #[test]
+    fn cross_tf_count_counts_signals_shared_across_two_or_more_tfs() {
+        let shared = map_with_signal("rsi", "RSI_OVERBOUGHT");
+        let solo = map_with_signal("macd", "MACD_CROSS_UP");
+        let c = compute_alignment(
+            "BTC-USD",
+            &[
+                ("micro60", 60, 64000.0, &shared, &empty_ctx()),
+                ("fast180", 180, 64000.0, &shared, &empty_ctx()),
+                ("slow300", 300, 64000.0, &solo, &empty_ctx()),
+            ],
+        );
+        // "rsi/RSI_OVERBOUGHT/Threshold" appears in 2 TFs → 1 cross-TF
+        // signal. "macd/MACD_CROSS_UP/Threshold" appears in 1 TF → not
+        // cross-TF. The old `0.3 × total_signals` heuristic would have
+        // reported round(0.3 × 3) = 1 — indistinguishable here, so also
+        // assert the saturation case below.
+        assert_eq!(c.signal_cross_tf_count, 1);
+    }
+
+    #[test]
+    fn cross_tf_count_is_not_a_fraction_of_total_signals() {
+        // Many distinct signals with NO shared identity must read 0 —
+        // the old heuristic reported round(0.3 × N) and saturated the
+        // alignment dimension at 100% with ≥13 total signals.
+        let mut heavy = build_map(40.0, 0.6, 30.0, 55.0, 1.2);
+        for i in 0..16 {
+            heavy.insert(
+                format!("ind_{i}"),
+                NormalizedIndicatorValue {
+                    raw_value: 70.0,
+                    normalized: 0.5,
+                    state_label: "X".to_string(),
+                    values: None,
+                    confidence: 0.5,
+                    signals: vec![IndicatorSignal {
+                        kind: SignalKind::Threshold,
+                        direction: SignalDirection::Bullish,
+                        status: SignalStatus::Confirmed,
+                        label: format!("LABEL_{i}"),
+                        strength: 1.0,
+                        age_bars: 0,
+                        points: None,
+                    }],
+                },
+            );
+        }
+        let sparse = map_with_signal("rsi", "UNIQUE");
+        let c = compute_alignment(
+            "BTC-USD",
+            &[
+                ("micro60", 60, 64000.0, &heavy, &empty_ctx()),
+                ("fast180", 180, 64000.0, &sparse, &empty_ctx()),
+            ],
+        );
+        // 17 signals in total, none shared between the two TFs.
+        assert_eq!(c.signal_cross_tf_count, 0);
+    }
 }
-
-

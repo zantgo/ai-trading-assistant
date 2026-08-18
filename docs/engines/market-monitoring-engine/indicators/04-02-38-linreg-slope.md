@@ -24,9 +24,9 @@ Labels: `LINREG_RISING_TREND` (norm > 0.1), `LINREG_FALLING_TREND` (norm < -0.1)
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| Threshold | LINREG_RISING_TREND | Positive slope (rising trend) | Bullish |
-| Threshold | LINREG_FALLING_TREND | Negative slope (falling trend) | Bearish |
 | ZeroLineCross | LinReg zero cross | Slope crosses 0 (sign flip from positive to negative or vice versa). Transition-only via prev-bar slope comparison in engine. | Bullish / Bearish |
+
+> Registry manifest (`signal_types`): ZeroLineCross. The legacy `Threshold` rows (`LINREG_RISING_TREND` / `LINREG_FALLING_TREND`) were removed — neither the registry nor the runtime deriver emits them (LinReg is a regime classifier, not a directional signal emitter).
 
 ## 5. Configuration
 ```json

@@ -1,7 +1,7 @@
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{Exchange, NormalizedCandle};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use sqlx::SqlitePool;
 
 pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
@@ -89,8 +89,9 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             cluster_long_count, cluster_short_count, cluster_total_notional_usd,
             cluster_estimation_confidence,
             liquidity_json, cluster_json,
-            auxiliary_normalized_data
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95)"
+            auxiliary_normalized_data,
+            reconstructed
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95, ?96)"
     )
     .bind(exchange_label)
     .bind(snapshot.timeframe_secs as i64)
@@ -187,6 +188,17 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     .bind(liquidity_json)
     .bind(cluster_json)
     .bind(auxiliary_json)
+    // K3 (production audit): persist reconstruction provenance so a
+    // restart or the `/api/history` DB fallback can distinguish
+    // gap-filled candles from genuine live ones (the wire collapses to
+    // SYNTHETIC; the column keeps the same token, NULL = live).
+    .bind(
+        snapshot
+            .quality_envelope
+            .as_ref()
+            .filter(|q| q.is_gap_filled)
+            .map(|_| "SYNTHETIC"),
+    )
     .execute(pool)
     .await
     {
@@ -214,9 +226,10 @@ pub async fn query_recent_candles(
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT exchange, timestamp, open, high, low, close, volume
+        "SELECT exchange, timestamp, open, high, low, close, volume, reconstructed
          FROM market_snapshots
          WHERE symbol = ?1
            AND timeframe_secs = ?2
@@ -241,27 +254,53 @@ pub async fn query_recent_candles(
 
     let mut candles: Vec<NormalizedCandle> = rows
         .into_iter()
-        .map(|(exchange_str, ts, open, high, low, close, volume)| {
-            let exchange = match exchange_str.as_str() {
-                "Bitget" => Exchange::Bitget,
-                _ => Exchange::Hyperliquid,
-            };
-            let close_dec = parse(close);
-            let non_zero = |d: Decimal| if d.is_zero() { close_dec } else { d };
-            NormalizedCandle {
-                exchange,
-                symbol: symbol.to_string(),
-                start_time_ms: (ts.max(0) as u64) * 1000,
-                duration_ms: timeframe_secs * 1000,
-                open: non_zero(parse(open)),
-                high: non_zero(parse(high)),
-                low: non_zero(parse(low)),
-                close: close_dec,
-                volume: parse(volume),
-                trades_count: 0,
-                reconstructed: None,
-            }
-        })
+        .map(
+            |(exchange_str, ts, open, high, low, close, volume, reconstructed): (
+                String,
+                i64,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )| {
+                let exchange = match exchange_str.as_str() {
+                    "Bitget" => Exchange::Bitget,
+                    _ => Exchange::Hyperliquid,
+                };
+                let close_dec = parse(close);
+                let non_zero = |d: Decimal| if d.is_zero() { close_dec } else { d };
+                // K3: the persisted provenance column feeds the candle
+                // back (NULL = genuine live candle).
+                let reconstruction = reconstructed.as_deref().map(|r| match r {
+                    "EXCHANGE_HISTORICAL" => {
+                        core_domain::normalized::ReconstructionMethod::ExchangeHistorical
+                    }
+                    "EXPONENTIAL_MOVING_AVERAGE" => {
+                        core_domain::normalized::ReconstructionMethod::ExponentialMovingAverage
+                    }
+                    "LINEAR_INTERPOLATION" => {
+                        core_domain::normalized::ReconstructionMethod::LinearInterpolation
+                    }
+                    "UNAVAILABLE" => core_domain::normalized::ReconstructionMethod::Unavailable,
+                    _ => core_domain::normalized::ReconstructionMethod::Synthetic,
+                });
+                NormalizedCandle {
+                    exchange,
+                    symbol: symbol.to_string(),
+                    start_time_ms: (ts.max(0) as u64) * 1000,
+                    duration_ms: timeframe_secs * 1000,
+                    open: non_zero(parse(open)),
+                    high: non_zero(parse(high)),
+                    low: non_zero(parse(low)),
+                    close: close_dec,
+                    volume: parse(volume),
+                    trades_count: 0,
+                    reconstructed: reconstruction,
+                }
+            },
+        )
         .collect();
 
     // Query returned newest-first; reverse to ascending (oldest-first).
@@ -313,10 +352,9 @@ pub async fn query_latest_snapshot(
         // 20260726000000_liquidity_snapshot_persistence.sql). Legacy
         // rows (pre-migration) have NULLs here, which is fine — the
         // chart's WS will populate them on the next live tick.
-        let cluster = r
-            .get::<Option<String>, _>(34)
-            .as_deref()
-            .and_then(|s| serde_json::from_str::<core_domain::liquidity::LiquidationClusterMatrix>(s).ok());
+        let cluster = r.get::<Option<String>, _>(34).as_deref().and_then(|s| {
+            serde_json::from_str::<core_domain::liquidity::LiquidationClusterMatrix>(s).ok()
+        });
         let liquidity = r
             .get::<Option<String>, _>(33)
             .as_deref()
@@ -325,7 +363,10 @@ pub async fn query_latest_snapshot(
             .as_deref()
             .and_then(|s| {
                 serde_json::from_str::<
-                    std::collections::HashMap<String, core_domain::indicator_dtos::NormalizedIndicatorValue>,
+                    std::collections::HashMap<
+                        String,
+                        core_domain::indicator_dtos::NormalizedIndicatorValue,
+                    >,
                 >(s)
                 .ok()
             })
@@ -365,7 +406,9 @@ pub async fn query_latest_snapshot(
             });
 
         MarketSnapshot {
-            timeframe_slot: Some(core_domain::models::TimeframeSlot::parse_from_secs(timeframe_secs)),
+            timeframe_slot: Some(core_domain::models::TimeframeSlot::parse_from_secs(
+                timeframe_secs,
+            )),
             exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
             timeframe_secs,
             timestamp: r.get::<i64, _>(1) as u64,

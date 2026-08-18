@@ -28,18 +28,14 @@ pub fn evaluate_condition(condition: &Condition, snapshot: &MarketSnapshot) -> b
     let num_val = resolve_field_numeric(&condition.field, snapshot);
 
     match &condition.value {
-        ConditionValue::String(_) | ConditionValue::StringList(_) => {
-            match str_val {
-                Some(ref sv) => evaluate_operator_string(&condition.operator, sv, &condition.value),
-                None => false,
-            }
-        }
-        ConditionValue::Number(_) | ConditionValue::NumberList(_) => {
-            match num_val {
-                Some(v) => evaluate_operator_numeric(&condition.operator, v, &condition.value),
-                None => false,
-            }
-        }
+        ConditionValue::String(_) | ConditionValue::StringList(_) => match str_val {
+            Some(ref sv) => evaluate_operator_string(&condition.operator, sv, &condition.value),
+            None => false,
+        },
+        ConditionValue::Number(_) | ConditionValue::NumberList(_) => match num_val {
+            Some(v) => evaluate_operator_numeric(&condition.operator, v, &condition.value),
+            None => false,
+        },
     }
 }
 
@@ -56,7 +52,11 @@ fn resolve_field_string(field: &str, snapshot: &MarketSnapshot) -> Option<String
         "decision.strategy_environment" => ad.map(|a| format!("{:?}", a.strategy_environment)),
         "decision.entry_guidance" => ad.map(|a| format!("{:?}", a.entry_guidance)),
         "decision.trade_readiness" => dc.map(|d| d.trade_readiness.clone()),
-        "analysis.market_regime" => analysis.map(|a| a.market_regime.to_string()),
+        // Wire-consistent: `market_regime` serializes PascalCase on the
+        // Analysis Matrix (`TrendingBull`, `Range`, …), so conditions must
+        // compare against that casing. The Display impl's SCREAMING_SNAKE
+        // form is not what appears on the wire.
+        "analysis.market_regime" => analysis.map(|a| format!("{:?}", a.market_regime)),
         "analysis.market_quality" => analysis.map(|a| format!("{:?}", a.market_quality)),
         "analysis.market_interpretation" => analysis.map(|a| a.market_interpretation.clone()),
         "opportunity.primary_opportunity" => opp.map(|o| format!("{:?}", o.primary_opportunity)),
@@ -74,19 +74,26 @@ fn resolve_field_numeric(field: &str, snapshot: &MarketSnapshot) -> Option<f64> 
 
     match field {
         "decision.bias" => dc.and_then(|d| bias_numeric(&d.bias)),
-        "decision.confidence_assessment" => dc.map(|d| d.score_confidence * 100.0),
+        "decision.confidence_assessment" => ad.map(|a| a.confidence_assessment),
+        "decision.score_confidence" => dc.map(|d| d.score_confidence * 100.0),
         "decision.score" => dc.map(|d| d.score),
         "decision.expected_reward_risk_ratio" => dc.map(|d| d.expected_reward_risk_ratio),
         "decision.entry_danger.score" => dc.map(|d| d.entry_danger.score),
         "decision.market_stance" => ad.and_then(|a| stance_numeric(a.market_stance)),
-        "decision.directional_guidance" => ad.and_then(|a| dir_guidance_numeric(a.directional_guidance)),
-        "decision.strategy_environment" => ad.and_then(|a| strategy_env_numeric(a.strategy_environment)),
+        "decision.directional_guidance" => {
+            ad.and_then(|a| dir_guidance_numeric(a.directional_guidance))
+        }
+        "decision.strategy_environment" => {
+            ad.and_then(|a| strategy_env_numeric(a.strategy_environment))
+        }
         "decision.entry_guidance" => ad.and_then(|a| entry_guidance_numeric(a.entry_guidance)),
         "analysis.market_regime" => ad.and_then(|_| regime_numeric(snapshot)),
         "analysis.market_quality" => ad.and_then(|_| quality_numeric(snapshot)),
         "analysis.market_bias_score" => analysis.map(|a| a.market_bias_score),
         "analysis.state_confidence" => analysis.map(|a| a.state_confidence * 100.0),
-        "opportunity.primary_opportunity" => opp.map(|o| opportunity_type_numeric(o.primary_opportunity)),
+        "opportunity.primary_opportunity" => {
+            opp.map(|o| opportunity_type_numeric(o.primary_opportunity))
+        }
         "opportunity.opportunity_score" => opp.map(|o| o.opportunity_score),
         "risk.market_risk.score" => risk.map(|r| r.market_risk.score),
         "risk.market_risk.level" => risk.map(|r| risk_level_numeric(&r.market_risk.level)),
@@ -114,11 +121,15 @@ fn risk_level_numeric(level: &core_domain::risk::RiskLevel) -> f64 {
 }
 
 fn bias_numeric(bias: &str) -> Option<f64> {
+    // Wire values mirror the PascalCase serialization of `Analysis.bias`
+    // (see `DecisionContext::bias`). SCREAMING_SNAKE never occurs on the
+    // wire — matching it here made every numeric `decision.bias` condition
+    // fall through to the Neutral (2.0) default.
     Some(match bias {
-        "STRONG_BULLISH" => 5.0,
-        "BULLISH" => 3.0,
-        "BEARISH" => 1.0,
-        "STRONG_BEARISH" => 0.0,
+        "StrongBullish" => 5.0,
+        "Bullish" => 3.0,
+        "Bearish" => 1.0,
+        "StrongBearish" => 0.0,
         _ => 2.0,
     })
 }
@@ -261,13 +272,11 @@ mod tests {
 
     #[test]
     fn test_and_all_true() {
-        let group = ConditionGroup::And(vec![
-            Condition {
-                field: "risk.overall_risk.score".into(),
-                operator: Operator::Lt,
-                value: ConditionValue::Number(50.0),
-            },
-        ]);
+        let group = ConditionGroup::And(vec![Condition {
+            field: "risk.overall_risk.score".into(),
+            operator: Operator::Lt,
+            value: ConditionValue::Number(50.0),
+        }]);
         let mut snap = stub_snapshot();
         snap.risk.as_mut().unwrap().overall_risk.score = 30.0;
         assert!(evaluate_condition_group(&group, &snap));
@@ -312,32 +321,84 @@ mod tests {
 
     #[test]
     fn test_operators() {
-        assert!(evaluate_operator_numeric(&Operator::Eq, 3.0, &ConditionValue::Number(3.0)));
-        assert!(!evaluate_operator_numeric(&Operator::Eq, 3.0, &ConditionValue::Number(3.1)));
-        assert!(evaluate_operator_numeric(&Operator::Gt, 5.0, &ConditionValue::Number(3.0)));
-        assert!(evaluate_operator_numeric(&Operator::Lt, 2.0, &ConditionValue::Number(5.0)));
-        assert!(evaluate_operator_numeric(&Operator::Gte, 3.0, &ConditionValue::Number(3.0)));
-        assert!(evaluate_operator_numeric(&Operator::Lte, 3.0, &ConditionValue::Number(3.0)));
-        assert!(evaluate_operator_numeric(&Operator::NotEq, 3.0, &ConditionValue::Number(4.0)));
-        assert!(evaluate_operator_numeric(&Operator::In, 3.0, &ConditionValue::NumberList(vec![1.0, 2.0, 3.0])));
-        assert!(evaluate_operator_numeric(&Operator::Between, 5.0, &ConditionValue::NumberList(vec![1.0, 10.0])));
-        assert!(!evaluate_operator_numeric(&Operator::Between, 15.0, &ConditionValue::NumberList(vec![1.0, 10.0])));
+        assert!(evaluate_operator_numeric(
+            &Operator::Eq,
+            3.0,
+            &ConditionValue::Number(3.0)
+        ));
+        assert!(!evaluate_operator_numeric(
+            &Operator::Eq,
+            3.0,
+            &ConditionValue::Number(3.1)
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::Gt,
+            5.0,
+            &ConditionValue::Number(3.0)
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::Lt,
+            2.0,
+            &ConditionValue::Number(5.0)
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::Gte,
+            3.0,
+            &ConditionValue::Number(3.0)
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::Lte,
+            3.0,
+            &ConditionValue::Number(3.0)
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::NotEq,
+            3.0,
+            &ConditionValue::Number(4.0)
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::In,
+            3.0,
+            &ConditionValue::NumberList(vec![1.0, 2.0, 3.0])
+        ));
+        assert!(evaluate_operator_numeric(
+            &Operator::Between,
+            5.0,
+            &ConditionValue::NumberList(vec![1.0, 10.0])
+        ));
+        assert!(!evaluate_operator_numeric(
+            &Operator::Between,
+            15.0,
+            &ConditionValue::NumberList(vec![1.0, 10.0])
+        ));
     }
 
     #[test]
     fn test_string_in_operator() {
-        assert!(evaluate_operator_string(&Operator::In, "BULLISH",
-            &ConditionValue::StringList(vec!["BULLISH".into(), "STRONG_BULLISH".into()])));
-        assert!(!evaluate_operator_string(&Operator::In, "NEUTRAL",
-            &ConditionValue::StringList(vec!["BULLISH".into(), "STRONG_BULLISH".into()])));
+        assert!(evaluate_operator_string(
+            &Operator::In,
+            "BULLISH",
+            &ConditionValue::StringList(vec!["BULLISH".into(), "STRONG_BULLISH".into()])
+        ));
+        assert!(!evaluate_operator_string(
+            &Operator::In,
+            "NEUTRAL",
+            &ConditionValue::StringList(vec!["BULLISH".into(), "STRONG_BULLISH".into()])
+        ));
     }
 
     #[test]
     fn test_string_eq_operator() {
-        assert!(evaluate_operator_string(&Operator::Eq, "BREAKOUT",
-            &ConditionValue::String("BREAKOUT".into())));
-        assert!(!evaluate_operator_string(&Operator::Eq, "BREAKOUT",
-            &ConditionValue::String("TREND_CONTINUATION".into())));
+        assert!(evaluate_operator_string(
+            &Operator::Eq,
+            "BREAKOUT",
+            &ConditionValue::String("BREAKOUT".into())
+        ));
+        assert!(!evaluate_operator_string(
+            &Operator::Eq,
+            "BREAKOUT",
+            &ConditionValue::String("TREND_CONTINUATION".into())
+        ));
     }
 
     #[test]
@@ -359,8 +420,14 @@ mod tests {
             setup_quality: core_domain::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            entry_zone: core_domain::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            target_zone: core_domain::opportunity::PriceRange { low: 0.0, high: 0.0 },
+            entry_zone: core_domain::opportunity::PriceRange {
+                low: 0.0,
+                high: 0.0,
+            },
+            target_zone: core_domain::opportunity::PriceRange {
+                low: 0.0,
+                high: 0.0,
+            },
             invalidation_level: 0.0,
             long_expected_rr_internal: 2.5,
             time_horizon: "SWING".into(),
@@ -372,19 +439,78 @@ mod tests {
         assert_eq!(score_val, Some(85.0));
     }
 
+    #[test]
+    fn test_decision_bias_numeric_matches_wire_pascalcase() {
+        // Regression: the resolver previously matched SCREAMING_SNAKE
+        // ("STRONG_BULLISH"), which never occurs on the wire — every
+        // numeric `decision.bias` condition degraded to Neutral (2.0).
+        assert_eq!(bias_numeric("StrongBullish"), Some(5.0));
+        assert_eq!(bias_numeric("Bullish"), Some(3.0));
+        assert_eq!(bias_numeric("Bearish"), Some(1.0));
+        assert_eq!(bias_numeric("StrongBearish"), Some(0.0));
+        assert_eq!(bias_numeric("Neutral"), Some(2.0));
+        let snap = stub_snapshot();
+        assert_eq!(resolve_field_numeric("decision.bias", &snap), Some(5.0));
+        assert_eq!(
+            resolve_field_numeric("decision.bias", &stub_snapshot()),
+            Some(5.0)
+        );
+    }
+
+    #[test]
+    fn test_decision_bias_string_matches_wire_pascalcase() {
+        let snap = stub_snapshot();
+        assert_eq!(
+            resolve_field_string("decision.bias", &snap),
+            Some("StrongBullish".into())
+        );
+    }
+
+    #[test]
+    fn test_market_regime_string_matches_wire_pascalcase() {
+        let snap = stub_snapshot();
+        assert_eq!(
+            resolve_field_string("analysis.market_regime", &snap),
+            Some("TrendingBull".into())
+        );
+    }
+
+    #[test]
+    fn test_confidence_assessment_maps_to_advisory_matrix() {
+        let snap = stub_snapshot();
+        assert_eq!(
+            resolve_field_numeric("decision.confidence_assessment", &snap),
+            Some(71.7)
+        );
+        assert_eq!(
+            resolve_field_numeric("decision.score_confidence", &snap),
+            Some(97.0)
+        );
+    }
+
+    #[test]
+    fn test_bias_condition_evaluates_bullish() {
+        let group = ConditionGroup::And(vec![Condition {
+            field: "decision.bias".into(),
+            operator: Operator::Eq,
+            value: ConditionValue::Number(5.0),
+        }]);
+        let snap = stub_snapshot();
+        assert!(evaluate_condition_group(&group, &snap));
+    }
+
     fn stub_snapshot() -> MarketSnapshot {
         use core_domain::advisory::{
-            AdvisoryMatrix, DirectionalGuidance, MarketStance, OpportunityClass,
-            StrategyEnvironment, EntryGuidance, ExitGuidance, ProtectionStrategy, TargetStrategy,
+            AdvisoryMatrix, DirectionalGuidance, EntryGuidance, ExitGuidance, MarketStance,
+            OpportunityClass, ProtectionStrategy, StrategyEnvironment, TargetStrategy,
         };
         use core_domain::analysis::{
-            AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, TrendAssessment, MomentumAssessment,
-            StructureAssessment, VolatilityAssessment, VolumeAssessment, OpportunityType, QualityLevel,
+            AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment,
+            OpportunityType, QualityLevel, StructureAssessment, TrendAssessment,
+            VolatilityAssessment, VolumeAssessment,
         };
         use core_domain::decision_context::DecisionContext;
-        use core_domain::risk::{
-            RiskDimension, RiskLevel, RiskMatrix, RiskState,
-        };
+        use core_domain::risk::{RiskDimension, RiskLevel, RiskMatrix, RiskState};
         use rust_decimal::Decimal;
         use std::collections::HashMap;
 
@@ -410,10 +536,15 @@ mod tests {
             bid_size: None,
             ask_size: None,
             funding_rate: None,
-            open: None, high: None, low: None, close: None,
-            volume: None, average_volume: None,
+            open: None,
+            high: None,
+            low: None,
+            close: None,
+            volume: None,
+            average_volume: None,
             indicators: HashMap::new(),
-            context: None, alignment: None,
+            context: None,
+            alignment: None,
             analysis: Some(AnalysisMatrix {
                 symbol: "BTC-USDT".into(),
                 bias: MarketBias::StrongBullish,
@@ -472,8 +603,11 @@ mod tests {
                 quality_to_risk_ratio: None,
                 final_recommendation: "Test reco".into(),
             }),
-            open_interest: None, oi_delta_1h: None,
-            mark_price: None, index_price: None, mark_index_spread_pct: None,
+            open_interest: None,
+            oi_delta_1h: None,
+            mark_price: None,
+            index_price: None,
+            mark_index_spread_pct: None,
             prev_day_px: None,
             statistical_context: None,
             decision_context: Some(DecisionContext {
@@ -488,7 +622,7 @@ mod tests {
                 short_probability: 0.0,
                 hold_probability: 0.0,
                 net_bias_pct: 0.0,
-            lean_floor_applied: false,
+                lean_floor_applied: false,
             }),
             risk_profile: None,
             liquidity: None,
@@ -498,8 +632,8 @@ mod tests {
             metrics_config: None,
             opportunity: None,
             quality_envelope: None,
-        pipeline_state: core_domain::models::CandlePipelineState::default(),
-        indicator_lifecycle: std::collections::HashMap::new(),
+            pipeline_state: core_domain::models::CandlePipelineState::default(),
+            indicator_lifecycle: std::collections::HashMap::new(),
         }
     }
 }

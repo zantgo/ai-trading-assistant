@@ -143,7 +143,8 @@ pub struct MonthlySummary {
 }
 
 pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) -> DashboardStats {
-    let compounded_curve = portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
+    let compounded_curve =
+        portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
 
     let trades: Vec<TradeDetailRow> = database_storage::dash_trade_detail(pool).await;
 
@@ -593,11 +594,7 @@ fn compute_direction_breakdown(trades: &[TradeDetailRow]) -> DirectionBreakdown 
         0.0
     };
     let short_avg_gain = if !short_wins_list.is_empty() {
-        short_wins_list
-            .iter()
-            .map(|t| t.roi_pct)
-            .sum::<f64>()
-            / short_wins as f64
+        short_wins_list.iter().map(|t| t.roi_pct).sum::<f64>() / short_wins as f64
     } else {
         0.0
     };

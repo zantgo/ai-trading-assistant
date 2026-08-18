@@ -222,7 +222,6 @@
         return cleaned;
     }
 
-    const rrDisplay = $derived(decisionCtx?.expected_reward_risk_ratio ?? 0);
     // `entry_danger` is now a RiskDimension-shaped object on the wire.
     // The legacy code (`decisionCtx?.entry_danger ?? 50`) treated it as a
     // bare scalar and got the wrong numbers. Read `.score` defensively.
@@ -233,7 +232,6 @@
             : (dangerRaw as { score?: number } | null)?.score ?? 50,
     );
     const dangerLevel = $derived(entryDangerLevel(dangerDisplay));
-    const dangerState = $derived((dangerRaw as { state?: string } | null)?.state ?? 'Unknown');
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
     const stopLossPct = $derived(advisory?.stop_loss_distance_pct ?? 0);
     // v6.11: setup-efficiency KPI — market quality ÷ overall risk.
@@ -528,15 +526,29 @@
             </div>
             <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>Risk-Adjusted Reward-to-Risk</span>
-                <span class={styles.kpiVal} style="color: {riskAdjRrDisplay.isNA ? '#94a3b8' : rrDisplay >= 2 ? '#22c55e' : rrDisplay >= 1 ? '#f59e0b' : '#ef4444'}">
-                    {(() => {
-                        if (riskAdjRrDisplay.isNA) return '\u2014';
-                        const v = Number(riskAdjRrDisplay.value);
-                        if (Number.isNaN(v) || v <= 0) return '\u2014';
-                        const norm = v >= 9.99 ? '9.99+' : v >= 5 ? v.toFixed(1) : v.toFixed(2);
-                        return norm;
-                    })()}
-                </span>
+                {#if riskAdjRrDisplay.isNA}
+                    <span class={styles.kpiVal} style="color: #94a3b8">—</span>
+                {:else}
+                    {@const adjusted = Number(riskAdjRrDisplay.value)}
+                    <!-- Audit fix (M3-UI): the color must be derived from the
+                         SAME resolved value being displayed. Previously the
+                         number used `riskAdjRrDisplay.value` (which falls
+                         back to `topSetup.rr × (1 − overall_risk/100)` when
+                         `expected_reward_risk_ratio <= 0`) while the color
+                         read the raw `rrDisplay` — a good adjusted ratio
+                         (e.g. 2.50) rendered in red whenever the raw field
+                         was zero. -->
+                    <span
+                        class={styles.kpiVal}
+                        style="color: {adjusted >= 2 ? '#22c55e' : adjusted >= 1 ? '#f59e0b' : '#ef4444'}"
+                    >
+                        {(() => {
+                            if (Number.isNaN(adjusted) || adjusted <= 0) return '\u2014';
+                            const norm = adjusted >= 9.99 ? '9.99+' : adjusted >= 5 ? adjusted.toFixed(1) : adjusted.toFixed(2);
+                            return norm;
+                        })()}
+                    </span>
+                {/if}
             </div>
             <div class={styles.kpi}>
                 <span class={styles.kpiLabel}>ATR Stop Guide</span>

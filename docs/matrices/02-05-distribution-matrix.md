@@ -53,22 +53,28 @@ The observation-loop latency budget decomposes as: **DIE contribution ≤ 10 ms;
 
 Each DIE L4 `NormalizedCandle` frame carries the OHLCV candle with its `ReconstructionMethod` provenance flag (see [02-06-market-data-matrix.md](02-06-market-data-matrix.md)). Transport is by in-memory `Arc<NormalizedCandle>` broadcast; no independent JSON serialization is performed at this layer. The candle is serialized downstream by MME L1 as part of the `MarketSnapshot` envelope (see `03-02-02 §8.3`).
 
-The `CandleDistributionFrame` (the wire envelope carrying the validated candle and its quality metadata to external consumers) is projected from the `NormalizedCandle` and `CandleQualityEnvelope` at MME L1 serialization time, not at DIE L4:
+The analytical `MarketSnapshot` envelope carries the candle's quality metadata as the **full `quality_envelope`** object (`MarketSnapshot.quality_envelope: Option<CandleQualityEnvelope>`, `crates/core-domain/src/models.rs`), not as a `CandleDistributionFrame` / `CandleQualitySummary` subset — the phantom `CandleDistributionFrame` and its 3-field `quality` summary are retired:
 
-| Frame field | Projected from |
-|-------------|----------------|
-| `exchange`, `symbol`, `timeframe_secs`, `timestamp` | `NormalizedCandle` ([02-06-market-data-matrix.md](02-06-market-data-matrix.md)) — hoisted out of the candle to the envelope top level. |
-| `candle.open` / `high` / `low` / `close` / `volume` | `NormalizedCandle` (02-06). |
-| `quality.is_gap_filled`, `quality.quality_score`, `quality.sequence_integrity` | `CandleQualityEnvelope` ([02-03-data-quality-matrix.md](02-03-data-quality-matrix.md)) — the 3-field `CandleQualitySummary` subset. |
+| Envelope field | Source |
+|----------------|--------|
+| `quality_score` | `CandleQualityEnvelope` (0.0–100.0 composite; 100.0 = fully valid) |
+| `is_valid` | Structural validity check result |
+| `is_gap_filled` | Reconstructed / REST backfill marker |
+| `had_outliers_rejected` | Outlier-tick rejection marker |
+| `spike_detected` | Price-spike filter marker |
+| `is_stale` | Last-trade staleness marker |
+| `sequence_integrity` | `SequenceIntegrity` classification (`Valid` / `OutOfOrder` / `Duplicate`; wire SCREAMING: `VALID` / `OUT_OF_ORDER` / `DUPLICATE`). **Currently always `VALID` in production** — both construction sites hardcode `SequenceIntegrity::Valid`; `OutOfOrder` / `Duplicate` are reserved for future use. |
+| `gap_since_last` | Seconds since the last valid candle (≤ `timeframe_secs` = continuous) |
+| `validated_at` | Unix epoch of quality validation, in milliseconds |
 
-`NormalizedCandle.trades_count` and the four remaining `CandleQualityEnvelope` quality fields (`is_stale`, `spike_detected`, `gap_since_last`, `validated_at`) are **intentionally excluded** from the wire frame.
+`NormalizedCandle.trades_count` is intentionally excluded from the envelope.
 
 ```json
 {
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 60,
-  "timestamp": 1752192000000,
+  "timestamp": 1752192000,
   "candle": {
     "open": 63890.0,
     "high": 64120.0,
@@ -76,10 +82,16 @@ The `CandleDistributionFrame` (the wire envelope carrying the validated candle a
     "close": 64012.5,
     "volume": 182.4
   },
-  "quality": {
-    "is_gap_filled": false,
+  "quality_envelope": {
     "quality_score": 100.0,
-    "sequence_integrity": "VALID"
+    "is_valid": true,
+    "is_gap_filled": false,
+    "had_outliers_rejected": false,
+    "spike_detected": false,
+    "is_stale": false,
+    "sequence_integrity": "VALID",
+    "gap_since_last": 60,
+    "validated_at": 1752192000000
   }
 }
 ```

@@ -11,7 +11,7 @@
 //   - per-TF state humanization (matches the single-TF Metrics export)
 //   - per-TF raw_display / state_display (display parity with screen)
 //   - top-level signals_by_kind, divergences, levels (cross-TF aggregates)
-//   - meta.timesframes list (removes the timeframe_secs=0 ambiguity)
+//   - meta.timeframes list (removes the timeframe_secs=0 ambiguity)
 
 import type {
   TimeframeTelemetry,
@@ -38,6 +38,14 @@ import type { LayerHeaderSpec } from '../layerHeader';
 import { GROUP_META } from '../groupMeta';
 import { type FilterState } from '../filtering';
 import { fibStatusString, vpPositionLabel } from '../structuralStrings';
+import { classifyDivergence, type DivergenceSubKind } from '../divergence';
+import {
+  classifyLevelKey,
+  parseLevelLabel,
+  resolveLevelPriceText,
+  LEVEL_KIND_ORDER,
+  type LevelKind,
+} from '../levelKind';
 import {
   buildGroupConfluence as buildGroupConfluenceShared,
   buildSignalsByKind,
@@ -109,6 +117,10 @@ export interface MtfIndicatorValue {
   normalized: number;
   normalized_display: string;
   active: boolean;
+  /** WARMING placeholder (0.0 norms are NOT a real reading). */
+  warming: boolean;
+  /** Non-Directional normalization gate ('N/A' cell on screen). */
+  gated: boolean;
 }
 
 export interface MtfIndicatorEntry {
@@ -143,7 +155,7 @@ export interface MtfGroupEntry {
 
 export interface MtfPayload {
   source_tab: 'mtf';
-  meta: MetaEnvelope & { timesframes?: string[] };
+  meta: MetaEnvelope & { timeframes?: string[] };
   header: HeaderBlock;
   groups: MtfGroupEntry[];
   indicators: MtfIndicatorEntry[];
@@ -154,6 +166,240 @@ export interface MtfPayload {
   levels: LevelRow[];
   liquidity_panel: LiquidityPanelBlock;
   timeframes: MtfTimeframeEntry[];
+  /** Audit G-3: the three cross-TF tables exactly as the screen renders
+   *  them (MtfView.svelte:574-775) — per-TF direction tallies, per-TF
+   *  strongest-divergence cells, and per-TF level chips. The flattened
+   *  `signals_by_kind`/`divergences`/`levels` aggregates above cannot
+   *  reconstruct this per-TF geometry. */
+  cross_tf_tables: CrossTfTablesBlock;
+}
+
+// ── Cross-TF table block (audit G-3) ────────────────────────────────────
+
+const SIGNAL_KIND_ORDER: string[] = [
+  'Divergence', 'Crossover', 'Threshold', 'Breakout', 'BandTouch',
+  'ZeroLineCross', 'CompressionRelease', 'LevelTest', 'TrendFlip',
+  'VolumeClimax', 'StackChange', 'PatternForming',
+];
+
+export interface CrossTfTablesBlock {
+  signals: Array<{
+    kind: string;
+    per_timeframe: Array<{
+      timeframe: MtfSlotLabel;
+      bull: number;
+      bear: number;
+      neutral: number;
+      /** The badge tooltip entries — display name, label, strength. */
+      entries: Array<{ display_name: string; label: string; direction: string; status: string; strength: number; age_bars: number | null }>;
+    }>;
+    totals: { bull: number; bear: number; neutral: number };
+  }>;
+  divergences: Array<{
+    key: string;
+    display_name: string;
+    per_timeframe: Array<{ timeframe: MtfSlotLabel; sub: DivergenceSubKind | null; strength: number }>;
+    bull_count: number;
+    bear_count: number;
+    unknown_count: number;
+    row_count: number;
+    direction_label: 'BULL' | 'BEAR' | 'MIXED';
+  }>;
+  levels: Array<{
+    kind: LevelKind;
+    per_timeframe: Array<{
+      timeframe: MtfSlotLabel;
+      chips: Array<{ name: string; role: 'support' | 'resistance' | 'neutral'; count: number; price_text: string }>;
+      bull: number;
+      bear: number;
+      neutral: number;
+      support: number;
+      resistance: number;
+    }>;
+  }>;
+  totals: {
+    signal_count: number;
+    divergence_count: number;
+    global_signal_lean: { bull: number; bear: number; neutral: number };
+    global_divergence_lean: 'BULL' | 'BEAR' | 'MIXED';
+  };
+}
+
+const DIVERGENCE_KEYS = new Set([
+  'rsi', 'macd', 'stochastic', 'chandemo',
+  'obv', 'cmf', 'mfi', 'squeeze', 'oi_price_divergence',
+]);
+
+function buildCrossTfTables(
+  slotDefs: { label: MtfSlotLabel; tf: TimeframeTelemetry }[],
+  registry: IndicatorMeta[],
+): CrossTfTablesBlock {
+  const metaByName = new Map(registry.map((m) => [m.key, m]));
+
+  // ── Signals: kind × TF direction tallies (MtfView.svelte:181-237) ──
+  const signalCells: Record<string, Array<{ bull: number; bear: number; neutral: number; entries: CrossTfTablesBlock['signals'][number]['per_timeframe'][number]['entries'] }>> = {};
+  for (const k of SIGNAL_KIND_ORDER) {
+    signalCells[k] = slotDefs.map(() => ({ bull: 0, bear: 0, neutral: 0, entries: [] }));
+  }
+  slotDefs.forEach((slot, slotIndex) => {
+    for (const [key, dto] of Object.entries(slot.tf.indicators ?? {})) {
+      const meta = metaByName.get(key);
+      if (!meta) continue;
+      for (const sig of dto.signals ?? []) {
+        const cell = signalCells[sig.kind]?.[slotIndex];
+        if (!cell) continue;
+        if (sig.direction === 'Bullish') cell.bull++;
+        else if (sig.direction === 'Bearish') cell.bear++;
+        else cell.neutral++;
+        cell.entries.push({
+          display_name: meta.display_name ?? key,
+          label: sig.label ?? '',
+          direction: sig.direction,
+          status: sig.status,
+          strength: sig.strength,
+          age_bars: sig.age_bars ?? null,
+        });
+      }
+    }
+  });
+  const signals = SIGNAL_KIND_ORDER.map((kind) => {
+    const per_timeframe = slotDefs.map(({ label }, i) => ({
+      timeframe: label,
+      bull: signalCells[kind][i].bull,
+      bear: signalCells[kind][i].bear,
+      neutral: signalCells[kind][i].neutral,
+      entries: signalCells[kind][i].entries,
+    }));
+    const totals = per_timeframe.reduce(
+      (acc, c) => ({ bull: acc.bull + c.bull, bear: acc.bear + c.bear, neutral: acc.neutral + c.neutral }),
+      { bull: 0, bear: 0, neutral: 0 },
+    );
+    return { kind, per_timeframe, totals };
+  });
+  const globalSignalLean = signals.reduce(
+    (acc, s) => ({ bull: acc.bull + s.totals.bull, bear: acc.bear + s.totals.bear, neutral: acc.neutral + s.totals.neutral }),
+    { bull: 0, bear: 0, neutral: 0 },
+  );
+  const signalCount = globalSignalLean.bull + globalSignalLean.bear + globalSignalLean.neutral;
+
+  // ── Divergences: capable indicators × strongest sub per TF (MtfView:260-302) ──
+  const divergenceRows = registry
+    .filter((m) => DIVERGENCE_KEYS.has(m.key) || m.supports_divergence)
+    .map((meta) => {
+      let bull = 0;
+      let bear = 0;
+      let unk = 0;
+      const per_timeframe = slotDefs.map(({ label, tf }) => {
+        const sigs = tf.indicators?.[meta.key]?.signals ?? [];
+        let best: { sub: DivergenceSubKind | null; strength: number } = { sub: null, strength: -1 };
+        for (const sig of sigs) {
+          if (sig.kind !== 'Divergence') continue;
+          const sub = classifyDivergence(sig.label, sig.points ?? null, sig.direction);
+          if (sub === 'RegularBull' || sub === 'HiddenBull') bull++;
+          else if (sub === 'RegularBear' || sub === 'HiddenBear') bear++;
+          else unk++;
+          if (sig.strength > best.strength) best = { sub, strength: sig.strength };
+        }
+        return { timeframe: label, sub: best.sub, strength: best.sub ? best.strength : 0 };
+      });
+      const rowCount = per_timeframe.filter((c) => c.sub).length;
+      const direction_label: 'BULL' | 'BEAR' | 'MIXED' =
+        bull > bear ? 'BULL' : bear > bull ? 'BEAR' : 'MIXED';
+      return {
+        key: meta.key,
+        display_name: meta.display_name ?? meta.key,
+        per_timeframe,
+        bull_count: bull,
+        bear_count: bear,
+        unknown_count: unk,
+        row_count: rowCount,
+        direction_label,
+      };
+    });
+  const divergenceCount = divergenceRows.reduce(
+    (acc, r) => acc + r.per_timeframe.filter((c) => c.sub).length,
+    0,
+  );
+  const divergenceBull = divergenceRows.reduce((a, r) => a + r.bull_count, 0);
+  const divergenceBear = divergenceRows.reduce((a, r) => a + r.bear_count, 0);
+  const globalDivergenceLean: 'BULL' | 'BEAR' | 'MIXED' =
+    divergenceBull > divergenceBear ? 'BULL' : divergenceBear > divergenceBull ? 'BEAR' : 'MIXED';
+
+  // ── Levels: level kind × TF chips (MtfView:351-420) ──
+  const levelCells: Record<string, Array<{
+    chips: CrossTfTablesBlock['levels'][number]['per_timeframe'][number]['chips'];
+    bull: number; bear: number; neutral: number; support: number; resistance: number;
+  }>> = {};
+  for (const k of LEVEL_KIND_ORDER) {
+    levelCells[k] = slotDefs.map(() => ({ chips: [], bull: 0, bear: 0, neutral: 0, support: 0, resistance: 0 }));
+  }
+  slotDefs.forEach((slot, slotIndex) => {
+    const fmtPx = (n: number | null | undefined): string => {
+      if (n == null || !isFinite(n) || n <= 0) return '\u2014';
+      const px = slot.tf.priceText ? parseFloat(slot.tf.priceText) : 0;
+      if (px >= 1000) return `$${n.toFixed(0)}`;
+      if (px >= 1) return `$${n.toFixed(2)}`;
+      return `$${n.toFixed(4)}`;
+    };
+    for (const meta of registry) {
+      const cell = levelCells[classifyLevelKey(meta.key)]?.[slotIndex];
+      if (!cell) continue;
+      const dto = slot.tf.indicators?.[meta.key] as
+        { raw_value?: number | null; values?: Record<string, number> | null } | undefined;
+      for (const sig of slot.tf.indicators?.[meta.key]?.signals ?? []) {
+        if (sig.kind !== 'LevelTest') continue;
+        const parsed = parseLevelLabel(meta.key, sig.label);
+        const role = parsed.role;
+        const priceText = resolveLevelPriceText(
+          {
+            indicatorKey: meta.key,
+            valueKey: parsed.valueKey,
+            isRange: !!parsed.isRange,
+            role,
+          },
+          dto,
+          fmtPx,
+        );
+        const chip = cell.chips.find((c) => c.name === parsed.name && c.role === role);
+        if (chip) chip.count++;
+        else cell.chips.push({ name: parsed.name, role, count: 1, price_text: priceText });
+        if (sig.direction === 'Bullish') cell.bull++;
+        else if (sig.direction === 'Bearish') cell.bear++;
+        else cell.neutral++;
+        if (role === 'support') cell.support++;
+        else if (role === 'resistance') cell.resistance++;
+      }
+    }
+  });
+  const levels = LEVEL_KIND_ORDER
+    .map((kind) => ({
+      kind,
+      per_timeframe: slotDefs.map(({ label }, i) => {
+        const c = levelCells[kind][i];
+        return {
+          timeframe: label,
+          chips: c.chips,
+          bull: c.bull,
+          bear: c.bear,
+          neutral: c.neutral,
+          support: c.support,
+          resistance: c.resistance,
+        };
+      }),
+    }))
+    .filter((l) => l.per_timeframe.some((p) => p.chips.length > 0 || p.bull + p.bear + p.neutral > 0));
+
+  return {
+    signals,
+    divergences: divergenceRows,
+    levels,
+    totals: {
+      signal_count: signalCount,
+      divergence_count: divergenceCount,
+      global_signal_lean: globalSignalLean,
+      global_divergence_lean: globalDivergenceLean,
+    },
+  };
 }
 
 const GROUP_ORDER = [
@@ -259,6 +505,8 @@ function formatRawValue(
       return { value: v ? 1 : 0, display: v ? 'ON' : 'OFF' };
     case 'percent1':
       return { value: Number(v.toFixed(1)), display: `${v.toFixed(1)}%` };
+    case 'percent4':
+      return { value: Number((v * 100).toFixed(4)), display: `${(v * 100).toFixed(4)}%` };
     case 'price':
       return { value: Number(v.toFixed(2)), display: v.toFixed(2) };
     case 'ratio2':
@@ -366,6 +614,12 @@ function buildTimeframeEntry(
       }
     }
     const rawFmt = formatRawValue(m, indicators);
+    // Audit G-4: mirror MtfView's cell semantics — a WARMING placeholder
+    // or a non-Directional (gated) indicator is NOT "available". The
+    // previous `dto.normalized != null` reported WARMING rows (norm 0.0)
+    // as available, so the export showed +0.00 where the screen shows '--'.
+    const warming = dto.state_label === 'WARMING';
+    const gated = (m.normalization_mode ?? 'Directional') !== 'Directional';
     return {
       key: split.key,
       period: split.period,
@@ -377,7 +631,7 @@ function buildTimeframeEntry(
       class: m.class,
       raw: rawFmt.value,
       raw_display: rawFmt.display,
-      normalized_available: dto.normalized != null,
+      normalized_available: dto.normalized != null && !warming && !gated,
       normalized_value: dto.normalized ?? null,
       state: dto.state_label ?? '\u2014',
       state_display: humanizeStateToken(dto.state_label),
@@ -512,7 +766,7 @@ export interface MtfTabInputs {
    */
   symbol: string;
   exchange?: string;
-  /** MTF sentinel: always 0 (use `meta.timesframes` instead). */
+  /** MTF sentinel: always 0 (use `meta.timeframes` instead). */
   tfSecs?: number | null;
   timestamp?: number | null;
   markPrice?: number | null;
@@ -554,11 +808,20 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     const values: MtfIndicatorValue[] = slotDefs.map(({ label, tf }) => {
       const dto = (tf.indicators ?? {})[m.key];
       const n = dto?.normalized ?? 0;
+      // Audit G-4: screen semantics — WARMING placeholders and
+      // non-Directional (gated) indicators are inactive (MtfView.svelte:
+      // 96-109). The previous `dto != null` folded WARMING zeros into
+      // the agreement average and reported them as active.
+      const warming = dto?.state_label === 'WARMING';
+      const gated = (m.normalization_mode ?? 'Directional') !== 'Directional';
+      const active = dto != null && !warming && !gated;
       return {
         timeframe: label,
-        normalized: n,
-        normalized_display: signedStr(n, 2),
-        active: dto != null,
+        normalized: active ? n : 0,
+        normalized_display: active ? signedStr(n, 2) : '\u2014',
+        active,
+        warming: !!warming,
+        gated,
       };
     });
     const presentNorms = values.filter((v) => v.active).map((v) => v.normalized);
@@ -690,7 +953,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
 
   const payload: MtfPayload = {
     source_tab: 'mtf',
-    meta: { ...meta, timesframes: ['Micro', 'Fast', 'Slow', 'Macro'] },
+    meta: { ...meta, timeframes: ['Micro', 'Fast', 'Slow', 'Macro'] },
     header: buildHeaderBlock(args.headerSpec),
     groups,
     indicators,
@@ -700,6 +963,7 @@ export function buildMtfExportJson(args: MtfTabInputs): string {
     levels,
     liquidity_panel: liquidityPanel,
     timeframes,
+    cross_tf_tables: buildCrossTfTables(slotDefs, args.registry),
   };
   return JSON.stringify(payload, null, 2);
 }

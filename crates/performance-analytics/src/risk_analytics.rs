@@ -6,7 +6,8 @@ const TRADING_DAYS_PER_YEAR: f64 = 365.0;
 /// Compute risk-adjusted performance metrics from the equity history.
 /// Implements docs:03-05-04-pae-layer3-risk-analytics.md
 pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
-    let equity = portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
+    let equity =
+        portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
 
     if equity.len() < 2 {
         return RiskAnalyticsRow {
@@ -37,7 +38,11 @@ pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
     };
 
     let daily_vol = std_dev(&daily_returns);
-    let downside_returns: Vec<f64> = daily_returns.iter().filter(|&&r| r < 0.0).copied().collect();
+    let downside_returns: Vec<f64> = daily_returns
+        .iter()
+        .filter(|&&r| r < 0.0)
+        .copied()
+        .collect();
     let downside_dev = std_dev(&downside_returns);
 
     let sharpe = if daily_vol > 0.0 {
@@ -314,4 +319,3 @@ mod tests {
         assert!(compute_daily_returns(&equity).is_empty());
     }
 }
-

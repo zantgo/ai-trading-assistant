@@ -381,11 +381,7 @@ mod meta_tests {
         // "tracker warming up" from "no S/R detected in this regime".
         // Only fibonacci and patterns remain EventDriven with WARMING.
         let event_driven = ["fibonacci", "patterns"];
-        let divergent_keys = [
-            "fibonacci",
-            "patterns",
-            "support_resistance",
-        ];
+        let divergent_keys = ["fibonacci", "patterns", "support_resistance"];
         let divergence_keys = [
             "rsi_divergence",
             "macd_divergence",
@@ -528,7 +524,12 @@ mod meta_tests {
         // Metrics Indicators table until the first BOS / CHoCH / sweep /
         // FVG / OB is detected. The lifecycle builder (Loading state) plus
         // the UI (--/--/Warming) cover the "no event yet" case correctly.
-        for event_driven in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+        for event_driven in [
+            "smc_structure",
+            "smc_liquidity",
+            "smc_fvg",
+            "smc_order_blocks",
+        ] {
             assert!(
                 !shadow_map.contains_key(event_driven),
                 "{event_driven} must NOT be in the shadow map (event-driven — no WARMING placeholder)"
@@ -575,7 +576,12 @@ mod meta_tests {
     #[test]
     fn smc_indicators_are_tagged_event_driven() {
         use crate::indicators::registry::IndicatorDataSource;
-        for key in ["smc_structure", "smc_liquidity", "smc_fvg", "smc_order_blocks"] {
+        for key in [
+            "smc_structure",
+            "smc_liquidity",
+            "smc_fvg",
+            "smc_order_blocks",
+        ] {
             let meta = crate::indicators::registry::get(key)
                 .unwrap_or_else(|| panic!("{key} must be in the registry"));
             assert_eq!(

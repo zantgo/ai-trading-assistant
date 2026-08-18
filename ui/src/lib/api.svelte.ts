@@ -28,25 +28,17 @@ export async function saveRulesCall(content: string): Promise<boolean> {
 }
 
 export async function fetchRulesCall(): Promise<string> {
+    // Audit fix (m4): the 404 body is plain text — `res.json()` threw a
+    // SyntaxError on the error path. Check `ok` and read text first.
     const res = await fetch('/api/rules');
-    const data = await res.json();
-    return data.content || '';
-}
-
-export async function saveIntervalsConfigCall(slowSecs: number, normalSecs: number, fastSecs: number): Promise<boolean> {
-    const res = await fetch('/api/config');
-    const config = await res.json();
-    config.intervals = {
-        slow_seconds: slowSecs,
-        normal_seconds: normalSecs,
-        fast_seconds: fastSecs,
-    };
-    const saveRes = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-    });
-    return saveRes.ok;
+    if (!res.ok) return '';
+    const text = await res.text();
+    if (!text) return '';
+    try {
+        return JSON.parse(text).content || '';
+    } catch {
+        return '';
+    }
 }
 
 // ─── Config application logic ──────────────────────────────────────────────
@@ -71,7 +63,18 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 
-    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number }; operational_mode?: string }>;
+    // `instances` is a `Vec<InstanceEntry>` on the wire (array, not Record)
+    // — each entry carries `symbol` (exchange-native, e.g. "BTC-USDT") and
+    // `id`. Index by the pair key so per-instance timeframe config
+    // (barDurationSec, EMA/RSI/MACD periods) actually applies on load.
+    const instancesArr = Array.isArray(config.instances) ? (config.instances as Array<Record<string, unknown>>) : [];
+    const pairConfigs = new Map<string, Record<string, any>>();
+    for (const inst of instancesArr) {
+        const sym = typeof inst?.symbol === 'string' ? inst.symbol : '';
+        if (!sym) continue;
+        const key = app.pairKeyFor(sym);
+        pairConfigs.set(key, inst as Record<string, any>);
+    }
     const symbols: string[] = (config.symbols as string[]) || ['BTC'];
 
     for (const item of symbols) {
@@ -82,7 +85,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
             app.initInstance(declared);
         }
 
-        const specific = pairConfigs[pairKey];
+        const specific = pairConfigs.get(pairKey);
         const targetState = app.instancesMap[pairKey];
 
         function advancedIndicators(ind: Record<string, unknown>) {

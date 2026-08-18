@@ -227,8 +227,9 @@ use IndicatorNormalizationMode::*;
 use RenderKind::*;
 use SignalKind::*;
 
-/// The authoritative indicator manifest (Ichimoku + Pivot Points are the
-/// deferred Institutional tier and intentionally omitted from the current build).
+/// The authoritative indicator manifest — 52 entries across 8 groups.
+/// (Ichimoku and Pivot Points are documented in the guides; the comment
+/// claiming they were "intentionally omitted" predates their inclusion.)
 pub const INDICATORS: &[IndicatorMeta] = &[
     // ─────────── TREND ───────────
     IndicatorMeta {
@@ -258,7 +259,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "supertrend",
@@ -280,7 +281,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "donchian",
@@ -302,7 +303,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "keltner",
@@ -328,7 +329,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "adx",
@@ -350,7 +351,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "vwap",
@@ -372,7 +373,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "anchored_vwap",
@@ -398,7 +399,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "ichimoku",
@@ -433,7 +434,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     // ─────────── MOMENTUM ───────────
     IndicatorMeta {
@@ -458,7 +459,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "stochastic",
@@ -482,7 +483,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "chandemo",
@@ -504,7 +505,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "williams_r",
@@ -526,7 +527,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "hull_ma",
@@ -558,7 +559,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // signals, not via the normalized score).  See
         // docs/engines/market-monitoring-engine/indicators/04-02-10-hull-ma.md
         normalization_mode: Some(EventOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "awesome_oscillator",
@@ -580,7 +581,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "force_index",
@@ -602,7 +603,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "stddev_channel",
@@ -624,7 +625,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "cci",
@@ -646,7 +647,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "macd",
@@ -668,7 +669,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     // ─────────── VOLUME ───────────
     IndicatorMeta {
@@ -694,7 +695,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // volume value + climax label carry the signal. See
         // docs/engines/market-monitoring-engine/indicators/04-02-18-volume.md §6.
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "rvol",
@@ -720,7 +721,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // `values.rvol_band`. See
         // docs/engines/market-monitoring-engine/indicators/04-02-19-rvol.md §3.
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "volume_profile",
@@ -742,11 +743,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:poc",
         color: "#bcaaa4",
         guide_section: "33",
-        bars_required: 50,
+        bars_required: 250, // AUDIT-M5: shipped `volume_profile_window = 500` → gate = window/2 = 250 (was 50, the library-default doc value)
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "obv",
@@ -764,11 +765,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#29b6f6",
         guide_section: "17",
-        bars_required: 1,
+        bars_required: 21, // AUDIT-M3: OBV emits only after the smoothing SMA fills (seed + 20-value SMA at obv_smoothing = 20) — the lifecycle `bars_required = 1` understated the real warmup
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "cmf",
@@ -790,7 +791,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "mfi",
@@ -812,7 +813,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     // ─────────── VOLATILITY ───────────
     IndicatorMeta {
@@ -839,7 +840,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // signal. See
         // docs/engines/market-monitoring-engine/indicators/04-02-25-atr.md §6.
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "bollinger",
@@ -861,7 +862,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "bbwp",
@@ -891,7 +892,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // band drives the regime. See
         // docs/engines/market-monitoring-engine/indicators/04-02-27-bbwp.md §6.
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "squeeze",
@@ -915,7 +916,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "hv",
@@ -942,7 +943,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // volatility regime label carries the signal. See
         // docs/engines/market-monitoring-engine/indicators/04-02-29-hv.md §3.
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     // ─────────── MARKET STRUCTURE ───────────
     IndicatorMeta {
@@ -965,7 +966,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "support_resistance",
@@ -987,7 +988,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "pivot_points",
@@ -1009,7 +1010,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "psar",
@@ -1036,7 +1037,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "patterns",
@@ -1058,7 +1059,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "candlestick",
@@ -1080,7 +1081,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     // ─────────── MARKET REGIME ───────────
     IndicatorMeta {
@@ -1099,11 +1100,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "21",
-        bars_required: 25,
+        bars_required: 26, // AUDIT-L5: window is period + 1 (26 bars at aroon_period = 25)
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "choppiness",
@@ -1128,7 +1129,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // See
         // docs/engines/market-monitoring-engine/indicators/04-02-37-choppiness.md
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "linreg_slope",
@@ -1146,11 +1147,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#42a5f5",
         guide_section: "23",
-        bars_required: 14,
+        bars_required: 20, // AUDIT-M4: first emit needs `linreg_period` bars (shipped 20) — was 14
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     IndicatorMeta {
         key: "zscore",
@@ -1168,11 +1169,11 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ec407a",
         guide_section: "24",
-        bars_required: 14,
+        bars_required: 20, // AUDIT-M4: first emit needs `zscore_period` bars (shipped 20) — was 14
         data_source: None,
         normalization_mode: None,
         updates_on_shadow: true,
-    signal_capability: SignalCapability::AlwaysActive,
+        signal_capability: SignalCapability::AlwaysActive,
     },
     // ─────────── ADVANCED ───────────
     IndicatorMeta {
@@ -1198,7 +1199,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(EventDriven),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "smc_liquidity",
@@ -1220,7 +1221,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(EventDriven),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "smc_fvg",
@@ -1242,7 +1243,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(EventDriven),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     IndicatorMeta {
         key: "smc_order_blocks",
@@ -1264,7 +1265,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(EventDriven),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
     IndicatorMeta {
@@ -1290,7 +1291,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // and OI-Price Divergence carry the directional signal. See
         // docs/engines/market-monitoring-engine/indicators/04-02-44-open-interest.md
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::DataOnly,
+        signal_capability: SignalCapability::DataOnly,
     },
     IndicatorMeta {
         key: "oi_delta",
@@ -1312,7 +1313,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(IndicatorDataSource::DerivativesWs),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::DataOnly,
+        signal_capability: SignalCapability::DataOnly,
     },
     IndicatorMeta {
         key: "funding_rate",
@@ -1325,8 +1326,12 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         signal_types: &[Threshold],
         default_weight: 1.0,
         default_enabled: true,
-        config_params: &["funding_extreme_threshold"],
-        value_format: "percent1",
+        config_params: &["funding_extreme_pct"],
+        // Raw is the per-8h decimal (0.0001 = 0.01%) — a fraction, not a
+        // percentage. `percent4` renders `raw × 100` with 4 decimals
+        // ("0.0100%"); the old `percent1` rendered the unscaled decimal
+        // with a % sign, understating every reading 100× ("0.0%").
+        value_format: "percent4",
         value_source: "raw",
         color: "#00e676",
         guide_section: "36",
@@ -1337,7 +1342,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // raw funding rate value + extreme label carry the signal. See
         // docs/engines/market-monitoring-engine/indicators/04-02-46-funding-rate.md
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::DataOnly,
+        signal_capability: SignalCapability::DataOnly,
     },
     IndicatorMeta {
         key: "oi_price_divergence",
@@ -1359,7 +1364,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(IndicatorDataSource::DerivativesWs),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::Conditional,
+        signal_capability: SignalCapability::Conditional,
     },
     // ─────────── ORDER BOOK DEPTH (Phase 2) ───────────
     IndicatorMeta {
@@ -1382,7 +1387,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(IndicatorDataSource::OrderBook),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::DataOnly,
+        signal_capability: SignalCapability::DataOnly,
     },
     IndicatorMeta {
         key: "spread",
@@ -1407,7 +1412,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         // widening/tight label carries the signal. See
         // docs/engines/market-monitoring-engine/indicators/04-02-49-spread.md
         normalization_mode: Some(ContextOnly),
-    signal_capability: SignalCapability::DataOnly,
+        signal_capability: SignalCapability::DataOnly,
     },
     IndicatorMeta {
         key: "depth_bias",
@@ -1429,7 +1434,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         data_source: Some(IndicatorDataSource::OrderBook),
         normalization_mode: None,
         updates_on_shadow: false,
-    signal_capability: SignalCapability::DataOnly,
+        signal_capability: SignalCapability::DataOnly,
     },
     // ── MARK-INDEX SPREAD (cross-cuts derivatives + orderbook telemetry) ──
     // Injected by `analyzer::inject_derivatives_indicators` from
@@ -1692,7 +1697,11 @@ mod tests {
             })
             .map(|m| m.key)
             .collect();
-        assert_eq!(ctx_only.len(), 10, "10 context-only gate indicators expected");
+        assert_eq!(
+            ctx_only.len(),
+            10,
+            "10 context-only gate indicators expected"
+        );
         assert!(
             ctx_only.contains(&"mark_index_spread"),
             "mark_index_spread must be in the ContextOnly bucket"

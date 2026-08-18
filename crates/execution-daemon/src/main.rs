@@ -41,6 +41,7 @@ use tokio_util::sync::CancellationToken;
 
 use api_gateway::{build_router, AppState};
 use config_models::{load_platform, load_workspace, ClockMonitorBreachAction};
+use core_domain::portfolio::SafetyState;
 use database_storage::{init_db, run_telemetry_logger, verify_encryption_or_panic};
 use network_adapters::{
     clock_monitor::{BreachAction, ClockMonitor, ClockMonitorConfig},
@@ -50,10 +51,10 @@ use network_adapters::{
 };
 use performance_analytics::{performance_evaluator, strategy_optimizer};
 use portfolio_supervisor::{
-    portfolio_equity, registry, workspace_state::WorkspaceState,
+    portfolio_equity, registry,
     session::{Currency, ExchangeChoice},
+    workspace_state::WorkspaceState,
 };
-use core_domain::portfolio::SafetyState;
 
 // `snapshot_export` is owned by `lib.rs` so `api-gateway` can re-use
 // its types without the daemon's CLI surface.
@@ -212,12 +213,10 @@ fn prompt(label: &str, default: &str) -> String {
         std::io::Write::flush(&mut std::io::stdout()).ok();
     }
     let mut buf = String::new();
-    std::io::stdin()
-        .read_line(&mut buf)
-        .unwrap_or_else(|e| {
-            eprintln!("stdin read error: {}", e);
-            0
-        });
+    std::io::stdin().read_line(&mut buf).unwrap_or_else(|e| {
+        eprintln!("stdin read error: {}", e);
+        0
+    });
     let trimmed = buf.trim();
     if trimmed.is_empty() {
         default.to_string()
@@ -303,10 +302,7 @@ fn prompt_snapshot_interval() -> u64 {
         let raw = prompt("Snapshot interval in seconds", "60");
         match raw.parse::<u64>() {
             Ok(n) if (5..=3600).contains(&n) => return n,
-            Ok(n) => eprintln!(
-                "  ⚠️  {}s is outside the allowed range [5, 3600].",
-                n
-            ),
+            Ok(n) => eprintln!("  ⚠️  {}s is outside the allowed range [5, 3600].", n),
             Err(_) => eprintln!("  ⚠️  '{}' is not a number.", raw),
         }
     }
@@ -333,7 +329,11 @@ fn render_setup_summary(
     }
     println!(
         "  Snapshot export       : {} (every {}s, → {})",
-        if snapshot_enabled { "ENABLED" } else { "DISABLED" },
+        if snapshot_enabled {
+            "ENABLED"
+        } else {
+            "DISABLED"
+        },
         snapshot_interval,
         snapshot_path
     );
@@ -347,7 +347,15 @@ fn render_setup_summary(
 async fn validate_symbol(exchange: &str, base: &str) -> Result<(), String> {
     use network_adapters::adapters;
     let cfg = config_models::load_platform().map_err(|e| format!("config load: {}", e))?;
-    let _pair = format!("{}-{}", base, if exchange.eq_ignore_ascii_case("bitget") { "USDT" } else { "USDC" });
+    let _pair = format!(
+        "{}-{}",
+        base,
+        if exchange.eq_ignore_ascii_case("bitget") {
+            "USDT"
+        } else {
+            "USDC"
+        }
+    );
     let ex = if exchange.eq_ignore_ascii_case("bitget") {
         portfolio_supervisor::session::ExchangeChoice::Bitget
     } else {
@@ -506,7 +514,10 @@ async fn run_setup_interactive(cli: &CliArgs) {
     } else {
         "USDC".to_string()
     };
-    println!("  → Settlement currency forced to {} for {}", currency, exchange);
+    println!(
+        "  → Settlement currency forced to {} for {}",
+        currency, exchange
+    );
 
     // 2. Pair
     let pair_base = {
@@ -560,10 +571,7 @@ async fn run_setup_interactive(cli: &CliArgs) {
             _ => 900,
         };
         let secs = prompt_timeframe_secs(
-            &format!(
-                "  timeframe_secs for {} (default {}s)",
-                slot, default_secs
-            ),
+            &format!("  timeframe_secs for {} (default {}s)", slot, default_secs),
             default_secs,
         );
         selected_tfs.push((secs, slot));
@@ -618,13 +626,14 @@ async fn run_setup_interactive(cli: &CliArgs) {
 
     // Apply to PlatformConfig + WorkspaceConfig.
     let mut platform = config_models::load_platform().unwrap_or_default();
-    let mut workspace = config_models::load_workspace().unwrap_or_else(|_| config_models::WorkspaceConfig {
-        id: "main".into(),
-        name: "Main".into(),
-        default_currency: currency.clone(),
-        default_exchange: exchange.clone(),
-        ..Default::default()
-    });
+    let mut workspace =
+        config_models::load_workspace().unwrap_or_else(|_| config_models::WorkspaceConfig {
+            id: "main".into(),
+            name: "Main".into(),
+            default_currency: currency.clone(),
+            default_exchange: exchange.clone(),
+            ..Default::default()
+        });
     apply_setup_to_config(
         &mut workspace,
         &exchange,
@@ -635,7 +644,12 @@ async fn run_setup_interactive(cli: &CliArgs) {
         snapshot_interval,
         &snapshot_path,
     );
-    apply_snapshot_to_platform(&mut platform, snapshot_enabled, snapshot_interval, &snapshot_path);
+    apply_snapshot_to_platform(
+        &mut platform,
+        snapshot_enabled,
+        snapshot_interval,
+        &snapshot_path,
+    );
     if let Err(e) = write_full_config(&platform, &workspace) {
         eprintln!("❌ Failed to write config.toml: {}", e);
         std::process::exit(1);
@@ -644,7 +658,8 @@ async fn run_setup_interactive(cli: &CliArgs) {
 
     if cli.auto_start || confirm("Start the daemon now (headless mode)?", false) {
         println!("\n🚀 Starting daemon in headless mode...");
-        let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("execution-daemon"));
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| std::path::PathBuf::from("execution-daemon"));
         let mut cmd = std::process::Command::new(exe);
         cmd.arg("--mode").arg("headless");
         if let Some(ref p) = cli.config_path {
@@ -652,7 +667,10 @@ async fn run_setup_interactive(cli: &CliArgs) {
         }
         match cmd.spawn() {
             Ok(child) => {
-                println!("Daemon spawned (pid {}). Logs go to engine.log.", child.id());
+                println!(
+                    "Daemon spawned (pid {}). Logs go to engine.log.",
+                    child.id()
+                );
             }
             Err(e) => {
                 eprintln!("❌ Failed to spawn daemon: {}", e);
@@ -684,15 +702,32 @@ fn run_setup_status(cli: &CliArgs) {
     println!("──────────────────────────────────────────────");
     println!("Trading Platform — Snapshot Export Status");
     println!("──────────────────────────────────────────────");
-    println!("  Config path            : {}", cli.config_path.as_deref().unwrap_or("(default: ./config.toml)"));
+    println!(
+        "  Config path            : {}",
+        cli.config_path
+            .as_deref()
+            .unwrap_or("(default: ./config.toml)")
+    );
     println!("  Enabled                : {}", rt.enabled);
     println!("  Output path            : {}", rt.output_path);
     println!("  Interval (s)           : {}", rt.interval_secs);
     println!("  Retention              : {}", rt.max_snapshots_retained);
-    println!("  Tabs ({}):              : {}", rt.tabs.len(), rt.tabs.join(", "));
-    println!("  Last snapshot          : {}", rt.last_snapshot_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "(none yet)".into()));
+    println!(
+        "  Tabs ({}):              : {}",
+        rt.tabs.len(),
+        rt.tabs.join(", ")
+    );
+    println!(
+        "  Last snapshot          : {}",
+        rt.last_snapshot_at
+            .map(|d| d.to_rfc3339())
+            .unwrap_or_else(|| "(none yet)".into())
+    );
     println!("  Total written          : {}", rt.total_snapshots_written);
-    println!("  Last error             : {}", rt.last_error.clone().unwrap_or_else(|| "(none)".into()));
+    println!(
+        "  Last error             : {}",
+        rt.last_error.clone().unwrap_or_else(|| "(none)".into())
+    );
     println!("  Active instances       : {}", workspace.instances.len());
     println!("  Default exchange       : {}", workspace.default_exchange);
     println!("  Default currency       : {}", workspace.default_currency);
@@ -775,21 +810,25 @@ async fn main() {
         }
     }
 
-    let platform = load_platform().expect(
-        "❌ Configuration Error: failed to parse platform config from config.toml",
-    );
-    let workspace = load_workspace().expect(
-        "❌ Configuration Error: failed to parse workspace config from config.toml",
-    );
+    let platform = load_platform()
+        .expect("❌ Configuration Error: failed to parse platform config from config.toml");
+    let workspace = load_workspace()
+        .expect("❌ Configuration Error: failed to parse workspace config from config.toml");
     println!(
         "✅ Configuration Loaded: platform + workspace ({} instance{})",
         workspace.instances.len(),
-        if workspace.instances.len() == 1 { "" } else { "s" }
+        if workspace.instances.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
     );
 
     match cli.mode {
         LaunchMode::Headless => println!("🤖 Launch mode: HEADLESS (auto-spawn, no Welcome Gate)"),
-        LaunchMode::Web => println!("🖥️  Launch mode: WEB (Welcome Gate will prompt for exchange/currency)"),
+        LaunchMode::Web => {
+            println!("🖥️  Launch mode: WEB (Welcome Gate will prompt for exchange/currency)")
+        }
         // Setup is short-circuited at the top of main(); this arm
         // exists for exhaustiveness only.
         LaunchMode::Setup => unreachable!("Setup is short-circuited at the top of main()"),
@@ -832,24 +871,31 @@ async fn main() {
         engine
     });
     *execution_engine.slippage_ceiling_pct.write().await = workspace.execution.slippage_ceiling_pct;
-    execution_engine.set_fee_config(
-        workspace.fees.maker_fee_pct,
-        workspace.fees.taker_fee_pct,
-        workspace.leverage.cross_leverage,
-    ).await;
+    execution_engine
+        .set_fee_config(
+            workspace.fees.maker_fee_pct,
+            workspace.fees.taker_fee_pct,
+            workspace.leverage.cross_leverage,
+        )
+        .await;
 
     let platform_arc = Arc::new(RwLock::new(platform));
     let workspace_state = WorkspaceState::new(workspace.clone());
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
-    let (recharge_tx, _) =
-        tokio::sync::broadcast::channel::<api_gateway::RechargeNotice>(64);
+    let (recharge_tx, _) = tokio::sync::broadcast::channel::<api_gateway::RechargeNotice>(64);
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
     let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
-    let use_hl = workspace.default_exchange.eq_ignore_ascii_case("hyperliquid");
+    let use_hl = workspace
+        .default_exchange
+        .eq_ignore_ascii_case("hyperliquid");
     let use_bg = workspace.default_exchange.eq_ignore_ascii_case("bitget");
-    if use_hl { exchange_status.seed_single("Hyperliquid", &hl_ws_url).await; }
-    if use_bg  { exchange_status.seed_single("Bitget", &bg_ws_url).await; }
+    if use_hl {
+        exchange_status.seed_single("Hyperliquid", &hl_ws_url).await;
+    }
+    if use_bg {
+        exchange_status.seed_single("Bitget", &bg_ws_url).await;
+    }
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
@@ -918,6 +964,15 @@ async fn main() {
             if entry.symbol.is_empty() {
                 continue;
             }
+            // M7 (production audit): honor the persisted lifecycle status —
+            // paused/stopped instances were force-started on every restart.
+            if entry.status != config_models::InstanceStatus::Running {
+                eprintln!(
+                    "⏸️  Instance {} skipped at boot (status = {:?})",
+                    entry.symbol, entry.status
+                );
+                continue;
+            }
             let (base, quote) = match entry.symbol.split_once('-') {
                 Some((b, q)) => (b.to_string(), q.to_string()),
                 None => {
@@ -925,12 +980,33 @@ async fn main() {
                     continue;
                 }
             };
-            match registry::add_instance(&ctx, (base, quote)).await {
-                Ok(_inst) => {
-                    println!("✅ Instance spawned: {}", entry.symbol);
-                }
-                Err(e) => {
-                    eprintln!("⚠️  Failed to spawn instance {}: {}", entry.symbol, e);
+            // M7 (production audit): instance creation is gated on a live
+            // exchange symbol_exists REST call — an offline boot previously
+            // failed every instance with NO retry, leaving an empty
+            // deployment. Retry with backoff for up to ~10 minutes so a
+            // boot-time network blip self-heals.
+            let mut attempt = 0u32;
+            loop {
+                match registry::add_instance(&ctx, (base.clone(), quote.clone())).await {
+                    Ok(_inst) => {
+                        println!("✅ Instance spawned: {}", entry.symbol);
+                        break;
+                    }
+                    Err(e) => {
+                        attempt += 1;
+                        if attempt >= 20 {
+                            eprintln!(
+                                "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
+                                entry.symbol, attempt, e
+                            );
+                            break;
+                        }
+                        eprintln!(
+                            "⚠️  Failed to spawn instance {} (attempt {}): {} — retrying in 30 s",
+                            entry.symbol, attempt, e
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    }
                 }
             }
         }
@@ -939,7 +1015,10 @@ async fn main() {
         // auto-spawn so the Welcome Gate still appears on first page load
         // but cold-start bootstrap is no longer skipped.
         if matches!(cli.mode, LaunchMode::Web) {
-            app_state.session.active.store(false, std::sync::atomic::Ordering::Relaxed);
+            app_state
+                .session
+                .active
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             println!("   (session marked inactive for Welcome Gate)");
         }
     }
@@ -960,15 +1039,14 @@ async fn main() {
         ),
     ));
     let paper_engine = Arc::new({
-        let mut engine =
-            portfolio_supervisor::paper_trading::PaperTradingEngine::new(
-                portfolio_supervisor::paper_trading::FeesConfig {
-                    maker_fee_pct: workspace.fees.maker_fee_pct,
-                    taker_fee_pct: workspace.fees.taker_fee_pct,
-                    funding_rate_8h: workspace.fees.funding_rate_8h,
-                    simulated_spread_pct: 0.01,
-                },
-            );
+        let mut engine = portfolio_supervisor::paper_trading::PaperTradingEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig {
+                maker_fee_pct: workspace.fees.maker_fee_pct,
+                taker_fee_pct: workspace.fees.taker_fee_pct,
+                funding_rate_8h: workspace.fees.funding_rate_8h,
+                simulated_spread_pct: 0.01,
+            },
+        );
         engine.set_db(Arc::new(db_pool.clone()));
         engine
     });
@@ -979,7 +1057,9 @@ async fn main() {
             .map(|e| e.initial_capital_usd)
             .sum();
         if total_capital > 0.0 {
-            *paper_engine.equity.write().await = rust_decimal::Decimal::from_f64_retain(total_capital).unwrap_or(rust_decimal_macros::dec!(10000));
+            *paper_engine.equity.write().await =
+                rust_decimal::Decimal::from_f64_retain(total_capital)
+                    .unwrap_or(rust_decimal_macros::dec!(10000));
         }
     }
 
@@ -998,7 +1078,7 @@ async fn main() {
                 ntp_servers: clock_cfg.ntp_servers.clone(),
                 poll_interval: std::time::Duration::from_secs(clock_cfg.poll_interval_secs),
                 threshold: std::time::Duration::from_micros(
-                    clock_cfg.threshold_micros.max(0) as u64,
+                    clock_cfg.threshold_micros.max(0) as u64
                 ),
                 breach_action: match clock_cfg.breach_action {
                     ClockMonitorBreachAction::Warn => BreachAction::Warn,
@@ -1028,7 +1108,8 @@ async fn main() {
     handles.push(logger_handle);
 
     // ── PME Veto Loop ────────────────────────────────────────────────
-    let (veto_tx, mut veto_rx) = tokio::sync::mpsc::channel::<portfolio_supervisor::veto_loop::VetoEvent>(64);
+    let (veto_tx, mut veto_rx) =
+        tokio::sync::mpsc::channel::<portfolio_supervisor::veto_loop::VetoEvent>(64);
     {
         let veto_workspace = workspace_state.clone();
         let veto_paper = paper_engine.clone();
@@ -1237,8 +1318,14 @@ async fn main() {
                                 // Sync safety state from instance to execution engine
                                 {
                                     let safety_state = *inst.safety.safety_state.read().await;
-                                    let safety_str = format!("{:?}", safety_state);
-                                    tae_exec.set_safety_state(&safety_str).await;
+                                    // Audit fix (M1): `format!("{:?}")` produced the
+                                    // PascalCase Debug spelling ("DrawdownStop"), but
+                                    // Gate 7 matches the SCREAMING_SNAKE wire values
+                                    // ("DRAWDOWN_STOP"/"SUSPENDED") — the direct
+                                    // safety-state guard never fired. Use the
+                                    // canonical `as_str()` form.
+                                    let safety_str = safety_state.as_str();
+                                    tae_exec.set_safety_state(safety_str).await;
                                 }
 
                                 // Auto-pause policies for symbols in Cautious/Suspended safety states
@@ -1392,7 +1479,18 @@ async fn main() {
                         snapshots.2.as_ref(),
                         snapshots.3.as_ref(),
                     ];
-                    let is_active = !inst.cancel.is_cancelled();
+                    // Audit fix (M6): `instance_count`/`is_active` must
+                    // reflect actual monitoring — the previous `!cancel`
+                    // check only flipped on delete/recharge, so a
+                    // lifecycle-STOPPED instance kept counting as active
+                    // and its stale TF windows kept feeding breadth/bias.
+                    // STOPPED/STOPPING instances are no longer active;
+                    // PAUSED instances stay counted (pipelines keep
+                    // running, the operator can resume).
+                    let lifecycle_state = inst.lifecycle.read().await.current();
+                    let is_active = !inst.cancel.is_cancelled()
+                        && lifecycle_state != config_models::LifecycleState::Stopped
+                        && lifecycle_state != config_models::LifecycleState::Stopping;
                     // v6.10.19 (P7): per-TF-window risk pairs with decay
                     // weights (micro 0.1 / fast 0.2 / slow 0.3 / macro
                     // 0.4) — the L7 SYSTEMIC path must stay anchored to
@@ -1424,7 +1522,16 @@ async fn main() {
                         }
                     }
                     metas.push(core_domain::overview::InstanceMeta {
-                        symbol: inst.pair.1.clone(),
+                        // Audit fix (C1): `inst.pair.1` is the QUOTE currency
+                        // ("USDT"/"USDC"), not the symbol. compute_overview
+                        // keys risk bins / AssetRank / active_symbols by this
+                        // value, so the quote-keyed symbol made every risk
+                        // lookup miss (fallback 50.0 → always MODERATE /
+                        // HIGH_RISK) and injected the quote into
+                        // active_symbols. The canonical runtime symbol is
+                        // `inst.symbol()` (active_pair.symbol, e.g.
+                        // "BTC-USDT").
+                        symbol: inst.symbol(),
                         timeframe_secs: 300,
                         timeframe_label: "tf-average".into(),
                         is_active,
@@ -1524,7 +1631,37 @@ async fn main() {
         .await;
     }));
 
-    let _ = futures_util::future::join_all(handles).await;
+    // K4 (production audit): graceful shutdown on SIGINT/SIGTERM.
+    // Previously the process was killed abruptly — up to 10,000 queued
+    // telemetry messages lost, the WAL tail lost, snapshot-export files
+    // left partial. The signal path cancels every pipeline (same teardown
+    // as POST /api/session/quit) then lets the SQLite logger drain the
+    // queue before exiting. NOTE: unlike `quit_session`, the workspace
+    // config.toml is NOT cleared — a signal stop is an operator restart,
+    // not a session quit.
+    let shutdown_state = app_state.clone();
+    let shutdown = async move {
+        let ctrl_c = tokio::signal::ctrl_c();
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+        eprintln!("📥 Signal received — graceful shutdown");
+        let live = shutdown_state.workspace.list().await;
+        for inst in &live {
+            inst.cancel.cancel();
+        }
+        // Let cancellation propagate + the logger drain the telemetry queue.
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        eprintln!("✅ Exiting cleanly");
+        std::process::exit(0);
+    };
+    tokio::select! {
+        _ = shutdown => {}
+        _ = futures_util::future::join_all(handles) => {}
+    }
 }
 
 #[cfg(test)]

@@ -151,11 +151,14 @@ const CONSENSUS_DISPLAY: Record<'strong_consensus' | 'partial_consensus' | 'conf
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function shortStateLabel(state: string): string {
-  // "STRONG_BULLISH" → "STRONG"; "NO_DATA" → "NO DATA"
-  const s = state.replace(/_/g, ' ');
+  // Panel parity (AlignmentPanel.svelte): normalize case + underscores so
+  // both PascalCase wire ("StrongBullish", "NoData") and legacy SCREAMING
+  // payloads resolve identically — the old case-sensitive startsWith
+  // rendered "STRONGBULLISH"/"NODATA" for the real wire.
+  const s = String(state || '').toUpperCase().replace(/_/g, ' ');
   if (s === 'NO DATA' || s === 'NODATA') return 'NO DATA';
   if (s.startsWith('STRONG')) return 'STRONG';
-  return s.toUpperCase();
+  return s;
 }
 
 function signedStr(n: number, decimals: number): string {
@@ -302,7 +305,8 @@ function buildInterpretation(alignment: AlignmentMatrix | null): string {
       : 'No cross-timeframe signal votes detected.';
     // Mirrors the screen paragraph verbatim — the label is the REAL
     // mtf_overall_label, never a hardcoded token.
-    return `Multi-timeframe alignment shows <strong>${consensusPhrase}</strong> (${pct.toFixed(0)}% agreement across ${present}/4 timeframes). ${scoreSentence} ${crossLine}`;
+    // AUDIT-FE-M7: no hardcoded "/4" denominator (custom ladders).
+    return `Multi-timeframe alignment shows <strong>${consensusPhrase}</strong> (${pct.toFixed(0)}% agreement across ${present} timeframes). ${scoreSentence} ${crossLine}`;
   }
   if (pct >= 50) {
     return `Alignment shows <strong>partial consensus</strong> (${pct.toFixed(0)}% agreement). The composite score of ${overall} reflects <strong>${label}</strong> conditions with mixed input from ${present} timeframes.`;

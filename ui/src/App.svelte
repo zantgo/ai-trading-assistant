@@ -342,6 +342,10 @@
 
     onDestroy(() => {
         for (const sym of Object.keys(wssMap)) {
+            // AUDIT-FE-H2: `disconnectWsForInstance` now also cancels the
+            // pending trailing connect timers — previously a rapid
+            // navigation burst followed by teardown opened sockets after
+            // unmount with no cleanup path.
             disconnectWsForInstance(wssMap, sym);
         }
         app.stopOverviewPolling();

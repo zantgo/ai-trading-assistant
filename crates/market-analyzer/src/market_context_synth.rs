@@ -49,8 +49,13 @@ fn group_dimension(
             continue;
         }
         if let Some(v) = map.get(meta.key) {
-            sum += v.normalized * v.confidence;
-            conf += v.confidence;
+            // Guarded: `normalized` is clamp_unit-sanitized, but a NaN
+            // `confidence` from any future calculator would poison the
+            // weighted mean — collapse non-finite entries to neutral.
+            let norm_i = finite(v.normalized, 0.0);
+            let conf_i = finite(v.confidence, 0.0);
+            sum += norm_i * conf_i;
+            conf += conf_i;
             n += 1.0;
         }
     }
@@ -63,11 +68,7 @@ fn group_dimension(
     // every score toward zero as confidence dropped. The weighted mean is
     // invariant to confidence scale: an indicator with confidence 0.9
     // contributes 9× the weight of one with confidence 0.1.
-    let score = if conf > 1e-9 {
-        sum / conf
-    } else {
-        0.0
-    };
+    let score = if conf > 1e-9 { sum / conf } else { 0.0 };
     let conf = conf / n;
     let label = dir_label(
         score,
@@ -84,6 +85,19 @@ fn group_dimension(
     }
 }
 
+/// Collapse non-finite indicator inputs to a safe fallback. `f64::clamp`
+/// passes NaN through (and NaN comparisons are all false), so every raw
+/// value entering the synthesis is sanitized first — one NaN anywhere
+/// would otherwise poison the dimension scores, confidence fields and
+/// `overall_score` on the wire (serde_json emits NaN as `null`).
+fn finite(v: f64, fallback: f64) -> f64 {
+    if v.is_finite() {
+        v
+    } else {
+        fallback
+    }
+}
+
 /// Synthesize the context from a normalized indicator map.
 ///
 /// Lives in `market-analyzer` because it reads `INDICATORS` to group
@@ -93,7 +107,7 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     let momentum = group_dimension(map, IndicatorGroup::Momentum, true);
 
     // Volatility: magnitude from BBWP/HV (expansion vs compression), non-directional.
-    let bbwp = map.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+    let bbwp = finite(map.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0), 50.0);
     let vol_score = ((bbwp - 50.0) / 50.0).clamp(-1.0, 1.0);
     let volatility = ContextDimension {
         score: vol_score,
@@ -112,7 +126,7 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     };
 
     // Volume/participation: RVOL magnitude gate.
-    let rvol = map.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
+    let rvol = finite(map.get("rvol").map(|v| v.raw_value).unwrap_or(1.0), 1.0);
     let volume = ContextDimension {
         score: (rvol - 1.0).clamp(-1.0, 1.0),
         confidence: (rvol / 3.0).clamp(0.0, 1.0),
@@ -138,11 +152,8 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     // The corrected contribution is proximity-based: `(1 − |normalized|)`
     // so price AT fair value contributes +50 and a stretched price
     // contributes ~0.
-    let vwap_conf = map.get("vwap").map(|v| v.confidence).unwrap_or(0.0);
-    let vwap_score = map
-        .get("vwap")
-        .map(|v| v.normalized)
-        .unwrap_or(0.0);
+    let vwap_conf = finite(map.get("vwap").map(|v| v.confidence).unwrap_or(0.0), 0.0);
+    let vwap_score = finite(map.get("vwap").map(|v| v.normalized).unwrap_or(0.0), 0.0);
     let rvol_contrib = ((rvol - 1.0) * 50.0).clamp(-50.0, 50.0);
     let vwap_contrib = ((1.0 - vwap_score.abs()).clamp(0.0, 1.0)) * 50.0;
     let liquidity_score = (rvol_contrib + vwap_contrib).clamp(-100.0, 100.0);
@@ -159,8 +170,11 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     };
 
     // Regime from ADX strength + BBWP compression + trend agreement.
-    let adx = map.get("adx").map(|v| v.raw_value).unwrap_or(0.0);
-    let chop = map.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0);
+    let adx = finite(map.get("adx").map(|v| v.raw_value).unwrap_or(0.0), 0.0);
+    let chop = finite(
+        map.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0),
+        50.0,
+    );
     let regime = if bbwp <= 15.0 || chop >= 61.8 {
         "COMPRESSION"
     } else if bbwp >= 85.0 {

@@ -6,9 +6,9 @@ use sqlx::SqlitePool;
 
 #[tokio::test]
 async fn test_normalized_snapshot_persistence_roundtrip() {
-    use rust_decimal_macros::dec;
-    use market_analyzer::indicators::normalized::{DivergenceState, NormalizationEngine};
     use core_domain::models::MarketSnapshot;
+    use market_analyzer::indicators::normalized::{DivergenceState, NormalizationEngine};
+    use rust_decimal_macros::dec;
     use std::collections::HashMap;
 
     // Real schema (including the Phase 3 normalized columns) via migrations.
@@ -77,8 +77,8 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         cluster: None,
         volume_profile: None,
         quality_envelope: None,
-    pipeline_state: core_domain::models::CandlePipelineState::default(),
-    indicator_lifecycle: std::collections::HashMap::new(),
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
     };
 
     database_storage::insert_snapshot_internal(&pool, &snap).await;
@@ -115,7 +115,10 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
     // RVOL is a non-directional gate per the v2.1 contract — `normalized` is
     // always `0.0` and the band value lives in `values.rvol_band`.
     let loaded_rvol = loaded.indicators.get("rvol").expect("rvol present");
-    assert_eq!(loaded_rvol.normalized, 0.0, "rvol normalized is always 0.0 (gate)");
+    assert_eq!(
+        loaded_rvol.normalized, 0.0,
+        "rvol normalized is always 0.0 (gate)"
+    );
     assert_eq!(
         loaded_rvol.values.as_ref().and_then(|v| v.get("rvol_band")),
         Some(&0.8),

@@ -1,5 +1,8 @@
 use axum::{
-    response::Redirect,
+    extract::Request,
+    http::StatusCode,
+    middleware::{self, Next},
+    response::{IntoResponse, Redirect},
     routing::{delete, get, post, put},
     Router,
 };
@@ -7,7 +10,7 @@ use core_domain::normalized::SymbolMapper;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use config_models::PlatformConfig;
@@ -509,13 +512,67 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(|| async { Redirect::to("/favicon.svg") }),
         )
         .layer(
+            // K1 (production audit): CORS is locked to the dashboard's own
+            // origins — previously `allow_origin(Any)` let ANY website
+            // drive every unauthenticated endpoint (config rewrite,
+            // instance lifecycle, safety-veto release) from the operator's
+            // browser. Same-origin dashboard fetches need no CORS headers
+            // at all; the allowlist only keeps direct-origin bookmarks and
+            // the Vite dev proxy working.
             CorsLayer::new()
-                .allow_origin(Any)
+                .allow_origin(AllowOrigin::list(
+                    ALLOWED_ORIGINS.map(axum::http::HeaderValue::from_static),
+                ))
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
+        // Cross-site rejection: placed OUTERMOST so the 403 is issued
+        // before any handler runs. Modern browsers always attach
+        // `Sec-Fetch-Site` to cross-origin fetches and WS upgrades; a
+        // `cross-site` value (or a foreign `Origin` header) is refused
+        // outright. Same-origin dashboard fetches and Vite-dev proxied
+        // requests carry `same-origin`/the app origin and pass.
+        .layer(middleware::from_fn(reject_cross_site))
         .fallback_service(ServeDir::new("ui/dist"))
         .with_state(state)
+}
+
+/// Origins the dashboard itself can be served from. The UI is served
+/// same-origin on `127.0.0.1:3000`; `localhost` variants and the Vite dev
+/// server (5173) are allowed so operator bookmarks and `bun run dev` keep
+/// working. Any other origin is refused.
+pub const ALLOWED_ORIGINS: [&str; 4] = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+];
+
+fn origin_allowed(origin: &str) -> bool {
+    ALLOWED_ORIGINS.iter().any(|o| *o == origin)
+}
+
+/// K1 (production audit): the API is unauthenticated and binds loopback
+/// only — the one remaining boundary against remote attackers is the
+/// browser's same-origin policy. `Sec-Fetch-Site` is present on every
+/// browser-originated cross-site request; `Origin` is present on all
+/// browser POSTs. Either header proving a foreign site → 403.
+async fn reject_cross_site(req: Request, next: Next) -> axum::response::Response {
+    let headers = req.headers();
+    if let Some(fetch_site) = headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        if fetch_site != "same-origin" && fetch_site != "same-site" && fetch_site != "none" {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    if let Some(origin) = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
+        if !origin_allowed(origin) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    next.run(req).await
 }
 
 #[cfg(test)]

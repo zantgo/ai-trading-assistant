@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use network_adapters::clock_monitor::{
-    BreachAction, ClockMonitor, ClockMonitorConfig, ClockSample, DriftVerdict, verdict_from_sample,
+    verdict_from_sample, BreachAction, ClockMonitor, ClockMonitorConfig, ClockSample, DriftVerdict,
 };
 
 #[test]
@@ -30,7 +30,9 @@ fn rms_jitter_computation() {
         });
     }
 
-    let rms = monitor.rms_jitter_us().expect("should compute RMS from 5 samples");
+    let rms = monitor
+        .rms_jitter_us()
+        .expect("should compute RMS from 5 samples");
     let expected = (200.0_f64).sqrt();
     assert!(
         (rms - expected).abs() < 1e-9,
@@ -83,7 +85,11 @@ fn within_threshold_verdict() {
     };
 
     match verdict_from_sample(&sample, 50) {
-        DriftVerdict::WithinThreshold { offset_us, rtt_us, server } => {
+        DriftVerdict::WithinThreshold {
+            offset_us,
+            rtt_us,
+            server,
+        } => {
             assert_eq!(offset_us, 40);
             assert_eq!(rtt_us, 1_000);
             assert_eq!(server, "test.ntp");
@@ -113,7 +119,12 @@ fn breach_threshold_verdict() {
     };
 
     match verdict_from_sample(&sample, 50) {
-        DriftVerdict::BreachThreshold { offset_us, rtt_us, server, threshold_us } => {
+        DriftVerdict::BreachThreshold {
+            offset_us,
+            rtt_us,
+            server,
+            threshold_us,
+        } => {
             assert_eq!(offset_us, 75);
             assert_eq!(rtt_us, 1_000);
             assert_eq!(server, "test.ntp");

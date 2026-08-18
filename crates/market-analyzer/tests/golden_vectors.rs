@@ -53,14 +53,14 @@ fn rsi_bounded_and_wilder_converges() {
     for ((_, _h, _l, c), _) in s.iter() {
         if let Some(v) = rsi.update(*c) {
             last = f(v);
-            assert!(
-                (0.0..=100.0).contains(&last),
-                "RSI out of range: {last}"
-            );
+            assert!((0.0..=100.0).contains(&last), "RSI out of range: {last}");
         }
     }
     // The spike (bars 10-14) must push RSI well above the mid-band.
-    assert!(last > 50.0, "RSI should be elevated after the spike, got {last}");
+    assert!(
+        last > 50.0,
+        "RSI should be elevated after the spike, got {last}"
+    );
 }
 
 #[test]

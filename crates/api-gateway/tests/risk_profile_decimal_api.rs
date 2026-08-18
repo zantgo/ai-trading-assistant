@@ -69,7 +69,9 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
@@ -259,12 +261,20 @@ async fn risk_calculate_prefers_payload_overrides_over_profile() {
         .await
         .expect("POST /api/risk/calculate");
 
-    assert!(res.status().is_success(), "expected 200, got {}", res.status());
+    assert!(
+        res.status().is_success(),
+        "expected 200, got {}",
+        res.status()
+    );
     let body: serde_json::Value = res.json().await.expect("response is JSON");
 
     assert_eq!(body["leverage_selected"], 10, "payload leverage must win");
     let num = |k: &str| -> f64 {
-        body[k].as_str().unwrap_or_default().parse::<f64>().unwrap_or(f64::NAN)
+        body[k]
+            .as_str()
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or(f64::NAN)
     };
     assert!(
         (num("position_notional") - 50.0).abs() < 1e-9,

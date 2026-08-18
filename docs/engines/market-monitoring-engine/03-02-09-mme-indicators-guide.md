@@ -52,8 +52,8 @@ ATR (gate), Bollinger, BBWP (gate), TTM Squeeze, HV (gate), StdDev Channel. Vola
 ### 2.5 Structure (5)
 Fibonacci, Support/Resistance, Pivot Points, Chart Patterns, Candlestick. Structure indicators define the levels that confirm signals (e.g. divergence confirmation requires an S/R break) and anchor targets/invalidation.
 
-### 2.6 Regime (4)
-Aroon, Choppiness (gate), LinReg Slope, Z-Score. Regime indicators classify trending vs ranging conditions and gate the interpretation of everything else.
+### 2.6 Regime (5)
+Aroon, Choppiness (gate), LinReg Slope, Z-Score, price_trend_sharpe. Regime indicators classify trending vs ranging conditions and gate the interpretation of everything else.
 
 ### 2.7 Institutional (4)
 SMC Structure (CHoCH), Liquidity, Fair Value Gap, Order Blocks. Smart-money-concept indicators track structural breaks and institutional footprints.

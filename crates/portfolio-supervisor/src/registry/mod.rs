@@ -5,11 +5,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use config_models::{Stance, TimeframeConfig};
 use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
+use config_models::{Stance, TimeframeConfig};
 use core_domain::normalized::Exchange;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -93,11 +93,16 @@ pub async fn add_instance(
                 let pt = exchange_choice
                     .bitget_product_type(&quote)
                     .unwrap_or("USDT-FUTURES");
-                network_adapters::adapters::bitget_rest::symbol_exists(&raw_symbol, pt, &bitget_ticker_url)
-                    .await
+                network_adapters::adapters::bitget_rest::symbol_exists(
+                    &raw_symbol,
+                    pt,
+                    &bitget_ticker_url,
+                )
+                .await
             }
             ExchangeChoice::Hyperliquid => {
-                network_adapters::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url).await
+                network_adapters::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url)
+                    .await
             }
         };
         match availability {
@@ -148,18 +153,26 @@ pub async fn add_instance(
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    let micro_cfg = pair_cfg.as_ref().map(|p| p.micro_term.clone())
+    let micro_cfg = pair_cfg
+        .as_ref()
+        .map(|p| p.micro_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let fast_cfg = pair_cfg.as_ref().map(|p| p.fast_term.clone())
+    let fast_cfg = pair_cfg
+        .as_ref()
+        .map(|p| p.fast_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(180, default_indicators.clone()));
-    let slow_cfg = pair_cfg.as_ref().and_then(|p| p.slow_term.clone())
+    let slow_cfg = pair_cfg
+        .as_ref()
+        .and_then(|p| p.slow_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
                 config_guard.slow_timeframe.duration_seconds,
                 default_indicators.clone(),
             )
         });
-    let macro_cfg = pair_cfg.as_ref().and_then(|p| p.macro_term.clone())
+    let macro_cfg = pair_cfg
+        .as_ref()
+        .and_then(|p| p.macro_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
                 config_guard.macro_timeframe.duration_seconds,
@@ -179,6 +192,11 @@ pub async fn add_instance(
     let position_scaling = pair_cfg.as_ref().and_then(|p| p.position_scaling.clone());
     let liquidity_config_first = config_guard.liquidity.clone();
     let heatmap_config_first = config_guard.heatmap.clone();
+    let api_failover_first = config_guard.api_failover;
+    // CA-01…CA-15: global `[activation]` + per-instance union + version.
+    let activation_first = config_guard.activation.clone();
+    let activation_instance_first = pair_cfg.as_ref().and_then(|p| p.activation.clone());
+    let config_version_first = config_guard.config_version;
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -245,6 +263,10 @@ pub async fn add_instance(
         position_scaling: position_scaling.clone(),
         liquidity_config: liquidity_config_first,
         heatmap_config: heatmap_config_first,
+        api_failover: api_failover_first,
+        activation: activation_first,
+        activation_instance: activation_instance_first,
+        config_version: config_version_first,
         buffer_size,
         stale_threshold_secs,
     };
@@ -296,15 +318,14 @@ pub async fn add_instance(
     // implementation only updated the live map, which broke save→recharge
     // cycles because the in-memory WorkspaceConfig snapshot stayed empty
     // until the daemon was restarted and the TOML was reloaded.
-    state.workspace.insert(pair_key.clone(), Arc::clone(&artifacts.instance)).await;
+    state
+        .workspace
+        .insert(pair_key.clone(), Arc::clone(&artifacts.instance))
+        .await;
 
     {
         let mut config = state.workspace.config().await;
-        if let Some(slot) = config
-            .instances
-            .iter_mut()
-            .find(|i| i.symbol == pair_key)
-        {
+        if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == pair_key) {
             // Re-adding an existing pair (rare). Refresh the UUID in case the
             // disk copy is stale and accept the live configs in memory.
             slot.id = artifacts.instance.id.clone();
@@ -325,7 +346,7 @@ pub async fn add_instance(
                 position_scaling: position_scaling.clone(),
                 activation: None,
                 custom_pipelines: std::collections::HashMap::new(),
-                };
+            };
             config.instances.push(entry);
         }
         if let Err(e) = config_models::save_workspace(&config) {
@@ -346,13 +367,18 @@ pub async fn add_instance(
 
 /// Pause an instance (no new trades, keep open positions for TP/SL).
 pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instance = state.workspace.list().await
+    let instance = state
+        .workspace
+        .list()
+        .await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     {
         let mut lifecycle = instance.lifecycle.write().await;
-        lifecycle.pause("operator", Some("Manual pause".into())).await?;
+        lifecycle
+            .pause("operator", Some("Manual pause".into()))
+            .await?;
     }
     let mut config_state = instance.config_state.write().await;
     config_state.status = InstanceStatus::Paused;
@@ -366,13 +392,18 @@ pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Resul
 
 /// Start an instance (from STOPPED or lifecycle PAUSED).
 pub async fn start_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instance = state.workspace.list().await
+    let instance = state
+        .workspace
+        .list()
+        .await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     {
         let mut lifecycle = instance.lifecycle.write().await;
-        lifecycle.start("operator", Some("Manual start".into())).await?;
+        lifecycle
+            .start("operator", Some("Manual start".into()))
+            .await?;
     }
     let mut config_state = instance.config_state.write().await;
     config_state.status = InstanceStatus::Running;
@@ -386,13 +417,18 @@ pub async fn start_instance(state: &RegistryContext, instance_id: &str) -> Resul
 
 /// Stop an instance (close all positions immediately, transition STOPPING -> STOPPED).
 pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instance = state.workspace.list().await
+    let instance = state
+        .workspace
+        .list()
+        .await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     {
         let mut lifecycle = instance.lifecycle.write().await;
-        lifecycle.stop("operator", Some("Manual stop".into())).await?;
+        lifecycle
+            .stop("operator", Some("Manual stop".into()))
+            .await?;
     }
     instance.cancel.cancel();
 
@@ -502,9 +538,7 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
     // 4. Drop from the workspace config + persist to TOML.
     {
         let mut config = state.workspace.config().await;
-        config
-            .instances
-            .retain(|i| i.symbol != pair_key);
+        config.instances.retain(|i| i.symbol != pair_key);
         if let Err(e) = config_models::save_workspace(&config) {
             eprintln!("⚠️  Failed to persist workspace after delete: {}", e);
         }
@@ -594,6 +628,11 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let position_scaling = pair_cfg.position_scaling.clone();
     let liquidity_config_recharge = config_guard.liquidity.clone();
     let heatmap_config_recharge = config_guard.heatmap.clone();
+    let api_failover_recharge = config_guard.api_failover;
+    // CA-01…CA-15: global `[activation]` + per-instance union + version.
+    let activation_recharge = config_guard.activation.clone();
+    let activation_instance_recharge = pair_cfg.activation.clone();
+    let config_version_recharge = config_guard.config_version;
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
@@ -668,6 +707,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         position_scaling,
         liquidity_config: liquidity_config_recharge,
         heatmap_config: heatmap_config_recharge,
+        api_failover: api_failover_recharge,
+        activation: activation_recharge,
+        activation_instance: activation_instance_recharge,
+        config_version: config_version_recharge,
         buffer_size,
         stale_threshold_secs,
     };
@@ -744,7 +787,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     });
 
     // Swap in state map
-    state.workspace.insert(pair_key.to_string(), Arc::clone(&new_instance)).await;
+    state
+        .workspace
+        .insert(pair_key.to_string(), Arc::clone(&new_instance))
+        .await;
 
     sync_exchange_status_active_pairs(state).await;
 
@@ -772,13 +818,7 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             symbol: inst.symbol(),
             initial_capital: inst.trading.read().await.initial_capital,
             current_equity: inst.trading.read().await.current_equity,
-            consecutive_losses: inst
-                .safety
-                .consecutive_losses
-                .read()
-                .await
-                .values()
-                .sum(),
+            consecutive_losses: inst.safety.consecutive_losses.read().await.values().sum(),
             safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
         });
     }
@@ -831,7 +871,8 @@ pub async fn reload_timeframe(
 
     println!(
         "🔄 Reload TF requested: instance={} slot={} (delegating to full recharge for now)",
-        instance_id, slot_enum.as_str()
+        instance_id,
+        slot_enum.as_str()
     );
 
     // Reset only the slot's pipeline_state so the next emitted snapshot

@@ -60,7 +60,9 @@ pub enum TimeframeSlot {
     /// their `timeframe_secs` and inferred `TimeframeCategory` in the slot
     /// metadata. Default ladder (Micro/Fast/Slow/Macro) continues to work
     /// for backward compatibility.
-    Custom { id: u16 },
+    Custom {
+        id: u16,
+    },
 }
 
 /// Per-timeframe pipeline lifecycle state. One value per `(instance, slot)`.
@@ -80,7 +82,7 @@ pub enum CandlePipelineState {
     /// accumulating live trades. Every indicator starts in `Loading`.
     Loading,
     /// Buffer is at `size` AND parent `ConnectionStatus = Connected` AND all
-    /// 50 indicators are ≥ `Live`. The chart paints with full history.
+    /// 52 indicators are ≥ `Live`. The chart paints with full history.
     Live,
     /// Pipeline was `Live` and then no completed candle for
     /// `candle_buffer.stale_threshold_secs`. Recovers to `Live` on the next
@@ -172,9 +174,7 @@ impl TimeframeSlot {
             180 => TimeframeSlot::Fast,
             300 => TimeframeSlot::Slow,
             900 => TimeframeSlot::Macro,
-            _ => TimeframeSlot::Custom {
-                id: secs as u16,
-            },
+            _ => TimeframeSlot::Custom { id: secs as u16 },
         }
     }
 }
@@ -309,9 +309,10 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liquidity: Option<LiquidityFlow>,
 
-    /// Estimated liquidation cluster matrix (Phase 2). Recomputed every
-    /// 5 minutes per symbol. `None` when the data is insufficient or
-    /// before the first refresh.
+    /// Estimated liquidation cluster matrix (Phase 2). Refreshed at each
+    /// TF's own candle cadence (per-TF pipeline task); `valid_until_ms`
+    /// grants a fixed 5-minute TTL. `None` when the data is insufficient
+    /// or before the first refresh.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cluster: Option<LiquidationClusterMatrix>,
 

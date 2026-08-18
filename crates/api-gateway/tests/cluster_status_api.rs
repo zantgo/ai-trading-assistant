@@ -23,11 +23,11 @@ use core_domain::normalized::SymbolMapper;
 use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
-use portfolio_supervisor::session::ExchangeChoice;
 use market_analyzer::sr_engine::SrRoleTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use portfolio_supervisor::instance::TimeframeBuffers;
+use portfolio_supervisor::session::ExchangeChoice;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use rust_decimal::Decimal;
 use sqlx::SqlitePool;
@@ -63,7 +63,9 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
@@ -119,8 +121,8 @@ async fn register_btc_usdc(state: &Arc<AppState>) {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
     });
 
@@ -268,7 +270,12 @@ async fn cluster_status_derives_stale_from_expired_ttl() {
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
     let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro);
     {
-        let mut guard = micro_pipe.as_ref().expect("micro slot must be present").cluster_status.write().await;
+        let mut guard = micro_pipe
+            .as_ref()
+            .expect("micro slot must be present")
+            .cluster_status
+            .write()
+            .await;
         guard.status = ClusterRefreshStatus::Ok;
         guard.last_success_ms = Some(1_000);
         guard.last_skip_reason = None;
@@ -306,7 +313,12 @@ async fn cluster_status_keeps_ok_for_fresh_ttl() {
     let pair = state.workspace.get("BTC-USDC").await.unwrap();
     let micro_pipe = pair.active_pair.pipeline_for_slot(TimeframeSlot::Micro);
     {
-        let mut guard = micro_pipe.as_ref().expect("micro slot must be present").cluster_status.write().await;
+        let mut guard = micro_pipe
+            .as_ref()
+            .expect("micro slot must be present")
+            .cluster_status
+            .write()
+            .await;
         guard.status = ClusterRefreshStatus::Ok;
         guard.last_success_ms = Some(1_000);
         guard.last_skip_reason = None;
@@ -341,7 +353,12 @@ async fn cluster_status_preserves_skip_reason_in_payload() {
     let expected_reason =
         "no open_interest yet (HL derivatives poller hasn't populated this symbol)";
     {
-        let mut guard = micro_pipe.as_ref().expect("micro slot must be present").cluster_status.write().await;
+        let mut guard = micro_pipe
+            .as_ref()
+            .expect("micro slot must be present")
+            .cluster_status
+            .write()
+            .await;
         guard.status = ClusterRefreshStatus::Skipped;
         guard.last_skip_reason = Some(expected_reason.to_string());
     }
@@ -377,7 +394,12 @@ async fn cluster_status_preserves_bitget_skip_reason_in_payload() {
     let expected_reason =
         "no open_interest yet (Bitget ticker channel hasn't delivered holdingAmount)";
     {
-        let mut guard = micro_pipe.as_ref().expect("micro slot must be present").cluster_status.write().await;
+        let mut guard = micro_pipe
+            .as_ref()
+            .expect("micro slot must be present")
+            .cluster_status
+            .write()
+            .await;
         guard.status = ClusterRefreshStatus::Skipped;
         guard.last_skip_reason = Some(expected_reason.to_string());
     }

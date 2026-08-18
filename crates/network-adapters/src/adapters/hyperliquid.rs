@@ -1,10 +1,10 @@
-use futures_util::{SinkExt, StreamExt};
-use rust_decimal::Decimal;
-use serde::Deserialize;
 use core_domain::normalized::{
     AssetContext, ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook,
     NormalizedTrade, TradeSide,
 };
+use futures_util::{SinkExt, StreamExt};
+use rust_decimal::Decimal;
+use serde::Deserialize;
 use std::str::FromStr;
 use tokio::sync::mpsc::Sender;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};

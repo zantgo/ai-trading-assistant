@@ -30,8 +30,9 @@ pub struct DecisionContext {
     /// `analysis.market_bias_score` (sign) and the 3-factor quality blend
     /// (magnitude). Mirrors `Analysis.bias` family on the sign axis.
     pub score: f64,
-    /// 5-state `MarketBias` family: `STRONG_BULLISH` / `BULLISH` / `NEUTRAL`
-    /// / `BEARISH` / `STRONG_BEARISH`. Mirrors `Analysis.bias` exactly.
+    /// 5-state `MarketBias` family. Mirrors `Analysis.bias` exactly; wire
+    /// values are PascalCase (`StrongBullish` / `Bullish` / `Neutral` /
+    /// `Bearish` / `StrongBearish`).
     pub bias: String,
     /// `[0.0, 1.0]` derived as `|score| / 100.0`. Canonical name in the wire
     /// schema (renamed from `confidence` in the institutional redesign; see
@@ -115,13 +116,14 @@ impl DecisionContext {
         // Score carries the directional sign from analysis.bias so the
         // frontend `computeDecisionRank` can split probability between
         // LONG (positive score) and SHORT (negative score) arms.
-        let signed_confluence = match analysis.bias {
-            crate::analysis::MarketBias::StrongBearish
-            | crate::analysis::MarketBias::Bearish => -confluence_score,
-            crate::analysis::MarketBias::Neutral => 0.0,
-            crate::analysis::MarketBias::Bullish
-            | crate::analysis::MarketBias::StrongBullish => confluence_score,
-        };
+        let signed_confluence =
+            match analysis.bias {
+                crate::analysis::MarketBias::StrongBearish
+                | crate::analysis::MarketBias::Bearish => -confluence_score,
+                crate::analysis::MarketBias::Neutral => 0.0,
+                crate::analysis::MarketBias::Bullish
+                | crate::analysis::MarketBias::StrongBullish => confluence_score,
+            };
 
         // -- expected_reward_risk_ratio = active-side R:R × (1 − overall_risk/100)
         let active_rr = opportunity
@@ -162,38 +164,38 @@ impl DecisionContext {
         // -- Market stance (exact replication of AdvisoryMatrix A5 / §3.2)
         //    Returns (is_avoid, is_aggressive_or_constructive) so the
         //    percentage modulation matches `compute_advisory()` exactly.
-        let (stance_is_avoid, stance_is_aggressive_or_constructive) =
-            match analysis.market_quality {
-                crate::analysis::QualityLevel::Poor => {
-                    if risk.overall_risk.score >= 80.0 {
-                        (true, false)
-                    } else {
-                        (false, false) // Cautious
-                    }
+        let (stance_is_avoid, stance_is_aggressive_or_constructive) = match analysis.market_quality
+        {
+            crate::analysis::QualityLevel::Poor => {
+                if risk.overall_risk.score >= 80.0 {
+                    (true, false)
+                } else {
+                    (false, false) // Cautious
                 }
-                crate::analysis::QualityLevel::Weak => {
-                    (false, false) // always Cautious
+            }
+            crate::analysis::QualityLevel::Weak => {
+                (false, false) // always Cautious
+            }
+            crate::analysis::QualityLevel::Average => {
+                (false, false) // Neutral or Cautious — neither avoid nor aggressive
+            }
+            crate::analysis::QualityLevel::Good => {
+                if risk.overall_risk.score < 30.0 {
+                    (false, true) // Constructive
+                } else {
+                    (false, false) // Cautious
                 }
-                crate::analysis::QualityLevel::Average => {
-                    (false, false) // Neutral or Cautious — neither avoid nor aggressive
+            }
+            crate::analysis::QualityLevel::Excellent => {
+                if risk.overall_risk.score >= 80.0 {
+                    (true, false) // Avoid
+                } else if risk.overall_risk.score < 30.0 {
+                    (false, true) // Aggressive or Constructive
+                } else {
+                    (false, false) // Cautious
                 }
-                crate::analysis::QualityLevel::Good => {
-                    if risk.overall_risk.score < 30.0 {
-                        (false, true) // Constructive
-                    } else {
-                        (false, false) // Cautious
-                    }
-                }
-                crate::analysis::QualityLevel::Excellent => {
-                    if risk.overall_risk.score >= 80.0 {
-                        (true, false) // Avoid
-                    } else if risk.overall_risk.score < 30.0 {
-                        (false, true) // Aggressive or Constructive
-                    } else {
-                        (false, false) // Cautious
-                    }
-                }
-            };
+            }
+        };
 
         // -- Directional guidance (exact replication of AdvisoryMatrix A3 / §3.1)
         //    Returns (is_long, is_short) booleans for the percentage modulation.
@@ -390,10 +392,14 @@ impl DecisionContext {
         // bracket must STILL cap the directional conviction (a trader
         // rejects "worse R:R → higher conviction"). The read direction is
         // the bias; the guidance only governs the gate.
-        let bias_is_long =
-            matches!(analysis.bias, crate::analysis::MarketBias::StrongBullish | crate::analysis::MarketBias::Bullish);
-        let bias_is_short =
-            matches!(analysis.bias, crate::analysis::MarketBias::StrongBearish | crate::analysis::MarketBias::Bearish);
+        let bias_is_long = matches!(
+            analysis.bias,
+            crate::analysis::MarketBias::StrongBullish | crate::analysis::MarketBias::Bullish
+        );
+        let bias_is_short = matches!(
+            analysis.bias,
+            crate::analysis::MarketBias::StrongBearish | crate::analysis::MarketBias::Bearish
+        );
         if expected_reward_risk_ratio > 0.0 && expected_reward_risk_ratio < 1.0 {
             if bias_is_long {
                 long *= 0.6;
@@ -569,7 +575,10 @@ mod tests {
         assert!((ctx.entry_danger.score - 20.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "READY");
         assert!(ctx.long_probability > ctx.short_probability);
-        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+        assert!(
+            (ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs()
+                < 1e-9
+        );
         assert!((ctx.net_bias_pct - (ctx.long_probability - ctx.short_probability)).abs() < 1e-9);
     }
 
@@ -598,7 +607,10 @@ mod tests {
         // active side is Bearish → reads short_expected_rr_internal
         assert!((ctx.expected_reward_risk_ratio - (2.0 * 0.8)).abs() < 1e-9);
         assert!(ctx.short_probability > ctx.long_probability);
-        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+        assert!(
+            (ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs()
+                < 1e-9
+        );
     }
 
     #[test]
@@ -617,11 +629,15 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "Neutral");
         assert!((ctx.score - 0.0).abs() < 1e-9);
         // Neutral bias with no directional offset should produce a balanced distribution
-        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+        assert!(
+            (ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs()
+                < 1e-9
+        );
         assert!(ctx.net_bias_pct >= -5.0 && ctx.net_bias_pct <= 5.0);
     }
 
@@ -651,11 +667,15 @@ mod tests {
         // Unsigned blend ≈ 0.5×75 + 0.3×quality + 0.2×60 ≈ 63 (as the
         // capture's L6). With a Bullish bias the signed score must be
         // positive, not zeroed.
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 63.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 63.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "Bullish");
         assert!((ctx.score - 63.0).abs() < 1e-9);
         assert!(ctx.long_probability > ctx.hold_probability);
-        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+        assert!(
+            (ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs()
+                < 1e-9
+        );
     }
 
     #[test]
@@ -675,7 +695,8 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "StrongBullish");
         assert!((ctx.score - 90.0).abs() < 1e-9);
         assert!(ctx.long_probability > ctx.short_probability);
@@ -699,7 +720,8 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 65.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 65.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "StrongBearish");
         assert!((ctx.score - -65.0).abs() < 1e-9);
         assert!(ctx.short_probability > ctx.long_probability);
@@ -778,7 +800,8 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "Bearish");
         assert!(ctx.short_probability > ctx.long_probability);
         assert!(ctx.short_probability > ctx.hold_probability);
@@ -844,12 +867,16 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "Neutral");
         assert!(ctx.hold_probability >= 90.0);
         assert!(ctx.long_probability >= 2.0);
         assert!(ctx.short_probability >= 2.0);
-        assert!((ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs() < 1e-9);
+        assert!(
+            (ctx.long_probability + ctx.short_probability + ctx.hold_probability - 100.0).abs()
+                < 1e-9
+        );
     }
 
     #[test]
@@ -873,7 +900,8 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
         // 0.5 × (1 − 0.4187) = 0.2907 < 1.0 → penalty applies: the short
         // arm is compressed, so HOLD overtakes it while the split stays
         // graded (hold ≤ 60, short ≥ 15).
@@ -908,8 +936,12 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
-        assert!(ctx.lean_floor_applied, "floors must be flagged when they adjust the split");
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+        assert!(
+            ctx.lean_floor_applied,
+            "floors must be flagged when they adjust the split"
+        );
         // The cap fires pre-renormalization; the final renormalization
         // lets HOLD absorb the rounding residual (≤ ~62), never the
         // pre-cap value.
@@ -936,7 +968,8 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
         assert!(!ctx.lean_floor_applied);
     }
 
@@ -963,7 +996,8 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.trade_readiness, "WATCH");
     }
 
@@ -1007,7 +1041,8 @@ mod tests {
             time_horizon: "SCALP".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.trade_readiness, "FORMING");
     }
 
@@ -1034,7 +1069,8 @@ mod tests {
             time_horizon: "SCALP".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 71.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 71.0, &analysis, Some(&opp), &risk);
         assert_eq!(ctx.bias, "Bullish");
         // The split stays GRADED with the penalty: long ≈ 57, hold ≈ 41,
         // net ≈ +55 — versus ~75/23 unpenalized (the 0.55 R:R must cap).
@@ -1062,7 +1098,8 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 0.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 0.0, &analysis, Some(&opp), &risk);
         assert!((ctx.expected_reward_risk_ratio - 0.0).abs() < 1e-9);
         assert!(ctx.long_probability + ctx.short_probability + ctx.hold_probability > 0.0);
     }
@@ -1084,10 +1121,18 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx = DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+        let ctx =
+            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
         let total = ctx.long_probability + ctx.short_probability + ctx.hold_probability;
-        assert!((total - 100.0).abs() < 1e-9, "probabilities must sum to 100, got {}", total);
-        assert_eq!(ctx.net_bias_pct, ctx.long_probability - ctx.short_probability);
+        assert!(
+            (total - 100.0).abs() < 1e-9,
+            "probabilities must sum to 100, got {}",
+            total
+        );
+        assert_eq!(
+            ctx.net_bias_pct,
+            ctx.long_probability - ctx.short_probability
+        );
         assert!(ctx.long_probability >= 2.0);
         assert!(ctx.short_probability >= 2.0);
         assert!(ctx.hold_probability >= 2.0);

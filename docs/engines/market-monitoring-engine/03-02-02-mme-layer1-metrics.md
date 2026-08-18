@@ -28,7 +28,7 @@ Implementation: `analyzer/mod.rs::run_single()`, `analyzer/normalize.rs::build_i
 
 ## 2. Stage 1 — Indicator Computation
 
-Every registry-enabled indicator calculator runs against the current candle buffers, producing a native `raw_value` (and auxiliary component lines for multi-line indicators such as MACD, Bollinger, ADX). The 52 indicators span eight functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 8 Derivatives — see [`01-01-ontology.md` Appendix B §B.2](../../conceptual-foundations/01-01-ontology.md)):
+Every registry-enabled indicator calculator runs against the current candle buffers, producing a native `raw_value` (and auxiliary component lines for multi-line indicators such as MACD, Bollinger, ADX). The 52 indicators span eight functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + **5 Regime** + 4 Institutional + 8 Derivatives — see [`01-01-ontology.md` Appendix B §B.2](../../conceptual-foundations/01-01-ontology.md)):
 
 | Group | Examples |
 |-------|----------|
@@ -37,7 +37,7 @@ Every registry-enabled indicator calculator runs against the current candle buff
 | Volume | Volume, RVOL, Volume Profile, OBV, CMF, MFI, Force Index |
 | Volatility | ATR, Bollinger, BBWP, TTM Squeeze, HV, StdDev Channel |
 | Structure | Fibonacci, Support/Resistance, Pivot Points, Chart Patterns, Candlestick |
-| Regime | Aroon, Choppiness, LinReg Slope, Z-Score |
+| Regime | Aroon, Choppiness, LinReg Slope, Z-Score, Price-Trend Sharpe |
 | Institutional | SMC Structure, Liquidity, FVG, Order Blocks |
 | DerivativesData | Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance, Spread, Depth Bias, Mark-Index Spread |
 
@@ -58,7 +58,7 @@ In v6.5 every `MarketSnapshot` additionally carries:
 - **`tf.pipeline_state: CandlePipelineState`** — the per-timeframe pipeline lifecycle ([03-01-06](../data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md) DCP-01 … DCP-15). One of `INITIALIZING | LOADING | LIVE | STALE | FAILED`. Published on every snapshot.
 - **`tf.indicator_lifecycle: HashMap<String, IndicatorLifecycleStatus>`** — the per-indicator lifecycle ([03-02-15](03-02-15-mme-indicator-lifecycle-states.md) ILS-01 … ILS-15), keyed by registry key. Each value carries `state | bars_seen | bars_required | last_updated_at | last_error | stale_threshold_secs`. The map is populated alongside `indicators` on every snapshot and updates on every completed candle. Confidence overrides apply (ILS-14) when the lifecycle state is non-`Live`.
 
-Both fields are always populated (no `skip_serializing_if`); the dashboard never has to distinguish "absent" from "empty map". The active-set rule ([03-02-12](03-02-12-mme-configurable-activation.md)) applies symmetrically: disabled indicators are absent from both `indicators` and `indicator_lifecycle` (ILS-12).
+Both fields are always populated (no `skip_serializing_if`); the dashboard never has to distinguish "absent" from "empty map". The active-set rule ([03-02-12](03-02-12-mme-configurable-activation.md)) applies asymmetrically: disabled indicators are **removed from `indicators` only** — they **remain** in `indicator_lifecycle` (reporting `Loading` with `present = false`; see ILS-12 in [03-02-15](03-02-15-mme-indicator-lifecycle-states.md)), so the lifecycle map covers the full registry.
 
 > **Target Architecture (Not Yet Implemented).** To eliminate slow string-hashing lookups (e.g. `map.get("rsi")`), the hot-path Metrics Matrix is intended to be a flat, cache-aligned struct indexed by a compiled `Enum` offset rather than a `HashMap<String, …>`:
 >
@@ -71,7 +71,7 @@ Both fields are always populated (no `skip_serializing_if`); the dashboard never
 > }
 > ```
 >
-> All 51 technical calculators (RSI, ATR, MACD, …) would execute their smoothing and crossovers using raw `f64` primitives, enabling CPU SIMD auto-vectorization. *Current implementation:* indicators are stored in `MarketSnapshot.indicators: HashMap<String, NormalizedIndicatorValue>` and most calculators compute in `rust_decimal::Decimal`.
+> All 52 technical calculators (RSI, ATR, MACD, …) would execute their smoothing and crossovers using raw `f64` primitives, enabling CPU SIMD auto-vectorization. *Current implementation:* indicators are stored in `MarketSnapshot.indicators: HashMap<String, NormalizedIndicatorValue>` and most calculators compute in `rust_decimal::Decimal`.
 
 ---
 
@@ -204,11 +204,11 @@ Notifications carry no `id` (no response expected). See the [API Gateway Contrac
 
 ### 9.1 Configurable activation (Active Set)
 
-The layer's indicator/signal computation is driven by a config-derived **Active Set**: registry defaults minus the union of the global `[activation]` denylist and the per-instance `[instances.*.activation]` denylist. Disabled indicators/signals are **absent** from the produced `MarketSnapshot` — never null, never tombstoned — and downstream layers reuse the existing NO_DATA/empty-state machinery with no new special cases. The active set is *recorded* on the snapshot via the optional `metrics_config` block (omitted when the active set equals the registry default, so default-path frames remain byte-identical to pre-feature frames). The 50-indicator / 12-SignalKind / 100-declaration **registry** describes capability and never changes with config; activation is a runtime config concern. Canonical spec, wire contract, downstream degradation rules, and the registry-invariance requirement are in [03-02-12-mme-configurable-activation.md](03-02-12-mme-configurable-activation.md).
+The layer's indicator/signal computation is driven by a config-derived **Active Set**: registry defaults minus the union of the global `[activation]` denylist and the per-instance `[instances.*.activation]` denylist. Disabled indicators/signals are **absent** from the produced `MarketSnapshot` — never null, never tombstoned — and downstream layers reuse the existing NO_DATA/empty-state machinery with no new special cases. The active set is *recorded* on completed-candle snapshots via the optional `metrics_config` block (omitted when the active set equals the registry default, so default-path frames remain byte-identical to pre-feature frames). Shadow frames always carry `metrics_config: None` (`broadcast_live_snapshot` zeroes it for throughput); consumers reading the accumulated `tf.indicators` map see the completed-frame attribution. The 52-indicator / 12-SignalKind / 101-declaration **registry** describes capability and never changes with config; activation is a runtime config concern. Canonical spec, wire contract, downstream degradation rules, and the registry-invariance requirement are in [03-02-12-mme-configurable-activation.md](03-02-12-mme-configurable-activation.md).
 
 ### 9.2 Shadow-path freshness (v6.7)
 
-Shadow ticks (`is_completed = false`) carry a clone-based recomputation of ~22 tick-safe indicators (EMA, RSI, MACD, ADX, Bollinger, ATR, BBWP, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, OBV, CMF, MFI, HV, Aroon, Choppiness, LinReg, ZScore, VWAP) — the same calculators as the completed path, `.clone().update()` on the in-progress tick price, then discarded. These ~22 entries carry `pending_candle = false` (freshly computed this tick). The remaining ~28 close-dependent indicators (Fibonacci, patterns, S/R zones, Ichimoku, CCI, PSAR, Hull MA, AO, Force Index, StdDev Channel, Volume Profile, SMC, Anchored VWAP, Derivatives/OrderBook group) are absent from the shadow indicator map. For consumers reading from the accumulated `tf.indicators` map (the canonical source — see §9.3), the frontend per-key merge preserves the last completed-candle value across shadow ticks; the `updates_on_shadow` registry metadata tells the UI whether to append a `◉` confirmed-on-close marker or display a tick-fresh reading.
+Shadow ticks (`is_completed = false`) carry a clone-based recomputation of ~22 tick-safe indicators (EMA, RSI, MACD, ADX, Bollinger, ATR, BBWP, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, OBV, CMF, MFI, HV, Aroon, Choppiness, LinReg, ZScore, VWAP) — the same calculators as the completed path, `.clone().update()` on the in-progress tick price, then discarded. These ~22 entries carry no wire-side marker (freshly computed this tick) — the earlier spec text referenced a `pending_candle` property, but no such field exists on the wire (`NormalizedIndicatorValue` has no `pending_candle`; it survived only as a legacy frontend concept and was dropped by the export builders). Freshness on the wire is expressed by `updates_on_shadow` in the registry and by absence from the shadow map. The remaining ~28 close-dependent indicators (Fibonacci, patterns, S/R zones, Ichimoku, CCI, PSAR, Hull MA, AO, Force Index, StdDev Channel, Volume Profile, SMC, Anchored VWAP, Derivatives/OrderBook group) are absent from the shadow indicator map. For consumers reading from the accumulated `tf.indicators` map (the canonical source — see §9.3), the frontend per-key merge preserves the last completed-candle value across shadow ticks; the `updates_on_shadow` registry metadata tells the UI whether to append a `◉` confirmed-on-close marker or display a tick-fresh reading.
 
 ### 9.3 Single Source of Truth
 

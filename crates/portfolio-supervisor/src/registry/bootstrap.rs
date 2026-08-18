@@ -3,12 +3,12 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use market_analyzer::analyzer;
-use config_models::{FibonacciConfig, TimeframeConfig};
-use database_storage;
 use crate::session::{Currency, ExchangeChoice};
+use config_models::{FibonacciConfig, TimeframeConfig};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
+use database_storage;
+use market_analyzer::analyzer;
 
 pub struct BootstrapInput {
     pub base: String,
@@ -72,7 +72,8 @@ async fn collect_candles(
     use network_adapters::adapters::hyperliquid_historical_fetch::HyperliquidHistoricalFetch;
 
     // 1. Local DB warm base (most recent completed candles for this symbol/tf).
-    let db_candles = database_storage::query_recent_candles(&pool, &internal_symbol, secs, limit as u32).await;
+    let db_candles =
+        database_storage::query_recent_candles(&pool, &internal_symbol, secs, limit as u32).await;
 
     // 2. Build the HistoricalFetchPolicy implementation for this exchange.
     //    The policy handles HFP-03 sub-minute bypass, HFP-04..HFP-06
@@ -93,7 +94,10 @@ async fn collect_candles(
     };
 
     let policy: Box<dyn HistoricalFetchPolicy> = if is_bitget {
-        Box::new(BitgetHistoricalFetch::new(rest_url.clone(), product_type.clone()))
+        Box::new(BitgetHistoricalFetch::new(
+            rest_url.clone(),
+            product_type.clone(),
+        ))
     } else {
         Box::new(HyperliquidHistoricalFetch::new(rest_url.clone()))
     };
@@ -382,9 +386,16 @@ pub async fn fetch_and_warm_bootstrap(
 
     // v6.10 (Phase 5 / E1): bootstrap warm-up runs with all indicators enabled
     // by default. Per-instance activation sets are constructed later in
-    // `build_pipelines`; warm-up only needs to seed all 50 indicators so the
+    // `build_pipelines`; warm-up only needs to seed all 52 indicators so the
     // production pipelines can apply active_set filtering to the warmed state.
     let warm_active_set = market_analyzer::active_set::ActiveSet::all_enabled();
+    // AUDIT-H5: stamp the real venue on pre-warm snapshots (was hardcoded
+    // Hyperliquid — Bitget symbols reported the wrong exchange via WS
+    // bootstrap and /api/history until the first live candle).
+    let warm_exchange = match input.exchange_choice {
+        ExchangeChoice::Hyperliquid => core_domain::normalized::Exchange::Hyperliquid,
+        ExchangeChoice::Bitget => core_domain::normalized::Exchange::Bitget,
+    };
 
     let w_micro = analyzer::warm_indicators_for_timeframe(
         micro_candles,
@@ -395,6 +406,7 @@ pub async fn fetch_and_warm_bootstrap(
         core_domain::models::TimeframeSlot::Micro,
         input.buffer_size,
         &warm_active_set,
+        Some(warm_exchange),
     );
     let w_fast = analyzer::warm_indicators_for_timeframe(
         fast_candles,
@@ -405,6 +417,7 @@ pub async fn fetch_and_warm_bootstrap(
         core_domain::models::TimeframeSlot::Fast,
         input.buffer_size,
         &warm_active_set,
+        Some(warm_exchange),
     );
     let w_slow = analyzer::warm_indicators_for_timeframe(
         slow_candles,
@@ -415,6 +428,7 @@ pub async fn fetch_and_warm_bootstrap(
         core_domain::models::TimeframeSlot::Slow,
         input.buffer_size,
         &warm_active_set,
+        Some(warm_exchange),
     );
     let w_macro = analyzer::warm_indicators_for_timeframe(
         macro_candles,
@@ -425,6 +439,7 @@ pub async fn fetch_and_warm_bootstrap(
         core_domain::models::TimeframeSlot::Macro,
         input.buffer_size,
         &warm_active_set,
+        Some(warm_exchange),
     );
 
     Ok((w_micro, w_fast, w_slow, w_macro))
@@ -463,13 +478,49 @@ pub(crate) async fn populate_buffers(
     // (latest_* locks and rolling history), so any warmed TF carries
     // the right restored values for them.
     if let Some(ref w) = warmed_micro {
-        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+        populate_derivatives(
+            w,
+            latest_oi,
+            latest_funding,
+            latest_mark_px,
+            latest_index_px,
+            oi_history,
+            funding_history,
+        )
+        .await;
     } else if let Some(ref w) = warmed_fast {
-        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+        populate_derivatives(
+            w,
+            latest_oi,
+            latest_funding,
+            latest_mark_px,
+            latest_index_px,
+            oi_history,
+            funding_history,
+        )
+        .await;
     } else if let Some(ref w) = warmed_slow {
-        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+        populate_derivatives(
+            w,
+            latest_oi,
+            latest_funding,
+            latest_mark_px,
+            latest_index_px,
+            oi_history,
+            funding_history,
+        )
+        .await;
     } else if let Some(ref w) = warmed_macro {
-        populate_derivatives(w, latest_oi, latest_funding, latest_mark_px, latest_index_px, oi_history, funding_history).await;
+        populate_derivatives(
+            w,
+            latest_oi,
+            latest_funding,
+            latest_mark_px,
+            latest_index_px,
+            oi_history,
+            funding_history,
+        )
+        .await;
     }
 
     populate_single(
@@ -648,7 +699,10 @@ mod cold_start_sub_minute_tests {
             "sub-minute warmup must return empty Vec (no synthetic-candle fallback)"
         );
         assert_eq!(db_count, 0, "no DB rows on a fresh DB");
-        assert_eq!(rest_count, 0, "REST is bypassed for sub-minute so the rest slice is empty too");
+        assert_eq!(
+            rest_count, 0,
+            "REST is bypassed for sub-minute so the rest slice is empty too"
+        );
     }
 
     /// Even with a populated DB containing real 60s candles, the
@@ -762,10 +816,10 @@ mod cold_start_sub_minute_tests {
             slow_cfg: TimeframeConfig::new(5, config_models::IndicatorsConfig::default()),
             macro_cfg: TimeframeConfig::new(15, config_models::IndicatorsConfig::default()),
             fib_config: FibonacciConfig::default(),
-            micro_secs: 1,   // sub-minute
-            fast_secs: 3,    // sub-minute
-            slow_secs: 5,    // sub-minute
-            macro_secs: 15,  // sub-minute
+            micro_secs: 1,  // sub-minute
+            fast_secs: 3,   // sub-minute
+            slow_secs: 5,   // sub-minute
+            macro_secs: 15, // sub-minute
             buffer_size: 500,
             stale_threshold_secs: 300,
             fetch_timeout_ms: 100,
@@ -846,7 +900,10 @@ mod cold_start_sub_minute_tests {
         assert!(candles_1s.is_empty(), "1s sub-minute warmup must be empty");
         assert!(candles_3s.is_empty(), "3s sub-minute warmup must be empty");
         assert!(candles_5s.is_empty(), "5s sub-minute warmup must be empty");
-        assert!(candles_15s.is_empty(), "15s sub-minute warmup must be empty");
+        assert!(
+            candles_15s.is_empty(),
+            "15s sub-minute warmup must be empty"
+        );
 
         // Suppress the unused input warning.
         let _ = input;
@@ -876,7 +933,10 @@ mod cold_start_sub_minute_tests {
         .await
         .expect("sub-minute warmup must not fail the boot when REST is unreachable");
 
-        assert!(candles.is_empty(), "best-effort warmup must degrade to cold start");
+        assert!(
+            candles.is_empty(),
+            "best-effort warmup must degrade to cold start"
+        );
         assert_eq!(db_count, 0, "no DB rows for a 1s TF on an empty pool");
         assert_eq!(rest_count, 0, "REST unreachable → zero REST candles");
     }

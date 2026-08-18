@@ -1,4 +1,4 @@
-use config_models::{ExecutionPolicy, Direction, Stance, TriggerMode};
+use config_models::{Direction, ExecutionPolicy, Stance, TriggerMode};
 use core_domain::models::MarketSnapshot;
 use std::collections::HashMap;
 
@@ -64,9 +64,10 @@ impl PolicyEngine {
                 let elapsed = current_time.saturating_sub(last);
                 elapsed >= *seconds
             }
-            TriggerMode::CandleClose { timeframe: _, count } => {
-                candles_completed >= *count
-            }
+            TriggerMode::CandleClose {
+                timeframe: _,
+                count,
+            } => candles_completed >= *count,
             TriggerMode::EventDriven { events } => {
                 events.iter().any(|ev| pending_events.contains(ev))
             }
@@ -74,7 +75,8 @@ impl PolicyEngine {
     }
 
     pub fn mark_interval_evaluated(&mut self, policy_id: &str, current_time: u64) {
-        self.last_interval_eval.insert(policy_id.to_string(), current_time);
+        self.last_interval_eval
+            .insert(policy_id.to_string(), current_time);
     }
 
     pub fn evaluate_policies(
@@ -98,7 +100,12 @@ impl PolicyEngine {
             if policy.symbol != *symbol {
                 continue;
             }
-            if self.policy_paused.get(&policy.policy_id).copied().unwrap_or(false) {
+            if self
+                .policy_paused
+                .get(&policy.policy_id)
+                .copied()
+                .unwrap_or(false)
+            {
                 continue;
             }
 
@@ -132,13 +139,24 @@ impl PolicyEngine {
                     break;
                 }
 
-                let existing_same_dir = triggers.iter()
+                let existing_same_dir = triggers
+                    .iter()
                     .find(|t| t.direction == policy.direction)
-                    .map(|t| (t.policy_id.clone(), t.decision_context_snapshot
-                        .get("score_confidence").and_then(|c| c.as_f64()).unwrap_or(0.0)));
+                    .map(|t| {
+                        (
+                            t.policy_id.clone(),
+                            t.decision_context_snapshot
+                                .get("score_confidence")
+                                .and_then(|c| c.as_f64())
+                                .unwrap_or(0.0),
+                        )
+                    });
                 if let Some((existing_id, existing_conf)) = existing_same_dir {
-                    let new_conf = snapshot.decision_context.as_ref()
-                        .map(|d| d.score_confidence).unwrap_or(0.0);
+                    let new_conf = snapshot
+                        .decision_context
+                        .as_ref()
+                        .map(|d| d.score_confidence)
+                        .unwrap_or(0.0);
                     if new_conf <= existing_conf {
                         continue;
                     }
@@ -153,14 +171,18 @@ impl PolicyEngine {
                 );
             }
 
-            let dc_snapshot = snapshot.decision_context.as_ref().map(|dc| {
-                serde_json::json!({
-                    "score": dc.score,
-                    "bias": dc.bias,
-                    "score_confidence": dc.score_confidence,
-                    "trade_readiness": dc.trade_readiness,
+            let dc_snapshot = snapshot
+                .decision_context
+                .as_ref()
+                .map(|dc| {
+                    serde_json::json!({
+                        "score": dc.score,
+                        "bias": dc.bias,
+                        "score_confidence": dc.score_confidence,
+                        "trade_readiness": dc.trade_readiness,
+                    })
                 })
-            }).unwrap_or(serde_json::Value::Null);
+                .unwrap_or(serde_json::Value::Null);
 
             triggers.push(PolicyTrigger {
                 policy_id: policy.policy_id.clone(),
@@ -184,7 +206,9 @@ impl PolicyEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config_models::{Condition, ConditionGroup, ConditionValue, Operator, RiskParams, TriggerMode};
+    use config_models::{
+        Condition, ConditionGroup, ConditionValue, Operator, RiskParams, TriggerMode,
+    };
 
     fn make_policy(id: &str, symbol: &str, dir: Direction) -> ExecutionPolicy {
         ExecutionPolicy {
@@ -208,8 +232,9 @@ mod tests {
 
     fn make_snapshot(symbol: &str, risk_score: f64) -> MarketSnapshot {
         use core_domain::analysis::{
-            AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, TrendAssessment, MomentumAssessment,
-            StructureAssessment, VolatilityAssessment, VolumeAssessment, OpportunityType, QualityLevel,
+            AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment,
+            OpportunityType, QualityLevel, StructureAssessment, TrendAssessment,
+            VolatilityAssessment, VolumeAssessment,
         };
         use core_domain::decision_context::DecisionContext;
         use core_domain::risk::{RiskDimension, RiskLevel, RiskMatrix, RiskState};
@@ -238,8 +263,12 @@ mod tests {
             bid_size: None,
             ask_size: None,
             funding_rate: None,
-            open: None, high: None, low: None, close: None,
-            volume: None, average_volume: None,
+            open: None,
+            high: None,
+            low: None,
+            close: None,
+            volume: None,
+            average_volume: None,
             indicators: HashMap::new(),
             context: None,
             alignment: None,
@@ -285,8 +314,11 @@ mod tests {
                 overall_risk: risk_dim,
             }),
             advisory: None,
-            open_interest: None, oi_delta_1h: None,
-            mark_price: None, index_price: None, mark_index_spread_pct: None,
+            open_interest: None,
+            oi_delta_1h: None,
+            mark_price: None,
+            index_price: None,
+            mark_index_spread_pct: None,
             prev_day_px: None,
             statistical_context: None,
             decision_context: Some(DecisionContext {
@@ -301,7 +333,7 @@ mod tests {
                 short_probability: 0.0,
                 hold_probability: 0.0,
                 net_bias_pct: 0.0,
-            lean_floor_applied: false,
+                lean_floor_applied: false,
             }),
             risk_profile: None,
             liquidity: None,
@@ -311,8 +343,8 @@ mod tests {
             metrics_config: None,
             opportunity: None,
             quality_envelope: None,
-        pipeline_state: core_domain::models::CandlePipelineState::default(),
-        indicator_lifecycle: std::collections::HashMap::new(),
+            pipeline_state: core_domain::models::CandlePipelineState::default(),
+            indicator_lifecycle: std::collections::HashMap::new(),
         }
     }
 

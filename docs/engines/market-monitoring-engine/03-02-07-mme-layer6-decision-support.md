@@ -73,7 +73,7 @@ The canonical ordered rules — including the `entry_danger.level`-banded `TRAIL
 
 Layer 6 is the platform's **type-boundary handoff**: it receives the fast, raw `f64` analytics from Layers 1–5, resolves them into trade readiness, and emits the **Decision Matrix** carrying the required stop-loss distance (`stop_loss_distance_pct`) as a standard `f64` (e.g. `1.5`, representing 1.5%).
 
-The recommended protection method resolves to a concrete **stop-loss distance percentage (`D_sl`)** — computed from ATR or structural levels. This `f64` value is the critical input to the TAE Position Sizing Protocol, where it is cast to `Decimal` at the execution boundary (see [Global Architecture §6.3](../../conceptual-foundations/01-02-global-architecture.md) and [TAE Layer 2 — Execution](../trade-automation-engine/03-03-03-tae-layer2-execution.md)):
+The recommended protection method resolves to a concrete **stop-loss distance percentage (`D_sl`)** — computed by the volatility/structure-scaled formula in [Decision Matrix §3.6](../../matrices/02-04-decision-matrix.md) (base `(1.0 | 1.5) × 2.0%` by structure assessment + `volatility_risk.score / 10` bump, clamped `[0.5, 15]` percent). **It is not ATR-derived** and not read from structural levels. This `f64` value is the critical input to the TAE Position Sizing Protocol, where it is cast to `Decimal` at the execution boundary (see [Global Architecture §6.3](../../conceptual-foundations/01-02-global-architecture.md) and [TAE Layer 2 — Execution](../trade-automation-engine/03-03-03-tae-layer2-execution.md)):
 
 $$S = \frac{E \times R}{D_{sl} / 100}$$
 
@@ -85,13 +85,13 @@ $$S = \frac{E \times R}{D_{sl} / 100}$$
 
 The Decision Matrix records the structural invalidation level and conditional bull/bear pathways in `final_recommendation`, giving the TAE Policy Layer and human operators an explainable map of what would change the thesis.
 
-> **Read binding contract (frontend, v6.5+).** The Recommendation tab consumes `AdvisoryMatrix`, `DecisionContext`, `OpportunityMatrix`, and `AnalysisMatrix`. The bind mirror fields (populated once per completed candle by `applySnapshotToTimeframe` in `crates/market-analyzer/src/synthesis.rs`) are the canonical read source — the per-TF `latestSnapshot` is a *fallback* for warmup only:
+> **Read binding contract (frontend, v6.5+).** The Recommendation tab consumes `AdvisoryMatrix`, `DecisionContext`, `OpportunityMatrix`, and `AnalysisMatrix`. The bind mirror fields (populated once per completed candle by `applySnapshotToTimeframe` in the **frontend** `ui/src/lib/websocket.svelte.ts`) are the canonical read source — the per-TF `latestSnapshot` is a *fallback* for warmup only:
 >
 > - `pair.advisory` ← wire `snapshot.advisory`
 > - `pair.decisionContext` ← wire `snapshot.decision_context`
 > - `pair.opportunity` ← wire `snapshot.opportunity`
 >
-> Shadow-tick frames (`broadcast_live_snapshot`) intentionally zero out the per-TF matrix payload for throughput; reading from the mirror prevents the `TradeAutomation`-bound `Recommendation` payload from briefly going dark between candle closes. See `crates/market-analyzer/src/synthesis.rs::apply_snapshot_to_timeframe` and the regression-locked `ui/src/components/RecommendationPanel.test.ts — bind contract` test for the canonical assertion.
+> Shadow-tick frames (`broadcast_live_snapshot`) intentionally zero out the per-TF matrix payload for throughput; reading from the mirror prevents the `TradeAutomation`-bound `Recommendation` payload from briefly going dark between candle closes. See the regression-locked `ui/src/components/RecommendationPanel.test.ts — bind contract` test for the canonical assertion. (The mirror binding is frontend-side; there is **no** `apply_snapshot_to_timeframe` in `crates/market-analyzer/src/synthesis.rs`.)
 
 ### 5.1 Frontend Recommendation tab — discretionary-trade view
 

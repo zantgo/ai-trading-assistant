@@ -109,8 +109,8 @@ async fn build_router_with_snapshots(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
-            funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
+        oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
+        funding_history: Arc::new(RwLock::new(VecDeque::with_capacity(8))),
         latency_tracker: Arc::new(Default::default()),
     });
 
@@ -176,7 +176,9 @@ async fn build_router_with_snapshots(
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
-        snapshot_export: Arc::new(RwLock::new(core_domain::snapshot_export::SnapshotExportRuntime::default())),
+        snapshot_export: Arc::new(RwLock::new(
+            core_domain::snapshot_export::SnapshotExportRuntime::default(),
+        )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
     });
@@ -511,10 +513,7 @@ async fn history_endpoint_marks_gap_fill_dojis_as_synthetic() {
             );
             synthetic_count += 1;
         }
-        assert_eq!(
-            synthetic_count, 11,
-            "expected 11 gap-fill Doji entries"
-        );
+        assert_eq!(synthetic_count, 11, "expected 11 gap-fill Doji entries");
     })
     .await
     .expect("gap-fill synthetic tagging test timed out");
@@ -558,8 +557,7 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
             validated_at: 0,
         });
 
-        let (_router, state) =
-            build_router_with_snapshots(1, vec![real, doji]).await;
+        let (_router, state) = build_router_with_snapshots(1, vec![real, doji]).await;
         let addr = serve_for(state.clone()).await;
         let client = reqwest::Client::new();
 
@@ -584,7 +582,10 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
             .expect("real candle present");
         assert!(
             real_candle.get("reconstructed").is_none()
-                || real_candle.get("reconstructed").and_then(|v| v.as_str()).is_none(),
+                || real_candle
+                    .get("reconstructed")
+                    .and_then(|v| v.as_str())
+                    .is_none(),
             "real snapshot must NOT carry a reconstructed flag: {:?}",
             real_candle.get("reconstructed")
         );
@@ -594,9 +595,7 @@ async fn history_endpoint_marks_heartbeat_dojis_as_reconstructed() {
             .find(|c| c.get("time").and_then(|t| t.as_u64()) == Some(1_718_000_002_000))
             .expect("doji candle present");
         assert_eq!(
-            doji_candle
-                .get("reconstructed")
-                .and_then(|v| v.as_str()),
+            doji_candle.get("reconstructed").and_then(|v| v.as_str()),
             Some("SYNTHETIC"),
             "gap-filled heartbeat snapshot must carry reconstructed=\"SYNTHETIC\": {:?}",
             doji_candle
@@ -622,11 +621,8 @@ async fn history_aligns_indicator_arrays_to_gap_filled_axis() {
             let mut s = make_snapshot(1, ts, ema);
             let mut vals = std::collections::HashMap::new();
             vals.insert("fast".to_string(), ema);
-            let mut entry = NormalizedIndicatorValue::scalar(
-                ema,
-                0.0,
-                "CONSOLIDATED_TANGLED_STACK",
-            );
+            let mut entry =
+                NormalizedIndicatorValue::scalar(ema, 0.0, "CONSOLIDATED_TANGLED_STACK");
             entry.values = Some(vals);
             let mut indicators = std::collections::HashMap::new();
             indicators.insert("ema_stack".to_string(), entry);

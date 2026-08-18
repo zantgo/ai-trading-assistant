@@ -55,6 +55,8 @@ For unambiguous layer identification, three of the four `confidence` fields have
 
 **No backwards-compat aliases** — the JSON keys change outright. Any consumer must update to the new key.
 
+> **Code-truth note (`Analysis.confidence`).** The `AnalysisMatrix` struct still serializes a `confidence` field alongside `state_confidence` with the identical value (`analysis.rs` — both fields assigned at synthesis; neither is `skip_serializing_if`). This is a UI-facing duplicate retained from the pre-redesign wire so older dashboard revisions do not break; it is **not** a pipeline-level confidence field and carries no independent semantics. New consumers must read `state_confidence`; removal of the duplicate is a wire-breaking cleanup tracked in `docs/ROADMAP.md`.
+
 ---
 
 ## 4. Why Five Confidence Fields?

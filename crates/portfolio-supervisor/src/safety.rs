@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -76,12 +76,10 @@ impl SafetyManager {
         if let Some(ref pool) = *self.pool.read().await {
             let peak = *self.peak_equity.read().await;
             let peak_str = peak.to_string();
-            let _ = sqlx::query(
-                "UPDATE paper_balances SET peak_equity = ?1",
-            )
-            .bind(&peak_str)
-            .execute(pool.as_ref())
-            .await;
+            let _ = sqlx::query("UPDATE paper_balances SET peak_equity = ?1")
+                .bind(&peak_str)
+                .execute(pool.as_ref())
+                .await;
         }
     }
 
@@ -89,7 +87,10 @@ impl SafetyManager {
         let mut losses = self.consecutive_losses.write().await;
 
         if is_loss {
-            let count = losses.entry(symbol.to_string()).and_modify(|c| *c += 1).or_insert(1);
+            let count = losses
+                .entry(symbol.to_string())
+                .and_modify(|c| *c += 1)
+                .or_insert(1);
             let current_count = *count;
 
             if current_count >= self.dropout_threshold {
@@ -244,7 +245,8 @@ impl SafetyManager {
     ) -> Vec<VetoTrigger> {
         let mut triggers = Vec::new();
 
-        self.update_peak_equity(*self.current_equity.read().await).await;
+        self.update_peak_equity(*self.current_equity.read().await)
+            .await;
 
         // Priority 1: Drawdown breach (AVOID + Hard Exit)
         if self.check_capital_drawdown().await.is_err() {
@@ -261,10 +263,7 @@ impl SafetyManager {
             triggers.push(VetoTrigger {
                 condition: "margin_exhaustion".into(),
                 target_stance: "AVOID".into(),
-                reason: format!(
-                    "Margin usage ratio {:.2} exceeds 1.00",
-                    margin_usage_ratio
-                ),
+                reason: format!("Margin usage ratio {:.2} exceeds 1.00", margin_usage_ratio),
                 hard_exit: true,
             });
         }
@@ -287,10 +286,7 @@ impl SafetyManager {
             triggers.push(VetoTrigger {
                 condition: "margin_ceiling".into(),
                 target_stance: "CLOSE_ONLY".into(),
-                reason: format!(
-                    "Margin usage ratio {:.2} >= 0.95",
-                    margin_usage_ratio
-                ),
+                reason: format!("Margin usage ratio {:.2} >= 0.95", margin_usage_ratio),
                 hard_exit: false,
             });
         }
@@ -443,7 +439,10 @@ impl SafetyManager {
         let total_losses: u32 = losses.values().sum();
         match state {
             SafetyState::Normal => {
-                format!("Normal risk mode. {} total consecutive losses across symbols.", total_losses)
+                format!(
+                    "Normal risk mode. {} total consecutive losses across symbols.",
+                    total_losses
+                )
             }
             SafetyState::Warn => format!(
                 "WARN: Daily drawdown exceeds {}% limit. No stance change applied.",
@@ -458,21 +457,22 @@ impl SafetyManager {
                     .dropout_until
                     .read()
                     .await
-                    .map(|u| {
-                        u.duration_since(Instant::now())
-                            .as_secs()
-                    })
+                    .map(|u| u.duration_since(Instant::now()).as_secs())
                     .unwrap_or(0);
-                let sym = self.dropout_symbol.read().await.clone()
+                let sym = self
+                    .dropout_symbol
+                    .read()
+                    .await
+                    .clone()
                     .unwrap_or_else(|| "unknown".into());
                 format!(
                     "SUSPENDED: Symbol {} — {}s remaining in dropout.",
                     sym, remaining
                 )
             }
-            SafetyState::DrawdownStop => format!(
-                "HALTED: Capital drawdown limit exceeded. All stances set to AVOID."
-            ),
+            SafetyState::DrawdownStop => {
+                format!("HALTED: Capital drawdown limit exceeded. All stances set to AVOID.")
+            }
         }
     }
 }
@@ -490,7 +490,10 @@ mod tests {
         mgr.record_trade_outcome("BTC-USDT", true).await;
         let state = mgr.record_trade_outcome("BTC-USDT", true).await;
         assert_eq!(state, SafetyState::Cautious);
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&3));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&3)
+        );
     }
 
     #[tokio::test]
@@ -501,7 +504,10 @@ mod tests {
         }
         let state = *mgr.safety_state.read().await;
         assert_eq!(state, SafetyState::Suspended);
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&5));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&5)
+        );
     }
 
     #[tokio::test]
@@ -510,10 +516,16 @@ mod tests {
         for _ in 0..3 {
             mgr.record_trade_outcome("BTC-USDT", true).await;
         }
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&3));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&3)
+        );
 
         mgr.record_trade_outcome("BTC-USDT", false).await;
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&0));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&0)
+        );
         let state = *mgr.safety_state.read().await;
         assert_eq!(state, SafetyState::Normal);
     }
@@ -528,8 +540,14 @@ mod tests {
         mgr.record_trade_outcome("ETH-USDT", true).await;
         mgr.record_trade_outcome("ETH-USDT", true).await;
 
-        assert_eq!(mgr.consecutive_losses.read().await.get("BTC-USDT"), Some(&4));
-        assert_eq!(mgr.consecutive_losses.read().await.get("ETH-USDT"), Some(&2));
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("BTC-USDT"),
+            Some(&4)
+        );
+        assert_eq!(
+            mgr.consecutive_losses.read().await.get("ETH-USDT"),
+            Some(&2)
+        );
     }
 
     #[tokio::test]

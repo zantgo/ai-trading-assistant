@@ -46,12 +46,14 @@ An **Execution Policy** is a deterministic, user-configured conditional rule. Ea
 Each condition targets a field from the Decision Matrix:
 
 ```
-IF (Decision.bias ∈ {"BULLISH", "STRONG_BULLISH"})
+IF (Decision.bias ∈ {"Bullish", "StrongBullish"})
    AND (Decision.confidence_assessment > 60)
-   AND (Decision.market_stance ∈ {"AGGRESSIVE", "CONSTRUCTIVE"})
-   AND (Decision.directional_guidance ∈ {"STRONG_LONG", "LONG"})
+   AND (Decision.market_stance ∈ {"Aggressive", "Constructive"})
+   AND (Decision.directional_guidance ∈ {"StrongLong", "Long"})
 THEN Trigger LONG
 ```
+
+> **Wire-casing contract.** Condition values are compared against the PascalCase wire serialization of the source enums (same casing the frontend consumes). See [03-03-04 §2.3](03-03-04-tae-execution-policy-spec.md#23-available-condition-fields) for the full field table and the `decision.trade_readiness` SCREAMING_SNAKE exception.
 
 Conditions support operators: `==`, `>`, `<`, `>=`, `<=`, `∈` (in set), `BETWEEN`, `NOT_EQ` (the formal grammar lists all eight in [03-03-04 §2.2](03-03-04-tae-execution-policy-spec.md#22-condition-structure)).
 

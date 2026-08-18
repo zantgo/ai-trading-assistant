@@ -98,6 +98,7 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 - `LiquidityFlow.cascade_intensity` (per-candle real event aggregate, already 0..100).
 - `LiquidityFlow.cascade_state` (`None` / `Detected` / `Sustained` / `Exhausted`) — adds a 0..30 risk premium on top of intensity when the state is elevated.
 - `LiquidationClusterMatrix.cascade_asymmetry` — forward-looking pressure: `|asymmetry| > 0.3` adds up to 30 risk points.
+- Discrete `liquidity_signals` (AUDIT-AIU-062): each OI-price-divergence adds ≤ 15 points and each funding-flip ≤ 10 points (scaled by signal strength; capped at +25 total, score clamps at 100).
 
 Per-dimension scoring rules are documented in [Risk Matrix §4.8](../../matrices/02-11-risk-matrix.md). The overall aggregation formula is in §3 above.
 

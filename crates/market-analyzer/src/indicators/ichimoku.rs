@@ -270,7 +270,12 @@ mod tests {
     fn test_soft_floor_none_below_min_bars() {
         let mut ich = Ichimoku::new(9, 26, 52, 26);
         // Feed fewer than 9 candles; even soft-floor should refuse.
-        let out = feed_ramp_with(&mut ich, 5, |i| (100.0 + i as f64, 100.0 + i as f64, 100.0 + i as f64), 9);
+        let out = feed_ramp_with(
+            &mut ich,
+            5,
+            |i| (100.0 + i as f64, 100.0 + i as f64, 100.0 + i as f64),
+            9,
+        );
         assert!(out.is_none());
     }
 

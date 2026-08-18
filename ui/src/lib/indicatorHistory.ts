@@ -242,13 +242,20 @@ function normalizeHistory(raw: RawResponse): IndicatorFlatHistory {
     const ih = raw.indicator_history?.indicators ?? {};
     for (const [key, dto] of Object.entries(ih)) {
         if (!dto) continue;
+        // Secondary WARMING filter: even if a backend build surfaces a
+        // placeholder row (state_label === "WARMING", raw 0.0), drop it
+        // so charts never paint a phantom zero plateau at the series
+        // start. The primary filter is server-side (history.rs pushes
+        // None for WARMING rows); this guards other payload sources.
+        const labels = Array.isArray(dto.state_label) ? dto.state_label : null;
+        const masked = (i: number) => labels != null && labels[i] === 'WARMING';
         if (Array.isArray(dto.raw)) {
-            values[key] = toNumberArray(dto.raw);
+            values[key] = toNumberArray(dto.raw).map((v, i) => (masked(i) ? null : v));
         }
         if (dto.values) {
             for (const [sub, arr] of Object.entries(dto.values)) {
                 if (!Array.isArray(arr)) continue;
-                values[`${key}.${sub}`] = toNumberArray(arr);
+                values[`${key}.${sub}`] = toNumberArray(arr).map((v, i) => (masked(i) ? null : v));
             }
         }
     }

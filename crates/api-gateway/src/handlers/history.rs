@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use market_analyzer::analyzer::TimeframePipeline;
 use rust_decimal::Decimal;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -155,12 +156,20 @@ pub async fn serve_history(
 
             // ── Gap-fill: insert flat Doji candles for any missing
             // intervals between consecutive snapshots so the chart
-            // renders a continuous time axis.  Capped at 60 fill bars
-            // per gap to avoid flooding the response with centuries of
-            // epoch-0→now gaps on cold sub-minute starts.
+            // renders a continuous time axis. K3 (production audit): the
+            // cap was 60 bars — a >1 h outage at 1 m TF left a permanent
+            // hole in the response even though the analyzer now recovers
+            // up to 500 bars. 1000 = the API's own `limit` ceiling PER
+            // GAP; the final arrays are re-capped to `limit` total bars
+            // after the fill (AUDIT-H4) so a sparse cold history cannot
+            // balloon the response. The cold sub-minute epoch-0→now flood
+            // guard remains (times are anchored, so `missing` is bounded
+            // by the requested window).
+            const MAX_HISTORY_FILL_BARS: u64 = 1000;
             if times.len() >= 2 {
                 let mut filled_times: Vec<u64> = Vec::with_capacity(times.len() + 60);
-                let mut filled_candles: Vec<HistoryCandle> = Vec::with_capacity(candle_list.len() + 60);
+                let mut filled_candles: Vec<HistoryCandle> =
+                    Vec::with_capacity(candle_list.len() + 60);
                 let mut filled_prices: Vec<String> = Vec::with_capacity(price_list.len() + 60);
 
                 for i in 0..times.len() {
@@ -174,7 +183,7 @@ pub async fn serve_history(
                         let step = tf_secs.max(1);
                         let gap = next.saturating_sub(curr);
                         let missing = (gap.saturating_sub(step)) / step;
-                        let fill_n = missing.min(60);
+                        let fill_n = missing.min(MAX_HISTORY_FILL_BARS);
                         let last_close = price_list[i].clone();
                         for j in 1..=fill_n {
                             let t = curr + j * step;
@@ -203,6 +212,20 @@ pub async fn serve_history(
                 price_list = filled_prices;
             }
 
+            // AUDIT-H4: enforce the `limit` ceiling on the FINAL arrays,
+            // not just the pre-fill snapshot list. Gap-fill inserts up to
+            // MAX_HISTORY_FILL_BARS per gap — with a sparse cold history
+            // the response previously ballooned to ~limit × 1000 candles
+            // (≈1M candles / 150-200 MB JSON for one limit=1000 request).
+            // Keep the most recent `limit` bars, matching the pre-fill
+            // `snap_hist.truncate(limit)` semantics.
+            if times.len() > limit {
+                let trim = times.len() - limit;
+                times.drain(..trim);
+                candle_list.drain(..trim);
+                price_list.drain(..trim);
+            }
+
             // AUDIT-V8-006 (axis alignment): rebuild the indicator arrays
             // against the (now possibly gap-filled) `times` axis so
             // `times[i]` always pairs with `values[*][i]`. Previously the
@@ -229,8 +252,13 @@ pub async fn serve_history(
                         for key in keys.iter() {
                             let arrays = indicators.get_mut(key).expect("key initialized");
                             match snap.indicators.get(key) {
-                                Some(v) => arrays.push_value(v),
-                                None => arrays.push_none(),
+                                // Registry-gate placeholders carry
+                                // `state_label == "WARMING"` with a
+                                // `raw_value` of 0.0 — never surface those
+                                // as real history (charts would paint a
+                                // phantom 0.0 plateau at the series start).
+                                Some(v) if v.state_label != "WARMING" => arrays.push_value(v),
+                                Some(_) | None => arrays.push_none(),
                             }
                         }
                     }
@@ -280,15 +308,27 @@ pub async fn serve_history(
         core_domain::liquidity::LiquidityFlow,
     > = std::collections::HashMap::new();
     if let Some(pair) = get_active_pair(&state, &pair_key).await {
+        // PRI-07: custom slot pipelines (`TimeframeSlot::Custom { id }`,
+        // keyed `custom-<id>` on the wire) own full cluster/VP/flow state —
+        // iterate them alongside the 4 default slots so custom-N charts
+        // bootstrap their heatmap/volume-profile overlays from history on
+        // first mount instead of waiting for the next WS frame.
+        let mut slot_pipes: Vec<(String, &TimeframePipeline)> = Vec::with_capacity(4);
         for (slot_label, pipe) in [
             ("micro", &pair.micro),
             ("fast", &pair.fast),
             ("slow", &pair.slow),
             ("macro", &pair.r#macro),
         ] {
+            slot_pipes.push((slot_label.to_string(), pipe));
+        }
+        for (id, pipe) in &pair.custom_pipelines {
+            slot_pipes.push((format!("custom-{id}"), pipe));
+        }
+        for (slot_label, pipe) in slot_pipes {
             if let Ok(guard) = pipe.cluster_matrix.try_read() {
                 if let Some(m) = guard.as_ref() {
-                    clusters.insert(slot_label.to_string(), m.clone());
+                    clusters.insert(slot_label.clone(), m.clone());
                 }
             }
             // Volume profile is per-completed-candle and lives on the
@@ -297,16 +337,17 @@ pub async fn serve_history(
             let snap_hist = pipe.snapshot_history.read().await;
             if let Some(last) = snap_hist.back() {
                 if let Some(vp) = last.volume_profile.as_ref() {
-                    volume_profiles.insert(slot_label.to_string(), vp.clone());
+                    volume_profiles.insert(slot_label.clone(), vp.clone());
                 }
                 if let Some(flow) = last.liquidity.as_ref() {
-                    liquidity_flows.insert(slot_label.to_string(), flow.clone());
+                    liquidity_flows.insert(slot_label, flow.clone());
                 }
             }
         }
     }
 
     Json(HistoryResponse {
+        symbol: pair_key.clone(),
         prices,
         candles,
         indicator_history,

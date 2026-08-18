@@ -24,9 +24,15 @@ impl NormalizationEngine {
             // Middle band: sign follows the momentum ALIGNMENT (k vs d),
             // magnitude from the distance to the 50 midpoint (capped at
             // ±0.7 so the middle band never competes with the extremes).
-            (((k - 50.0).abs() / 50.0).min(0.7), "BULLISH_MOMENTUM_ALIGNMENT")
+            (
+                ((k - 50.0).abs() / 50.0).min(0.7),
+                "BULLISH_MOMENTUM_ALIGNMENT",
+            )
         } else {
-            (-((k - 50.0).abs() / 50.0).min(0.7), "BEARISH_MOMENTUM_ALIGNMENT")
+            (
+                -((k - 50.0).abs() / 50.0).min(0.7),
+                "BEARISH_MOMENTUM_ALIGNMENT",
+            )
         };
 
         let mut values = HashMap::new();
@@ -367,7 +373,11 @@ impl NormalizationEngine {
     /// `ao_norm = ao / atr`, normalized via `tanh(ao_norm / 5)` — an AO
     /// impulse of 5× ATR saturates the score. When ATR is unavailable the
     /// raw price-scale fallback is used.
-    pub fn normalize_awesome_oscillator(ao: f64, rising: bool, atr: Option<f64>) -> NormalizedIndicatorValue {
+    pub fn normalize_awesome_oscillator(
+        ao: f64,
+        rising: bool,
+        atr: Option<f64>,
+    ) -> NormalizedIndicatorValue {
         let scale = atr.filter(|a| *a > 0.0).unwrap_or(100.0);
         let ao_scaled = ao / scale;
         let norm = clamp_unit((ao_scaled / 5.0).tanh());

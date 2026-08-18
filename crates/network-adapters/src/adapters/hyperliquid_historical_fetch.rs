@@ -61,7 +61,7 @@ impl HistoricalFetchPolicy for HyperliquidHistoricalFetch {
         while collected.len() < request.target_count {
             if started.elapsed() >= timeout {
                 return Err(HistoricalFetchError::Timeout(
-                    started.elapsed().as_millis() as u64,
+                    started.elapsed().as_millis() as u64
                 ));
             }
 

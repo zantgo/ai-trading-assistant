@@ -1,10 +1,10 @@
-use futures_util::{SinkExt, StreamExt};
-use rust_decimal::Decimal;
-use serde::Deserialize;
 use core_domain::normalized::{
     AssetContext, ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook,
     NormalizedTrade, TradeSide,
 };
+use futures_util::{SinkExt, StreamExt};
+use rust_decimal::Decimal;
+use serde::Deserialize;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex};
@@ -87,10 +87,12 @@ pub async fn run_for_symbol(
     let trade_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
     let fill_liq_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
     let public_liq_last: Arc<AtomicI64> = Arc::new(AtomicI64::new(0));
-    let mark_now = || std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+    let mark_now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    };
     let url = match url::Url::parse(ws_url) {
         Ok(u) => u,
         Err(e) => {
@@ -243,10 +245,7 @@ pub async fn run_for_symbol(
                         } else {
                             format!("silent for {}s (no events since boot/connect)", s)
                         };
-                        eprintln!(
-                            "⚠️  Bitget [{}]::{}: {}",
-                            diag_symbol, name, msg
-                        );
+                        eprintln!("⚠️  Bitget [{}]::{}: {}", diag_symbol, name, msg);
                     }
                 }
             }
@@ -355,13 +354,7 @@ pub async fn run_for_symbol(
                                 // price + size so two trades in the same
                                 // millisecond don't collide in any future
                                 // dedupe / idempotency logic.
-                                trade_id: format!(
-                                    "{}:{}:{}:{}",
-                                    t.ts,
-                                    t.side,
-                                    price,
-                                    size
-                                ),
+                                trade_id: format!("{}:{}:{}:{}", t.ts, t.side, price, size),
                             });
                             let _ = event_tx.send(event).await;
                         }
@@ -450,11 +443,12 @@ pub async fn run_for_symbol(
                             // specific frame is missing `markPrice` but
                             // carries `holdingAmount` (rare but possible).
                             let cached_mark = *latest_mark_px.lock().await;
-                            let events = crate::adapters::bitget_derivatives::ticker_to_derivatives_events(
-                                &internal_symbol,
-                                &tk,
-                                cached_mark,
-                            );
+                            let events =
+                                crate::adapters::bitget_derivatives::ticker_to_derivatives_events(
+                                    &internal_symbol,
+                                    &tk,
+                                    cached_mark,
+                                );
                             for ev in events {
                                 match &ev {
                                     NormalizedEvent::OpenInterest(_) => {
@@ -492,12 +486,8 @@ pub async fn run_for_symbol(
                         // short liquidated — OPPOSITE the `fill`-channel
                         // convention; see `bitget_derivatives` module doc)
                         // and `amount` (base-asset quantity).
-                        emit_bitget_public_liquidations(
-                            &internal_symbol,
-                            &data_val,
-                            &event_tx,
-                        )
-                        .await;
+                        emit_bitget_public_liquidations(&internal_symbol, &data_val, &event_tx)
+                            .await;
                     }
                     _ => {}
                 }

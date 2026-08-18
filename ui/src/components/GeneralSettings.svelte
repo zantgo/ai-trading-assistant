@@ -56,7 +56,7 @@
             if (config.api_failover) {
                 draftFailoverRetries = config.api_failover.max_retries_per_call ?? 5;
                 draftFailoverDelay = config.api_failover.retry_delay_seconds ?? 30;
-                draftFailoverMax = config.api_failover.max_consecutive_failures ?? 10;
+                draftFailoverMax = config.api_failover.max_consecutive_failures ?? 30;
             }
             loaded = true;
         } catch (e) {

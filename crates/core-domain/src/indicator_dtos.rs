@@ -141,7 +141,9 @@ impl NormalizedIndicatorValue {
     /// · LIVE) by combining this bit with the lifecycle map's
     /// `IndicatorLifecycleState` and the registry's `signal_capability`.
     pub fn is_silent(&self) -> bool {
-        self.signals.is_empty() && self.state_label.trim().is_empty() && self.raw_value.abs() < f64::EPSILON
+        self.signals.is_empty()
+            && self.state_label.trim().is_empty()
+            && self.raw_value.abs() < f64::EPSILON
     }
 
     /// True if the entry has at least one discrete signal fired.

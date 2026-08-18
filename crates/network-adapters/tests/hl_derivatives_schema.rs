@@ -23,7 +23,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use network_adapters::adapters::hyperliquid_rest::{derivatives_ctx_to_events, fetch_meta_and_asset_ctxs};
+use network_adapters::adapters::hyperliquid_rest::{
+    derivatives_ctx_to_events, fetch_meta_and_asset_ctxs,
+};
 
 /// One-shot HTTP server that always returns the canned body, regardless of
 /// the request path. Captures the port it bound to so the test can target it.
@@ -97,14 +99,20 @@ async fn fetch_meta_and_asset_ctxs_recover_coins_from_meta_universe() {
     // Every entry's mark_px must be a numeric decimal — the picker
     // returns only `Some(...)` for finite numeric strings.
     let btc = map.get("BTC").expect("BTC entry");
-    assert_eq!(btc.mark_px.map(|d| d.to_string()), Some("65134.0".to_string()));
+    assert_eq!(
+        btc.mark_px.map(|d| d.to_string()),
+        Some("65134.0".to_string())
+    );
     assert_eq!(
         btc.open_interest.map(|d| d.to_string()),
         Some("39925.94496".to_string())
     );
 
     let eth = map.get("ETH").expect("ETH entry");
-    assert_eq!(eth.mark_px.map(|d| d.to_string()), Some("3535.0".to_string()));
+    assert_eq!(
+        eth.mark_px.map(|d| d.to_string()),
+        Some("3535.0".to_string())
+    );
 }
 
 #[tokio::test]

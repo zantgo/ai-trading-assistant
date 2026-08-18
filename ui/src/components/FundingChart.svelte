@@ -44,8 +44,12 @@
         });
 
         fundingSeries = chart.addSeries(LineSeries, { color: '#00e676', lineWidth: 1, priceLineVisible: false });
-        fundingSeries.createPriceLine({ price:  0.03, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'EXT+' });
-        fundingSeries.createPriceLine({ price: -0.03, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'EXT-' });
+        // Reference bands match the backend label taxonomy: raw funding is
+        // the per-8h decimal (0.0001 = 0.01%), the FUNDING_HIGH_* label
+        // band sits at ±0.005 (0.5%). The old ±0.03 lines sat 100×+ above
+        // any realistic reading and were never touched.
+        fundingSeries.createPriceLine({ price:  0.005, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'EXT+' });
+        fundingSeries.createPriceLine({ price: -0.005, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'EXT-' });
         fundingSeries.createPriceLine({ price:  0,    color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });

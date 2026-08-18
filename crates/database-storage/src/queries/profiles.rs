@@ -175,11 +175,9 @@ pub struct RiskProfile {
 }
 
 fn parse_decimal_field(s: &str, field: &str) -> Result<Decimal, sqlx::Error> {
-    Decimal::from_str(s).map_err(|e| {
-        sqlx::Error::ColumnDecode {
-            index: field.to_string(),
-            source: Box::new(e),
-        }
+    Decimal::from_str(s).map_err(|e| sqlx::Error::ColumnDecode {
+        index: field.to_string(),
+        source: Box::new(e),
     })
 }
 

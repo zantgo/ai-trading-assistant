@@ -45,8 +45,14 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `short_expected_rr_internal` | `f64` | Per-direction R:R for a short setup, derived from `short_target_zone`, `short_entry_zone`, and `short_invalidation_level`. Subject to the same 0.1 floor. |
 | `long_geometry_consistent` | `bool` | Server-side flag for the matrix-level LONG bracket (`true` when the §2.2.2 invariants hold). |
 | `short_geometry_consistent` | `bool` | Server-side flag for the matrix-level SHORT bracket. |
-| `neutral_reference_bracket` | `NeutralBracket?` | **v6.10.23 (NBR):** direction-agnostic range reference frame (`entry_zone` / `target_zone` / `invalidation_level` / `expected_rr_internal` / `geometry_consistent` / `rationale`). Present only when `primary_opportunity == NoClearOpportunity` **and** the regime reads as a range — a valid range-fade geometry (entry band centered on close ±0.2×ATR, target at the upper range-bound proxy close+1.5..1.7×ATR, invalidation below the lower proxy close−1.5×ATR, R:R gated by `compute_side_rr_v2` + `NetCostModel`) so the RANGE SETUPS folder never sits empty. **Informational only — never a trade, never `Actionable`, and it does not alter `profiles`, preconditions, or the `NoClearOpportunity` score-0 sentinel.** Absent (deserializes to `null`) on legacy payloads. |
-| `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION`. The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
+| `neutral_reference_bracket` | `NeutralBracket?` | **v6.10.21 (NBR):** direction-agnostic range reference frame (`entry_zone` / `target_zone` / `invalidation_level` / `expected_rr_internal` / `geometry_consistent` / `rationale`). Present only when `primary_opportunity == NoClearOpportunity` **and** the regime reads as a range — a valid range-fade geometry (entry band centered on close ±0.2×ATR, target at the upper range-bound proxy close+1.5..1.7×ATR, invalidation below the lower proxy close−1.5×ATR, R:R gated by `compute_side_rr_v2` + `NetCostModel`) so the RANGE SETUPS folder never sits empty. **Informational only — never a trade, never `Actionable`, and it does not alter `profiles`, preconditions, or the `NoClearOpportunity` score-0 sentinel.** Absent (deserializes to `null`) on legacy payloads. |
+| `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION` (wire `String` carrying these SCREAMING values). The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
+| `long_entry_zone` / `short_entry_zone` | `PriceRange` | Per-direction entry bands (LONG entry below close, SHORT entry above close). |
+| `long_target_zone` / `short_target_zone` | `PriceRange` | Per-direction target bands (LONG target above entry, SHORT target below entry). |
+| `long_invalidation_level` / `short_invalidation_level` | `f64` | Per-direction invalidation triggers (price below which the long thesis / above which the short thesis is invalidated). |
+| `long_gross_rr_internal` / `short_gross_rr_internal` | `f64` | **v6.10.19 (P5).** The pre-cost geometric R:R per side — the NET (gross minus estimated entry/exit fees + slippage) lives in `long_expected_rr_internal` / `short_expected_rr_internal`; the gross stays on the wire for offline/data-science analysis. |
+| `direction_family` | `DirectionFamily \| null` | Bias of the active setup (`TrendRiding` / `CounterTrend` / `Neutral` — SCREAMING wire: `TREND_RIDING` / `COUNTER_TREND` / `NEUTRAL`). The matrix-level value is `TrendRiding` (or `Neutral` under a neutral bias); counter-trend expressions live on the per-profile `direction_family`. The frontend `selectProfileSide` reads the **per-profile** field for the per-card direction arrow. |
+| `confluent_entry_levels` / `confluent_target_levels` / `confluent_invalidation_levels` | `ConfluentLevel[]` | Per-direction confluent price levels (each carries `price`, `confluence_count`, `sources`, `strength`, optional `side`). Omitted when empty. |
 
 #### 2.1.1 PriceRange
 
@@ -55,24 +61,18 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `low` | `Decimal` | Lower price bound. |
 | `high` | `Decimal` | Upper price bound. |
 
-#### 2.1.2 TimeHorizon & Update Cadence (L6)
+#### 2.1.2 TimeHorizon & Update Cadence
 
-The `TimeHorizon` enum has four variants: `SCALP` (held for seconds to minutes), `INTRADAY` (held for minutes to hours), `SWING` (held for hours to days), and `POSITION` (held for days to weeks). Drives the cadence at which the Decision Layer's `exit_guidance` is updated. Cadence by TimeHorizon:
+The `TimeHorizon` enum has four variants: `SCALP` (held for seconds to minutes), `INTRADAY` (held for minutes to hours), `SWING` (held for hours to days), and `POSITION` (held for days to weeks). It is a **holding-period classifier only** — it no longer drives any L6 scheduler cadence.
 
-| `TimeHorizon` | Update cadence | Rationale |
-|---------------|----------------|-----------|
-| `SCALP` | Every completed sub-minute candle | Sub-minute setups re-evaluated at each completed candle on the configured sub-minute timeframe (e.g. every 15-second candle for a 15-second timeframe). |
-| `INTRADAY` | Every completed candle | Hourly setups re-evaluated at each candle close. |
-| `SWING` | Every 5 completed candles | Multi-day setups re-evaluated less frequently. |
-| `POSITION` | Every 15 completed candles | Multi-week setups re-evaluated only on structural change. |
-
-The cadence is implemented as a debounced scheduler on the L6 Decision Layer (see [03-02-07-mme-layer6-decision-support.md §4](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md)), not as a wall-clock timer — every evaluation also re-runs when the upstream matrices change. The completed-cascade invariant ([01-03-systemic-data-flow.md §4.1 Immutability Guarantees](../conceptual-foundations/01-03-systemic-data-flow.md)) is preserved: only `is_completed = true` snapshots enter the L4/L5/L6 cascade. Raw `is_completed = false` shadow snapshots are for live UI display only.
+**Actual recompute contract.** L4–L6 recompute on **every completed candle of every timeframe**, gated only by pipeline-live state for broadcast — there is no TimeHorizon-keyed debounced scheduler (the legacy contract — `SCALP` every candle / `INTRADAY` every candle / `SWING` every 5 / `POSITION` every 15 — is retired; no debounce exists in the analyzer). The completed-cascade invariant ([01-03-systemic-data-flow.md §4.1 Immutability Guarantees](../conceptual-foundations/01-03-systemic-data-flow.md)) is preserved: only `is_completed = true` snapshots enter the L4/L5/L6 cascade. Raw `is_completed = false` shadow snapshots are for live UI display only.
 
 ### 2.2 OpportunityProfile
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `opportunity_type` | `OpportunityType` | Setup being profiled. |
+| `trade_viability` | `TradeViability` | Wire badge (`Actionable` / `Qualifying` / `NotQualifying`) driving the setup-quality surface. |
 | `score` | `f64` | Viability `[0, 100]` for this specific setup. |
 | `preconditions_met` | `u32` | Count of satisfied preconditions. |
 | `preconditions_total` | `u32` | Total preconditions evaluated. |
@@ -102,7 +102,7 @@ The mapping is total over all eight `OpportunityType` values. The frontend's `se
 
 > **Single effective direction (v6.10.6; FIX-1 v6.10.15).** Every directional surface of the L4 output — the header badge tone + R:R chip, the directional conviction bars, the `R:R (Internal)` block, the invalidation note, the matrix-level confluent display, and the legacy scalar `entry_zone` / `target_zone` / `invalidation_level` — resolves from **one** canonical direction: the top qualifying profile's resolved side (zone-presence aware `selectProfileSide`), falling back to the macro bias side. Under a **Neutral** bias (or absent bias with no profile-side resolution) the direction is **NEUTRAL** — the legacy argmax of the per-side geometric R:R lit the bars/badge directionally on a directionally-neutral panel (57% "bearish" beside a DirectionalNeutral card, `Lean: neutral`, and N/A R:R) and contradicted the L6 HOLD verdict; bracket geometry remains visible in the setup cards and confluent levels, only the directional-conviction surfaces go neutral. This closes the historical CounterTrend duality where a profile card could read LONG while the note, confluent levels, and header described the SHORT thesis. The L6 decision context remains macro-bias driven by design (L6 is the market verdict; the L4 card is the setup direction).
 >
-> **Invalidation note binding (v6.18).** The `invalidation_note` sentence is strictly bound to a level the UI surfaces: the top qualifying profile's resolved side and that side's `invalidation_level` (LONG → `A close below …`, SHORT → `A close above …`), or the macro bias side's level when no profile qualifies (matching the frontend's BULL/BEAR reference brackets). Under a **Neutral** bias with no qualifying profile — and under `NoClearOpportunity` — there is no directional thesis to invalidate and the note is the empty string; the historical geometry-consistent heuristics and the legacy-scalar position test that could emit a "Close below X" sentence whose level no displayed card carried are removed. The frontend additionally composes a per-card sentence from each setup card's own side and stop-loss value, so the displayed thesis can never disagree with the card's STOP-LOSS row.
+> **Invalidation note binding (v6.10.17).** The `invalidation_note` sentence is strictly bound to a level the UI surfaces: the top qualifying profile's resolved side and that side's `invalidation_level` (LONG → `A close below …`, SHORT → `A close above …`), or the macro bias side's level when no profile qualifies (matching the frontend's BULL/BEAR reference brackets). Under a **Neutral** bias with no qualifying profile — and under `NoClearOpportunity` — there is no directional thesis to invalidate and the note is the empty string; the historical geometry-consistent heuristics and the legacy-scalar position test that could emit a "Close below X" sentence whose level no displayed card carried are removed. The frontend additionally composes a per-card sentence from each setup card's own side and stop-loss value, so the displayed thesis can never disagree with the card's STOP-LOSS row.
 
 #### 2.2.2 Per-profile geometry invariants
 
@@ -122,9 +122,9 @@ The server-side `long_geometry_consistent` / `short_geometry_consistent` flags a
 
 **Directional bars (v6.10.18 I-4, superseded v7.1).** The L4 directional bars mirror the **L6 verdict split** (long/short/hold probabilities) whenever a decision context exists — one conviction number across panels; the bracket-conviction math is the legacy fallback only. **v7.1 (L4-only):** this was reversed — the bars read **only** the L4 opportunity matrix (active-side bracket conviction, `opportunity_score`-capped); the L6 probabilities never shape them, so the L4 panel and the L6 gauge intentionally tell two different stories.
 
-**Sectioned Trade Setups + all-opportunities contract (v6.10.19b C1/C2, v6.10.19c, v6.10.23; ranked order v7.1).** The Opportunities panel renders **every** qualifying setup — LONG, SHORT and NEUTRAL — in three always-present folders in **RANKED order** (v7.1): the folder with the most content (setups + reference bracket) renders first — the same relevance ordering as the conviction bars, so a lone BEARISH setup puts the BEARISH folder first — ties broken by the folder's top setup score, with the fixed **RANGE SETUPS → BULLISH → BEARISH** order (v6.10.19c: the first section is labelled `NEUTRAL`, not "HOLD / NEUTRAL") applying only to empty ties; top-ranked first within each. The HOLD/NO-CLEAR scenario banner and the NO CLEAR strip were removed — the empty folders are the container.
+**Sectioned Trade Setups + all-opportunities contract (v6.10.19b C1/C2, v6.10.19c, v6.10.21; ranked order v7.1).** The Opportunities panel renders **every** qualifying setup — LONG, SHORT and NEUTRAL — in three always-present folders in **RANKED order** (v7.1): the folder with the most content (setups + reference bracket) renders first — the same relevance ordering as the conviction bars, so a lone BEARISH setup puts the BEARISH folder first — ties broken by the folder's top setup score, with the fixed **RANGE SETUPS → BULLISH → BEARISH** order (v6.10.19c: the first section is labelled `NEUTRAL`, not "HOLD / NEUTRAL") applying only to empty ties; top-ranked first within each. The HOLD/NO-CLEAR scenario banner and the NO CLEAR strip were removed — the empty folders are the container.
 
-**Reference brackets are fully integrated into their directional folders (v6.10.23 NBR).** The standalone reference container at the bottom of the section is gone. Each folder mounts its own reference card **only when it hosts zero qualifying setup cards**: the LONG aggregated bracket rides in BULLISH, the SHORT aggregated bracket in BEARISH, and the backend-emitted **neutral range frame** (`OpportunityMatrix.neutral_reference_bracket`, produced by L4 only when `primary == NoClearOpportunity && is_range`) in RANGE SETUPS. The folder's counter (the numeric badge in the header) counts setups **and** reference cards; the folder's empty-state placeholder (`no bullish setups`, …) is suppressed while a reference card occupies the folder. The parity invariant still holds: whatever the Recommendation headlines in `top_setup` is present — the verdict-side folder renders the identical bracket via the same `aggregateZones` + `resolveActiveRr(sideOverride)` chain the Recommendation uses.
+**Reference brackets are fully integrated into their directional folders (v6.10.21 NBR).** The standalone reference container at the bottom of the section is gone. Each folder mounts its own reference card **only when it hosts zero qualifying setup cards**: the LONG aggregated bracket rides in BULLISH, the SHORT aggregated bracket in BEARISH, and the backend-emitted **neutral range frame** (`OpportunityMatrix.neutral_reference_bracket`, produced by L4 only when `primary == NoClearOpportunity && is_range`) in RANGE SETUPS. The folder's counter (the numeric badge in the header) counts setups **and** reference cards; the folder's empty-state placeholder (`no bullish setups`, …) is suppressed while a reference card occupies the folder. The parity invariant still holds: whatever the Recommendation headlines in `top_setup` is present — the verdict-side folder renders the identical bracket via the same `aggregateZones` + `resolveActiveRr(sideOverride)` chain the Recommendation uses.
 
 **Unified state-driven card language (v6.10.23).** Every setup card shares one structural layout — very-dark background, thin outer border, 3px left-edge accent — with the operational state signalled by low-contrast cues, never heavy block fills:
 
@@ -139,7 +139,9 @@ The server-side `long_geometry_consistent` / `short_geometry_consistent` flags a
 
 The export mirrors this 1:1: `trade_setups` stays a flat compatibility view (rows carry `section`), and `trade_setup_sections` is the nested view (`[{ section: 'NEUTRAL', label, setups: [full rows…] }, BULL, BEAR]`) where every row carries the full value set (entry zone, TP1, TP2, SL/invalidation, R:R, score, preconditions, geometry, badge, **quality**, **below_floor**, notes) — reference rows ride inside their section exactly like the screen. The `R:R (Internal)` block sits directly below the Confluent Levels section.
 
-> **Confluent level strength (v6.15).** Each `ConfluentLevel.strength` is an **additive confidence weight** — the sum of the fixed per-source weights of the sources aligned at that price (VOLUME PROFILE 0.30 / FIBONACCI 0.25 / SUPPORT_RESISTANCE 0.20 / PIVOT_POINTS 0.15 / LIQUIDITY_CLUSTER 0.10 / ATR_FALLBACK 0.05, capped at 100) — **not a probability, hit rate, or success rate**. The Opportunities panel renders the raw `%` as a qualitative pill band instead (`WEAK` <30 / `MODERATE` 30–54 / `STRONG` 55–79 / `VERY STRONG` ≥80; the raw weight remains as the pill tooltip and in the export as `strength` + `strength_label`), so a single-source PIVOT_POINTS level reads "WEAK" rather than a misleading "15%".
+> **Confluent level strength (v6.15).** Each `ConfluentLevel.strength` is an **additive confidence weight** — the sum of the fixed per-source weights of the sources aligned at that price (VOLUME PROFILE 0.30 / FIBONACCI 0.25 / PIVOT_POINTS 0.15 / LIQUIDITY_CLUSTER 0.10 / ATR_FALLBACK 0.05, capped at 100) — **not a probability, hit rate, or success rate**. The Opportunities panel renders the raw `%` as a qualitative pill band instead (`WEAK` <30 / `MODERATE` 30–54 / `STRONG` 55–79 / `VERY STRONG` ≥80; the raw weight remains as the pill tooltip and in the export as `strength` + `strength_label`), so a single-source PIVOT_POINTS level reads "WEAK" rather than a misleading "15%".
+>
+> **Live L4 confluence sources.** The L4 producer pushes confluent levels from **four** sources only: FIBONACCI, VOLUME_PROFILE, PIVOT_POINTS, and LIQUIDATION_CLUSTER. `SUPPORT_RESISTANCE` is **not** a live confluence source — the S/R tracker feeds the L5 structure-risk dimension only, and its weight (0.20) exists in the weight table for completeness; `ATR_FALLBACK` appears as a fallback candidate weight. See `crates/market-analyzer/src/synthesis.rs` (`collect_confluent_levels`).
 > **Parity invariant (v6.10.19b, v6.10.23).** *whatever the Recommendation headlines in `top_setup` is always present in the Opportunities panel.* Qualifying profiles are always listed; an aggregated reference bracket headline (e.g. a SHORT reference bracket under a SHORT verdict with only LONG setups qualifying) is mirrored as the reference card in its folder — and v6.10.23 extends this to **every** direction: any folder hosting zero qualifying setups mounts its own aggregated reference bracket, so both sides' informational geometry (plus the neutral range frame) are always visible. This is a **panel-composition** rule (the L4 panel displays L6-derived data for parity — precedent: the I-4 bars) — the Opportunity **Matrix** production remains `L4 ← {L3, L1, L1.5, L2.5}` and never reads L6. The `neutral_reference_bracket` field is pure L4 (emitted under NoClear + range), never L6.
 
 **Geometry examples (correct):**
@@ -202,10 +204,10 @@ The Opportunity Layer applies the following decision tree (first match in the li
 4. trend ≥ 60 AND momentum weakening                              → PULLBACK
 5. volatility ≤ 30 AND regime ∈ {RANGE, CONTRACTION}               → MEAN_REVERSION
 6. tradability_dim < 30                                           → NO_CLEAR_OPPORTUNITY
-7. otherwise (default)                                             → TREND_CONTINUATION
+7. otherwise (default)                                             → NO_CLEAR_OPPORTUNITY
 ```
 
-Where `confirmed_divergence` is true when at least one `Divergence` indicator signal has reached `status = CONFIRMED` ([Metrics Matrix §4.2](02-07-metrics-matrix.md)), `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40, `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25, and `structure_align` is the same dimension 4 score interpreted as "tight structural context favorable for a sub-minute scalp". `BBWP` is the `bbwp` indicator's raw percentile output on the local timeframe (L1 Metrics, `[0, 100]`) — **not** `MarketContext.volatility.score` (a signed `[-1, 1]` dimension). All **eight** values of `OpportunityType` (including `LiquiditySqueeze` and `Scalp`) are reachable via the explicit branches; the `ELSE` (priority 7) is a defensive default that may also resolve to `TREND_CONTINUATION`.
+Where `confirmed_divergence` is true when any emitted signal label contains `DIVERGENCE` — the label-family match subsumes both the per-oscillator `CONFIRMED_BULLISH/BEARISH_DIVERGENCE` labels and the derivatives-WS `OI_PRICE_DIVERGENCE` (which carries no `CONFIRMED` prefix; a `status = CONFIRMED`-only check would miss it entirely — see `synthesis.rs` `has_confirmed_divergence`). `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40, `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25, and `structure_align` is the same dimension 4 score interpreted as "tight structural context favorable for a sub-minute scalp". `BBWP` is the `bbwp` indicator's raw percentile output on the local timeframe (L1 Metrics, `[0, 100]`) — **not** `MarketContext.volatility.score` (a signed `[-1, 1]` dimension). All **eight** values of `OpportunityType` (including `LiquiditySqueeze` and `Scalp`) are reachable via the explicit branches; the `ELSE` (priority 7) is a defensive default that resolves to `NO_CLEAR_OPPORTUNITY` — the unconditional-zero sentinel (v6.10.19a N1: a market matching no branch must read as no-clear, never as an invented continuation)
 
 > **Direction-neutrality (v2.1).** Rule 1 previously read `trend ≥ 75 AND bias bullish` which violated the direction-neutral contract of the Opportunity Matrix (a strong bearish trend would not match and would fall through to the default). The corrected rule is symmetric: it accepts both `BULLISH`/`STRONG_BULLISH` and `BEARISH`/`STRONG_BEARISH` bias and produces a directional `TREND_CONTINUATION` either way. The Decision Matrix owns the actual long/short decision.
 >
@@ -259,15 +261,15 @@ A representative Opportunity Matrix frame. The values derive from the canonical 
 ```json
 {
   "symbol": "BTC-USDT",
-  "primary_opportunity": "TREND_CONTINUATION",
+  "primary_opportunity": "TrendContinuation",
   "opportunity_score": 85.0,
-  "setup_quality": "PRIME",
+  "setup_quality": "Prime",
   "forecast_confidence": 0.81,
   "profiles": [
-    { "opportunity_type": "TREND_CONTINUATION", "score": 85.0,
+    { "opportunity_type": "TrendContinuation", "score": 85.0,
       "preconditions_met": 3, "preconditions_total": 3,
-      "notes": "Trend 78 ≥ 75, bias BULLISH, momentum STABLE not in {EXHAUSTED, REVERSING} — §4 tree rule 1 fires first." },
-    { "opportunity_type": "BREAKOUT", "score": 78.0,
+      "notes": "Trend 78 ≥ 75, bias Bullish, momentum Stable not in {Exhausted, Reversing} — §4 tree rule 1 fires first." },
+    { "opportunity_type": "Breakout", "score": 78.0,
       "preconditions_met": 3, "preconditions_total": 3,
       "notes": "Volatility 75 ≥ 70 and structure 65 ≥ 60, but loses §4 tree priority to trend continuation (rule 1 matched first)." }
   ],
@@ -276,21 +278,24 @@ A representative Opportunity Matrix frame. The values derive from the canonical 
   "entry_zone":  { "low": 64000.0, "high": 64200.0 },
   "target_zone": { "low": 65500.0, "high": 66000.0 },
   "invalidation_level": 63440.0,
+  "long_entry_zone":  { "low": 64000.0, "high": 64200.0 },
+  "long_target_zone": { "low": 65500.0, "high": 66000.0 },
+  "long_invalidation_level": 63440.0,
+  "short_entry_zone":  null,
+  "short_target_zone": null,
+  "short_invalidation_level": 0.0,
   "long_expected_rr_internal": 2.5,
   "short_expected_rr_internal": 0.0,
-  "time_horizon": "SWING"
+  "long_gross_rr_internal": 2.55,
+  "short_gross_rr_internal": 0.0,
+  "time_horizon": "SWING",
+  "direction_family": "TREND_RIDING"
 }
 ```
 
-> **Worked-example consistency.** `long_expected_rr_internal = (target_mid − entry_mid) / (entry_mid − invalidation_level) = (65750 − 64100) / (64100 − 63440) = 1650 / 660 = 2.5`. `setup_quality = PRIME` because `opportunity_score = 85.0 ∈ [85, 100]` per the §5 canonical bands. `time_horizon = SWING` matches the §3 default for `TrendContinuation`. The active-side R:R is resolved by `analysis.bias`: bullish → `long_expected_rr_internal`, bearish → `short_expected_rr_internal`, Neutral → 0. The legacy matrix-level `expected_rr_internal` was removed in v6.9.
+> **Worked-example consistency.** `long_expected_rr_internal = (target_mid − entry_mid) / (entry_mid − invalidation_level) = (65750 − 64100) / (64100 − 63440) = 1650 / 660 = 2.5`. `setup_quality = Prime` because `opportunity_score = 85.0 ∈ [85, 100]` per the §5 canonical bands. `time_horizon = SWING` matches the §3 default for `TrendContinuation`. The active-side R:R is resolved by `analysis.bias`: bullish → `long_expected_rr_internal`, bearish → `short_expected_rr_internal`, Neutral → 0. The legacy matrix-level `expected_rr_internal` was removed in v6.9.
 
-Enum values serialize as `SCREAMING_SNAKE_CASE`.
-
-> **Serialization note.** Across the platform, two surface forms appear:
-> - **Wire JSON** and **policy conditions** (e.g. `opportunity.primary_opportunity IN ["TREND_CONTINUATION", "BREAKOUT"]` per [03-03-04-tae-execution-policy-spec.md §3.1](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md)): the variant is the SCREAMING_SNAKE_CASE string (`"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, …).
-> - **Rust internals** (enum variants in Rust code; the prose passages that document producer logic): the variant is PascalCase (`Breakout`, `TrendContinuation`, `LiquiditySqueeze`, …).
->
-> The two forms refer to the same set of values; the policy author always types the SCREAMING_SNAKE_CASE string on the wire, and the Rust code translates between the two at the serde boundary. `TimeHorizon` follows the same rule (`INTRADAY`/`SWING`/`POSITION` on the wire, `Intraday`/`Swing`/`Position` in Rust).
+**Wire casing.** `primary_opportunity` (`OpportunityType`) and `setup_quality` (`SetupQuality`) serialize **PascalCase** (`"TrendContinuation"`, `"Prime"`, `"LiquiditySqueeze"`, …) — the enums derive serde without `rename_all`. `time_horizon` is a plain **`String`** carrying the SCREAMING values (`"SWING"`, `"INTRADAY"`, …). `direction_family` carries the SCREAMING wire values (`TREND_RIDING` / `COUNTER_TREND` / `NEUTRAL`) via its `rename_all`.
 
 ---
 

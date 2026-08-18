@@ -1,6 +1,6 @@
 use core_domain::portfolio::{PositionMatrix, PositionState};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 pub fn compute_position_matrix(
@@ -50,8 +50,8 @@ pub fn compute_position_matrix_with_config(
         dec!(0)
     };
 
-    let fee_pct = Decimal::from_f64_retain((maker_fee_pct + taker_fee_pct) / 100.0)
-        .unwrap_or(dec!(0));
+    let fee_pct =
+        Decimal::from_f64_retain((maker_fee_pct + taker_fee_pct) / 100.0).unwrap_or(dec!(0));
     let unrealized_pnl_after_fees = unrealized_pnl - (allocated_usd * fee_pct);
 
     PositionMatrix {
@@ -156,15 +156,10 @@ pub fn apply_dynamic_stop(
     let mut updated = position.clone();
 
     if new_distance_pct > 0.0 && new_distance_pct < 100.0 {
-        let distance_frac =
-            Decimal::from_f64_retain(new_distance_pct / 100.0).unwrap_or(dec!(0));
+        let distance_frac = Decimal::from_f64_retain(new_distance_pct / 100.0).unwrap_or(dec!(0));
         let candidate_stop = match position.direction.as_str() {
-            "LONG" | "Long" => {
-                position.current_price * (dec!(1) - distance_frac)
-            }
-            "SHORT" | "Short" => {
-                position.current_price * (dec!(1) + distance_frac)
-            }
+            "LONG" | "Long" => position.current_price * (dec!(1) - distance_frac),
+            "SHORT" | "Short" => position.current_price * (dec!(1) + distance_frac),
             _ => position.current_price,
         };
 
@@ -218,8 +213,7 @@ pub fn apply_scaled_entry(
 
         let total_size = existing.size + size;
         let vwap = if total_size > dec!(0) {
-            ((existing.average_entry_price * existing.size) + (entry_price * size))
-                / total_size
+            ((existing.average_entry_price * existing.size) + (entry_price * size)) / total_size
         } else {
             entry_price
         };

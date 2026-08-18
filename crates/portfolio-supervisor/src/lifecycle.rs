@@ -82,9 +82,10 @@ impl LifecycleManager {
     pub fn new(automation: Option<AutomationState>) -> Self {
         let now = current_time_ms();
         let initial_state = match &automation {
-            Some(auto) if auto.conditions.start_at_time.is_some()
-                || auto.conditions.start_at_price_above.is_some()
-                || auto.conditions.start_at_price_below.is_some() =>
+            Some(auto)
+                if auto.conditions.start_at_time.is_some()
+                    || auto.conditions.start_at_price_above.is_some()
+                    || auto.conditions.start_at_price_below.is_some() =>
             {
                 LifecycleState::Stopped
             }
@@ -104,6 +105,11 @@ impl LifecycleManager {
     pub fn set_db(&mut self, instance_id: String, pool: Arc<SqlitePool>) {
         self.instance_id = instance_id;
         self.pool = Some(pool);
+    }
+
+    /// Current lifecycle state (clone — the enum is `Copy`-free by design).
+    pub fn current(&self) -> LifecycleState {
+        self.state
     }
 
     pub async fn persist_lifecycle(&self) {
@@ -203,7 +209,13 @@ impl LifecycleManager {
         Ok(())
     }
 
-    fn make_event(&self, from: LifecycleState, to: LifecycleState, actor: &str, reason: Option<String>) -> LifecycleEvent {
+    fn make_event(
+        &self,
+        from: LifecycleState,
+        to: LifecycleState,
+        actor: &str,
+        reason: Option<String>,
+    ) -> LifecycleEvent {
         LifecycleEvent {
             instance_id: self.instance_id.clone(),
             from_state: Some(from),
@@ -378,7 +390,6 @@ impl LifecycleManager {
 
         actions
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -247,20 +247,20 @@ pub fn compute_overview(
             _ => neutral_count += 1,
         }
     }
-// v6.10 (Phase 6 / F4): `breadth_pct` formula is the canonical spec
-        // calculation `(L - S) / (L + S + N) × 100` per
-        // `docs/engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md` line 30
-        // and `docs/matrices/02-09-overview-matrix.md` line 104. The
-        // previous v6.9 implementation used the advance-decline formula
-        // `(L - S) / (L + S)` which excluded neutrals from the
-        // denominator, producing non-canonical values for mixed-mood
-        // markets. The corrected formula includes neutrals in the
-        // denominator so that a 50L/0S/50N mix yields +50% (vs the
-        // v6.9 result of +100%).
-        let total = (long_count + short_count + neutral_count).max(1) as f64;
+    // v6.10 (Phase 6 / F4): `breadth_pct` formula is the canonical spec
+    // calculation `(L - S) / (L + S + N) × 100` per
+    // `docs/engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md` line 30
+    // and `docs/matrices/02-09-overview-matrix.md` line 104. The
+    // previous v6.9 implementation used the advance-decline formula
+    // `(L - S) / (L + S)` which excluded neutrals from the
+    // denominator, producing non-canonical values for mixed-mood
+    // markets. The corrected formula includes neutrals in the
+    // denominator so that a 50L/0S/50N mix yields +50% (vs the
+    // v6.9 result of +100%).
+    let total = (long_count + short_count + neutral_count).max(1) as f64;
 
-        // Market breadth
-        let breadth_pct = (long_count as f64 - short_count as f64) / total * 100.0;
+    // Market breadth
+    let breadth_pct = (long_count as f64 - short_count as f64) / total * 100.0;
     let breadth = if breadth_pct > 60.0 {
         MarketBreadth::StrongPositive
     } else if breadth_pct > 20.0 {
@@ -501,11 +501,7 @@ pub fn compute_overview(
     let mean_overall_risk = if by_symbol.is_empty() {
         0.0
     } else {
-        by_symbol
-            .keys()
-            .map(|s| overall_for(s))
-            .sum::<f64>()
-            / by_symbol.len() as f64
+        by_symbol.keys().map(|s| overall_for(s)).sum::<f64>() / by_symbol.len() as f64
     };
     let risk_environment = if instance_count == 0 {
         "NO_DATA"
@@ -730,9 +726,91 @@ mod tests {
         assert!(!o.opportunity_distribution.is_empty());
     }
 
+    #[test]
+    fn risk_data_binds_when_meta_symbol_matches_advisory_symbol() {
+        // Regression (C1): the daemon previously fed the QUOTE currency
+        // ("USDT") as `InstanceMeta.symbol`. compute_overview keys the
+        // per-symbol risk map by `meta.symbol` and looks it up with the
+        // ADVISORY symbol — a mismatch silently fell back to 50
+        // (MODERATE) everywhere: risk_distribution always 0/100/0,
+        // risk_environment HIGH_RISK, AssetRank.risk_level MODERATE.
+        // With the canonical symbol ("BTC-USDT") the LOW risk binds.
+        let adv = AdvisoryMatrix {
+            symbol: "BTC-USDT".into(),
+            directional_guidance: DirectionalGuidance::Long,
+            confidence_assessment: 80.0,
+            ..AdvisoryMatrix::empty("BTC-USDT")
+        };
+        let instances = vec![InstanceMeta {
+            symbol: "BTC-USDT".into(),
+            timeframe_secs: 300,
+            timeframe_label: "tf-average".into(),
+            is_active: true,
+            overall_risk: 20.0, // LOW band (≤ 30)
+            risk_windows: vec![],
+        }];
+        let o = compute_overview(&[adv], &instances, &[]);
+        assert_eq!(
+            o.risk_distribution.low_pct, 100.0,
+            "low risk must bind to the risk distribution"
+        );
+        assert_eq!(o.risk_distribution.high_pct, 0.0);
+        assert_eq!(o.risk_distribution.moderate_pct, 0.0);
+        assert!(
+            !o.risk_distribution.risk_environment.contains("HIGH_RISK"),
+            "risk_environment must reflect the bound LOW score"
+        );
+        let rank = o
+            .asset_ranking
+            .iter()
+            .find(|r| r.symbol == "BTC-USDT")
+            .expect("asset ranking row for the symbol");
+        assert_eq!(rank.risk_level, "LOW");
+        assert_eq!(
+            o.active_symbols,
+            vec!["BTC-USDT".to_string()],
+            "active_symbols must contain the symbol, not the quote"
+        );
+        assert_eq!(o.instance_count, 1);
+    }
+
+    #[test]
+    fn mismatched_meta_symbol_leaks_quote_into_active_symbols() {
+        // Negative lock: when InstanceMeta.symbol does not equal the
+        // advisory symbol (the C1 corruption mode), the overview can
+        // never bind risk data and the union leaks the quote currency
+        // into active_symbols. Kept to document the failure shape — the
+        // daemon must feed `inst.symbol()` (canonical "BTC-USDT").
+        let adv = AdvisoryMatrix {
+            symbol: "BTC-USDT".into(),
+            directional_guidance: DirectionalGuidance::Long,
+            confidence_assessment: 80.0,
+            ..AdvisoryMatrix::empty("BTC-USDT")
+        };
+        let instances = vec![InstanceMeta {
+            symbol: "USDT".into(), // quote currency — the old daemon bug
+            timeframe_secs: 300,
+            timeframe_label: "tf-average".into(),
+            is_active: true,
+            overall_risk: 20.0,
+            risk_windows: vec![],
+        }];
+        let o = compute_overview(&[adv], &instances, &[]);
+        assert_eq!(o.risk_distribution.low_pct, 0.0);
+        assert_eq!(o.risk_distribution.moderate_pct, 100.0);
+        assert!(o.active_symbols.contains(&"USDT".to_string()));
+        assert!(o.active_symbols.contains(&"BTC-USDT".to_string()));
+        assert_ne!(o.active_symbols.len(), o.instance_count as usize);
+    }
+
     // ── Alignment aggregation tests ───────────────────────────
 
-    fn make_alignment(symbol: &str, mtf_score: f64, label: &str, agreement: f64) -> AlignmentMatrix {
+    fn make_alignment(
+        symbol: &str,
+        mtf_score: f64,
+        label: &str,
+        agreement: f64,
+    ) -> AlignmentMatrix {
         AlignmentMatrix {
             symbol: symbol.into(),
             timeframes_present: 4,
@@ -846,7 +924,7 @@ mod tests {
                 timeframe_label: "slow300".into(),
                 is_active: true,
                 overall_risk: 20.0,
-            risk_windows: vec![],
+                risk_windows: vec![],
             },
             InstanceMeta {
                 symbol: "SOL-USD".into(),
@@ -854,7 +932,7 @@ mod tests {
                 timeframe_label: "slow300".into(),
                 is_active: true,
                 overall_risk: 85.0,
-            risk_windows: vec![],
+                risk_windows: vec![],
             },
         ];
         let o = compute_overview(&[adv_low, adv_high], &instances, &[]);
@@ -891,7 +969,7 @@ mod tests {
                 timeframe_label: "slow300".into(),
                 is_active: true,
                 overall_risk: 32.0,
-            risk_windows: vec![],
+                risk_windows: vec![],
             },
             InstanceMeta {
                 symbol: "SOL-USD".into(),
@@ -899,7 +977,7 @@ mod tests {
                 timeframe_label: "slow300".into(),
                 is_active: true,
                 overall_risk: 43.0,
-            risk_windows: vec![],
+                risk_windows: vec![],
             },
         ];
         let o = compute_overview(&advs, &instances, &[]);
@@ -1054,9 +1132,9 @@ mod tests {
         };
         let advs = vec![
             mk("BTC-USD", DirectionalGuidance::Short, 20.0), // micro
-            mk("BTC-USD", DirectionalGuidance::Long, 30.0), // fast
-            mk("BTC-USD", DirectionalGuidance::Long, 50.0), // slow
-            mk("BTC-USD", DirectionalGuidance::Long, 40.0), // macro
+            mk("BTC-USD", DirectionalGuidance::Long, 30.0),  // fast
+            mk("BTC-USD", DirectionalGuidance::Long, 50.0),  // slow
+            mk("BTC-USD", DirectionalGuidance::Long, 40.0),  // macro
         ];
         let instances = vec![InstanceMeta {
             symbol: "BTC-USD".into(),

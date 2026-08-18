@@ -13,6 +13,7 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
         indicators: current_config.indicators.clone(),
         instances: current_config.instances.clone(),
         indicator_registry: market_analyzer::indicators::registry::all(),
+        api_failover: current_config.api_failover,
     };
     let json = axum::Json(response_body);
     let mut response = json.into_response();
@@ -23,40 +24,77 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
     response
 }
 
+/// A partial config update: the dashboard's `GET /api/config` response
+/// round-trips through `POST /api/config` with only the operator-editable
+/// fields mutated (`candles`, `indicators`, `instances`, `api_failover`).
+/// The body therefore does NOT carry `WorkspaceConfig`'s mandatory
+/// `id`/`name`/`default_currency`/`default_exchange` — merge the provided
+/// fields into the currently loaded config rather than demanding a full
+/// document (fixes the previous permanent-422 round-trip failure).
+#[derive(Debug, serde::Deserialize)]
+pub struct ConfigUpdateRequest {
+    #[serde(default)]
+    pub candles: Option<config_models::CandlesConfig>,
+    #[serde(default)]
+    pub indicators: Option<config_models::IndicatorsConfig>,
+    #[serde(default)]
+    pub instances: Option<Vec<config_models::InstanceEntry>>,
+    #[serde(default)]
+    pub api_failover: Option<config_models::ApiFailoverConfig>,
+    // Accept-and-ignore: derived or read-only fields echoed by the GET
+    // response that must not clobber the loaded config on save.
+    #[serde(default)]
+    pub api_key_configured: Option<bool>,
+    #[serde(default)]
+    pub symbols: Option<Vec<String>>,
+    #[serde(default)]
+    pub indicator_registry: Option<serde_json::Value>,
+}
+
 pub async fn update_config(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<WorkspaceConfig>,
+    Json(payload): Json<ConfigUpdateRequest>,
 ) -> impl IntoResponse {
-    match toml::to_string_pretty(&payload) {
-        Ok(toml_str) => {
-            if let Err(e) = std::fs::write("config.toml", toml_str) {
-                eprintln!(
-                    "Failed to write configuration updates to config.toml: {}",
-                    e
-                );
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to persist configuration file",
-                )
-                    .into_response();
-            }
-            state.workspace.set_config(payload).await;
-            println!("Configuration Updated: successfully synchronized config.toml dynamically.");
-            (
-                axum::http::StatusCode::OK,
-                "Configuration successfully saved.",
-            )
-                .into_response()
-        }
-        Err(e) => {
-            eprintln!("TOML Serialization Error: {}", e);
-            (
-                axum::http::StatusCode::BAD_REQUEST,
-                "Invalid configuration object structure",
-            )
-                .into_response()
-        }
+    let mut merged = state.workspace.config().await;
+    if let Some(candles) = payload.candles {
+        merged.candles = candles;
     }
+    if let Some(indicators) = payload.indicators {
+        merged.indicators = indicators;
+    }
+    if let Some(instances) = payload.instances {
+        merged.instances = instances;
+    }
+    if let Some(api_failover) = payload.api_failover {
+        merged.api_failover = api_failover;
+    }
+    merged.config_version = merged.config_version.saturating_add(1);
+
+    // Persist through `save_workspace` (NOT a bare `toml::to_string_pretty`
+    // of the WorkspaceConfig): the on-disk shape wraps the workspace in a
+    // `[workspace]` table and keeps the platform sections (`[hyperliquid]`,
+    // `[bitget]`, `[clock_monitor]`, `[reconnect]`, `[candle_buffer]`,
+    // `[snapshot_export]`) intact — a bare write previously produced a file
+    // the daemon could not boot from (`load_platform` panics without the
+    // required `OnDiskConfig.workspace`).
+    if let Err(e) = config_models::save_workspace(&merged) {
+        eprintln!(
+            "Failed to write configuration updates to config.toml: {}",
+            e
+        );
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to persist configuration file",
+        )
+            .into_response();
+    }
+    state.workspace.set_config(merged).await;
+    println!("Configuration Updated: successfully synchronized config.toml dynamically.");
+    (
+        axum::http::StatusCode::OK,
+        "Configuration successfully saved.",
+    )
+        .into_response()
 }
 
 // ─── TOML export/import (config-sharing workflow) ───────────────────
@@ -142,11 +180,20 @@ pub async fn serve_workspace_toml_import(
     ).into_response()
 }
 
+/// Path of the indicators rulebook served by `GET /api/rules`. The file
+/// must exist in the repo — it is the MME indicators guide spec, mirrored
+/// verbatim by `03-02-09-mme-indicators-guide.md`.
+pub const RULES_GUIDE_PATH: &str =
+    "docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md";
+
 pub async fn serve_get_rules() -> impl IntoResponse {
-    match std::fs::read_to_string("docs/indicators-guide.md") {
+    match std::fs::read_to_string(RULES_GUIDE_PATH) {
         Ok(content) => Json(RulesResponse { content }).into_response(),
         Err(e) => {
-            eprintln!("Failed to read indicators guide: {}", e);
+            eprintln!(
+                "Failed to read indicators guide ({}): {}",
+                RULES_GUIDE_PATH, e
+            );
             (
                 axum::http::StatusCode::NOT_FOUND,
                 "Indicators guide not found",
@@ -157,15 +204,15 @@ pub async fn serve_get_rules() -> impl IntoResponse {
 }
 
 pub async fn serve_set_rules(Json(payload): Json<SetRulesRequest>) -> impl IntoResponse {
-    if let Err(e) = std::fs::write("docs/indicators-guide.md", &payload.content) {
-        eprintln!("Failed to write indicators guide: {}", e);
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to save rules",
-        )
-            .into_response();
-    }
-
-    println!("Indicators guide updated successfully.");
-    (axum::http::StatusCode::OK, "Rules updated successfully.").into_response()
+    // M6 (production audit): the rules endpoint serves the MME indicators
+    // guide — a git-tracked spec doc. Writing attacker-controlled (or
+    // operator-edited) content into it was destructive (and, combined
+    // with the pre-K1 CORS posture, let any website overwrite the spec).
+    // The guide is now read-only over HTTP; edit it in the repo.
+    let _ = payload;
+    (
+        axum::http::StatusCode::METHOD_NOT_ALLOWED,
+        "The indicators guide is read-only over HTTP (edit docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md in the repo).",
+    )
+        .into_response()
 }

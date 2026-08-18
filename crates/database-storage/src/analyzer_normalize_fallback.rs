@@ -45,7 +45,9 @@ pub struct RawScalarInputs {
     pub choppiness: f64,
 }
 
-pub fn build_indicator_map_from_scalars(s: RawScalarInputs) -> HashMap<String, NormalizedIndicatorValue> {
+pub fn build_indicator_map_from_scalars(
+    s: RawScalarInputs,
+) -> HashMap<String, NormalizedIndicatorValue> {
     let mut m: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
     m.insert(
         "rsi".into(),

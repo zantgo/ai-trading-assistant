@@ -549,6 +549,121 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(tf.indicators['rsi'].signals![0].label).toBe('CONFIRMED_BULLISH_DIVERGENCE');
     });
 
+    it('completed_bar_expires_stale_divergence_signals', () => {
+        // Audit regression (C3): the divergence-preservation branch must
+        // apply ONLY to shadow frames. A completed frame that stops
+        // re-emitting a divergence is the backend's authoritative expiry
+        // (signals that stop firing are simply dropped — there is no
+        // "expired" marker). Preserving on completed frames froze retired
+        // divergences in the UI forever with a stale `age_bars`.
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+
+        const potentialBullish = {
+            kind: 'Divergence',
+            direction: 'Bullish',
+            status: 'Potential',
+            label: 'POTENTIAL_BULLISH_DIVERGENCE',
+            strength: 0.5,
+            age_bars: 0,
+            points: null,
+        } as const;
+
+        // Completed candle carries the divergence.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {
+                rsi: {
+                    raw_value: 28.5,
+                    normalized: 0.75,
+                    state_label: 'OVERSOLD_ACCUMULATION',
+                    signals: [potentialBullish],
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].signals).toHaveLength(1);
+
+        // Next completed candle no longer emits the divergence — it must
+        // disappear, not be re-supplied from the previous tick.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '64900.00',
+            indicators: {
+                rsi: {
+                    raw_value: 45.0,
+                    normalized: 0.2,
+                    state_label: 'RSI_NEUTRAL',
+                    signals: [],
+                },
+            },
+        }), 'BTC-USDT');
+        expect(tf.indicators['rsi'].signals).toHaveLength(0);
+    });
+
+    it('shadow_tick_preserves_liquidity_signals_until_next_completed_frame', () => {
+        // Audit regression (M2): the backend shadow path sends an empty
+        // `liquidity_signals` array. Reassigning unconditionally emptied
+        // the LiquidityPanel signal list at up to 4 Hz between candle
+        // closes. Shadow frames must carry forward the previous list;
+        // completed frames remain the authoritative source.
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+
+        const signal = {
+            kind: 'CASCADE_DETECTED',
+            direction: 'Bearish',
+            strength: 65.0,
+            confidence: 0.8,
+            source: 'liquidity_flow',
+            symbol: 'BTC-USDT',
+            timestamp: 1700000000000,
+        } as const;
+
+        // Completed frame seeds the signal list.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65000.00',
+            indicators: {},
+            liquidity_signals: [signal],
+        }), 'BTC-USDT');
+        expect(tf.liquiditySignals).toHaveLength(1);
+
+        // Shadow frame with an empty list must NOT wipe it. Serde omits
+        // the field for empty lists — the serde-realistic shadow shape
+        // has NO `liquidity_signals` key at all.
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: false,
+            mid_price: '65010.00',
+            indicators: {},
+        }), 'BTC-USDT');
+        expect(tf.liquiditySignals).toHaveLength(1);
+
+        // Completed frame with no active signals clears the list. The
+        // backend omits the empty array (`skip_serializing_if =
+        // "Vec::is_empty"`), so the field is ABSENT — absence on a
+        // completed frame is the authoritative "no active signals".
+        applySnapshotToTimeframe(app, tf, wsEvent({
+            symbol: 'BTC',
+            timeframe_slot: 'micro',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65020.00',
+            indicators: {},
+        }), 'BTC-USDT');
+        expect(tf.liquiditySignals).toHaveLength(0);
+    });
+
     it('shadow_tick_merges_indicator_lifecycle_map_per_key', () => {
         // Regression: a sparse shadow frame must NOT wipe the prior
         // loading state for keys omitted from the incoming lifecycle map

@@ -95,7 +95,7 @@ function analysisStub(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         bias: 'Neutral',
         confidence: 0,
         state_confidence: 0,
-        market_regime: 'RANGE',
+        market_regime: 'Range',
         trend_assessment: 'Developing',
         momentum_assessment: 'Increasing',
         structure_assessment: 'Healthy',
@@ -205,14 +205,14 @@ function advisoryStub(overrides: Partial<AdvisoryMatrix> = {}): AdvisoryMatrix {
 
 function overviewStub(overrides: Partial<OverviewMatrix> = {}): OverviewMatrix {
     return {
-        global_market_bias: 'Bullish',
-        market_breadth: 'Positive',
+        global_market_bias: 'BULLISH',
+        market_breadth: 'POSITIVE',
         regime_distribution: {},
         opportunity_distribution: {},
         risk_distribution: { low_pct: 0, moderate_pct: 0, high_pct: 0, risk_environment: 'LOW' },
         asset_ranking: [],
-        market_synchronization: 'Synchronized',
-        market_health: 'Healthy',
+        market_synchronization: 'SYNCHRONIZED',
+        market_health: 'HEALTHY',
         global_summary: '',
         instance_count: 3,
         active_symbols: [],
@@ -284,8 +284,8 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
     });
 
     it('badge = overall_label, sublabel suppressed when regime is implied by label', () => {
-        const spec = buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH', regime: 'TRENDING', overall_score: 80 })));
-        expect(spec.badge.label).toBe('BULLISH');
+        const spec = buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 80 })));
+        expect(spec.badge.label).toBe('STRONG BULL');
         // regime 'TRENDING' is implied by 'BULLISH' label → suppressed
         expect(spec.badge.sublabel).toBeUndefined();
         expect(spec.status).toBe('live');
@@ -293,8 +293,8 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
     });
 
     it('badge sublabel = regime when regime is NOT implied', () => {
-        const spec = buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH', regime: 'CONTRACTION', overall_score: 50 })));
-        expect(spec.badge.label).toBe('BULLISH');
+        const spec = buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'CONTRACTION', overall_score: 50 })));
+        expect(spec.badge.label).toBe('STRONG BULL');
         expect(spec.badge.sublabel).toBe('CONTRACTION');
     });
 
@@ -310,25 +310,25 @@ describe('buildL1MetricsHeader (L1 single-TF)', () => {
         // constants tfStatusFrom reads.
         (globalThis as any).WebSocket = { OPEN: 1, CLOSED: 3 };
         const closedWs = { wsMicro: { readyState: 3 /* CLOSED */ } as WebSocket };
-        expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH' })), closedWs).status).toBe('error');
-        const stale = tfStub(ctx({ overall_label: 'BULLISH' }));
+        expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL' })), closedWs).status).toBe('error');
+        const stale = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         stale.pipelineState = 'STALE';
         expect(buildL1MetricsHeader(stale).status).toBe('stale');
         // v6.13: a shadow tick (isCompleted=false) with a LIVE pipeline
         // stays live — `pipeline_state` is authoritative and the old
         // `!tf.isCompleted → loading` rule flashed "loading" between
         // candle closes on every healthy stream.
-        const shadow = tfStub(ctx({ overall_label: 'BULLISH' }));
+        const shadow = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         shadow.isCompleted = false;
         expect(buildL1MetricsHeader(shadow).status).toBe('live');
-        const failed = tfStub(ctx({ overall_label: 'BULLISH' }));
+        const failed = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         failed.pipelineState = 'FAILED';
         expect(buildL1MetricsHeader(failed).status).toBe('error');
-        const loading = tfStub(ctx({ overall_label: 'BULLISH' }));
+        const loading = tfStub(ctx({ overall_label: 'STRONG_BULL' }));
         loading.pipelineState = 'LOADING';
         expect(buildL1MetricsHeader(loading).status).toBe('loading');
         // Healthy completed tick stays live.
-        expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH' }))).status).toBe('live');
+        expect(buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL' }))).status).toBe('live');
     });
 });
 
@@ -338,7 +338,7 @@ describe('buildL1MtfHeader (L1 Multi-TF)', () => {
         expect(spec.badge.label).toBe('MTF SYNC');
         expect(spec.badge.sublabel).toBe('Synchronized');
         const tfs = spec.meta.find((c) => c.label === 'TFs')!;
-        expect(tfs.value).toBe('4/4');
+        expect(tfs.value).toBe('4 TF');
         const a = spec.meta.find((c) => c.label === 'Agreement')!;
         expect(a.value).toBe('75%');
         expect(spec.status).toBe('live');
@@ -371,7 +371,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
         expect(spec.badge.label).toBe('WEAK BULL');
         expect(spec.badge.color).toBe(biasColor('WEAK_BULL'));
         expect(spec.meta.find((c) => c.label === 'Score')).toBeUndefined();
-        expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4/4');
+        expect(spec.meta.find((c) => c.label === 'TFs')!.value).toBe('4 TF');
     });
 
     it('v6.10.19d (A): the Agreement chip is gone — the Timeframe Consensus meter lives in the panel header container', () => {
@@ -385,7 +385,7 @@ describe('buildL2AlignmentHeader (L2)', () => {
 describe('buildL3AnalysisHeader (L3)', () => {
     it('badge reads bias; Quality + Confidence chips; Regime hidden when redundant', () => {
         // bias='BULLISH' ∧ regime='TRENDING_BULL' is one fact, not two.
-        const a = analysisStub({ bias: 'Bullish', market_regime: 'TRENDING_BULL', market_quality: 'Good', state_confidence: 0.7 });
+        const a = analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull', market_quality: 'Good', state_confidence: 0.7 });
         const spec = buildL3AnalysisHeader(a);
         expect(spec.badge.label).toBe('Bullish');
         expect(spec.meta.some((c) => c.label === 'Quality')).toBe(true);
@@ -394,10 +394,10 @@ describe('buildL3AnalysisHeader (L3)', () => {
     });
 
     it('Regime chip is present when regime is NOT redundant with bias', () => {
-        const a = analysisStub({ bias: 'Bullish', market_regime: 'ACCUMULATION', market_quality: 'Average', state_confidence: 0.4 });
+        const a = analysisStub({ bias: 'Bullish', market_regime: 'Accumulation', market_quality: 'Average', state_confidence: 0.4 });
         const spec = buildL3AnalysisHeader(a);
         expect(spec.meta.some((c) => c.label === 'Regime')).toBe(true);
-        expect(spec.meta.find((c) => c.label === 'Regime')!.value).toBe('ACCUMULATION');
+        expect(spec.meta.find((c) => c.label === 'Regime')!.value).toBe('Accumulation');
     });
 
     it('confidence 0 renders as 0% amber (neutral)', () => {
@@ -481,7 +481,7 @@ describe('buildL4OpportunityHeader (L4)', () => {
             analysisStub({ timeframes_considered: 4, confidence: 0.26 }),
         );
         const tfs = spec.meta.find((m) => m.label === 'Timeframes')!;
-        expect(tfs.value).toBe('4/4');
+        expect(tfs.value).toBe('4 TF');
         const conf = spec.meta.find((m) => m.label === 'Confidence')!;
         expect(conf.value).toBe('26%');
         // The pre-existing bracket chips stay side-by-side in the same rail.
@@ -498,7 +498,7 @@ describe('buildL4OpportunityHeader (L4)', () => {
             analysisStub({ timeframes_considered: 3, confidence: 0.4 }),
         );
         expect(spec.badge.label).toBe('NO CLEAR SETUP');
-        expect(spec.meta.find((m) => m.label === 'Timeframes')!.value).toBe('3/4');
+        expect(spec.meta.find((m) => m.label === 'Timeframes')!.value).toBe('3 TF');
         expect(spec.meta.find((m) => m.label === 'Confidence')!.value).toBe('40%');
         // No bracket-derived chips in the no-clear branch.
         expect(spec.meta.find((m) => m.label === 'Score')).toBeUndefined();
@@ -647,9 +647,9 @@ describe('buildL7OverviewHeader (L7)', () => {
     const fetchState = { lastSuccessMs: 1_000_000, lastErrorMs: null, now: 1_000_500, pollIntervalMs: 3000 };
 
     it('badge reads global_market_bias + sublabel market_health', () => {
-        const spec = buildL7OverviewHeader(overviewStub({ market_health: 'Strong' }), fetchState);
-        expect(spec.badge.label).toBe('Bullish');
-        expect(spec.badge.sublabel).toBe('Strong');
+        const spec = buildL7OverviewHeader(overviewStub({ market_health: 'STRONG' }), fetchState);
+        expect(spec.badge.label).toBe('BULLISH');
+        expect(spec.badge.sublabel).toBe('STRONG');
     });
 
     it('status = live when lastSuccess is fresh (age < 2 × pollInterval)', () => {
@@ -690,13 +690,13 @@ describe('buildL7OverviewHeader (L7)', () => {
 describe('cross-layer invariants', () => {
     it('every builder returns a LayerHeaderSpec with one primary badge and zero secondary badges', () => {
         const specs: LayerHeaderSpec[] = [
-            buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH', regime: 'TRENDING', overall_score: 60 }))),
+            buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 60 }))),
             buildL1MtfHeader(alignmentStub({ timeframes_present: 4 }), 'Synchronized'),
             buildL2AlignmentHeader(alignmentStub({ mtf_overall_label: 'WEAK_BULL', mtf_overall_score: 10 })),
-            buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TRENDING_BULL' })),
+            buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull' })),
             buildL4OpportunityHeader(opportunityStub({ primary_opportunity: 'Pullback' }), 'Bullish'),
             buildL5RiskHeader(riskMatrixStub(riskStub({ score: 40, level: 'Moderate' }))),
-            buildL7OverviewHeader(overviewStub({ global_market_bias: 'Bullish' }), { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 }),
+            buildL7OverviewHeader(overviewStub({ global_market_bias: 'BULLISH' }), { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 }),
         ];
         for (const s of specs) {
             expect(s.badge).toBeDefined();
@@ -744,7 +744,7 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
     }
 
     it('L1 (per-TF bullish → green)', () => {
-        const spec = buildL1MetricsHeader(tfStub(ctx({ overall_label: 'BULLISH', regime: 'TRENDING', overall_score: 80 })));
+        const spec = buildL1MetricsHeader(tfStub(ctx({ overall_label: 'STRONG_BULL', regime: 'TRENDING', overall_score: 80 })));
         assertVocabulary(spec);
     });
 
@@ -769,7 +769,7 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
     });
 
     it('L3 (bullish → green)', () => {
-        const spec = buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TRENDING_BULL' }));
+        const spec = buildL3AnalysisHeader(analysisStub({ bias: 'Bullish', market_regime: 'TrendingBull' }));
         assertVocabulary(spec);
     });
 
@@ -843,28 +843,28 @@ describe('v7.0-prod — direction-vocabulary colour invariant (L1..L7)', () => {
         // breadth" — the display token demotes one tier and the sublabel
         // carries the pair count ("BULLISH (1 pair)"). Wire value intact.
         const spec = buildL7OverviewHeader(
-            overviewStub({ global_market_bias: 'StrongBullish', market_health: 'Poor', instance_count: 1, low_coverage: true }),
+            overviewStub({ global_market_bias: 'STRONG_BULLISH', market_health: 'POOR', instance_count: 1, low_coverage: true }),
             { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 },
         );
-        expect(spec.badge.label).toBe('Bullish');
+        expect(spec.badge.label).toBe('BULLISH');
         expect(spec.badge.sublabel).toContain('(1 pair)');
         // A 5-pair synchronized market keeps the STRONG token.
         const strong = buildL7OverviewHeader(
-            overviewStub({ global_market_bias: 'StrongBullish', market_health: 'Healthy', instance_count: 5 }),
+            overviewStub({ global_market_bias: 'STRONG_BULLISH', market_health: 'HEALTHY', instance_count: 5 }),
             { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 },
         );
-        expect(strong.badge.label).toBe('Strong Bullish');
-        expect(strong.badge.sublabel).toBe('Healthy');
+        expect(strong.badge.label).toBe('STRONG BULLISH');
+        expect(strong.badge.sublabel).toBe('HEALTHY');
     });
 
     it('L7 (bullish → green, bearish → red)', () => {
         const bull = buildL7OverviewHeader(
-            overviewStub({ global_market_bias: 'Bullish' }),
+            overviewStub({ global_market_bias: 'BULLISH' }),
             { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 },
         );
         expect(bull.badge.color).toBe('#4ade80');
         const bear = buildL7OverviewHeader(
-            overviewStub({ global_market_bias: 'Bearish' }),
+            overviewStub({ global_market_bias: 'BEARISH' }),
             { lastSuccessMs: 1, lastErrorMs: null, now: 2, pollIntervalMs: 3000 },
         );
         expect(bear.badge.color).toBe('#f87171');

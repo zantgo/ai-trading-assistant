@@ -163,7 +163,15 @@ impl ClockMonitor {
                     eprintln!("{}", msg);
                 }
                 if matches!(self.config.breach_action, BreachAction::Panic) {
-                    panic!("{}", msg);
+                    // K2 (production audit): `panic!` here ran inside the
+                    // spawned monitor task — `join_all` in main.rs
+                    // discarded the JoinError, so the configured hard-stop
+                    // killed only the monitor and the daemon kept running
+                    // with drift enforcement silently dead. Exit the
+                    // process (the operator explicitly chose hard-stop).
+                    eprintln!("{}", msg);
+                    eprintln!("ClockMonitor: breach_action=panic — terminating process");
+                    std::process::exit(1);
                 }
             }
             DriftVerdict::NetworkError {

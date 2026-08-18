@@ -40,10 +40,10 @@
         });
     }
 
-    // AL-2 (v6.10.10): the wire's AlignState can be STRONG_BULLISH /
-    // STRONG_BEARISH / MIXED / NO_DATA — the color helpers previously
-    // only matched BULLISH/Bearish, so strongly-aligned dimensions
-    // rendered as neutral gray cards.
+    // AL-2 (v6.10.10): the wire's AlignState is PascalCase — StrongBullish,
+    // StrongBearish, Bullish, Bearish, Neutral, Mixed, NoData. The helpers
+    // normalize case+underscores so both PascalCase and legacy SCREAMING
+    // payloads resolve; strongly-aligned dimensions must not render gray.
     function dimFillClass(score: number, state: string): string {
         if (score >= 100) return styles.dimFillConfluent;
         const s = String(state || '').toUpperCase().replace(/_/g, '');
@@ -58,10 +58,14 @@
         return styles.stateNeutral;
     }
     function shortStateLabel(state: string): string {
-        const s = state.toUpperCase();
-        if (s === 'STRONG_BULLISH') return 'STRONG';
-        if (s === 'STRONG_BEARISH') return 'STRONG';
-        if (s === 'NODATA' || s === 'NO_DATA') return 'NO DATA';
+        // Wire AlignState is PascalCase ("StrongBullish", "NoData").
+        // Strip underscores + uppercase so every casing resolves. The
+        // `STRONG_BULLISH` forms below can never arrive after the
+        // underscore-strip, but keeping them is harmless and self-documenting.
+        const s = String(state || '').toUpperCase().replace(/_/g, '');
+        if (s === 'STRONGBULLISH') return 'STRONG';
+        if (s === 'STRONGBEARISH') return 'STRONG';
+        if (s === 'NODATA') return 'NO DATA';
         return s;
     }
     function scoreClass(s: number): string {
@@ -275,10 +279,10 @@
             {#if alignment && alignment.timeframes_present > 0}
                 {#if alignment.trend_agreement_pct >= 75}
                     {#if mLabel(alignment.mtf_overall_label).toUpperCase() === 'NEUTRAL'}
-                        Multi-timeframe alignment shows <strong>moderate consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
+                        Multi-timeframe alignment shows <strong>moderate consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present} timeframes).
                         The composite score of {scoreText} is classified as <strong>NEUTRAL</strong> — the dimensions offset into a flat composite.
                     {:else}
-                        Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present}/4 timeframes).
+                        Multi-timeframe alignment shows <strong>strong directional consensus</strong> ({alignment.trend_agreement_pct.toFixed(0)}% agreement across {alignment.timeframes_present} timeframes).
                         The composite score of {scoreText} is classified as <strong>{mLabel(alignment.mtf_overall_label).toUpperCase()}</strong>.
                     {/if}
                     {#if alignment.signal_cross_tf_count > 0}

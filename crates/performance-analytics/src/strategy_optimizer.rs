@@ -31,8 +31,10 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
             continue;
         }
 
-        let mut by_regime: std::collections::HashMap<String, Vec<&database_storage::ClosedTradeRow>> =
-            std::collections::HashMap::new();
+        let mut by_regime: std::collections::HashMap<
+            String,
+            Vec<&database_storage::ClosedTradeRow>,
+        > = std::collections::HashMap::new();
         for t in &trades {
             let regime = t
                 .market_regime
@@ -65,10 +67,17 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
                 .filter(|t| t.realized_pnl < 0.0)
                 .map(|t| t.realized_pnl.abs())
                 .sum();
+            // AUDIT-F8: `f64::INFINITY` (no losing trades) silently
+            // serialized to `null` in the JSON response. Emit a finite
+            // sentinel that keeps the "undefeated regime" ordering semantics
+            // of the INFINITY sort (sorts above any real profit factor)
+            // while serializing as a number.
             let profit_factor = if gross_loss > 0.0 {
                 gross_profit / gross_loss
+            } else if gross_profit > 0.0 {
+                1_000_000.0
             } else {
-                f64::INFINITY
+                0.0
             };
 
             let total_pnl: f64 = regime_trades.iter().map(|t| t.realized_pnl).sum();

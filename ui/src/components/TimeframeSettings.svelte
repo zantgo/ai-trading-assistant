@@ -107,7 +107,7 @@
         return found ? found.label : `${seconds}s`;
     }
 
-    function buildIndicators(term: TermDraft): Record<string, number> {
+    function buildIndicators(term: TermDraft): Record<string, number | number[]> {
         return {
             ema_fast: term.emaFast, ema_medium: term.emaMedium, ema_slow: term.emaSlow, ema_long: term.emaLong,
             rsi_period: term.rsiPeriod,
@@ -133,6 +133,10 @@
             atr_multiplier_coefficient: term.atrMultiplier, atr_target_rr_ratio: term.atrTargetRR,
             volume_average_period: term.volumeAvgPeriod,
             rvol_threshold_institutional: term.rvolInstitutional, rvol_threshold_climax: term.rvolClimax,
+            // Per-TF leverage tiers — must round-trip with the backend
+            // IndicatorsConfig field or a save here silently resets them
+            // to the serde default [10] (WorkspaceSettings persists them).
+            heatmap_leverage_tiers: term.heatmapLeverageTiers ?? [10],
         };
     }
 

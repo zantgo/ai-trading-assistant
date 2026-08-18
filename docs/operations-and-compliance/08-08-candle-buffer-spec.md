@@ -46,7 +46,7 @@ The platform now has one canonical behavior per tier. Every exchange, every time
 [candle_buffer]
 size = 500                                # historical warmup depth (CB-01)
 stale_threshold_secs = 300                # CB-06/§4 stale-loading escalation
-sub_minute_skip_historical = true         # CB-05 (default true; set false only for legacy compatibility)
+sub_minute_skip_historical = false        # CB-05 / PRI-03 (v6.10.7): default is FALSE — sub-minute tiers state-replay warmup from the DB instead of booting empty; set true only for legacy "empty buffer" behaviour
 ```
 
 Per-instance `analysis_limit` blocks and the `analysis_limit` field on `TimeframeConfig` are **removed**. Any leftover value in `config.toml` after the migration is logged as a warning and ignored.
