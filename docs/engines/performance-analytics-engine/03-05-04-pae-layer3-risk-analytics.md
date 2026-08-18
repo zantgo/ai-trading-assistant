@@ -1,7 +1,7 @@
 # PAE Layer 3 — Risk Analytics Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/risk_analytics.rs`) is implemented and the Risk panel renders live data. Backtest-runner integration lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
+**Version:** 7.0 (2026-08-18) — v7: implemented; grouping keyed by setup type.
+**Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 3 of 4
 **Input Contract:** Portfolio equity history, Strategy Analytics Matrix (L2)

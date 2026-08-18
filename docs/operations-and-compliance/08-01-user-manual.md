@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -77,7 +77,7 @@ The single source of configuration truth is `config.toml` at the workspace root.
 - `indicators.<name>.<param>` — per-indicator lookback, threshold, smoothing window, etc.
 - `risk_per_trade_pct`, `leverage.cross_leverage`, `safety.*` — risk and safety gates
 - `symbols` — list of `Exchange:Symbol` instruments to ingest
-- `execution_policies` — user-defined rules (see [TAE Execution Policy](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md))
+- `[workspace.minimal_tae]` — automation risk tuning (see [TAE Overview §9](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md))
 
 For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 

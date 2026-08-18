@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -177,11 +177,11 @@ IF timeframes_present ≤ 1    → state_confidence  = min(state_confidence, 0.5
 state_confidence = clamp(state_confidence, 0, 1)
 ```
 
-> ⚠️ `signal_cross_tf_count` is a breadth heuristic (`round(0.3 × total
-> signals)`, see `02-01-alignment-matrix.md` §4.4) — not a distinct-key
-> count. In practice it exceeds 3 whenever ≥2 timeframes contribute any
-> signals, so this `+0.10` branch fires almost always; treat it as
-> documentation of the current engine behavior, not a discriminative rule.
+> ⚠️ `signal_cross_tf_count` is the honest distinct cross-TF agreement count
+> (`02-01-alignment-matrix.md` §4.4 — not a `0.3 × total` heuristic since
+> AUDIT-H1). This `+0.10` branch fires when ≥3 distinct signal identities are
+> genuinely shared across timeframes — a discriminative rule that only fires
+> on real multi-TF signal agreement.
 
 ### 4.2 Assessment Thresholds
 

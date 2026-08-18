@@ -1,6 +1,7 @@
 use core_domain::portfolio::{
     CapitalMatrix, ExposureMatrix, PortfolioMatrix, PositionMatrix, SafetyState,
 };
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 pub fn compute_portfolio_matrix(
@@ -9,8 +10,7 @@ pub fn compute_portfolio_matrix(
     capital: &CapitalMatrix,
     safety_state: SafetyState,
     systemic_risk_score: f64,
-    active_stances: &HashMap<String, String>,
-    default_stances: &HashMap<String, String>,
+    peak_equity: Decimal,
     consecutive_losses: &HashMap<String, u32>,
     drawdown_limit_pct: f64,
 ) -> PortfolioMatrix {
@@ -29,11 +29,9 @@ pub fn compute_portfolio_matrix(
         max_daily_drawdown_pct: capital.max_daily_drawdown_pct,
         drawdown_limit_pct: rust_decimal::Decimal::from_f64_retain(drawdown_limit_pct)
             .unwrap_or_default(),
-        peak_equity: rust_decimal::Decimal::default(),
+        peak_equity,
         safety_state,
         systemic_risk_score,
-        active_stances: active_stances.clone(),
-        default_stances: default_stances.clone(),
         consecutive_losses: consecutive_losses.clone(),
         position_count: positions.len() as u32,
     }

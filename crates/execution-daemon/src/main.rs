@@ -429,6 +429,7 @@ fn apply_setup_to_config(
         macro_term: find("macro").map(tf_for),
         automation: config_models::AutomationConfig::default(),
         operational_mode: config_models::OperationalMode::default(),
+        mode: config_models::ExecutionMode::Paper,
         weight_overrides: None,
         position_scaling: None,
         activation: None,
@@ -866,18 +867,26 @@ async fn main() {
     let latency_tracker = Arc::new(core_domain::LatencyTracker::default());
 
     let execution_engine = Arc::new({
-        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new();
+        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig {
+                maker_fee_pct: workspace.fees.maker_fee_pct,
+                taker_fee_pct: workspace.fees.taker_fee_pct,
+                funding_rate_8h: workspace.fees.funding_rate_8h,
+                simulated_spread_pct: 0.01,
+            },
+        );
         engine.set_db(Arc::new(db_pool.clone()));
         engine
+            .set_cross_leverage(workspace.leverage.cross_leverage)
+            .await;
+        engine
     });
-    *execution_engine.slippage_ceiling_pct.write().await = workspace.execution.slippage_ceiling_pct;
-    execution_engine
-        .set_fee_config(
-            workspace.fees.maker_fee_pct,
-            workspace.fees.taker_fee_pct,
-            workspace.leverage.cross_leverage,
-        )
-        .await;
+
+    // v7 TAE setup executor (shared with the API surface).
+    let setup_executor = Arc::new(portfolio_supervisor::setup_executor::SetupExecutor::new(
+        execution_engine.clone(),
+        &workspace.minimal_tae,
+    ));
 
     let platform_arc = Arc::new(RwLock::new(platform));
     let workspace_state = WorkspaceState::new(workspace.clone());
@@ -922,6 +931,11 @@ async fn main() {
         bitget_ws_url: bg_ws_url.clone(),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: execution_engine.clone(),
+        automation: if workspace.minimal_tae.enabled {
+            Some(setup_executor.clone())
+        } else {
+            None
+        },
         recharge_tx: recharge_tx.clone(),
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
@@ -1032,24 +1046,7 @@ async fn main() {
         }
     }
 
-    // ── TAE: Policy & Execution Engines ─────────────────────────────
-    let policy_engine = Arc::new(RwLock::new(
-        portfolio_supervisor::policy::engine::PolicyEngine::new(
-            workspace.execution_policies.clone(),
-        ),
-    ));
-    let paper_engine = Arc::new({
-        let mut engine = portfolio_supervisor::paper_trading::PaperTradingEngine::new(
-            portfolio_supervisor::paper_trading::FeesConfig {
-                maker_fee_pct: workspace.fees.maker_fee_pct,
-                taker_fee_pct: workspace.fees.taker_fee_pct,
-                funding_rate_8h: workspace.fees.funding_rate_8h,
-                simulated_spread_pct: 0.01,
-            },
-        );
-        engine.set_db(Arc::new(db_pool.clone()));
-        engine
-    });
+    // ── TAE v7: unified execution engine — equity seeding ─────────────
     {
         let total_capital: f64 = workspace
             .instances
@@ -1057,17 +1054,63 @@ async fn main() {
             .map(|e| e.initial_capital_usd)
             .sum();
         if total_capital > 0.0 {
-            *paper_engine.equity.write().await =
-                rust_decimal::Decimal::from_f64_retain(total_capital)
-                    .unwrap_or(rust_decimal_macros::dec!(10000));
+            execution_engine
+                .set_initial_equity(
+                    rust_decimal::Decimal::from_f64_retain(total_capital)
+                        .unwrap_or(rust_decimal_macros::dec!(10000)),
+                )
+                .await;
         }
     }
 
-    if !workspace.execution_policies.is_empty() {
+    let tae_enabled = workspace.minimal_tae.enabled;
+    if tae_enabled {
         println!(
-            "⚡ TAE: Initialized with {} execution policies",
-            workspace.execution_policies.len()
+            "⚡ TAE v7: Setup executor enabled (risk_per_trade={}%, min_rr={}, max_positions={})",
+            workspace.minimal_tae.risk_per_trade_pct,
+            workspace.minimal_tae.min_net_rr,
+            workspace.minimal_tae.max_open_positions
         );
+    }
+
+    // ── Phase E1: live trading bootstrap ─────────────────────────────
+    // When any instance declares `mode = "live"`, load the active
+    // Hyperliquid credential from the encrypted `exchange_keys` table and
+    // swap the engine onto the LiveBroker backend. Fills then arrive from
+    // the venue (polled in the executor loop) instead of the simulation.
+    let any_live = workspace
+        .instances
+        .iter()
+        .any(|i| i.mode == config_models::ExecutionMode::Live);
+    if any_live {
+        if !workspace
+            .default_exchange
+            .eq_ignore_ascii_case("hyperliquid")
+        {
+            panic!("mode = \"live\" requires default_exchange = \"Hyperliquid\" (Bitget live dispatch is not yet supported)");
+        }
+        let key_row = sqlx::query_as::<_, (String, String)>(
+            "SELECT api_key, api_secret FROM exchange_keys \
+             WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
+        )
+        .fetch_optional(&db_pool)
+        .await
+        .expect("live-mode key query");
+        let (address, secret_enc) = match key_row {
+            Some(row) => row,
+            None => panic!(
+                "mode = \"live\" requires an active Hyperliquid API key \
+                 (POST /api/keys with EXCHANGE_SECRET_KEY set)"
+            ),
+        };
+        let secret = database_storage::crypto::decrypt_field(&secret_enc)
+            .expect("failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?)");
+        let is_mainnet = true;
+        let broker = portfolio_supervisor::execution::backend::LiveBroker::new(
+            address, secret, is_mainnet, None,
+        );
+        execution_engine.set_live_backend(Box::new(broker)).await;
+        println!("🔴 TAE v7: LIVE mode active — orders dispatch to Hyperliquid");
     }
 
     // ── Clock-drift monitor (NTP-based) — must run BEFORE build_router
@@ -1107,336 +1150,177 @@ async fn main() {
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     handles.push(logger_handle);
 
-    // ── PME Veto Loop ────────────────────────────────────────────────
-    let (veto_tx, mut veto_rx) =
-        tokio::sync::mpsc::channel::<portfolio_supervisor::veto_loop::VetoEvent>(64);
-    {
-        let veto_workspace = workspace_state.clone();
-        let veto_paper = paper_engine.clone();
-        let veto_overview = app_state.overview.clone();
-        handles.push(portfolio_supervisor::veto_loop::spawn_veto_loop(
-            veto_workspace,
-            veto_paper,
-            veto_overview,
-            veto_tx,
-        ));
-    }
-    println!("🛡️  PME: Veto safety loop started (5s cadence)");
-
-    // ── TAE event loop ──────────────────────────────────────────────
-    if !workspace.execution_policies.is_empty() {
-        let tae_policy = policy_engine.clone();
-        let tae_exec = execution_engine.clone();
-        let tae_paper = paper_engine.clone();
+    // ── TAE v7: Setup Executor loop ───────────────────────────────────
+    if tae_enabled {
+        let tae_engine = execution_engine.clone();
+        let tae_executor = setup_executor.clone();
         let tae_workspace = workspace_state.clone();
         let tae_cancel = CancellationToken::new();
-        let tae_pool = db_pool.clone();
         handles.push(tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(5));
+            let executor = tae_executor;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             let mut funding_tick: u64 = 0;
             let funding_interval_secs: u64 = 8 * 3600; // 8h funding settlement
 
-            // Trigger engine: track candle completions per timeframe
-            let candle_counters: std::sync::Arc<tokio::sync::RwLock<
-                std::collections::HashMap<String, u32>,
-            >> = std::sync::Arc::new(tokio::sync::RwLock::new(
-                std::collections::HashMap::new(),
-            ));
-
-            // Per-timeframe last-candle counters for CandleClose triggers
-            let mut last_seen_candles: std::collections::HashMap<String, u32> =
-                std::collections::HashMap::new();
+            // Boot-time recovery: log recovery-flatten for persisted open state.
+            {
+                let instances = tae_workspace.list().await;
+                for inst in &instances {
+                    executor.recover(&inst.id, &inst.symbol()).await;
+                }
+            }
 
             loop {
                 tokio::select! {
                     _ = tae_cancel.cancelled() => break,
                     _ = interval.tick() => {
-                        let now_secs = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs();
-
-                        // Periodic funding rate settlement
-                        funding_tick += 5;
+                        funding_tick += 1;
                         if funding_tick >= funding_interval_secs {
-                            tae_paper.settle_funding().await;
+                            tae_engine.settle_funding().await;
                             funding_tick = 0;
                         }
 
                         let instances = tae_workspace.list().await;
                         for inst in instances {
-                            let snapshot_guard = inst.micro.latest.read().await;
-                            let mut lifecycle = inst.lifecycle.write().await;
+                            let symbol = inst.symbol();
 
-                            // Evaluate automation conditions
-                            let current_price = snapshot_guard.as_ref()
-                                .and_then(|s| s.close.as_ref())
-                                .and_then(|c| c.to_string().parse::<f64>().ok());
-                            let auto_actions = lifecycle.evaluate_automation(current_price);
-                            for action in auto_actions {
-                                match action {
-                                    portfolio_supervisor::lifecycle::AutomationAction::Start => {
-                                        let _ = lifecycle.start("automation", Some("Auto start condition".into()));
-                                        eprintln!("🤖 LIFECYCLE: Auto-started instance {}", inst.id);
-                                    }
-                                    portfolio_supervisor::lifecycle::AutomationAction::Pause => {
-                                        let _ = lifecycle.pause("automation", Some("Auto pause condition".into()));
-                                        eprintln!("🤖 LIFECYCLE: Auto-paused instance {}", inst.id);
-                                    }
-                                    portfolio_supervisor::lifecycle::AutomationAction::Stop => {
-                                        let _ = lifecycle.stop("automation", Some("Auto stop condition".into()));
-                                        eprintln!("🤖 LIFECYCLE: Auto-stopped instance {}", inst.id);
-                                    }
-                                }
+                            // Gather the latest completed snapshot of each TF.
+                            let mut guards: Vec<tokio::sync::RwLockReadGuard<
+                                Option<core_domain::models::MarketSnapshot>,
+                            >> = Vec::new();
+                            for buf in [&inst.micro, &inst.fast, &inst.slow, &inst.r#macro] {
+                                guards.push(buf.latest.read().await);
+                            }
+                            let snaps: Vec<&core_domain::models::MarketSnapshot> =
+                                guards.iter().filter_map(|g| g.as_ref()).collect();
+                            if snaps.is_empty() {
+                                continue;
                             }
 
-                            let lifecycle_state = lifecycle.state;
+                            let mid = snaps
+                                .iter()
+                                .find_map(|s| {
+                                    if s.mid_price > rust_decimal_macros::dec!(0) {
+                                        Some(s.mid_price)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or_else(|| snaps[0].mid_price);
 
-                            // ── STOPPING → STOPPED auto-transition ──
-                            if lifecycle_state == config_models::LifecycleState::Stopping {
-                                let paper_positions = tae_paper.positions.read().await;
-                                let has_positions = paper_positions.contains_key(&inst.symbol());
-                                drop(paper_positions);
-                                let orders = tae_exec.orders.read().await;
-                                let has_open_orders = orders.iter().any(
-                                    |(_, o)| o.packet.symbol == inst.symbol()
-                                        && o.status != config_models::OrderStatus::Closed
-                                        && o.status != config_models::OrderStatus::Cancelled
-                                        && o.status != config_models::OrderStatus::Rejected
-                                );
-                                drop(orders);
-                                if !has_positions && !has_open_orders {
-                                    let _ = lifecycle.complete_stop().await;
-                                    eprintln!("🛑 LIFECYCLE: Instance {} → STOPPED (flatten confirmed)", inst.id);
-                                    drop(lifecycle);
-                                    continue;
-                                }
+                            // Lifecycle automation conditions (auto start/pause/stop).
+                            {
+                                let mut lifecycle = inst.lifecycle.write().await;
+                                let current_price = snaps
+                                    .iter()
+                                    .find_map(|s| s.close.as_ref())
+                                    .and_then(|c| c.to_string().parse::<f64>().ok());
+                                let auto_actions = lifecycle.evaluate_automation(current_price);
                                 drop(lifecycle);
+                                for action in auto_actions {
+                                    let mut lc = inst.lifecycle.write().await;
+                                    match action {
+                                        portfolio_supervisor::lifecycle::AutomationAction::Start => {
+                                            let _ = lc.start("automation", Some("Auto start condition".into()));
+                                            eprintln!("🤖 LIFECYCLE: Auto-started instance {}", inst.id);
+                                        }
+                                        portfolio_supervisor::lifecycle::AutomationAction::Pause => {
+                                            let _ = lc.pause("automation", Some("Auto pause condition".into()));
+                                            eprintln!("🤖 LIFECYCLE: Auto-paused instance {}", inst.id);
+                                        }
+                                        portfolio_supervisor::lifecycle::AutomationAction::Stop => {
+                                            let _ = lc.stop("automation", Some("Auto stop condition".into()));
+                                            eprintln!("🤖 LIFECYCLE: Auto-stopped instance {}", inst.id);
+                                        }
+                                    }
+                                }
+                            }
+
+                            let lifecycle_state = {
+                                let lc = inst.lifecycle.read().await;
+                                lc.state
+                            };
+
+                            // STOPPING → STOPPED: flatten at market, then complete.
+                            if lifecycle_state == config_models::LifecycleState::Stopping {
+                                tae_engine.cancel_orders_for_symbol(&symbol).await;
+                                let _ = tae_engine
+                                    .close_position(&symbol, mid, "stop_flatten")
+                                    .await;
+                                let has_position =
+                                    tae_engine.get_position(&symbol).await.is_some();
+                                if !has_position {
+                                    let mut lc = inst.lifecycle.write().await;
+                                    let _ = lc.complete_stop().await;
+                                    eprintln!("🛑 LIFECYCLE: Instance {} → STOPPED (flatten confirmed)", inst.id);
+                                }
                                 continue;
                             }
 
-                            drop(lifecycle);
+                            let lifecycle_running =
+                                lifecycle_state == config_models::LifecycleState::Running;
 
-                            // Skip if STOPPED (no new triggers)
-                            if lifecycle_state == config_models::LifecycleState::Stopped {
-                                continue;
+                            // Safety soft gate: no new entries in DRAWDOWN_STOP/SUSPENDED.
+                            let safety_state = *inst.safety.safety_state.read().await;
+                            let safety_allows = safety_state != SafetyState::DrawdownStop
+                                && safety_state != SafetyState::Suspended;
+
+                            let candle_ts = snaps.iter().map(|s| s.timestamp).max().unwrap_or(0);
+
+                            // Mark-to-market (live unrealized PnL for display).
+                            if tae_engine.get_position(&symbol).await.is_some() {
+                                tae_engine.mark_to_market(&symbol, mid).await;
                             }
 
-                            // ── Process PME veto events (VetoHandler-driven) ──
-                            let mut veto_handlers: Vec<portfolio_supervisor::policy::veto::VetoHandler> = Vec::new();
-                            while let Ok(veto) = veto_rx.try_recv() {
-                                if veto.instance_id != inst.id {
-                                    continue;
-                                }
-                                eprintln!(
-                                    "⚡ TAE: Processing veto for {} — stance={:?} hard_exit={}",
-                                    veto.symbol, veto.target_stance, veto.hard_exit
-                                );
-
-                                let prev_stance = inst.stances.read().await
-                                    .get(&veto.symbol).copied().unwrap_or(config_models::Stance::Active);
-
-                                let mut handler = portfolio_supervisor::policy::veto::VetoHandler::new(2000);
-                                handler.initiate(portfolio_supervisor::policy::veto::VetoEvent {
-                                    symbol: veto.symbol.clone(),
-                                    target_stance: veto.target_stance,
-                                    reason: veto.reason.clone(),
-                                    timestamp_ms: veto.timestamp_ms,
-                                });
-
-                                // Step 2a: Hard Exit (AVOID only) — BEFORE stance change
-                                if handler.needs_hard_exit() {
-                                    tae_exec.hard_exit_for_symbol(&veto.symbol).await;
-                                    eprintln!("🔥 VETO: Hard Exit dispatched for {}", veto.symbol);
-                                }
-                                handler.advance_phase(); // → DiscardPending
-                                handler.advance_phase(); // → CommitStance
-
-                                // Step 2c: Commit stance change
-                                let mut stances = inst.stances.write().await;
-                                stances.insert(veto.symbol.clone(), veto.target_stance);
-                                drop(stances);
-                                handler.advance_phase(); // → CancelRemaining
-
-                                // Step 2d: Cancel remaining orders
-                                tae_exec.cancel_all_orders(&veto.symbol).await;
-                                handler.advance_phase(); // → NullifyEntry
-                                handler.advance_phase(); // → Audit
-
-                                // Step 2f: Audit log
-                                let log = portfolio_supervisor::policy::veto::VetoLog::new(
-                                    &portfolio_supervisor::policy::veto::VetoEvent {
-                                        symbol: veto.symbol.clone(),
-                                        target_stance: veto.target_stance,
-                                        reason: veto.reason.clone(),
-                                        timestamp_ms: veto.timestamp_ms,
+                            // Fills first (entry, TP, SL), then the state machine.
+                            if tae_engine.mode().await == config_models::ExecutionMode::Live {
+                                let fills = tae_engine
+                                    .backend
+                                    .read()
+                                    .await
+                                    .poll_fills()
+                                    .await
+                                    .into_iter()
+                                    .map(|f| portfolio_supervisor::execution::backend::Fill {
+                                        order_id: f.order_id,
+                                        price: f.price,
+                                    })
+                                    .collect();
+                                tae_engine.apply_external_fills(fills).await;
+                            } else {
+                                tae_engine.evaluate_order_fills(mid).await;
+                            }
+                            executor
+                                .tick(
+                                    &inst.id,
+                                    &symbol,
+                                    snaps,
+                                    mid,
+                                    portfolio_supervisor::setup_executor::TickContext {
+                                        safety_allows_entry: safety_allows,
+                                        lifecycle_running,
+                                        candle_ts,
+                                        safety: Some(inst.safety.clone()),
                                     },
-                                    prev_stance,
-                                    veto.hard_exit,
-                                );
-                                eprintln!(
-                                    "📋 VETO LOG: symbol={} from={:?} to={:?} reason={} hard_exit={}",
-                                    log.symbol, log.from_stance, log.to_stance, log.reason, log.hard_exit_dispatched
-                                );
-
-                                let _ = sqlx::query(
-                                    "INSERT INTO risk_control_events (instance_id, symbol, gate_id, decision, reason, timestamp_ms) VALUES (?, ?, ?, ?, ?, ?)"
                                 )
-                                .bind(&inst.id)
-                                .bind(&veto.symbol)
-                                .bind(7i64)
-                                .bind("VETO_BLOCK")
-                                .bind(&veto.reason)
-                                .bind(veto.timestamp_ms as i64)
-                                .execute(&tae_pool)
                                 .await;
 
-                                veto_handlers.push(handler);
-                            }
-
-                            if let Some(ref snap) = *snapshot_guard {
-                                if snap.is_completed != Some(true) {
-                                    continue;
-                                }
-
-                                // Track candle completions for CandleClose triggers
-                                let timeframe_label = &snap.symbol;
-                                {
-                                    let mut counters = candle_counters.write().await;
-                                    let count = counters.entry(timeframe_label.clone())
-                                        .and_modify(|c| *c += 1)
-                                        .or_insert(1);
-                                    last_seen_candles.insert(timeframe_label.clone(), *count);
-                                }
-
-                                let stances = inst.stances.read().await;
-                                let symbol = snap.symbol.clone();
-                                let stance = stances.get(&symbol).copied()
-                                    .unwrap_or(config_models::Stance::Active);
-
-                                // Sync safety state from instance to execution engine
-                                {
-                                    let safety_state = *inst.safety.safety_state.read().await;
-                                    // Audit fix (M1): `format!("{:?}")` produced the
-                                    // PascalCase Debug spelling ("DrawdownStop"), but
-                                    // Gate 7 matches the SCREAMING_SNAKE wire values
-                                    // ("DRAWDOWN_STOP"/"SUSPENDED") — the direct
-                                    // safety-state guard never fired. Use the
-                                    // canonical `as_str()` form.
-                                    let safety_str = safety_state.as_str();
-                                    tae_exec.set_safety_state(safety_str).await;
-                                }
-
-                                // Auto-pause policies for symbols in Cautious/Suspended safety states
-                                {
-                                    let safety_state = *inst.safety.safety_state.read().await;
-                                    let should_auto_pause = matches!(
-                                        safety_state,
-                                        SafetyState::Cautious
-                                            | SafetyState::Suspended
-                                    );
-                                    let policy_ids: Vec<String> = {
-                                        let policy = tae_policy.read().await;
-                                        policy.get_active_stance_policies()
-                                            .iter()
-                                            .filter(|p| p.symbol == symbol)
-                                            .map(|p| p.policy_id.clone())
-                                            .collect()
-                                    };
-                                    if !policy_ids.is_empty() {
-                                        let mut policy = tae_policy.write().await;
-                                        for pid in &policy_ids {
-                                            policy.set_policy_auto_paused(pid, should_auto_pause);
-                                            if should_auto_pause {
-                                                eprintln!("⏸️  POLICY AUTO_PAUSED: policy={} symbol={} safety={:?}", pid, symbol, safety_state);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Check which policies are due per their TriggerMode
-                                let candles_completed = last_seen_candles
-                                    .get(timeframe_label).copied().unwrap_or(0);
-                                let pending_events: Vec<String> = vec![]; // EventDriven events would come from MME
-
-                                let policies_due: Vec<config_models::ExecutionPolicy> = {
-                                    let policy = tae_policy.read().await;
-                                    policy.get_active_stance_policies()
-                                        .iter()
-                                        .filter(|p| {
-                                            policy.is_policy_due(
-                                                &p.policy_id,
-                                                &p.trigger_mode,
-                                                now_secs,
-                                                candles_completed,
-                                                &pending_events,
-                                            )
-                                        })
-                                        .map(|&p| p.clone())
-                                        .collect()
-                                };
-
-                                if !policies_due.is_empty() {
-                                    let triggers = {
-                                        let mut policy = tae_policy.write().await;
-                                        let triggers = policy.evaluate_policies(snap, now_secs);
-                                        for due_policy in &policies_due {
-                                            if matches!(due_policy.trigger_mode, config_models::TriggerMode::Interval { .. }) {
-                                                policy.mark_interval_evaluated(&due_policy.policy_id, now_secs);
-                                            }
-                                        }
-                                        triggers
-                                    };
-
-                                    for trigger in &triggers {
-                                        match tae_exec.process_trigger(
-                                            trigger, snap,
-                                            lifecycle_state, stance,
-                                        ).await {
-                                            Ok(Some(order_id)) => {
-                                                let lifecycle = tae_exec.orders.read().await
-                                                    .get(&order_id)
-                                                    .map(|o| o.status);
-                                                let is_pre_dispatch = lifecycle == Some(config_models::OrderStatus::PreDispatch);
-                                                if !is_pre_dispatch {
-                                                    let packet = tae_exec.orders.read().await
-                                                        .get(&order_id)
-                                                        .map(|o| o.packet.clone());
-                                                    if let Some(pkt) = packet {
-                                                        let _ = tae_paper.submit_order(
-                                                            pkt,
-                                                            snap.mid_price,
-                                                        ).await;
-                                                    }
-                                                }
-                                            }
-                                            Ok(None) => {}
-                                            Err(e) => {
-                                                eprintln!("TAE: trigger error: {}", e);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Evaluate pending paper order fills
-                            if let Some(ref snap) = *snapshot_guard {
-                                let _fills = tae_paper.evaluate_order_fills(snap.mid_price).await;
-                            }
-
-                            // Sync paper engine equity back to instance trading state
-                            let current_equity = tae_paper.get_equity().await;
+                            // Equity sync + PME informational safety update
+                            // (peak equity, daily PnL, WARN / DRAWDOWN_STOP).
+                            let current_equity = tae_engine.get_equity().await;
                             inst.set_current_equity(current_equity).await;
-                            inst.safety.set_current_equity(
-                                rust_decimal::Decimal::from_f64_retain(current_equity)
-                                    .unwrap_or_default(),
-                            ).await;
+                            inst.safety
+                                .update(
+                                    rust_decimal::Decimal::from_f64_retain(current_equity)
+                                        .unwrap_or_default(),
+                                )
+                                .await;
                         }
                     }
                 }
             }
         }));
+        println!("⚡ TAE v7: Setup executor loop started (1s cadence)");
     }
 
     // ── L7 Overview aggregation task ──────────────────────────

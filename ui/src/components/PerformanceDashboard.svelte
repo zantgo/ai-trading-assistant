@@ -22,18 +22,64 @@
     let tradeRecords = $state<TradeAnalyticsRecord[]>([]);
     let errorMsg = $state<string | null>(null);
 
-    // ── Backtesting state ──────────────────────────────────────────────
-    let btPolicy = $state('btc-trend-follow');
-    let btStartDate = $state('2024-01-01');
-    let btEndDate = $state('2025-01-01');
-    let btCapital = $state(10000);
-    let btFeePct = $state(0.06);
+    // ── Backtesting state (v7: live /api/backtest/run) ────────────────
+    const btSymbols = $derived(Object.keys(app.instancesMap).length > 0 ? Object.keys(app.instancesMap) : ['BTC-USDC']);
+    let btSymbol = $state('BTC-USDC');
+    let btTimeframe = $state(60);
+    let btStartDate = $state(new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
+    let btEndDate = $state(new Date().toISOString().slice(0, 10));
+    let btCapital = $state(1000);
     let btRunning = $state(false);
-    let btResultsReady = $state(false);
+    let btError = $state('');
+    let btResult = $state<{
+        backtest_id: number;
+        summary: { total_trades: number; win_count: number; loss_count: number; win_rate: number; gross_profit: number; gross_loss: number; profit_factor: number | null; expectancy: number; max_drawdown_pct: number };
+        stats: StrategyAnalyticsRow;
+        trades: { timestamp: number; direction: string; entry_price: number; exit_price: number; size: number; pnl: number; exit_reason: string }[];
+        equity_curve: [number, number][];
+    } | null>(null);
 
-    function runBacktest() {
+    async function runBacktest() {
         btRunning = true;
-        setTimeout(() => { btRunning = false; btResultsReady = true; }, 1200);
+        btError = '';
+        btResult = null;
+        try {
+            const fromMs = Date.parse(btStartDate);
+            const toMs = Date.parse(btEndDate) + 864e5 - 1;
+            if (!isFinite(fromMs) || !isFinite(toMs)) throw new Error('Invalid date range');
+            const res = await fetch('/api/backtest/run', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: btSymbol,
+                    timeframe_secs: Number(btTimeframe),
+                    from_ms: fromMs,
+                    to_ms: toMs,
+                    initial_capital: Number(btCapital),
+                }),
+            });
+            if (!res.ok) throw new Error('Backtest failed: HTTP ' + res.status);
+            btResult = await res.json();
+        } catch (e: any) {
+            btError = e?.message ?? 'Backtest failed';
+        } finally {
+            btRunning = false;
+        }
+    }
+
+    function equityPath(points: [number, number][]): string {
+        if (!points || points.length < 2) return '';
+        const xs = points.map((p) => p[0]);
+        const ys = points.map((p) => p[1]);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const w = 600, h = 180;
+        const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
+        return points.map(([x, y], i) => {
+            const px = ((x - minX) / spanX) * w + 20;
+            const py = h - ((y - minY) / spanY) * h + 10;
+            return (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+        }).join(' ');
     }
 
     const sessionCapital = $derived(app.sessionCapital ?? 10000);
@@ -218,28 +264,28 @@
 
             {:else if activePanel === 'strategy'}
                 <h3 class={styles.sectionTitle}>Strategy Analytics</h3>
-                <p class={styles.sectionDesc}>Null Hypothesis Significance Testing — determines whether each policy generates a statistically significant positive edge (H₀: μ ≤ 0 vs H₁: μ > 0).</p>
+                <p class={styles.sectionDesc}>Null Hypothesis Significance Testing — determines whether each setup type generates a statistically significant positive edge (H₀: μ ≤ 0 vs H₁: μ > 0). An edge is significant at α = {fmtNum(strategyRows[0]?.alpha ?? 0.05, 2)} when both p-values are below it; p_mc comes from 10,000 Monte Carlo sign-randomization runs.</p>
                 {#if strategyRows.length === 0}
                     <div class={styles.equityPlaceholder}>No strategy data available. Trades must be closed for NHST analysis.</div>
                 {:else}
                     <table class={styles.table}>
                         <thead>
                             <tr>
-                                <th>Policy</th>
+                                <th>Setup Type</th>
                                 <th>Trades</th>
                                 <th>Win Rate</th>
                                 <th>Profit Factor</th>
                                 <th>Expectancy</th>
                                 <th>T-Stat</th>
                                 <th>P-Value</th>
-                                <th>P_MC</th>
-                                <th>Classification</th>
+                                <th>P_MC (10k)</th>
+                                <th>Edge</th>
                             </tr>
                         </thead>
                         <tbody>
                             {#each strategyRows as row}
                                 <tr>
-                                    <td>{row.policy_id}</td>
+                                    <td>{row.setup_type}</td>
                                     <td>{row.total_trades}</td>
                                     <td class={pnlClass(row.win_rate - 50)}>{fmtNum(row.win_rate)}%</td>
                                     <td>{fmtNum(row.profit_factor)}</td>
@@ -247,7 +293,12 @@
                                     <td>{fmtNum(row.t_statistic)}</td>
                                     <td>{fmtNum(row.p_value, 4)}</td>
                                     <td>{fmtNum(row.p_mc, 4)}</td>
-                                    <td><span class="{styles.badge} {classificationBadge(row.classification)}">{row.classification.replace(/([A-Z])/g, ' $1').trim()}</span></td>
+                                    <td>
+                                        <span class="{styles.badge} {classificationBadge(row.classification)}">{row.classification.replace(/([A-Z])/g, ' $1').trim()}</span>
+                                        {#if row.is_significant}
+                                            <span class={styles.badgeSig}>sig @ α={fmtNum(row.alpha, 2)}</span>
+                                        {/if}
+                                    </td>
                                 </tr>
                             {/each}
                         </tbody>
@@ -394,11 +445,20 @@
 
                 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem">
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
-                        <label for="bt-policy" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Strategy</label>
-                        <select id="bt-policy" bind:value={btPolicy} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem">
-                            <option value="btc-trend-follow">BTC Trend Following</option>
-                            <option value="eth-mean-reversion">ETH Mean Reversion</option>
-                            <option value="sol-breakout">SOL Breakout</option>
+                        <label for="bt-symbol" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Symbol</label>
+                        <select id="bt-symbol" bind:value={btSymbol} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem">
+                            {#each btSymbols as s (s)}
+                                <option value={s}>{s}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.25rem">
+                        <label for="bt-tf" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Timeframe</label>
+                        <select id="bt-tf" bind:value={btTimeframe} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem">
+                            <option value={60}>1m</option>
+                            <option value={300}>5m</option>
+                            <option value={900}>15m</option>
+                            <option value={3600}>1h</option>
                         </select>
                     </div>
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
@@ -413,10 +473,6 @@
                         <label for="bt-capital" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Capital ($)</label>
                         <input id="bt-capital" type="number" bind:value={btCapital} min="100" step="1000" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem; width:100px" />
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:0.25rem">
-                        <label for="bt-fee" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Fee %</label>
-                        <input id="bt-fee" type="number" bind:value={btFeePct} min="0" max="1" step="0.01" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem; width:70px" />
-                    </div>
                     <div style="display:flex; align-items:flex-end">
                         <button onclick={runBacktest} disabled={btRunning}
                             style="padding:0.45rem 1rem; background:#fff; border:none; border-radius:4px; color:#000; cursor:pointer; font-family:var(--mono); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; transition:opacity 0.15s; opacity:{btRunning ? '0.5' : '1'}; font-weight:700">
@@ -425,103 +481,103 @@
                     </div>
                 </div>
 
-                {#if !btResultsReady}
+                {#if btError}
+                    <div style="margin-top:1rem; padding:0.6rem; background:#2a0d0d; border:1px solid #5c1f1f; border-radius:6px; color:#ff7b7b; font-size:0.78rem">{btError}</div>
+                {/if}
+
+                {#if !btResult}
                     <div class={styles.equityPlaceholder} style="margin-top:1rem">
-                        Configure strategy parameters above and run the backtest to see results.
+                        Choose a symbol + timeframe and date range, then run the backtest. Results replay the recorded MME decisions through the setup executor (paper only) and apply the full significance treatment.
                     </div>
                 {:else}
-                    <h3 class={styles.sectionTitle} style="margin-top:1.25rem">Results — {btPolicy.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</h3>
-                    <p class={styles.sectionDesc}>{btStartDate} → {btEndDate} · Capital: ${btCapital.toLocaleString()} · Fee: {btFeePct}%</p>
+                    {@const s = btResult.summary}
+                    {@const st = btResult.stats}
+                    <h3 class={styles.sectionTitle} style="margin-top:1.25rem">Results — {btSymbol} · {btTimeframe}s</h3>
+                    <p class={styles.sectionDesc}>{btStartDate} → {btEndDate} · Capital: ${btCapital.toLocaleString()} · backtest #{btResult.backtest_id}</p>
 
                     <div class={styles.statsGrid}>
                         <div class={styles.statCard}>
                             <div class={styles.statLabel}>Total Trades</div>
-                            <div class={styles.statValue}>47</div>
+                            <div class={styles.statValue}>{s.total_trades}</div>
                         </div>
                         <div class={styles.statCard}>
                             <div class={styles.statLabel}>Win Rate</div>
-                            <div class={styles.statValue} style="color:#4caf50">61.7%</div>
-                            <div class={styles.statSub}>29W / 18L</div>
+                            <div class={styles.statValue} style="color:{s.win_rate >= 50 ? '#4caf50' : '#ef5350'}">{fmtNum(s.win_rate)}%</div>
+                            <div class={styles.statSub}>{s.win_count}W / {s.loss_count}L</div>
                         </div>
                         <div class={styles.statCard}>
                             <div class={styles.statLabel}>Profit Factor</div>
-                            <div class={styles.statValue}>1.43</div>
+                            <div class={styles.statValue} style="color:{s.profit_factor != null && s.profit_factor >= 1 ? '#4caf50' : '#ef5350'}">{fmtNum(s.profit_factor)}</div>
                         </div>
                         <div class={styles.statCard}>
-                            <div class={styles.statLabel}>Total P&L</div>
-                            <div class={styles.statValue} style="color:#4caf50">+$1,247.80</div>
-                            <div class={styles.statSub}>+12.5% return</div>
+                            <div class={styles.statLabel}>Net P&L</div>
+                            <div class={styles.statValue} style="color:{s.gross_profit - s.gross_loss >= 0 ? '#4caf50' : '#ef5350'}">{fmtPnl(s.gross_profit - s.gross_loss)}</div>
+                            <div class={styles.statSub}>gross {fmtPnl(s.gross_profit)} / {fmtPnl(-s.gross_loss)}</div>
                         </div>
                         <div class={styles.statCard}>
                             <div class={styles.statLabel}>Max Drawdown</div>
-                            <div class={styles.statValue} style="color:#ffb74d">-12.4%</div>
-                            <div class={styles.statSub}>3 drawdown events</div>
-                        </div>
-                        <div class={styles.statCard}>
-                            <div class={styles.statLabel}>Sharpe Ratio</div>
-                            <div class={styles.statValue} style="color:#4caf50">1.82</div>
-                            <div class={styles.statSub}>Good</div>
+                            <div class={styles.statValue} style="color:#ffb74d">-{fmtNum(s.max_drawdown_pct)}%</div>
                         </div>
                         <div class={styles.statCard}>
                             <div class={styles.statLabel}>Expectancy</div>
-                            <div class={styles.statValue} style="color:#4caf50">+$26.55</div>
+                            <div class="{styles.statValue} {pnlClass(s.expectancy)}">{fmtPnl(s.expectancy)}</div>
                         </div>
-                        <div class={styles.statCard}>
-                            <div class={styles.statLabel}>Avg Win / Loss</div>
-                            <div class={styles.statValue}>$78.40 / -$52.20</div>
-                        </div>
+                    </div>
+
+                    <div class="{styles.edgeCard} {st.is_significant ? styles.edgeSig : styles.edgeNo}">
+                        <span class={styles.edgeLabel}>EDGE VERDICT</span>
+                        <span class={styles.edgeTitle}>{st.classification.replace(/([A-Z])/g, ' $1').trim()}</span>
+                        <span class={styles.edgeDetail}>
+                            {#if st.total_trades < 30}
+                                insufficient data — need at least 30 simulated trades for a verdict
+                            {:else if st.is_significant}
+                                statistically significant at α = {fmtNum(st.alpha, 2)} — t-test p = {fmtNum(st.p_value, 4)}, Monte Carlo p = {fmtNum(st.p_mc, 4)} ({st.monte_carlo_runs.toLocaleString()} runs)
+                            {:else}
+                                not significant at α = {fmtNum(st.alpha, 2)} — t-test p = {fmtNum(st.p_value, 4)}, Monte Carlo p = {fmtNum(st.p_mc, 4)} ({st.monte_carlo_runs.toLocaleString()} runs) — this result could be luck
+                            {/if}
+                        </span>
                     </div>
 
                     <h3 class={styles.sectionTitle} style="margin-top:1.5rem">Equity Curve</h3>
-                    <div class={styles.equityPlaceholder} style="height:200px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:0.5rem">
-                        <SvgIcon name="activity" size={48} />
-                        <span>Equity curve visualization coming soon</span>
-                    </div>
+                    {#if btResult.equity_curve.length >= 2}
+                        <svg viewBox="0 0 640 200" width="100%" height="200" style="background:#0b0d12; border:1px solid #23262e; border-radius:6px">
+                            <polyline points={equityPath(btResult.equity_curve)} fill="none" stroke="#4caf50" stroke-width="1.5" />
+                        </svg>
+                    {:else}
+                        <div class={styles.equityPlaceholder} style="height:120px; display:flex; align-items:center; justify-content:center; color:#5a5f6e">Not enough data for an equity curve.</div>
+                    {/if}
 
                     <h3 class={styles.sectionTitle} style="margin-top:1.5rem">Trade Log</h3>
-                    <p class={styles.sectionDesc}>Simulated trades from backtest run.</p>
-                    <table class={styles.table}>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Symbol</th>
-                                <th>Dir</th>
-                                <th>Entry</th>
-                                <th>Exit</th>
-                                <th>Hold</th>
-                                <th>P&L</th>
-                                <th>ROI</th>
-                                <th>Exit Reason</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>2024-02-15</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
-                                <td style="font-variant-numeric:tabular-nums">$42,350</td><td style="font-variant-numeric:tabular-nums">$44,120</td>
-                                <td>3h 12m</td><td style="color:#4caf50">+$177.00</td><td style="color:#4caf50">+4.18%</td><td>Take Profit</td>
-                            </tr>
-                            <tr>
-                                <td>2024-03-08</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
-                                <td style="font-variant-numeric:tabular-nums">$45,100</td><td style="font-variant-numeric:tabular-nums">$43,780</td>
-                                <td>45m</td><td style="color:#ef5350">-$132.00</td><td style="color:#ef5350">-2.93%</td><td>Stop Loss</td>
-                            </tr>
-                            <tr>
-                                <td>2024-04-22</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
-                                <td style="font-variant-numeric:tabular-nums">$51,200</td><td style="font-variant-numeric:tabular-nums">$54,850</td>
-                                <td>8h 05m</td><td style="color:#4caf50">+$365.00</td><td style="color:#4caf50">+7.13%</td><td>Take Profit</td>
-                            </tr>
-                            <tr>
-                                <td>2024-06-14</td><td>BTC-USDT</td><td style="color:#ef5350">Short</td>
-                                <td style="font-variant-numeric:tabular-nums">$65,800</td><td style="font-variant-numeric:tabular-nums">$64,220</td>
-                                <td>12h 40m</td><td style="color:#4caf50">+$158.00</td><td style="color:#4caf50">+2.40%</td><td>Signal Exit</td>
-                            </tr>
-                            <tr>
-                                <td>2024-09-03</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
-                                <td style="font-variant-numeric:tabular-nums">$56,900</td><td style="font-variant-numeric:tabular-nums">$55,450</td>
-                                <td>2h 18m</td><td style="color:#ef5350">-$145.00</td><td style="color:#ef5350">-2.55%</td><td>Thesis Invalidated</td>
+                    {#if btResult.trades.length === 0}
+                        <div class={styles.equityPlaceholder}>No trades in this window.</div>
+                    {:else}
+                        <table class={styles.table}>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Dir</th>
+                                    <th>Entry</th>
+                                    <th>Exit</th>
+                                    <th>Size</th>
+                                    <th>P&L</th>
+                                    <th>Exit Reason</th>
                                 </tr>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {#each btResult.trades as tr, i (i)}
+                                    <tr>
+                                        <td>{new Date(tr.timestamp).toLocaleString()}</td>
+                                        <td style="color:{tr.direction === 'LONG' ? '#4caf50' : '#ef5350'}">{tr.direction}</td>
+                                        <td style="font-variant-numeric:tabular-nums">${fmtNum(tr.entry_price)}</td>
+                                        <td style="font-variant-numeric:tabular-nums">${fmtNum(tr.exit_price)}</td>
+                                        <td>{fmtNum(tr.size, 4)}</td>
+                                        <td style="color:{tr.pnl >= 0 ? '#4caf50' : '#ef5350'}">{fmtPnl(tr.pnl)}</td>
+                                        <td>{tr.exit_reason}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    {/if}
                 {/if}
             {/if}
         {/if}

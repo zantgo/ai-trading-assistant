@@ -75,6 +75,9 @@ pub struct AppState {
     /// L7 cross-symbol market overview, refreshed periodically.
     pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
     pub execution_engine: Arc<ExecutionEngine>,
+    /// v7 TAE setup executor (when automation is enabled). Serves the
+    /// `/api/instances/:id/automation` surface.
+    pub automation: Option<Arc<portfolio_supervisor::setup_executor::SetupExecutor>>,
     /// Notification channel fired by HTTP handlers after a successful
     /// `recharge_instance`. Subscribed by the WS handler so it can swap its
     /// broadcast subscription off the orphaned `ActivePair` onto the new one.
@@ -398,39 +401,36 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::instances::serve_get_portfolio),
         )
         .route(
-            "/api/instances/:instance_id/manual/open",
-            post(handlers::instances::serve_instance_manual_open),
+            "/api/instances/:instance_id/exposure",
+            get(handlers::instances::serve_get_exposure),
         )
         .route(
-            "/api/instances/:instance_id/manual/close",
-            post(handlers::instances::serve_instance_manual_close),
+            "/api/instances/:instance_id/capital",
+            get(handlers::instances::serve_get_capital),
+        )
+        .route(
+            "/api/instances/:instance_id/safety/session-reset",
+            post(handlers::instances::serve_session_reset),
+        )
+        .route(
+            "/api/instances/:instance_id/automation",
+            get(handlers::instances::serve_get_automation),
+        )
+        .route(
+            "/api/instances/:instance_id/automation/close",
+            post(handlers::instances::serve_automation_close),
         )
         .route(
             "/api/instances/:instance_id/intervals",
             post(handlers::instances::serve_instance_intervals),
         )
         .route(
-            "/api/decision-profiles",
-            get(handlers::profiles::serve_decision_profiles_list)
-                .post(handlers::profiles::serve_decision_profile_create),
+            "/api/instances/:instance_id/activation",
+            get(handlers::instances::serve_get_activation),
         )
         .route(
-            "/api/decision-profiles/:id",
-            delete(handlers::profiles::serve_decision_profile_delete)
-                .post(handlers::profiles::serve_decision_profile_update),
-        )
-        .route(
-            "/api/decision-profiles/:id/evaluate",
-            post(handlers::profiles::serve_decision_evaluate),
-        )
-        .route(
-            "/api/decision-profiles/:id/indicators",
-            post(handlers::profiles::serve_profile_indicator_add),
-        )
-        .route(
-            "/api/decision-profiles/:id/indicators/:iid",
-            post(handlers::profiles::serve_profile_indicator_update)
-                .delete(handlers::profiles::serve_profile_indicator_delete),
+            "/api/instances/:instance_id/reload",
+            post(handlers::instances::serve_reload_timeframe),
         )
         .route(
             "/api/risk-profiles",
@@ -486,6 +486,21 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/analytics/summary",
             get(handlers::analytics::serve_performance_summary),
         )
+        .route(
+            "/api/backtest/run",
+            post(handlers::analytics::serve_backtest_run),
+        )
+        .route(
+            "/api/backtest/:id",
+            get(handlers::analytics::serve_backtest_get),
+        )
+        .route(
+            "/api/keys",
+            get(handlers::keys::list_keys).post(handlers::keys::add_key),
+        )
+        .route("/api/keys/rotate", post(handlers::keys::rotate_keys))
+        .route("/api/keys/backup", get(handlers::keys::backup_keys))
+        .route("/api/keys/:key_id", delete(handlers::keys::delete_key))
         .route(
             "/api/system/status",
             get(handlers::system::serve_system_status),

@@ -5,7 +5,10 @@
 //! flooding the frontend with redraws).
 //!
 //! The throttle caps the shadow (live/flickering) broadcast path at
-//! `max(100ms, min(250ms, timeframe_secs*1000/4))`. The candle-close
+//! `max(100ms, timeframe_secs*1000/4)` — one shadow per quarter-candle
+//! (AUDIT-AIU-122: the shipped formula; the earlier
+//! `max(100ms, min(250ms, tf*1000/4))` cap and the parity-doc
+//! `min(tf/4, 1s)` draft were both superseded). The candle-close
 //! path is unaffected and must still fire on every natural close.
 //!
 //! Test strategy: spawn a real `analyzer::run_single` task with

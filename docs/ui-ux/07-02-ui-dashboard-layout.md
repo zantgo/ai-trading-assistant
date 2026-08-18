@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -755,5 +755,5 @@ The `PerformanceDashboard` Backtesting panel provides a frontend-only strategy s
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — Data sources for the WS demux.
 - [MME Layer 7 — Overview](../engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) — OverviewPanel data source.
 - [Decision Matrix](../matrices/02-04-decision-matrix.md) — Decision Matrix panel data.
-- [TAE Execution Policy Spec](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md) — TradeAutomationDashboard Policies panel.
+- [TAE Overview — Layer ⑦ Dashboard](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — TradeAutomationDashboard surface.
 - [PME Layer 4 Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — PortfolioDashboard Safety panel.

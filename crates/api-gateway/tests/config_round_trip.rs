@@ -44,7 +44,10 @@ async fn setup_state_with_config(
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
         snapshot_export: Arc::new(RwLock::new(
             core_domain::snapshot_export::SnapshotExportRuntime::default(),
@@ -74,6 +77,7 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         macro_term: None,
         automation: config_models::AutomationConfig::default(),
         operational_mode: config_models::OperationalMode::Advisory,
+        mode: config_models::ExecutionMode::Paper,
         weight_overrides: None,
         position_scaling: None,
         activation: None,

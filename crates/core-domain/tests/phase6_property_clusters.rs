@@ -86,31 +86,28 @@ proptest! {
     }
 
     #[test]
-    fn short_clusters_marked_as_above(prices in price_strategy()) {
+    fn cluster_kind_matches_physical_position(prices in price_strategy()) {
+        // AUDIT-AIU-115: `cluster_kind` classifies by PHYSICAL position
+        // (peak vs current mid) — NOT by the side the cluster was seeded
+        // from. In a breakdown the swing lows can sit above mid, so long
+        // clusters may legitimately be `AboveCurrentPrice` (and short
+        // clusters `BelowCurrentPrice` in an uptrend). The invariant is:
+        // the label always agrees with the cluster's actual position.
         let input = arb_input(prices.clone());
         let m = estimate_clusters(&input);
-        for c in &m.short_clusters {
-            // Note: short cluster PEAK is computed as entry * (1 + distance)
-            // where entry = swing high. If all swing highs are below current
-            // mid, all peaks fall below mid. The ClusterKind label is
-            // AboveCurrentPrice but the actual peak price can be below.
-            // We only verify the *kind* is Above (not the price).
-            assert!(matches!(c.cluster_kind,
+        for c in m.short_clusters.iter().chain(m.long_clusters.iter()) {
+            let expected = if c.distance_from_mid_pct < 0.5 {
+                core_domain::liquidity::ClusterKind::AtCurrentPrice
+            } else if c.peak_price > m.mid_price {
                 core_domain::liquidity::ClusterKind::AboveCurrentPrice
-                | core_domain::liquidity::ClusterKind::AtCurrentPrice),
-                "short cluster kind should be Above or AtCurrent, got {:?}", c.cluster_kind);
-        }
-    }
-
-    #[test]
-    fn long_clusters_marked_as_below(prices in price_strategy()) {
-        let input = arb_input(prices.clone());
-        let m = estimate_clusters(&input);
-        for c in &m.long_clusters {
-            assert!(matches!(c.cluster_kind,
+            } else {
                 core_domain::liquidity::ClusterKind::BelowCurrentPrice
-                | core_domain::liquidity::ClusterKind::AtCurrentPrice),
-                "long cluster kind should be Below or AtCurrent, got {:?}", c.cluster_kind);
+            };
+            assert_eq!(
+                c.cluster_kind, expected,
+                "cluster at {} (mid {}) must be {:?}, got {:?}",
+                c.peak_price, m.mid_price, expected, c.cluster_kind
+            );
         }
     }
 

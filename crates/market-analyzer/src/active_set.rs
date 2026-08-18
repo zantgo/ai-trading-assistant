@@ -159,7 +159,10 @@ impl ActiveSet {
     /// enforced — operators disabling e.g. `VolumeClimax` still received
     /// the signal in every snapshot while `metrics_config` advertised it
     /// as disabled.
-    pub fn filter_map_signals(&self, map: &mut std::collections::HashMap<String, NormalizedIndicatorValue>) {
+    pub fn filter_map_signals(
+        &self,
+        map: &mut std::collections::HashMap<String, NormalizedIndicatorValue>,
+    ) {
         if self.disabled_signal_kinds.is_empty() && self.disabled_signals.is_empty() {
             return;
         }

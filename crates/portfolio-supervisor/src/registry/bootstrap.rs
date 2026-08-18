@@ -74,6 +74,19 @@ async fn collect_candles(
     // 1. Local DB warm base (most recent completed candles for this symbol/tf).
     let db_candles =
         database_storage::query_recent_candles(&pool, &internal_symbol, secs, limit as u32).await;
+    // AUDIT-AIU-118: persisted SYNTHETIC rows (idle-heartbeat dojis /
+    // gap-fill candles — K3 writes them to SQLite for `/api/history`
+    // continuity) must NEVER enter the warm replay: they would be
+    // replayed through the indicator state machines, pushed into
+    // `history`, and counted into `real_bar_count` — violating PRI-03
+    // ("no synthetic sub-minute candles are ever created") and PRI-06
+    // ("synthetic doji/idle-heartbeat buckets never enter `history`") on
+    // every restart. The DB keeps them for the API fallback path; warm
+    // state only consumes genuine closes.
+    let db_candles: Vec<NormalizedCandle> = db_candles
+        .into_iter()
+        .filter(|c| c.reconstructed.is_none())
+        .collect();
 
     // 2. Build the HistoricalFetchPolicy implementation for this exchange.
     //    The policy handles HFP-03 sub-minute bypass, HFP-04..HFP-06
@@ -611,27 +624,40 @@ pub(crate) async fn populate_single(
     warm_snapshots: bool,
 ) {
     if let Some(ref w) = warmed {
-        {
-            let mut hist = history.write().await;
-            for c in &w.history {
-                hist.push_back(c.clone());
+        if warm_snapshots {
+            // AUDIT-AIU-117: this path is the SINGLE seeder for the warm
+            // `history`/`snapshot_history` deques (it runs synchronously
+            // before the `run_single` tasks start). Clear-then-push makes
+            // it idempotent — the previous code pushed on top of
+            // `run_single`'s own prepopulation, double-seeding every warm
+            // candle on every boot (duplicated `/api/history` rows and
+            // double-counted warm bars in structural-indicator lookbacks).
+            {
+                let mut hist = history.write().await;
+                hist.clear();
+                for c in &w.history {
+                    hist.push_back(c.clone());
+                }
             }
-        }
-        if !warm_snapshots {
-            // PRI-08: sub-minute slots only warm state + `history`; the
-            // chart's `snapshot_history`/`latest_snapshot` stay live-only
-            // (the replayed closes are real but at a coarser scale — never
-            // present them as sub-minute chart history).
-            return;
-        }
-        if let Some(ref snap) = w.latest_snapshot {
-            *latest.write().await = Some(snap.clone());
-        }
-        {
-            let mut sh = snapshot_history.write().await;
-            for snap in &w.snapshot_history {
-                sh.push_back(snap.clone());
+            if let Some(ref snap) = w.latest_snapshot {
+                *latest.write().await = Some(snap.clone());
             }
+            {
+                let mut sh = snapshot_history.write().await;
+                sh.clear();
+                for snap in &w.snapshot_history {
+                    sh.push_back(snap.clone());
+                }
+            }
+        } else {
+            // PRI-08 + AUDIT-AIU-117: sub-minute slots warm STATE only.
+            // The replayed 60 s closes are real but 12× too wide for the
+            // slot — pushing them into `history` made fib/pivots/S-R/pattern
+            // and the cluster lookback treat 60 s bars as 5 s bars for the
+            // first ~80 minutes. `history` stays EMPTY at handover and
+            // fills with live candles; `snapshot_history`/`latest_snapshot`
+            // stay live-only (never present coarser-scale replayed closes
+            // as sub-minute chart history).
         }
     }
 }
@@ -754,6 +780,58 @@ mod cold_start_sub_minute_tests {
         );
         assert_eq!(db_count, 0, "5s query matches no 5s rows");
         assert_eq!(rest_count, 0, "REST bypassed for sub-minute");
+    }
+
+    /// AUDIT-AIU-118: persisted SYNTHETIC rows (idle-heartbeat dojis /
+    /// gap-fill candles, K3) must be excluded from the warm-replay merge —
+    /// they must never seed indicator state machines, `history`, or
+    /// `real_bar_count` on restart (PRI-03/PRI-06). Real rows of the same
+    /// TF still flow through.
+    #[tokio::test]
+    async fn collect_candles_excludes_synthetic_rows_from_warm_replay() {
+        let pool = empty_pool().await;
+        // One genuine 5s row + one SYNTHETIC 5s row (reconstructed flag set).
+        sqlx::query(
+            "INSERT INTO market_snapshots
+                (exchange, symbol, timeframe_secs, timestamp,
+                 mid_price, bid_price, ask_price,
+                 open, high, low, close, volume, reconstructed)
+             VALUES
+                ('Hyperliquid', 'BTC-USDC', 5, 1786329000,
+                 '64972.00', '64971.50', '64972.50',
+                 '64961.00', '64978.00', '64961.00', '64972.00', '57.37', NULL),
+                ('Hyperliquid', 'BTC-USDC', 5, 1786329005,
+                 '64972.00', '64971.50', '64972.50',
+                 '64972.00', '64972.00', '64972.00', '64972.00', '0.00', 'SYNTHETIC')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert 5s rows");
+
+        let (candles, _db_count, _rest_count) = collect_candles(
+            false,
+            "BTC".to_string(),
+            "BTC-USDC".to_string(),
+            String::new(),
+            "ws://unreachable.invalid".to_string(),
+            pool,
+            5,
+            200,
+            1_786_329_000_000,
+            1_000,
+            true, // sub_minute_skip_historical — no REST, DB only
+        )
+        .await
+        .expect("collect_candles must succeed");
+
+        assert_eq!(
+            candles.len(),
+            1,
+            "the SYNTHETIC row must be filtered from the warm replay, got {} candles",
+            candles.len()
+        );
+        assert_eq!(candles[0].start_time_ms, 1_786_329_000_000);
+        assert!(candles[0].reconstructed.is_none());
     }
 
     /// Regression guard for the user requirement "don't touch those"

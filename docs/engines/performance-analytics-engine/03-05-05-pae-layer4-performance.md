@@ -1,7 +1,7 @@
 # PAE Layer 4 — Performance Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/performance_layer.rs`, `strategy_optimizer.rs`, `performance_evaluator.rs`) is implemented and the Regime Map / Regimes panel renders live data. Backtest-runner integration and PAE→DB configuration feedback land in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D (AUDIT-V6-304).
+**Version:** 7.0 (2026-08-18) — v7: implemented; grouping keyed by setup type.
+**Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 4 of 4
 **Input Contract:** Trade Analytics (L1), Strategy Analytics (L2), Risk Analytics (L3), historical MME regime logs
@@ -27,7 +27,7 @@ The Performance Layer is the PAE's **final synthesis stage**. It combines trade-
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `policy_id` | `string` | Originating execution policy. |
+| `setup_type` | `string` | Originating setup type (v7 grouping key). |
 | `total_trades` | `u32` | Total closed trades under this policy. |
 | `overall_profit_factor` | `f64` | Aggregate profit factor. |
 | `overall_expectancy` | `Decimal` | Expected net return per trade. |

@@ -27,7 +27,6 @@
         squeezeKcPeriod: number; squeezeKcAtrMult: number;
         atrMultiplier: number; atrTargetRR: number;
         volumeAvgPeriod: number; rvolInstitutional: number; rvolClimax: number;
-        analysisLimit: number;
         /// v7.0-prod — see `WorkspaceSettings.svelte` for the same field
         /// rationale. Default `[10]` matches `WorkspaceSettings.defaultTermDraft`.
         heatmapLeverageTiers: number[];
@@ -52,7 +51,6 @@
             squeezeKcPeriod: 20, squeezeKcAtrMult: 1.5,
             atrMultiplier: 2.0, atrTargetRR: 2.5,
             volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
-            analysisLimit: 100,
             heatmapLeverageTiers: [10],
         };
     }
@@ -76,7 +74,6 @@
             squeezeKcPeriod: tf.squeezeKcPeriodVal, squeezeKcAtrMult: tf.squeezeKcAtrMultVal,
             atrMultiplier: tf.atrMultiplierVal, atrTargetRR: tf.atrTargetRRVal,
             volumeAvgPeriod: tf.volumeAvgPeriodVal, rvolInstitutional: tf.rvolInstitutionalVal, rvolClimax: tf.rvolClimaxVal,
-            analysisLimit: tf.analysisLimit,
             heatmapLeverageTiers: tf.heatmapLeverageTiers ?? [10],
         };
     }
@@ -155,19 +152,19 @@
     async function applySettings() {
         const body = {
             micro_term: {
-                candles: { duration_seconds: draft.micro.durationSeconds, analysis_limit: draft.micro.analysisLimit },
+                candles: { duration_seconds: draft.micro.durationSeconds },
                 indicators: buildIndicators(draft.micro),
             },
             fast_term: {
-                candles: { duration_seconds: draft.fast.durationSeconds, analysis_limit: draft.fast.analysisLimit },
+                candles: { duration_seconds: draft.fast.durationSeconds },
                 indicators: buildIndicators(draft.fast),
             },
             slow_term: {
-                candles: { duration_seconds: draft.slow.durationSeconds, analysis_limit: draft.slow.analysisLimit },
+                candles: { duration_seconds: draft.slow.durationSeconds },
                 indicators: buildIndicators(draft.slow),
             },
             macro_term: {
-                candles: { duration_seconds: draft.macro.durationSeconds, analysis_limit: draft.macro.analysisLimit },
+                candles: { duration_seconds: draft.macro.durationSeconds },
                 indicators: buildIndicators(draft.macro),
             },
             automation: {
@@ -269,7 +266,6 @@
                     <div class={styles.inputRow}><label for={fieldId(p, 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId(p, 'Vol Avg Period')} type="number" bind:value={t.volumeAvgPeriod} /></div>
                     <div class={styles.inputRow}><label for={fieldId(p, 'RVOL Inst')}>RVOL Inst</label><input id={fieldId(p, 'RVOL Inst')} type="number" step="0.1" bind:value={t.rvolInstitutional} /></div>
                     <div class={styles.inputRow}><label for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
-                    <div class={styles.inputRow}><label for={fieldId(p, 'Analysis Limit')}>Analysis Limit</label><input id={fieldId(p, 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={t.analysisLimit} /></div>
     {/snippet}
 
     <div class={styles.cardsGrid}>

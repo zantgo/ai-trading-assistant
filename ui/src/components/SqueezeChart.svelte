@@ -44,10 +44,15 @@
             timeScale: {
                 borderColor: '#2a2e39', visible: true, timeVisible: true, secondsVisible: true,
                 tickMarkFormatter: (time: any) => {
+                    // AUDIT-AIU-124: the legacy HH:MM-only formatter made
+                    // adjacent ticks on sub-minute charts (1s/5s/15s) render
+                    // identical labels (12:00:05 and 12:00:55 both read
+                    // "12:00"). Include seconds when the axis is sub-minute.
                     const date = new Date(time * 1000);
                     const h = String(date.getHours()).padStart(2, '0');
                     const m = String(date.getMinutes()).padStart(2, '0');
-                    return `${h}:${m}`;
+                    const s = String(date.getSeconds()).padStart(2, '0');
+                    return `${h}:${m}:${s}`;
                 }
             },
             handleScale: true, handleScroll: true,
@@ -94,7 +99,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const mom = pairsFromHistory(h, 'squeeze');
             if (mom.length > 0) {

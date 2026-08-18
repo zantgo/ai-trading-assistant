@@ -5,9 +5,9 @@ use std::collections::VecDeque;
 use config_models::FibonacciConfig;
 use config_models::TimeframeConfig;
 
+use crate::analyzer::derive_pipeline_state;
 use crate::analyzer::normalize::{series_divergence_state, ExtraDivergence};
 use crate::analyzer::update_sr_levels;
-use crate::analyzer::derive_pipeline_state;
 use crate::indicators::normalized::PreviousBarState;
 use crate::indicators::{
     detect_pattern, Adx, AnchoredVwap, Aroon, Atr, AwesomeOscillator, Bbwp, BollingerBands,
@@ -732,9 +732,12 @@ pub fn warm_indicators_for_timeframe(
     // The raw-candle `history` is bounded by the bootstrap's effective seed cap
     // (`buffer_size` = `[candle_buffer] size`), not by the raw fetch count —
     // for ≥ 1 minute TFs the bootstrap paginates up to exactly `buffer_size`
-    // (CB-08), for sub-minute TFs the bootstrap is empty and the live path
-    // accumulates candles up to `buffer_size` (CB-05/CB-03). The downstream
-    // live path trims to `buffer_size` on each new candle close anyway.
+    // (CB-08), for sub-minute TFs the warm `history` is the 60 s state-replay
+    // set (PRI-03) and is NOT pushed into the pipeline's `history` deque at
+    // handover (AUDIT-AIU-117 — the replayed bars are 12× too wide for the
+    // slot's structural indicators; live candles fill the deque). The
+    // downstream live path trims to `buffer_size` on each new candle close
+    // anyway.
     let seed_cap = analysis_limit.max(crate::analyzer::warm::HIST_BUFFER_MAX);
     let history: Vec<NormalizedCandle> = if candles.len() > seed_cap {
         candles[candles.len() - seed_cap..].to_vec()

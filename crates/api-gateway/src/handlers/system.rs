@@ -21,9 +21,10 @@ pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl Int
         )
     });
 
-    let capital = state.execution_engine.capital.read().await;
-    let total_allocated_margin = capital
-        .reserved_margin
+    let total_allocated_margin = state
+        .execution_engine
+        .committed_margin()
+        .await
         .to_string()
         .parse::<f64>()
         .unwrap_or(0.0);

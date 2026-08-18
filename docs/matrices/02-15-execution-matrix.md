@@ -1,6 +1,6 @@
 # Execution Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Producing Layer:** Layer 2 — Execution Layer
@@ -93,7 +93,7 @@ The vocabulary is unified: all `status` values match the Execution Matrix lifecy
 ## 7. Cross-References
 
 - [TAE Layer 2 — Execution Layer](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — Producing-layer specification (position sizing, order construction, state machine, reduce-only handoff).
-- [TAE Layer 1 — Policy Layer](../engines/trade-automation-engine/03-03-02-tae-layer1-policy.md) — Upstream trigger source.
+- [TAE Overview](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — Upstream setup source.
 - [Database Schema §3.2 `open_orders`](../integration-and-api/06-02-database-schema-spec.md) — Persistence contract.
 - [Matrix Field Ownership](02-00-matrix-field-ownership.md) — Canonical per-field ownership mapping.
 - [Systemic Data Flow — Sequence B](../conceptual-foundations/01-03-systemic-data-flow.md) — Entry loop.

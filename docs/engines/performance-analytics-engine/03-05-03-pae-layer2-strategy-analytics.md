@@ -1,7 +1,7 @@
 # PAE Layer 2 — Strategy Analytics Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/performance-analytics/src/strategy_analytics.rs`) is implemented and the Strategy panel renders live data. Backtest-runner integration lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
+**Version:** 7.0 (2026-08-18) — v7: implemented; grouping keyed by setup type.
+**Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 2 of 4
 **Input Contract:** Trade Analytics Matrix (L1)
@@ -24,7 +24,7 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `policy_id` | `string` | Originating execution policy. |
+| `setup_type` | `string` | Originating setup type (e.g. `TrendContinuation`) — the v7 successor of the erased per-policy grouping. |
 | `total_trades` | `u32` | Number of closed trades under this policy. |
 | `win_count` | `u32` | Profitable trades (net PnL > 0). |
 | `loss_count` | `u32` | Losing trades (net PnL < 0). |

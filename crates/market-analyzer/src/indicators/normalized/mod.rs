@@ -171,14 +171,22 @@ impl NormalizationEngine {
             _ => {}
         }
 
+        // AUDIT-AIU-108 (v6.10.21): the middle-band sign was inverted —
+        // `rsi 40` reported +0.35 (BULLISH_DISCOUNT) while MFI/Stochastic/
+        // WilliamsR reported negative at the same reading, feeding opposite
+        // directional votes into L3/L4 scoring on every snapshot. The RSI
+        // middle band now follows the uniform momentum convention of the
+        // other oscillators (04-02-23 "uniform RSI convention"): below the
+        // 50 line is bearish (negative), above is bullish (positive). The
+        // extreme zones stay contrarian (oversold → positive accumulation).
         let base = if rsi <= 30.0 {
             0.7 + ((30.0 - rsi) / 30.0) * 0.3
         } else if rsi >= 70.0 {
             -0.7 - ((rsi - 70.0) / 30.0) * 0.3
         } else if rsi <= 50.0 {
-            ((50.0 - rsi) / 20.0) * 0.7
+            -((50.0 - rsi) / 20.0) * 0.7
         } else {
-            -((rsi - 50.0) / 20.0) * 0.7
+            ((rsi - 50.0) / 20.0) * 0.7
         };
 
         // Potential (unconfirmed) divergence additive boost, capped at ±0.90.
@@ -311,11 +319,11 @@ fn rsi_label(norm: f64) -> &'static str {
     if norm >= 0.70 {
         "OVERSOLD_ACCUMULATION"
     } else if norm >= 0.10 {
-        "BULLISH_DISCOUNT"
+        "BULLISH_MOMENTUM"
     } else if norm > -0.10 {
         "EQUILIBRIUM"
     } else if norm > -0.70 {
-        "BEARISH_PREMIUM"
+        "BEARISH_MOMENTUM"
     } else {
         "OVERBOUGHT_DISTRIBUTION"
     }

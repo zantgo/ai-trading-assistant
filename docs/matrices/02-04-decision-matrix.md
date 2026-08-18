@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -462,5 +462,5 @@ When `analysis.timeframes_considered == 0`, `compute_advisory` returns `Advisory
 - [Analysis Matrix](02-02-analysis-matrix.md) · [Opportunity Matrix](02-08-opportunity-matrix.md) · [Risk Matrix](02-11-risk-matrix.md) — Inputs.
 - [Overview Matrix](02-09-overview-matrix.md) — Aggregates Decision matrices across symbols.
 - [MME Layer 6 — Decision Support](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md) — Producing-layer specification.
-- [TAE Layer 1 — Policy](../engines/trade-automation-engine/03-03-02-tae-layer1-policy.md) — Primary downstream consumer.
+- [TAE Setup Executor](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — Primary downstream consumer.
 - [TAE Layer 2 — Execution](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — Position Sizing Protocol.

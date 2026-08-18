@@ -3595,4 +3595,153 @@ mod tests {
         assert!(derive_neutral_bracket(&ind, -5.0).is_none());
         assert!(derive_neutral_bracket(&ind, f64::NAN).is_none());
     }
+
+    /// AUDIT-AIU-126: value-level pin of the L4 viability blend
+    /// (`0.35·Q + 0.30·S + 0.20·A + 0.15·F`, `02-08-opportunity-matrix.md`
+    /// §6) through the REAL scoring path with synthetic-but-realistic
+    /// inputs — the previous corpus only pinned the formula in prose.
+    #[test]
+    fn candidate_score_blend_matches_the_documented_weights() {
+        use core_domain::analysis::{AnalysisMatrix, QualityLevel};
+        use core_domain::indicator_dtos::{
+            IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
+        };
+        use std::collections::HashMap;
+
+        // q = 100 (Excellent), s_sig = 80 (mean signal strength 0.8),
+        // a_mtf = 75 (trend agreement %), f_fresh = 100 (min age 0).
+        // Expected raw: 0.35×100 + 0.30×80 + 0.20×75 + 0.15×100 = 89.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.market_quality = QualityLevel::Excellent;
+
+        let mut alignment = AlignmentMatrix::empty("BTC-USD");
+        alignment.trend_agreement_pct = 75.0;
+
+        let mut signals: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        signals.insert(
+            "rsi".to_string(),
+            NormalizedIndicatorValue {
+                signals: vec![IndicatorSignal::new(
+                    SignalKind::Threshold,
+                    SignalDirection::Bullish,
+                    SignalStatus::Active,
+                    "BULLISH_MOMENTUM",
+                )],
+                ..NormalizedIndicatorValue::scalar(60.0, 0.35, "BULLISH_MOMENTUM")
+            },
+        );
+        signals.insert(
+            "macd".to_string(),
+            NormalizedIndicatorValue {
+                signals: vec![IndicatorSignal::new(
+                    SignalKind::Crossover,
+                    SignalDirection::Bullish,
+                    SignalStatus::Confirmed,
+                    "BULLISH_CROSSOVER",
+                )],
+                ..NormalizedIndicatorValue::scalar(1.0, 0.8, "BULLISH_CROSSOVER")
+            },
+        );
+        // Signal strengths 1.0 + 0.6 → mean 0.8 → s_sig = 80.
+        signals.get_mut("rsi").unwrap().signals[0].strength = 1.0;
+        signals.get_mut("macd").unwrap().signals[0].strength = 0.6;
+        // age_bars: 0 (rsi) + 10 (macd) → min 0 → f_fresh = 100.
+        signals.get_mut("rsi").unwrap().signals[0].age_bars = 0;
+        signals.get_mut("macd").unwrap().signals[0].age_bars = 10;
+
+        let (score, _, raw, _, _) = compute_candidate_score(
+            OpportunityType::Scalp,
+            &analysis,
+            &alignment,
+            &signals,
+            3,
+            3,
+        );
+        let expected = 0.35 * 100.0 + 0.30 * 80.0 + 0.20 * 75.0 + 0.15 * 100.0;
+        assert!(
+            (raw - expected).abs() < 1e-9,
+            "raw viability blend must equal 0.35Q+0.30S+0.20A+0.15F = {expected}, got {raw}"
+        );
+        // Full precondition ratio → score == raw.
+        assert!((score - raw).abs() < 1e-9);
+    }
+
+    /// AUDIT-AIU-126 (cont.): the QualityLevel → f64 mapping must match
+    /// the canonical L6 fallback table (`02-04-decision-matrix.md` §2.3)
+    /// and the NoClearOpportunity sentinel must stay unconditional zero.
+    #[test]
+    fn candidate_score_quality_mapping_and_sentinel() {
+        use core_domain::analysis::{AnalysisMatrix, QualityLevel};
+        use core_domain::indicator_dtos::{
+            IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
+        };
+        use std::collections::HashMap;
+
+        let mapping = [
+            (QualityLevel::Excellent, 100.0),
+            (QualityLevel::Good, 70.0),
+            (QualityLevel::Average, 55.0),
+            (QualityLevel::Weak, 40.0),
+            (QualityLevel::Poor, 20.0),
+        ];
+        for (ql, expected_q) in mapping {
+            let mut analysis = AnalysisMatrix::empty("BTC-USD");
+            analysis.market_quality = ql;
+            let alignment = AlignmentMatrix::empty("BTC-USD");
+            let signals: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+            let (score, _, raw, _, _) = compute_candidate_score(
+                OpportunityType::TrendContinuation,
+                &analysis,
+                &alignment,
+                &signals,
+                0,
+                3,
+            );
+            // No signals → s_sig default 40; no agreement → 0; no signals
+            // → f_fresh uses the min_age fallback 10 → 100×(1−10/20) = 50.
+            // raw = 0.35·Q + 0.30·40 + 0.20·0 + 0.15·50.
+            let expected_raw = 0.35 * expected_q + 0.30 * 40.0 + 0.15 * 50.0;
+            assert!(
+                (raw - expected_raw).abs() < 1e-9,
+                "QualityLevel {:?} must map to {} in the blend, got raw {}",
+                ql,
+                expected_q,
+                raw
+            );
+            // Preconditions 0/3 → display_score muted while score stays
+            // the raw viability (v6.10.1 contract).
+            assert!((score - expected_raw).abs() < 1e-9);
+        }
+
+        // NoClearOpportunity → unconditional zero, regardless of inputs.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.market_quality = QualityLevel::Excellent;
+        let alignment = AlignmentMatrix::empty("BTC-USD");
+        let mut signals: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        signals.insert(
+            "rsi".to_string(),
+            NormalizedIndicatorValue {
+                signals: vec![IndicatorSignal::new(
+                    SignalKind::Threshold,
+                    SignalDirection::Bullish,
+                    SignalStatus::Confirmed,
+                    "BULLISH_MOMENTUM",
+                )],
+                ..NormalizedIndicatorValue::scalar(60.0, 0.9, "BULLISH_MOMENTUM")
+            },
+        );
+        let (score, _, raw, _, display) = compute_candidate_score(
+            OpportunityType::NoClearOpportunity,
+            &analysis,
+            &alignment,
+            &signals,
+            3,
+            3,
+        );
+        assert_eq!(score, 0.0, "NoClearOpportunity score must be 0");
+        // The sentinel zeroes the PUBLISHED score/display; `raw` stays the
+        // un-gated blend (the operator-facing zero is what matters).
+        assert!(raw.is_finite() && raw >= 0.0);
+        assert_eq!(display, 0.0, "NoClearOpportunity display must be 0");
+    }
 }

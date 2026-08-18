@@ -897,28 +897,11 @@ impl OperationalMode {
     }
 }
 
-// ─── Trigger Configuration ─────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "mode")]
-pub enum TriggerMode {
-    #[serde(rename = "interval")]
-    Interval { seconds: u64 },
-    #[serde(rename = "candle_close")]
-    CandleClose { timeframe: String, count: u32 },
-    #[serde(rename = "event_driven")]
-    EventDriven { events: Vec<String> },
+fn default_true_bool() -> bool {
+    true
 }
 
-impl Default for TriggerMode {
-    fn default() -> Self {
-        TriggerMode::Interval { seconds: 900 }
-    }
-}
-
-// ─── Position Sizing & Leverage Scaling ────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AllocationCurveModel {
     #[default]
     Stepped,
@@ -1864,30 +1847,6 @@ impl LifecycleState {
 // The only shared variant is `Avoid` (both AGGRESSIVE/CAUTIOUS/NON_AVOID
 // are exclusive to MarketStance; CLOSE_ONLY is exclusive to this enum).
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Stance {
-    Active,
-    CloseOnly,
-    Avoid,
-}
-
-impl Default for Stance {
-    fn default() -> Self {
-        Stance::Active
-    }
-}
-
-impl Stance {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Stance::Active => "ACTIVE",
-            Stance::CloseOnly => "CLOSE_ONLY",
-            Stance::Avoid => "AVOID",
-        }
-    }
-}
-
 // ─── TAE: Trade Direction ─────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1905,115 +1864,6 @@ impl Direction {
             Direction::Short => Decimal::NEGATIVE_ONE,
         }
     }
-}
-
-// ─── TAE: Execution Policy Conditions ─────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "op")]
-pub enum ConditionGroup {
-    #[serde(rename = "AND")]
-    And(Vec<Condition>),
-    #[serde(rename = "OR")]
-    Or(Vec<Condition>),
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Condition {
-    pub field: String,
-    pub operator: Operator,
-    pub value: ConditionValue,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Operator {
-    Eq,
-    Gt,
-    Lt,
-    Gte,
-    Lte,
-    In,
-    Between,
-    NotEq,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ConditionValue {
-    Number(f64),
-    String(String),
-    NumberList(Vec<f64>),
-    StringList(Vec<String>),
-}
-
-// ─── TAE: Risk Parameters ─────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RiskParams {
-    #[serde(default = "default_risk_per_trade_pct")]
-    pub risk_per_trade_pct: f64,
-    #[serde(default)]
-    pub max_position_size_usd: Option<f64>,
-    #[serde(default = "default_max_leverage")]
-    pub max_leverage: u32,
-    #[serde(default = "default_true_bool")]
-    pub use_dynamic_stops: bool,
-    #[serde(default)]
-    pub fixed_stop_loss_pct: Option<f64>,
-    #[serde(default = "default_target_rr_ratio")]
-    pub target_rr_ratio: f64,
-}
-
-impl Default for RiskParams {
-    fn default() -> Self {
-        Self {
-            risk_per_trade_pct: default_risk_per_trade_pct(),
-            max_position_size_usd: None,
-            max_leverage: default_max_leverage(),
-            use_dynamic_stops: default_true_bool(),
-            fixed_stop_loss_pct: None,
-            target_rr_ratio: default_target_rr_ratio(),
-        }
-    }
-}
-
-fn default_risk_per_trade_pct() -> f64 {
-    1.0
-}
-
-fn default_max_leverage() -> u32 {
-    20
-}
-
-fn default_target_rr_ratio() -> f64 {
-    2.5
-}
-
-fn default_true_bool() -> bool {
-    true
-}
-
-// ─── TAE: Execution Policy ────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExecutionPolicy {
-    pub policy_id: String,
-    pub policy_name: String,
-    #[serde(default)]
-    pub description: String,
-    pub symbol: String,
-    pub direction: Direction,
-    pub conditions: ConditionGroup,
-    #[serde(default)]
-    pub trigger_mode: TriggerMode,
-    pub risk: RiskParams,
-    #[serde(default = "default_true_bool")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub cooldown_seconds: u64,
-    #[serde(default = "default_true_bool")]
-    pub reduce_only_on_close_only: bool,
 }
 
 // ─── TAE: Order Types ─────────────────────────────────────────────
@@ -2072,6 +1922,10 @@ pub struct OrderPacket {
     pub reduce_only: bool,
     pub is_emergency_liquidation: bool,
     pub associated_position_id: Option<i64>,
+    /// v7 TAE: free-form per-order metadata (e.g. `exit_reason`,
+    /// `trigger_source` = setup type). Optional; serialized only when non-empty.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

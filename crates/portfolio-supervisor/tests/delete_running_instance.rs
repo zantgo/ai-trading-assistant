@@ -100,6 +100,7 @@ fn write_initial_config(path: &std::path::Path) {
         macro_term: None,
         automation: Default::default(),
         operational_mode: Default::default(),
+        mode: config_models::ExecutionMode::Paper,
         weight_overrides: None,
         position_scaling: None,
         activation: None,

@@ -34,7 +34,10 @@ pub struct TradeAnalyticsRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyAnalyticsRow {
-    pub policy_id: String,
+    pub setup_type: String,
+    /// Significance bar (0.05 = 5%). `is_significant` requires both the
+    /// t-test p-value and the Monte Carlo p-value below this threshold.
+    pub alpha: f64,
     pub total_trades: u32,
     pub win_count: u32,
     pub loss_count: u32,
@@ -87,7 +90,7 @@ pub struct RiskAnalyticsRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMatrixRow {
-    pub policy_id: String,
+    pub setup_type: String,
     pub regime: String,
     pub trade_count: u32,
     pub win_rate: f64,
@@ -253,7 +256,7 @@ pub struct MonthlySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMatrixSummary {
-    pub policy_id: String,
+    pub setup_type: String,
     pub total_trades: u32,
     pub overall_profit_factor: Option<f64>,
     pub overall_expectancy: f64,

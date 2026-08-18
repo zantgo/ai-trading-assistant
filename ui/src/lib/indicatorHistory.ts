@@ -42,7 +42,13 @@ const HISTORY_URL = '/api/history';
 
 const cache = new Map<string, Promise<IndicatorFlatHistory | null>>();
 
-/// Fetch the indicator-history payload for `(pairKey, timeframe_secs)`.
+/// Fetch the indicator-history payload for `(pairKey, slot, timeframe_secs)`.
+///
+/// AUDIT-AIU-121: the cache key AND the request carry the SLOT. The legacy
+/// duration-only key `${pairKey}@${timeframe}` let two slots sharing one
+/// duration share a single cached payload sourced from the micro pipeline —
+/// the second chart's historical overlays were seeded from micro's indicator
+/// config. The slot hint makes `/api/history` resolve the exact pipeline.
 ///
 /// Returns a single shared promise per cache key — repeated mounts are free.
 /// The response is normalized into `IndicatorFlatHistory`: every indicator
@@ -55,16 +61,18 @@ const cache = new Map<string, Promise<IndicatorFlatHistory | null>>();
 export function fetchIndicatorHistoryOnce(
     pairKey: string,
     timeframe: number,
+    slot?: string,
 ): Promise<IndicatorFlatHistory | null> {
     if (!pairKey || !timeframe) return Promise.resolve(null);
-    const key = `${pairKey}@${timeframe}`;
+    const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
     const cached = cache.get(key);
     if (cached) return cached;
 
     const promise = (async (): Promise<IndicatorFlatHistory | null> => {
         try {
+            const slotParam = slot ? `&slot=${encodeURIComponent(slot)}` : '';
             const res = await fetch(
-                `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`,
+                `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
             );
             if (!res.ok) return null;
             const raw = await res.json() as RawResponse;
@@ -84,8 +92,8 @@ export function clearHistoryCache(): void {
     cache.clear();
 }
 
-export function purgeCacheForKey(pairKey: string, timeframe: number): void {
-    cache.delete(`${pairKey}@${timeframe}`);
+export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
+    cache.delete(`${pairKey}@${slot ?? '?'}@${timeframe}`);
 }
 
 // ── Processed candle cache ────────────────────────────────────────────

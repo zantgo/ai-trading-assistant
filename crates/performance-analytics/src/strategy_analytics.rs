@@ -6,6 +6,10 @@ use sqlx::SqlitePool;
 const MC_RUNS: u32 = 10_000;
 const MC_SEED: u64 = 42;
 
+/// Significance bar: an edge is "statistically significant" only when both
+/// the t-test p-value and the Monte Carlo p-value are below this threshold.
+pub const ALPHA: f64 = 0.05;
+
 /// Compute strategy-level analytics grouped by execution policy.
 /// Implements docs:03-05-03-pae-layer2-strategy-analytics.md
 pub async fn compute_strategy_analytics(
@@ -16,23 +20,25 @@ pub async fn compute_strategy_analytics(
         return vec![];
     }
 
-    let mut by_policy: std::collections::HashMap<String, Vec<&TradeAnalyticsRecord>> =
+    let mut by_setup: std::collections::HashMap<String, Vec<&TradeAnalyticsRecord>> =
         std::collections::HashMap::new();
     for t in trades {
-        by_policy
+        by_setup
             .entry(t.trigger_source.clone())
             .or_default()
             .push(t);
     }
 
-    by_policy
+    by_setup
         .into_iter()
-        .map(|(policy_id, policy_trades)| compute_policy_analytics(&policy_id, &policy_trades))
+        .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades))
         .collect()
 }
 
-fn compute_policy_analytics(
-    policy_id: &str,
+/// Compute the NHST statistics block for one group of trades (setup type in
+/// live analytics, the whole backtest in PAE L5). Shared by both paths.
+pub fn compute_setup_analytics(
+    setup_type: &str,
     trades: &[&TradeAnalyticsRecord],
 ) -> StrategyAnalyticsRow {
     let total = trades.len() as u32;
@@ -116,7 +122,7 @@ fn compute_policy_analytics(
 
     let p_mc = monte_carlo_sign_randomization(&net_pnls, MC_RUNS, MC_SEED);
 
-    let is_significant = p_value < 0.05 && p_mc < 0.05;
+    let is_significant = p_value < ALPHA && p_mc < ALPHA;
 
     let slippage_overhead = if !trades.is_empty() {
         let total_gross: f64 = trades.iter().map(|t| t.gross_pnl.abs()).sum();
@@ -133,7 +139,8 @@ fn compute_policy_analytics(
     let classification = classify_performance(profit_factor, win_rate, p_value, p_mc, total);
 
     StrategyAnalyticsRow {
-        policy_id: policy_id.to_string(),
+        setup_type: setup_type.to_string(),
+        alpha: ALPHA,
         total_trades: total,
         win_count,
         loss_count,
@@ -170,7 +177,7 @@ fn classify_performance(
 
     if pf > 1.2 && win_rate > 0.50 && p_value < 0.01 && p_mc < 0.01 {
         PerformanceClassification::StrongEdge
-    } else if pf > 1.5 && win_rate > 0.45 && p_value < 0.05 && p_mc < 0.05 {
+    } else if pf > 1.5 && win_rate > 0.45 && p_value < ALPHA && p_mc < ALPHA {
         PerformanceClassification::ModerateEdge
     } else if pf >= 1.0 && p_value <= 0.10 {
         PerformanceClassification::WeakMarginalEdge
@@ -354,7 +361,7 @@ mod tests {
     #[test]
     fn test_empty_trades_returns_empty() {
         let trades: Vec<TradeAnalyticsRecord> = vec![];
-        let result = compute_policy_analytics("POLICY_A", &trades.iter().collect::<Vec<_>>());
+        let result = compute_setup_analytics("POLICY_A", &trades.iter().collect::<Vec<_>>());
         assert_eq!(result.total_trades, 0);
         assert_eq!(result.win_count, 0);
         assert_eq!(result.loss_count, 0);
@@ -514,17 +521,17 @@ mod tests {
     fn compute_strategy_analytics_from_trades(
         trades: &[TradeAnalyticsRecord],
     ) -> Vec<StrategyAnalyticsRow> {
-        let mut by_policy: std::collections::HashMap<String, Vec<&TradeAnalyticsRecord>> =
+        let mut by_setup: std::collections::HashMap<String, Vec<&TradeAnalyticsRecord>> =
             std::collections::HashMap::new();
         for t in trades {
-            by_policy
+            by_setup
                 .entry(t.trigger_source.clone())
                 .or_default()
                 .push(t);
         }
-        by_policy
+        by_setup
             .into_iter()
-            .map(|(policy_id, policy_trades)| compute_policy_analytics(&policy_id, &policy_trades))
+            .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades))
             .collect()
     }
 }

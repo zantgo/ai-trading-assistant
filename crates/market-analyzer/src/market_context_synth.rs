@@ -154,9 +154,15 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     // contributes ~0.
     let vwap_conf = finite(map.get("vwap").map(|v| v.confidence).unwrap_or(0.0), 0.0);
     let vwap_score = finite(map.get("vwap").map(|v| v.normalized).unwrap_or(0.0), 0.0);
-    let rvol_contrib = ((rvol - 1.0) * 50.0).clamp(-50.0, 50.0);
-    let vwap_contrib = ((1.0 - vwap_score.abs()).clamp(0.0, 1.0)) * 50.0;
-    let liquidity_score = (rvol_contrib + vwap_contrib).clamp(-100.0, 100.0);
+    // AUDIT-AIU-111: `ContextDimension.score` is contractually [-1, 1]
+    // (`core-domain/src/market_context.rs`, `02-07-metrics-matrix.md` §5.2)
+    // — the previous ±100 clamp emitted `+40.00` where every sibling
+    // dimension rendered `+0.40`, and any consumer doing scale math on the
+    // dimension would be off by 100×. The two contributions are now
+    // normalized to half-widths that sum to [-1, 1].
+    let rvol_contrib = ((rvol - 1.0) * 0.5).clamp(-0.5, 0.5);
+    let vwap_contrib = ((1.0 - vwap_score.abs()).clamp(0.0, 1.0)) * 0.5;
+    let liquidity_score = (rvol_contrib + vwap_contrib).clamp(-1.0, 1.0);
     let liquidity = ContextDimension {
         score: liquidity_score,
         confidence: ((vwap_conf + volume.confidence) / 2.0).clamp(0.0, 1.0),
@@ -247,6 +253,56 @@ mod tests {
         let ctx = synthesize_market_context(&map);
         assert_eq!(ctx.regime, "EXPANSION");
         assert_eq!(ctx.volatility.label, "EXPANSION_CLIMAX");
+    }
+
+    #[test]
+    fn liquidity_dimension_stays_within_unit_interval() {
+        // AUDIT-AIU-111: `ContextDimension.score` is contractually [-1, 1]
+        // (02-07 §5.2) — the legacy ±100 clamp emitted `+40.00` next to
+        // `+0.40` siblings. Sweep the extremes: heavy participation
+        // (rvol 3.0) must not exceed +1.0, dead participation (rvol 0.4)
+        // must not fall below −1.0.
+        let mut heavy = empty_snapshot_inputs();
+        heavy.insert(
+            "rvol".into(),
+            NormalizedIndicatorValue::scalar(3.0, 0.0, "EXHAUSTION_CLIMAX_VOLUME"),
+        );
+        heavy.insert(
+            "vwap".into(),
+            NormalizedIndicatorValue::scalar(100.0, 0.0, "EQUILIBRIUM"),
+        );
+        let ctx = synthesize_market_context(&heavy);
+        assert!(
+            ctx.liquidity.score >= -1.0 && ctx.liquidity.score <= 1.0,
+            "liquidity.score {} outside [-1, 1]",
+            ctx.liquidity.score
+        );
+        assert!(
+            ctx.liquidity.score > 0.0,
+            "high participation must read positive"
+        );
+
+        let mut thin = empty_snapshot_inputs();
+        thin.insert(
+            "rvol".into(),
+            NormalizedIndicatorValue::scalar(0.4, 0.0, "LOW_PARTICIPATION_VOLUME"),
+        );
+        // Stretched away from fair value: vwap proximity ≈ 0 on top of the
+        // thin-participation penalty → the dimension must read negative.
+        thin.insert(
+            "vwap".into(),
+            NormalizedIndicatorValue::scalar(104.0, -0.8, "EXTREME_PREMIUM_REVERSION_ZONE"),
+        );
+        let ctx2 = synthesize_market_context(&thin);
+        assert!(
+            ctx2.liquidity.score >= -1.0 && ctx2.liquidity.score <= 1.0,
+            "liquidity.score {} outside [-1, 1]",
+            ctx2.liquidity.score
+        );
+        assert!(
+            ctx2.liquidity.score < 0.0,
+            "thin participation must read negative"
+        );
     }
 
     #[test]

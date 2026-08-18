@@ -1,6 +1,6 @@
 # Database Schema Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
@@ -60,7 +60,8 @@ Indexes are created on each table for the query patterns the engine actually use
 | `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
 | `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
 | `idx_rce_instance_gate_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
-| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local"`) |
+| `idx_rce_symbol_time` | `(symbol, timestamp_ms DESC)` | Per-symbol safety audit lookups |
+| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Single-operator audit index (`operator_id = "local"`) |
 | `idx_order_fills_trade` | `(trade_id)` | Per-fill PAE reconstruction |
 | `idx_order_fills_order` | `(order_id)` | Per-order fill chain |
 | `idx_cq_pair_timeframe_window_time` | `(pair_key, timeframe_secs, window, timestamp_ms DESC)` | Connection-quality queries (per-instance × per-timeframe window filter) |
@@ -198,7 +199,7 @@ CREATE TABLE IF NOT EXISTS open_orders (
 CREATE INDEX IF NOT EXISTS idx_open_orders_state ON open_orders(state, instance_id, created_at);
 ```
 
-**Per `03-03-03-tae-layer2-execution.md §4`:** `PRE_DISPATCH` orders are held in process memory only and are **never** persisted to `open_orders`. The `risk_control_events` table (§3.10) is the persistent audit trail for every held order; the `/api/pre-dispatch/*` resource ([`06-01 §2.9`](06-01-api-gateway-contract.md)) is the operator surface.
+**v7 note:** the pre-dispatch review path and its `PRE_DISPATCH` order state were erased with the policy engine. `risk_control_events` (§3.10) remains the audit trail for safety veto releases and resets.
 
 The `close_reason` vocabulary is canonical: `STOP_LOSS`, `TAKE_PROFIT`, `SIGNAL_EXIT`, `MANUAL`, `VETO`, `TIMEOUT`, `EMERGENCY_LIQUIDATION`. The PAE contract consumes this exact enum without aliasing.
 
@@ -263,7 +264,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v6.10 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v7.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -372,32 +373,27 @@ CREATE INDEX IF NOT EXISTS idx_cq_pair_timeframe_window_time ON connection_quali
 
 The persistence loop in `crates/network-adapters/src/connection_quality_tracker.rs::run_persistence_loop` writes one row per (tracker × window) every 60 seconds; there is one tracker per `(pair_key, timeframe_secs)` pair, so a workspace with `N` symbols and a 4-tier ladder yields up to `4 × N` trackers, each producing 3 rows per 60s tick (one per window).
 
-### 3.10 `risk_control_events` — gate-rejection and override audit (new in v4.0)
+### 3.10 `risk_control_events` — single-operator safety audit (v7)
 
-Every pre-trade gate failure (Gates 0–7; Gate 0 is the lifecycle gate added in v6.2 per [03-03-06 IL-05](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)) and every operator override is logged with the local-operator identity, gate id, decision, prior state, resulting state, and a retention timestamp:
+Every informational safety action (release, reset, session reset) and every manual automation close is logged with the single-operator identity, gate id, decision, reason, and timestamp. The v4.0 draft schema (event_id / prior_state / resulting_state / retention_until_ms) was never materialized; the shipped migration (20260818000001) + the v7.0 operator column (20260818000005) define the real table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS risk_control_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id TEXT NOT NULL UNIQUE,
-    policy_id TEXT,
     instance_id TEXT NOT NULL,
-    gate_id INTEGER NOT NULL,
-    decision TEXT NOT NULL CHECK (decision IN ('BLOCK', 'HELD_FOR_REVIEW', 'CLIP_AND_CONTINUE', 'OVERRIDE')),
-    reason TEXT NOT NULL,
-    requested_disposition TEXT NOT NULL,
-    operator_id TEXT NOT NULL DEFAULT 'local',
-    prior_state TEXT,
-    resulting_state TEXT,
-    pre_dispatch_order_id TEXT,
+    symbol TEXT,
+    gate_id INTEGER,
+    decision TEXT,
+    reason TEXT,
     timestamp_ms INTEGER NOT NULL,
-    retention_until_ms INTEGER NOT NULL
+    operator_id TEXT NOT NULL DEFAULT 'local'
 );
 CREATE INDEX IF NOT EXISTS idx_rce_instance_gate_time ON risk_control_events(instance_id, gate_id, timestamp_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_rce_symbol_time ON risk_control_events(symbol, timestamp_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator_id, timestamp_ms DESC);
 ```
 
-`operator_id = 'local'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` remains available by convention for cases where the API layer forwards without an explicit identity (not currently surfaced). The column carries no CHECK — plain `TEXT NOT NULL DEFAULT 'local'` — forward-compatible with caller-supplied identity (AUDIT-V4-076). Caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled).
+`operator_id = 'local'` is the fixed single-operator identity (per [`06-01 §1`](06-01-api-gateway-contract.md)): the platform is a single-operator local deployment with no caller-supplied identity (AUDIT-V4-076 cancelled). Writers: the safety release/reset/session-reset handlers and the automation manual-close handler (`operator_id = "local"`).
 
 ### 3.11 — 3.26 Remaining tables
 

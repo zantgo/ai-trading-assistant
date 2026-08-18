@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use crate::lifecycle::LifecycleManager;
 use crate::safety::SafetyManager;
 use crate::WorkspaceState;
-use config_models::{IntervalsConfig, SafetyConfig, Stance};
+use config_models::{IntervalsConfig, SafetyConfig};
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
 use market_analyzer::analyzer;
@@ -109,7 +109,6 @@ pub struct Instance {
     pub r#macro: TimeframeBuffers,
 
     pub lifecycle: RwLock<LifecycleManager>,
-    pub stances: RwLock<HashMap<String, Stance>>,
 }
 
 impl Instance {
@@ -137,10 +136,6 @@ impl Instance {
             safe_config.systemic_risk_threshold,
         ));
 
-        let symbol = active_pair.symbol.clone();
-        let mut stances = HashMap::new();
-        stances.insert(symbol.clone(), Stance::Active);
-
         let mut lifecycle_mgr = LifecycleManager::new(None);
         lifecycle_mgr.set_db(id.clone(), Arc::new(pool.clone()));
 
@@ -161,7 +156,6 @@ impl Instance {
             slow,
             r#macro,
             lifecycle: RwLock::new(lifecycle_mgr),
-            stances: RwLock::new(stances),
         }
     }
 
@@ -304,9 +298,6 @@ impl Instance {
         // Use a no-op sqlite pool for tests. We never hit the DB.
         let pool =
             sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
-        let symbol = active_pair.symbol.clone();
-        let mut stances = HashMap::new();
-        stances.insert(symbol, Stance::Active);
 
         Self {
             id,
@@ -328,7 +319,6 @@ impl Instance {
             slow: empty_buffers.clone(),
             r#macro: empty_buffers,
             lifecycle: RwLock::new(LifecycleManager::new(None)),
-            stances: RwLock::new(stances),
         }
     }
 }

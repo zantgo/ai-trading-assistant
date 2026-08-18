@@ -237,3 +237,54 @@
     color: rgba(255, 255, 255, 0.35);
     font-size: 0.85rem;
 }
+
+.badge-sig {
+    margin-left: 0.4rem;
+    background: #173a2a;
+    color: #58d68d;
+    border: 1px solid #1f5c40;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.edge-card {
+    margin-top: 1rem;
+    padding: 0.8rem;
+    border-radius: 8px;
+    border: 1px solid #23262e;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.edge-sig {
+    background: #12241b;
+    border-color: #1f5c40;
+}
+
+.edge-no {
+    background: #1a1712;
+    border-color: #5c4a1f;
+}
+
+.edge-label {
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #5f6672;
+}
+
+.edge-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #e4e6eb;
+}
+
+.edge-detail {
+    font-size: 0.76rem;
+    color: #9aa3b2;
+    line-height: 1.5;
+}

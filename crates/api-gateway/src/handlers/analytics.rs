@@ -90,8 +90,11 @@ pub async fn serve_optimization_report(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
-    let persisted =
-        database_storage::query_optimization_reports(&state.pool, query.limit.unwrap_or(10).min(crate::types::API_MAX_LIMIT)).await;
+    let persisted = database_storage::query_optimization_reports(
+        &state.pool,
+        query.limit.unwrap_or(10).min(crate::types::API_MAX_LIMIT),
+    )
+    .await;
     if !persisted.is_empty() {
         return Json(persisted);
     }
@@ -110,87 +113,8 @@ pub async fn serve_optimization_report(
         return Json(vec![report]);
     }
 
-    let mut by_regime: std::collections::HashMap<String, Vec<&database_storage::ClosedTradeRow>> =
-        std::collections::HashMap::new();
-    for t in &trades {
-        let regime = t
-            .market_regime
-            .clone()
-            .unwrap_or_else(|| "UNKNOWN".to_string());
-        by_regime.entry(regime).or_default().push(t);
-    }
-
-    let mut regime_reports = Vec::new();
-    let mut recommendations = Vec::new();
-
-    for (regime, regime_trades) in &by_regime {
-        let wins = regime_trades
-            .iter()
-            .filter(|t| t.realized_pnl > 0.0)
-            .count();
-        let gross_profit: f64 = regime_trades
-            .iter()
-            .filter(|t| t.realized_pnl > 0.0)
-            .map(|t| t.realized_pnl)
-            .sum();
-        let gross_loss: f64 = regime_trades
-            .iter()
-            .filter(|t| t.realized_pnl < 0.0)
-            .map(|t| t.realized_pnl.abs())
-            .sum();
-        let profit_factor = if gross_loss > 0.0 {
-            gross_profit / gross_loss
-        } else {
-            f64::INFINITY
-        };
-        let total_pnl: f64 = regime_trades.iter().map(|t| t.realized_pnl).sum();
-        let valid_r: Vec<f64> = regime_trades
-            .iter()
-            .filter_map(|t| {
-                if t.allocated_usd > 0.0 {
-                    Some(t.realized_pnl / t.allocated_usd)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let avg_r = if !valid_r.is_empty() {
-            valid_r.iter().sum::<f64>() / valid_r.len() as f64
-        } else {
-            0.0
-        };
-        let win_rate = if !regime_trades.is_empty() {
-            wins as f64 / regime_trades.len() as f64 * 100.0
-        } else {
-            0.0
-        };
-
-        regime_reports.push(core_domain::performance::RegimePerformanceReport {
-            regime: regime.clone(),
-            trade_count: regime_trades.len() as i64,
-            win_rate,
-            profit_factor,
-            avg_r_multiple: avg_r,
-            total_pnl,
-        });
-
-        if win_rate < 35.0 && regime_trades.len() > 5 {
-            recommendations.push(format!(
-                "REGIME {}: Low win rate ({:.1}%), consider reducing allocation",
-                regime, win_rate
-            ));
-        }
-    }
-
-    let report = core_domain::performance::OptimizationReport {
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64,
-        total_trades: trades.len() as i64,
-        regime_reports,
-        recommendations,
-    };
+    // Single source of truth — shared with the scheduled optimizer task.
+    let report = performance_analytics::strategy_optimizer::build_optimization_report(&trades);
     Json(vec![report])
 }
 
@@ -227,7 +151,7 @@ pub async fn serve_performance_summary(
                 &state.pool,
             )
             .await;
-        all.retain(|s| Some(s.policy_id.clone()) == query.policy_id);
+        all.retain(|s| Some(s.setup_type.clone()) == query.policy_id);
         all
     } else {
         performance_analytics::performance_evaluator::compute_performance_summary_on_demand(
@@ -236,4 +160,122 @@ pub async fn serve_performance_summary(
         .await
     };
     Json(summaries)
+}
+
+// ─── PAE L5: Backtest ────────────────────────────────────────────────
+
+/// POST /api/backtest/run — replay recorded decisions through the executor.
+#[derive(serde::Deserialize)]
+pub struct BacktestRequest {
+    pub symbol: String,
+    pub timeframe_secs: u64,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    #[serde(default)]
+    pub initial_capital: Option<f64>,
+}
+
+pub async fn serve_backtest_run(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<BacktestRequest>,
+) -> impl IntoResponse {
+    if payload.symbol.trim().is_empty() {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "symbol required" })),
+        )
+            .into_response();
+    }
+
+    let workspace = state.workspace.config().await;
+    let fees = portfolio_supervisor::paper_trading::FeesConfig {
+        maker_fee_pct: workspace.fees.maker_fee_pct,
+        taker_fee_pct: workspace.fees.taker_fee_pct,
+        funding_rate_8h: workspace.fees.funding_rate_8h,
+        simulated_spread_pct: 0.01,
+    };
+    let cross_leverage = workspace.leverage.cross_leverage;
+
+    let params = performance_analytics::backtest::BacktestParams {
+        symbol: payload.symbol,
+        timeframe_secs: payload.timeframe_secs,
+        from_ms: payload.from_ms,
+        to_ms: payload.to_ms,
+        initial_capital: payload.initial_capital.unwrap_or(1000.0),
+    };
+
+    let result = performance_analytics::backtest::run_backtest(
+        &state.pool,
+        &params,
+        &workspace.minimal_tae,
+        &fees,
+        cross_leverage,
+    )
+    .await;
+
+    let params_json = serde_json::to_string(&result.params).unwrap_or_default();
+    let summary_json = serde_json::to_string(&serde_json::json!({
+        "total_trades": result.total_trades,
+        "win_count": result.win_count,
+        "loss_count": result.loss_count,
+        "win_rate": result.win_rate,
+        "gross_profit": result.gross_profit,
+        "gross_loss": result.gross_loss,
+        "profit_factor": result.profit_factor,
+        "expectancy": result.expectancy,
+        "max_drawdown_pct": result.max_drawdown_pct,
+    }))
+    .unwrap_or_default();
+    let stats_json = serde_json::to_string(&result.stats).unwrap_or_default();
+    let trades_json = serde_json::to_string(&result.trades).unwrap_or_default();
+    let equity_curve_json = serde_json::to_string(&result.equity_curve).unwrap_or_default();
+
+    let backtest_id = database_storage::insert_backtest_run(
+        &state.pool,
+        &params_json,
+        &summary_json,
+        &stats_json,
+        &trades_json,
+        &equity_curve_json,
+    )
+    .await;
+
+    Json(serde_json::json!({
+        "backtest_id": backtest_id,
+        "params": result.params,
+        "summary": {
+            "total_trades": result.total_trades,
+            "win_count": result.win_count,
+            "loss_count": result.loss_count,
+            "win_rate": result.win_rate,
+            "gross_profit": result.gross_profit,
+            "gross_loss": result.gross_loss,
+            "profit_factor": result.profit_factor,
+            "expectancy": result.expectancy,
+            "max_drawdown_pct": result.max_drawdown_pct,
+        },
+        "stats": result.stats,
+        "trades": result.trades,
+        "equity_curve": result.equity_curve,
+    }))
+    .into_response()
+}
+
+/// GET /api/backtest/:id — fetch a persisted run.
+pub async fn serve_backtest_get(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> impl IntoResponse {
+    match database_storage::query_backtest_run(&state.pool, id).await {
+        Some((params, summary, stats, trades, equity_curve)) => Json(serde_json::json!({
+            "backtest_id": id,
+            "params": serde_json::from_str::<serde_json::Value>(&params).unwrap_or_default(),
+            "summary": serde_json::from_str::<serde_json::Value>(&summary).unwrap_or_default(),
+            "stats": serde_json::from_str::<serde_json::Value>(&stats).unwrap_or_default(),
+            "trades": serde_json::from_str::<serde_json::Value>(&trades).unwrap_or_default(),
+            "equity_curve": serde_json::from_str::<serde_json::Value>(&equity_curve).unwrap_or_default(),
+        }))
+        .into_response(),
+        None => (axum::http::StatusCode::NOT_FOUND, "Backtest run not found").into_response(),
+    }
 }

@@ -81,25 +81,24 @@ docs/
 │   │       ├── 05-02-01-divergence.md
 │   │       ├── … (12 SignalKinds)
 │   │       └── 05-02-12-pattern-forming.md
-│   ├── trade-automation-engine/                      (03-03 — 6 files)
-│   │   ├── 03-03-01-tae-overview-spec.md             ← TAE boundaries, order lifecycle
-│   │   ├── 03-03-02-tae-layer1-policy.md
-│   │   ├── 03-03-03-tae-layer2-execution.md          ← f64→Decimal type-boundary cast + §3.3 stance→flag
-│   │   ├── 03-03-04-tae-execution-policy-spec.md     ← policy syntax and semantics
-│   │   ├── 03-03-05-tae-paper-trading-spec.md        ← simulated matching engine
-│   │   └── 03-03-06-tae-instance-lifecycle-spec.md   ← LifecycleState, Gate 0, automation schema (v6.2)
+│   ├── trade-automation-engine/                      (03-03 — 4 files)
+│   │   ├── 03-03-01-tae-overview-spec.md             ← TAE boundaries, setup executor, invalidation semantics
+│   │   ├── 03-03-03-tae-layer2-execution.md          ← unified ExecutionEngine + ExecutionBackend trait
+│   │   ├── 03-03-05-tae-paper-trading-spec.md        ← PaperSimulation backend + persistence/recovery
+│   │   └── 03-03-06-tae-instance-lifecycle-spec.md   ← LifecycleState, automation schema
 │   ├── portfolio-management-engine/                  (03-04 — 5 files)
 │   │   ├── 03-04-01-pme-overview-spec.md             ← PME boundaries, safety veto
 │   │   ├── 03-04-02-pme-layer1-position.md
 │   │   ├── 03-04-03-pme-layer2-exposure.md
 │   │   ├── 03-04-04-pme-layer3-capital.md            ← Decimal ledger (available_margin)
 │   │   └── 03-04-05-pme-layer4-portfolio.md
-│   └── performance-analytics-engine/                 (03-05 — 5 files)
+│   └── performance-analytics-engine/                 (03-05 — 6 files)
 │       ├── 03-05-01-pae-overview-spec.md             ← PAE boundaries, scheduled tasks
 │       ├── 03-05-02-pae-layer1-trade-analytics.md
 │       ├── 03-05-03-pae-layer2-strategy-analytics.md ← Monte Carlo sign-randomization
 │       ├── 03-05-04-pae-layer3-risk-analytics.md
-│       └── 03-05-05-pae-layer4-performance.md
+│       ├── 03-05-05-pae-layer4-performance.md
+│       └── 03-05-06-pae-layer5-backtest.md        ← recorded-decision replay + NHST verdict
 ├── integration-and-api/                              (06 — 3 files)
 │   ├── 06-00-consumer-onboarding.md                  ← single-page integrator orientation
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
@@ -122,7 +121,7 @@ docs/
     └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
 ```
 
-Total: **158 markdown files** at v6.10.29 — 155 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 10 conceptual + 17 matrix + **41 engine** (8 DIE + 16 MME + 6 TAE + 5 PME + 5 PAE + 1 ROADMAP) + 53 indicator + 13 signal + 4 integration + 5 UI + 9 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **16 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry.
+Total: **156 markdown files** at v7.0 — 153 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 10 conceptual + 17 matrix + **40 engine** (8 DIE + 16 MME + 4 TAE + 5 PME + 6 PAE + 1 ROADMAP) + 53 indicator + 13 signal + 4 integration + 5 UI + 9 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **16 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry.
 
 ## The Five Engines
 
@@ -185,7 +184,7 @@ This table is the **single source of implementation truth** — every spec in `d
 | **MME — Market Monitoring** (52 indicators, 4 TFs, 12 SignalKinds, Liquidity Intelligence Phases 0-2) | ✅ Implemented | `03-02-01`…`03-02-15`, `01-05`, `04-02-00`, `05-02-00` |
 | **TAE — Trade Automation** (Policy + Execution + Paper trading + Lifecycle) | ⚠️ WIP — backend runs (paper engine fills, veto loop drains), but the `TradeAutomationDashboard` is a placeholder | `03-03-01`…`03-03-06`, `ROADMAP.md §3 Phase A–B` |
 | **PME — Portfolio Management** (Position + Exposure + Capital + Portfolio/Safety) | ⚠️ WIP — backend runs (safety manager + veto loop live, ledger persists), but the `PortfolioDashboard` is a placeholder | `03-04-01`…`03-04-05`, `ROADMAP.md §3 Phase A + C` |
-| **PAE — Performance Analytics** (Stats compiler + Strategy NHST + Risk analytics + Optimizer) | ⚠️ WIP — analytics APIs and Overview/Strategy/Risk/Regimes/Trades panels live; **backtest panel is a UI mock** | `03-05-01`…`03-05-05`, `ROADMAP.md §3 Phase D` |
+| **PAE — Performance Analytics** (Stats compiler + Strategy NHST + Risk analytics + Optimizer + Backtest) | ✅ Implemented — analytics live; **backtest tab replays recorded decisions with the full significance treatment** | `03-05-01`…`03-05-06`, `ROADMAP.md §3 Phase D` |
 
 ### 6.x Cross-cutting features
 
@@ -201,7 +200,7 @@ This table is the **single source of implementation truth** — every spec in `d
 | Pre-trade risk gates (1–7) | ✅ Implemented | `08-02` |
 | Position sizing protocol `S = E·R / (Dₛₗ / 100)` (backend math) | ✅ Implemented | `03-03-02`, `03-03-03` |
 | PME safety veto + stance control (backend safety loop) | ✅ Implemented | `03-04-05` |
-| Performance analytics (PAE L1–L4 backend + Overview/Strategy/Risk/Regimes/Trades UI) | ✅ Implemented | `03-05-01`…`03-05-05` |
+| Performance analytics (PAE L1–L5: analytics + backtest) | ✅ Implemented | `03-05-01`…`03-05-06` |
 | Overview UI panel (market cockpit) | ✅ Implemented | `07-02`, `03-02-08` |
 | **TAE / PME dedicated dashboards** | ⚠️ WIP — `TradeAutomationDashboard`, `PortfolioDashboard` are placeholder mock-ups | `07-02 §5.3`, `ROADMAP.md §3 Phase A` |
 | **PAE backtest runner + equity curve** | ⚠️ WIP — UI mock today; no `/api/backtest/*` routes | `ROADMAP.md §3 Phase D` |

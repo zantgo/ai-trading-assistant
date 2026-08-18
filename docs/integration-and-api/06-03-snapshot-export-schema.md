@@ -1,6 +1,6 @@
 # Snapshot Export — On-Disk JSON Schema
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 
 <!-- pascal-display-strings -->

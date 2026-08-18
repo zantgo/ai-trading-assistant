@@ -13,14 +13,14 @@ pub async fn insert_strategy_analytics(pool: &SqlitePool, row: &StrategyAnalytic
 
     match sqlx::query(
         "INSERT INTO strategy_analytics_history
-         (timestamp, policy_id, total_trades, win_count, loss_count, win_rate,
+         (timestamp, setup_type, total_trades, win_count, loss_count, win_rate,
           gross_profit, gross_loss, profit_factor, average_win, average_loss,
           avg_win_loss_ratio, expectancy, slippage_overhead, t_statistic, p_value,
           p_mc, monte_carlo_runs, is_significant, classification)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
     )
     .bind(ts)
-    .bind(&row.policy_id)
+    .bind(&row.setup_type)
     .bind(row.total_trades as i64)
     .bind(row.win_count as i64)
     .bind(row.loss_count as i64)
@@ -57,12 +57,12 @@ pub async fn query_strategy_analytics_history(
 ) -> Vec<StrategyAnalyticsRow> {
     let rows: Result<Vec<_>, _> = if let Some(pid) = policy_id {
         sqlx::query_as::<_, StrategyAnalyticsQueryRow>(
-            "SELECT policy_id, total_trades, win_count, loss_count, win_rate,
+            "SELECT setup_type, total_trades, win_count, loss_count, win_rate,
                     gross_profit, gross_loss, profit_factor, average_win, average_loss,
                     avg_win_loss_ratio, expectancy, slippage_overhead, t_statistic, p_value,
                     p_mc, monte_carlo_runs, is_significant, classification
              FROM strategy_analytics_history
-             WHERE policy_id = ?1
+             WHERE setup_type = ?1
              ORDER BY timestamp DESC
              LIMIT ?2",
         )
@@ -72,7 +72,7 @@ pub async fn query_strategy_analytics_history(
         .await
     } else {
         sqlx::query_as::<_, StrategyAnalyticsQueryRow>(
-            "SELECT policy_id, total_trades, win_count, loss_count, win_rate,
+            "SELECT setup_type, total_trades, win_count, loss_count, win_rate,
                     gross_profit, gross_loss, profit_factor, average_win, average_loss,
                     avg_win_loss_ratio, expectancy, slippage_overhead, t_statistic, p_value,
                     p_mc, monte_carlo_runs, is_significant, classification
@@ -89,7 +89,8 @@ pub async fn query_strategy_analytics_history(
         Ok(r) => r
             .into_iter()
             .map(|r| StrategyAnalyticsRow {
-                policy_id: r.policy_id,
+                setup_type: r.setup_type,
+                alpha: 0.05,
                 total_trades: r.total_trades as u32,
                 win_count: r.win_count as u32,
                 loss_count: r.loss_count as u32,
@@ -128,12 +129,12 @@ pub async fn insert_performance_matrix_snapshot(
 
     match sqlx::query(
         "INSERT INTO performance_matrix_snapshots
-         (timestamp, policy_id, regime, trade_count, win_rate, profit_factor,
+         (timestamp, setup_type, regime, trade_count, win_rate, profit_factor,
           avg_r_multiple, total_pnl, compatibility_label)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )
     .bind(ts)
-    .bind(&row.policy_id)
+    .bind(&row.setup_type)
     .bind(&row.regime)
     .bind(row.trade_count as i64)
     .bind(row.win_rate)
@@ -161,8 +162,8 @@ pub async fn query_performance_matrix_latest(
             "SELECT policy_id, regime, trade_count, win_rate, profit_factor,
                     avg_r_multiple, total_pnl, compatibility_label
              FROM performance_matrix_snapshots
-             WHERE policy_id = ?1
-             AND timestamp = (SELECT MAX(timestamp) FROM performance_matrix_snapshots WHERE policy_id = ?1)
+             WHERE setup_type = ?1
+             AND timestamp = (SELECT MAX(timestamp) FROM performance_matrix_snapshots WHERE setup_type = ?1)
              ORDER BY trade_count DESC",
         )
         .bind(pid)
@@ -184,7 +185,7 @@ pub async fn query_performance_matrix_latest(
         Ok(r) => r
             .into_iter()
             .map(|r| PerformanceMatrixRow {
-                policy_id: r.policy_id,
+                setup_type: r.setup_type,
                 regime: r.regime,
                 trade_count: r.trade_count as u32,
                 win_rate: r.win_rate,
@@ -299,14 +300,14 @@ pub async fn insert_performance_summary(
 
     match sqlx::query(
         "INSERT INTO performance_matrix_summaries
-         (timestamp, policy_id, total_trades, overall_profit_factor,
+         (timestamp, setup_type, total_trades, overall_profit_factor,
           overall_expectancy, overall_sharpe, overall_sortino,
           max_drawdown_pct, regime_strength_json, recommendations_json,
           overall_rating, last_evaluated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )
     .bind(ts)
-    .bind(&summary.policy_id)
+    .bind(&summary.setup_type)
     .bind(summary.total_trades as i64)
     .bind(summary.overall_profit_factor)
     .bind(summary.overall_expectancy)
@@ -379,7 +380,7 @@ pub async fn query_optimization_reports(pool: &SqlitePool, limit: u32) -> Vec<Op
 
 #[derive(Debug, sqlx::FromRow)]
 struct StrategyAnalyticsQueryRow {
-    policy_id: String,
+    setup_type: String,
     total_trades: i64,
     win_count: i64,
     loss_count: i64,
@@ -402,7 +403,7 @@ struct StrategyAnalyticsQueryRow {
 
 #[derive(Debug, sqlx::FromRow)]
 struct PerformanceMatrixQueryRow {
-    policy_id: String,
+    setup_type: String,
     regime: String,
     trade_count: i64,
     win_rate: f64,
@@ -434,4 +435,57 @@ struct OptimizationReportQueryRow {
     total_trades: i64,
     regime_reports_json: String,
     recommendations_json: String,
+}
+
+// ─── PAE L5: backtest_runs ───────────────────────────────────────────
+
+/// Persist a backtest run; returns the new row id.
+pub async fn insert_backtest_run(
+    pool: &SqlitePool,
+    params_json: &str,
+    summary_json: &str,
+    stats_json: &str,
+    trades_json: &str,
+    equity_curve_json: &str,
+) -> i64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    match sqlx::query(
+        "INSERT INTO backtest_runs \
+         (params_json, summary_json, stats_json, trades_json, equity_curve_json, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(params_json)
+    .bind(summary_json)
+    .bind(stats_json)
+    .bind(trades_json)
+    .bind(equity_curve_json)
+    .bind(now)
+    .execute(pool)
+    .await
+    {
+        Ok(r) => r.last_insert_rowid(),
+        Err(e) => {
+            eprintln!("DB: Failed to insert backtest run: {}", e);
+            0
+        }
+    }
+}
+
+/// Load a persisted backtest run: `(params, summary, stats, trades, equity_curve)`.
+pub async fn query_backtest_run(
+    pool: &SqlitePool,
+    id: i64,
+) -> Option<(String, String, String, String, String)> {
+    sqlx::query_as::<_, (String, String, String, String, String)>(
+        "SELECT params_json, summary_json, stats_json, trades_json, equity_curve_json \
+         FROM backtest_runs WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }

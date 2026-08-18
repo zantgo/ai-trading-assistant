@@ -9,7 +9,7 @@ use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
-use config_models::{Stance, TimeframeConfig};
+use config_models::TimeframeConfig;
 use core_domain::normalized::Exchange;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -342,6 +342,7 @@ pub async fn add_instance(
                 macro_term: Some(macro_cfg.clone()),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
+                mode: config_models::ExecutionMode::Paper,
                 weight_overrides: weight_overrides.clone(),
                 position_scaling: position_scaling.clone(),
                 activation: None,
@@ -756,10 +757,6 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .await;
     }
 
-    let symbol = old_instance.active_pair.symbol.clone();
-    let mut stances = std::collections::HashMap::new();
-    stances.insert(symbol, Stance::Active);
-
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
         pair: old_instance.pair.clone(),
@@ -783,7 +780,6 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         slow: artifacts.slow,
         r#macro: artifacts.r#macro,
         lifecycle: RwLock::new(LifecycleManager::new(None)),
-        stances: RwLock::new(stances),
     });
 
     // Swap in state map

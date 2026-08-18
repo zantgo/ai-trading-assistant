@@ -234,7 +234,7 @@
      purgeCacheForKey(pairKey, timeframe);
      (async () => {
          try {
-             const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
+             const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe, slot);
             if (cancelled || !hist) { _bootstrapComplete = true; return; }
             const step = tf?.barDurationSec || 60;
 

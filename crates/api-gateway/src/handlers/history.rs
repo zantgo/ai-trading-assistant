@@ -36,7 +36,12 @@ pub async fn serve_history(
 
     let (prices, candles, indicator_history) = match get_active_pair(&state, &pair_key).await {
         Some(pair) => {
-            let mut snap_hist = pair.snapshot_history_vec_for_secs(tf_secs).await;
+            // AUDIT-AIU-121: resolve by `?slot=` when provided — two slots
+            // sharing one duration previously both got the micro pipeline's
+            // history via the duration-only shim.
+            let mut snap_hist = pair
+                .snapshot_history_vec_for_slot_or_secs(query.slot.as_deref(), tf_secs)
+                .await;
             // Sub-minute TFs: when the in-memory snapshot_history is empty
             // (e.g. fresh daemon startup, no completed candles yet), fall back
             // to the DB so the chart has OHLCV history on first mount — but

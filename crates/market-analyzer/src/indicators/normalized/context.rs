@@ -687,6 +687,15 @@ impl NormalizationEngine {
         choch_bearish: bool,
     ) -> NormalizedIndicatorValue {
         let mut norm = 0.0f64;
+        // AUDIT-AIU-113 (defensive): a contradictory double-BOS (both flags)
+        // should never arrive — the calculator resolves it by dominant
+        // displacement. If one ever does, drop BOTH bos contributions so the
+        // entry can never carry a bullish label with a bearish score.
+        let (bos_bullish, bos_bearish) = if bos_bullish && bos_bearish {
+            (false, false)
+        } else {
+            (bos_bullish, bos_bearish)
+        };
         if structure_bullish {
             norm += 0.7;
         } else if structure_bearish {

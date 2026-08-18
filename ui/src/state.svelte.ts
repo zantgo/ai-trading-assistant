@@ -50,7 +50,7 @@ function createTimeframeTelemetry(
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,
-        bbwpPeriodVal: 20, bbwpLookbackVal: 252, analysisLimit: 100,
+        bbwpPeriodVal: 20, bbwpLookbackVal: 252,
         stochKPeriodVal: 18, stochDPeriodVal: 5, stochSPeriodVal: 9, chandemoPeriodVal: 12,
         supertrendPeriodVal: 10, supertrendMultiplierVal: 3.0,
         keltnerEmaPeriodVal: 20, keltnerAtrPeriodVal: 10, keltnerMultiplierVal: 2.0,
@@ -506,7 +506,6 @@ export class AppStore {
                 tf.stochDPeriodVal = this.settings.globalIndicatorsConfig.stoch_d_period ?? 5;
                 tf.stochSPeriodVal = this.settings.globalIndicatorsConfig.stoch_s_period ?? 9;
                 tf.chandemoPeriodVal = this.settings.globalIndicatorsConfig.chandemo_period ?? 12;
-                tf.analysisLimit = this.settings.globalCandlesConfig.analysis_limit ?? 100;
             }
         }
     }
@@ -588,8 +587,6 @@ export class AppStore {
     set atrPeriodVal(v: number) { this.micro().atrPeriodVal = v; }
     get squeezePeriodVal() { return this.micro().squeezePeriodVal; }
     set squeezePeriodVal(v: number) { this.micro().squeezePeriodVal = v; }
-    get analysisLimit() { return this.micro().analysisLimit; }
-    set analysisLimit(v: number) { this.micro().analysisLimit = v; }
 
     get historyLatestClose() { return this.activeInstance().historyLatestClose; }
     set historyLatestClose(v: string) { this.activeInstance().historyLatestClose = v; }

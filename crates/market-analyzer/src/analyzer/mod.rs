@@ -284,6 +284,35 @@ impl ActivePair {
         }
     }
 
+    /// AUDIT-AIU-121: slot-authoritative history — used by `/api/history`
+    /// when the caller passes `?slot=`. Unlike the duration-only shim above,
+    /// this resolves the EXACT pipeline, so duplicate-duration slots never
+    /// cross-wire each other's history. Falls back to the duration shim when
+    /// the slot hint is absent or unknown.
+    pub async fn snapshot_history_vec_for_slot_or_secs(
+        &self,
+        slot: Option<&str>,
+        timeframe_secs: u64,
+    ) -> Vec<MarketSnapshot> {
+        if let Some(resolved) = slot
+            .map(|s| core_domain::models::TimeframeSlot::parse(s))
+            .and_then(|s| self.pipeline_for_slot(s))
+        {
+            let hist = resolved.snapshot_history.read().await;
+            return hist.iter().cloned().collect();
+        }
+        // Best-effort: no hint, or a custom-slot hint this pair doesn't run —
+        // fall back to the duration shim (the WS live path remains
+        // slot-authoritative regardless).
+        match self.pipeline_for_duration(timeframe_secs) {
+            Ok(p) => {
+                let hist = p.snapshot_history.read().await;
+                hist.iter().cloned().collect()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// Latest completed snapshot for each of the four timeframes
     /// (micro, fast, slow, macro), for cross-timeframe synthesis.
     pub async fn latest_snapshots_all_tf(
@@ -848,11 +877,24 @@ pub async fn run_single(
         smc_indicator = w.smc_indicator;
         anchored_vwap_indicator = w.anchored_vwap_indicator;
 
-        // Pre-populate history from warmed state
-        {
+        // AUDIT-AIU-117: the warmed `history` deque is seeded by the registry's
+        // `populate_buffers` (the single seeder — it runs synchronously before
+        // this task starts). The previous unconditional push here DOUBLE-SEEDED
+        // every warm candle on every boot (run_single + populate_buffers both
+        // wrote into the same `Arc<RwLock<VecDeque>>`), doubling `/api/history`
+        // rows and double-counting warm bars in fib/S-R/pivot/pattern and
+        // cluster lookbacks. The empty-guard makes this path idempotent under
+        // any task ordering. PRI-08 + AUDIT-AIU-117: sub-minute slots (which
+        // warm by replaying 60 s REST closes through the state machines) keep
+        // `history` EMPTY at handover — the replayed bars are 12× too wide for
+        // the slot's structural indicators (fib/pivots/S-R treat 60 s bars as
+        // 5 s bars), so only live candles populate the deque.
+        if timeframe_secs >= 60 {
             let mut hist = history.write().await;
-            for c in &w.history {
-                hist.push_back(c.clone());
+            if hist.is_empty() {
+                for c in &w.history {
+                    hist.push_back(c.clone());
+                }
             }
         }
         if timeframe_secs >= 60 {
@@ -869,13 +911,17 @@ pub async fn run_single(
                 active_set.filter_snapshot_indicators(&mut filtered);
                 *latest_snapshot.write().await = Some(filtered);
             }
-            // Pre-populate snapshot_history from warmed state
+            // Pre-populate snapshot_history from warmed state (only ≥60s —
+            // PRI-08; idempotent empty-guard for the populate_buffers
+            // double-seed, AUDIT-AIU-117).
             {
                 let mut snap_hist = snapshot_history.write().await;
-                for snap in &w.snapshot_history {
-                    let mut filtered = snap.clone();
-                    active_set.filter_snapshot_indicators(&mut filtered);
-                    snap_hist.push_back(filtered);
+                if snap_hist.is_empty() {
+                    for snap in &w.snapshot_history {
+                        let mut filtered = snap.clone();
+                        active_set.filter_snapshot_indicators(&mut filtered);
+                        snap_hist.push_back(filtered);
+                    }
                 }
             }
         }
@@ -1069,7 +1115,14 @@ pub async fn run_single(
 
     // DIE L3 runtime sequence audit + gap-fill state (03-01-04 §3 / §2.1.2).
     let duration_ms = tf_config.candles.duration_seconds * 1000;
-    let mut last_completed_start_ms: Option<u64> = (t_last_hist > 0).then_some(t_last_hist);
+    // AUDIT-AIU-117: for sub-minute slots the warm base is a 60 s REST
+    // replay — the 60 s gap between the last replayed close and the first
+    // live close must NOT be gap-filled with 11-59 synthesized EMA dojis at
+    // boot (one broadcast burst + a burst of persisted SYNTHETIC rows).
+    // The handover resets the sequence: no `t_last_hist` anchor for
+    // sub-minute, so the first live candle closes cleanly.
+    let mut last_completed_start_ms: Option<u64> =
+        (t_last_hist > 0 && tf_config.candles.duration_seconds >= 60).then_some(t_last_hist);
     let mut outliers_at_prev_candle: u32 = 0;
     let reconstructor = network_adapters::adapters::reconstruction::CandleReconstructor::new();
     // Cap the number of bars filled per detected hole. K3 (production
@@ -1611,12 +1664,17 @@ pub async fn run_single(
                             );
                             // AUDIT-V8-004 (history continuity): synthetic
                             // dojis are pushed to the in-memory snapshot
-                            // history (NOT the DB) so `/api/history` and the
-                            // chart's EMA/indicator series stay continuous
-                            // across quiet buckets. The `quality_envelope`
+                            // history AND persisted to SQLite (K3, two blocks
+                            // above) so `/api/history` and the chart's
+                            // EMA/indicator series stay continuous across
+                            // quiet buckets. The `quality_envelope`
                             // `is_gap_filled` flag lets the API mark them
                             // `reconstructed` on the wire so the frontend
-                            // keeps them out of its persistent candle cache.
+                            // keeps them out of its persistent candle cache,
+                            // and the bootstrap warm-replay filters them out
+                            // of warm state (AUDIT-AIU-118 — persisted
+                            // SYNTHETIC rows never seed `history` /
+                            // `real_bar_count` on restart).
                             {
                                 let mut snap_hist = snapshot_history.write().await;
                                 snap_hist.push_back(doji_snap);
@@ -2139,7 +2197,9 @@ pub async fn run_single(
                                 // them the same way.
                                 send_telemetry(
                                     &telemetry_tx,
-                                    database_storage::TelemetryMsg::InsertSnapshot(gap_snap.clone()),
+                                    database_storage::TelemetryMsg::InsertSnapshot(
+                                        gap_snap.clone(),
+                                    ),
                                 );
                                 // AUDIT-V8-004: keep the in-memory snapshot
                                 // history continuous across reconnect gaps.

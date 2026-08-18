@@ -815,7 +815,6 @@ export interface TimeframeTelemetry {
     chopPeriodVal: number;
     linregPeriodVal: number;
     zscorePeriodVal: number;
-    analysisLimit: number;
     macdExtremeHighVal: number;
     macdExtremeLowVal: number;
     macdContractionVal: number;

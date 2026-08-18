@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -77,6 +77,17 @@ First fire is immediate at spawn (no 5-min delay). Operator override:
 > TTL, `crates/core-domain/src/liquidity/mod.rs`) — a sub-5-minute TF that
 > refreshes its cluster more often does **not** shorten the TTL, and a
 > slow TF that refreshes less often never emits a longer-lived matrix.
+>
+> **Staleness handling (AUDIT-AIU-116).** The frontend derives staleness
+> from `valid_until_ms` (`isClusterStale`): an expired matrix renders the
+> LIQ HEATMAP bands dimmed with a "⚠ STALE — OI feed down" watermark and
+> the LiquidityPanel shows a STALE badge instead of presenting the stale
+> estimate as current. The backend refresh task additionally clears the
+> per-TF handle after **3 consecutive refresh skips** — the snapshot then
+> carries `cluster: None` and both surfaces degrade to placeholders until
+> the OI feed recovers. The operator-facing
+> `/api/liquidity/cluster-status` endpoint derives `Stale` from the same
+> TTL on the fly.
 
 ## Strict architecture invariants
 
@@ -114,7 +125,7 @@ The integration with the rest of the platform is:
 
 - **TAE** reads the L4 Opportunity Matrix's `primary_opportunity` through
   the policy condition language (`opportunity.primary_opportunity` in
-  [03-03-04-tae-execution-policy-spec.md §2.3](../trade-automation-engine/03-03-04-tae-execution-policy-spec.md)).
+  [03-03-01-tae-overview-spec.md §9](../trade-automation-engine/03-03-01-tae-overview-spec.md)).
   An operator-authored policy may match `"LiquiditySqueeze"` — e.g. to
   trigger a reduce-only exit directive. There is **no built-in stance
   change**: a `CLOSE_ONLY` stance is set only by the operator or by a PME

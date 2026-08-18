@@ -87,7 +87,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h) => {
             if (cancelled || !h) return;
             hist = h;
             const points = pairsFromHistory(h, 'rsi');

@@ -242,9 +242,9 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub instances: Vec<InstanceEntry>,
 
-    /// Execution policies for the Trade Automation Engine.
+    /// v7 Trade Automation Engine — minimal setup-executor configuration.
     #[serde(default)]
-    pub execution_policies: Vec<ExecutionPolicy>,
+    pub minimal_tae: MinimalTaeConfig,
 
     /// Execution-layer configuration (slippage ceiling, etc.).
     #[serde(default)]
@@ -278,7 +278,7 @@ impl Default for WorkspaceConfig {
             leverage: LeverageConfig::default(),
             defaults: DefaultsConfig::default(),
             instances: Vec::new(),
-            execution_policies: Vec::new(),
+            minimal_tae: MinimalTaeConfig::default(),
             execution: ExecutionConfig::default(),
         }
     }
@@ -321,6 +321,9 @@ pub struct InstanceEntry {
     pub automation: AutomationConfig,
     #[serde(default)]
     pub operational_mode: OperationalMode,
+    /// v7 execution mode (Paper / Live). Default Paper.
+    #[serde(default)]
+    pub mode: ExecutionMode,
     #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
@@ -338,6 +341,82 @@ pub struct InstanceEntry {
 
 fn default_initial_capital() -> f64 {
     1_000.0
+}
+
+/// Execution mode for the unified execution engine. The mode only affects
+/// the final broker dispatch: `Paper` simulates fills internally, `Live`
+/// routes to an exchange. All accounting (fees, slippage, funding, PnL) is
+/// identical in both modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    Paper,
+    Live,
+}
+
+impl Default for ExecutionMode {
+    fn default() -> Self {
+        ExecutionMode::Paper
+    }
+}
+
+/// v7 TAE — the minimal setup-executor configuration. Replaces the erased
+/// policy engine: the executor consumes the MME's top setup directly and
+/// manages the trade to completion. See docs/engines/trade-automation-engine/.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MinimalTaeConfig {
+    /// Master switch for the setup executor.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Percent of instance equity risked per trade (1.0 = 1%).
+    #[serde(default = "default_risk_per_trade_pct")]
+    pub risk_per_trade_pct: f64,
+    /// Fee-adjusted minimum reward-to-risk ratio for accepting a setup.
+    #[serde(default = "default_min_net_rr")]
+    pub min_net_rr: f64,
+    /// Optional notional cap (USD). None = no cap.
+    #[serde(default)]
+    pub max_position_size_usd: Option<f64>,
+    /// Global concurrent-position cap across all symbols.
+    #[serde(default = "default_max_open_positions")]
+    pub max_open_positions: u32,
+    /// Entry placement mode. v7 supports only "zone_midpoint".
+    #[serde(default = "default_entry_mode")]
+    pub entry_mode: String,
+    /// Invalidation semantics for open positions. v7 default: strict
+    /// opposite-direction flip only ("direction_flip").
+    #[serde(default = "default_invalidate_on")]
+    pub invalidate_on: String,
+}
+
+fn default_risk_per_trade_pct() -> f64 {
+    1.0
+}
+fn default_min_net_rr() -> f64 {
+    1.0
+}
+fn default_max_open_positions() -> u32 {
+    1
+}
+fn default_entry_mode() -> String {
+    "zone_midpoint".to_string()
+}
+fn default_invalidate_on() -> String {
+    "direction_flip".to_string()
+}
+
+impl Default for MinimalTaeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            risk_per_trade_pct: default_risk_per_trade_pct(),
+            min_net_rr: default_min_net_rr(),
+            max_position_size_usd: None,
+            max_open_positions: default_max_open_positions(),
+            entry_mode: default_entry_mode(),
+            invalidate_on: default_invalidate_on(),
+        }
+    }
 }
 
 // ===========================================================================
@@ -641,6 +720,7 @@ indicators = { rsi_period = 14 }
             macro_term: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
+            mode: ExecutionMode::default(),
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -658,6 +738,7 @@ indicators = { rsi_period = 14 }
             macro_term: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
+            mode: ExecutionMode::default(),
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -700,6 +781,7 @@ indicators = { rsi_period = 14 }
             macro_term: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
+            mode: ExecutionMode::default(),
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -750,6 +832,7 @@ indicators = { rsi_period = 14 }
             macro_term: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
+            mode: ExecutionMode::default(),
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -774,6 +857,7 @@ indicators = { rsi_period = 14 }
             macro_term: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
+            mode: ExecutionMode::default(),
             weight_overrides: None,
             position_scaling: None,
             activation: None,

@@ -144,6 +144,13 @@ pub struct HistoryQuery {
     pub symbol: String,
     #[serde(default)]
     pub timeframe_secs: Option<u64>,
+    /// AUDIT-AIU-121: optional slot hint (`micro|fast|slow|macro|custom-N`).
+    /// When present the pipeline is resolved BY SLOT first, so two slots
+    /// sharing one duration (which the UI permits) each get their OWN
+    /// history instead of both falling back to the micro pipeline via the
+    /// duration-only `pipeline_for_duration` shim.
+    #[serde(default)]
+    pub slot: Option<String>,
     #[serde(default = "default_history_limit")]
     pub limit: usize,
 }
@@ -950,6 +957,8 @@ pub struct InstanceDetailQuery {
     pub id: String,
     #[serde(default)]
     pub pair_key: Option<String>,
+    #[serde(default)]
+    pub slot: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

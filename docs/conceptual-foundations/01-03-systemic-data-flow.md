@@ -1,6 +1,6 @@
 # Systemic Data Flow Specification
 
-**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved  
 **Purpose:** This document details the chronological, systemic data flows across the five core engines of the Trading Platform. It specifies the step-by-step path of telemetry as it transforms from raw exchange events into structured market intelligence, automated order routing, active portfolio tracking, and post-trade performance analytics.
 
@@ -215,7 +215,7 @@ The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`
 
 3. **PME asserts Ontological Priority (Veto Power).** It publishes a high-priority `VetoMessage` to the TAE, including trigger type and target stance (`AVOID` or `CLOSE_ONLY`).
 
-4. **Hard Exit Dispatch (AVOID triggers only — Step 2a in diagram).** For each active position on the affected symbol, the TAE Policy Layer dispatches a liquidation directive to the Execution Layer. The Execution Layer constructs a `Market` order with `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) and dispatches to the exchange. The directive fires **before** the stance transitions to `AVOID` so the liquidation order carries the pre-veto authorization (the exit size is snapshotted from the pre-veto Position Matrix and the acknowledgement is recorded against the pre-veto stance, per 03-03-02 §7).
+4. **Hard Exit Dispatch (AVOID triggers only — Step 2a in diagram).** For each active position on the affected symbol, the TAE Policy Layer dispatches a liquidation directive to the Execution Layer. The Execution Layer constructs a `Market` order with `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) and dispatches to the exchange. The directive fires **before** the stance transitions to `AVOID` so the liquidation order carries the pre-veto authorization (the exit size is snapshotted from the pre-veto Position Matrix and the acknowledgement is recorded against the pre-veto stance, (v7: the veto/policy path was erased — see 03-03-01-tae-overview-spec.md).
 
 5. **Hard Exit Acknowledgement (AVOID triggers only — Step 2b in diagram).** The TAE Execution Layer waits for exchange acknowledgement of each Hard Exit fill (or bounded retry deadline `hard_exit_ack_timeout_ms`, default 2000 ms). If acknowledgement exceeds the timeout, the cancellation batch in step 6 still proceeds and the liquidation is flagged `unconfirmed_exit` in the audit trail.
 

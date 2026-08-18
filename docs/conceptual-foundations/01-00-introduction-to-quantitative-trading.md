@@ -1,6 +1,6 @@
 # 01-00 — Introduction to Quantitative Trading
 
-**Version:**  6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 
 > **Audience.** This document is the formal theoretical foundation of the platform. It states, in standard institutional-quant terminology, the concepts that underpin every engine, layer, and matrix in this codebase. It is the first document a senior quant reviewer should read.
 >
@@ -201,7 +201,7 @@ The strategy evaluates **only when a predicate is satisfied** — e.g. "predicte
 
 ### 7.3 Platform Instantiation
 
-The TAE trigger engine (`03-03-01-tae-overview-spec.md`, `03-03-02-tae-layer1-policy.md`) supports three concrete modes, mapped to the textbook dichotomy as follows:
+The TAE setup executor ([03-03-01-tae-overview-spec.md](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md)) executes MME top setups; the recommendation layer is the trigger source.
 
 | Platform mode | Textbook classification | Trigger condition |
 |---|---|---|

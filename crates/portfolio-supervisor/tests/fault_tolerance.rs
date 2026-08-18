@@ -53,7 +53,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             config_version: 1,
             api_failover: Default::default(),
             instances: Vec::new(),
-            execution_policies: Vec::new(),
+            minimal_tae: Default::default(),
             execution: Default::default(),
         };
         let indicators = test_workspace.indicators.clone();

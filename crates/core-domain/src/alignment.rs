@@ -242,13 +242,23 @@ impl AlignmentMatrix {
     }
 
     /// Compute confidence alignment: how consistent are per-TF confidence scores.
+    ///
+    /// AUDIT-AIU-110: the per-TF confidences arrive in `[0, 1]` (the
+    /// `ContextDimension` contract), but the documented formula
+    /// (`02-01-alignment-matrix.md` §3, dim 7 — `100 − sqrt(popvar)`) works
+    /// on a 0–100 scale. Feeding 0..1 values made the standard deviation
+    /// ≤ 0.5, so the dimension was pinned to [99.5, 100] / StrongBullish on
+    /// every snapshot. The inputs are rescaled to the 0–100 formula range.
     fn compute_confidence_alignment(confidences: &[f64]) -> AlignmentDimension {
         if confidences.len() < 2 {
             return AlignmentDimension::new(50.0);
         }
-        let mean = confidences.iter().sum::<f64>() / confidences.len() as f64;
-        let variance =
-            confidences.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / confidences.len() as f64;
+        let scaled: Vec<f64> = confidences
+            .iter()
+            .map(|c| (c * 100.0).clamp(0.0, 100.0))
+            .collect();
+        let mean = scaled.iter().sum::<f64>() / scaled.len() as f64;
+        let variance = scaled.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / scaled.len() as f64;
         let score = (100.0 - variance.sqrt().min(100.0)).max(0.0);
         AlignmentDimension::new(score)
     }
@@ -810,5 +820,35 @@ mod tests {
         );
         // 17 signals in total, none shared between the two TFs.
         assert_eq!(c.signal_cross_tf_count, 0);
+    }
+
+    #[test]
+    fn confidence_dimension_uses_the_0100_scale() {
+        // AUDIT-AIU-110: per-TF confidences are [0, 1] `ContextDimension`
+        // values. With the legacy formula `100 − sqrt(popvar)` applied to
+        // 0..1 inputs, a widely-disagreeing set (0.2 / 0.8) still scored
+        // 99.7 (StrongBullish) — the dimension was constant. The inputs are
+        // rescaled to 0..100 so agreement is actually measured.
+        let disagreeing = AlignmentMatrix::compute_confidence_alignment(&[0.2, 0.5, 0.8]);
+        // scaled: 20 / 50 / 80 → mean 50, var = (900+0+900)/3 = 600, std ≈ 24.49
+        // → score ≈ 75.5 — far below the legacy ~99.5 floor, and NOT StrongBullish.
+        assert!(
+            (disagreeing.score - 75.5).abs() < 0.1,
+            "disagreeing confidences must score ~75.5, got {}",
+            disagreeing.score
+        );
+        assert_ne!(disagreeing.state, AlignState::StrongBullish);
+
+        let agreeing = AlignmentMatrix::compute_confidence_alignment(&[0.7, 0.7, 0.7]);
+        // scaled: 70/70/70 → var 0 → score 100 (perfect agreement).
+        assert!(
+            (agreeing.score - 100.0).abs() < 1e-9,
+            "agreeing confidences must score 100, got {}",
+            agreeing.score
+        );
+
+        // Single TF → hardcoded 50.0 (no variance can be computed).
+        let single = AlignmentMatrix::compute_confidence_alignment(&[0.7]);
+        assert!((single.score - 50.0).abs() < 1e-9);
     }
 }

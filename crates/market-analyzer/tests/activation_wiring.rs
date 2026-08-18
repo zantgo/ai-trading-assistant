@@ -290,7 +290,9 @@ async fn disabled_signal_kinds_and_pairs_are_filtered_from_wire() {
     // disabled kind and a (indicator, kind) pair must both be absent
     // from every emitted snapshot, while unaffected signals survive.
     let mut active = ActiveSet::all_enabled();
-    active.disabled_signal_kinds.insert("VolumeClimax".to_string());
+    active
+        .disabled_signal_kinds
+        .insert("VolumeClimax".to_string());
     active
         .disabled_signals
         .insert(("rsi".to_string(), "Threshold".to_string()));
@@ -304,9 +306,7 @@ async fn disabled_signal_kinds_and_pairs_are_filtered_from_wire() {
     );
 
     let any_signal = |snap: &core_domain::models::MarketSnapshot| -> bool {
-        snap.indicators
-            .values()
-            .any(|v| !v.signals.is_empty())
+        snap.indicators.values().any(|v| !v.signals.is_empty())
     };
     assert!(
         completed.iter().any(any_signal),
@@ -317,7 +317,10 @@ async fn disabled_signal_kinds_and_pairs_are_filtered_from_wire() {
         for entry in snap.indicators.values() {
             for sig in &entry.signals {
                 assert!(
-                    !matches!(sig.kind, core_domain::indicator_dtos::SignalKind::VolumeClimax),
+                    !matches!(
+                        sig.kind,
+                        core_domain::indicator_dtos::SignalKind::VolumeClimax
+                    ),
                     "disabled kind VolumeClimax must never reach the wire"
                 );
             }

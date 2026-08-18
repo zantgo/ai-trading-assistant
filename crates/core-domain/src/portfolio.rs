@@ -53,16 +53,6 @@ pub struct CorrelationMap {
     pub pairs: HashMap<String, f64>,
 }
 
-// ─── Veto Trigger ──────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct VetoTrigger {
-    pub condition: String,
-    pub target_stance: String,
-    pub reason: String,
-    pub hard_exit: bool,
-}
-
 // ─── L1: Position Matrix ───────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -143,8 +133,6 @@ pub struct PortfolioMatrix {
     pub peak_equity: Decimal,
     pub safety_state: SafetyState,
     pub systemic_risk_score: f64,
-    pub active_stances: HashMap<String, String>,
-    pub default_stances: HashMap<String, String>,
     pub consecutive_losses: HashMap<String, u32>,
     pub position_count: u32,
 }

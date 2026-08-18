@@ -1,5 +1,7 @@
 export interface StrategyAnalyticsRow {
-    policy_id: string;
+    setup_type: string;
+    /** Significance bar: an edge is significant when p_value and p_mc are both below this. */
+    alpha: number;
     total_trades: number;
     win_count: number;
     loss_count: number;
@@ -36,7 +38,7 @@ export interface RiskAnalyticsRow {
 }
 
 export interface PerformanceMatrixRow {
-    policy_id: string;
+    setup_type: string;
     regime: string;
     trade_count: number;
     win_rate: number;

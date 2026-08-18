@@ -1,6 +1,6 @@
 # Consumer Onboarding Summary
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Single-page orientation for engineers integrating with the trading platform's data plane. Read this first; drill into the linked docs as needed.
 
@@ -133,7 +133,7 @@ The full REST surface is documented in [06-01 §2](../integration-and-api/06-01-
 - **Server:** `http://127.0.0.1:3000` (localhost only).
 - **Database:** `./telemetry.db` (SQLite WAL mode; auto-created at startup).
 - **Static assets:** `ui/dist/` served at `/`.
-- **Auth:** local-operator identity model; no per-route authentication. Caller-supplied `X-Operator-Id` is deferred — see `docs/CHANGELOG.md` Open Items.
+- **Auth:** single-operator local deployment — `operator_id = "local"`, no per-route authentication, no caller-supplied identity, no multi-client model.
 - **Reconnect policy:** retry budgets differ per client class (canonical: [08-03-connection-resilience.md](../operations-and-compliance/08-03-connection-resilience.md)) — the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter); REST clients cap at 30 attempts; the Svelte frontend WS client caps at 30 attempts, then surfaces an offline banner.
 - **Retention:** 7 days for `market_snapshots`; 7 days for `connection_quality_samples` (Phase 1 will make this configurable via `[retention]` in `config.toml`).
 

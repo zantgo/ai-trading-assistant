@@ -1,6 +1,6 @@
 # Pre-Trade Risk Controls
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -44,12 +44,12 @@ The gates run in the order listed in §2, first-match-wins short-circuit. The fi
 Gate 0 lifecycle → if (lifecycle_state ≠ RUNNING AND not reduce_only AND not is_emergency_liquidation) → block
 Gate 1 stance → if (stance == AVOID AND not is_emergency_liquidation) → block
               → if (stance == CLOSE_ONLY AND not reduce_only) → block
-Gate 2 readiness → if STAND_ASIDE → hold for review (PRE_DISPATCH / HELD_FOR_REVIEW; operator override via override-readiness)
+(v7: the 8-gate chain is erased — see [03-03-01 §7](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md))
 Gate 3 capital → if 0 → block (insufficient margin)
 Gate 4 sizing → if max_position_size_usd exceeded → clip, continue
               → if max_leverage exceeded → block
               → reduce_only orders skip Gate 4 entirely
-Gate 5 slippage → if strictly greater than ceiling → hold for manual review (PRE_DISPATCH)
+(v7: erased with the gate chain)
 Gate 6 concentration → if breach → block (reduce position size or close existing)
                      → reduce_only orders skip Gate 6 entirely
 Gate 7 PME veto → if (stance == AVOID AND not is_emergency_liquidation) → block
@@ -60,7 +60,7 @@ Hard-stops (block) vs hold-for-review (suspend) vs modified-and-continues (clip)
 | Disposition | Gates |
 |---|---|
 | **Hard-stop** (no order ever reaches exchange) | Gate 0 (lifecycle ≠ RUNNING for non-exit entries), Gate 1 (AVOID without is_emergency_liquidation, or CLOSE_ONLY without reduce_only), Gate 3, Gate 4 (max leverage), Gate 6 (for non-reduce_only orders), Gate 7 (AVOID without is_emergency_liquidation) |
-| **Hold-for-review** (logged, suspended, operator must manually approve) | Gate 2 (`STAND_ASIDE`: PRE_DISPATCH / `HELD_FOR_REVIEW`; operator override via `override-readiness`, logged as `risk_control_events.decision = OVERRIDE`), Gate 5 (slippage ceiling) |
+| ~~Hold-for-review~~ | ~~Gates 2 / 5~~ | **Erased (v7)** with the policy engine and gate chain |
 | **Modified and continues** (clipped, continues; logged as `CLIP_AND_CONTINUE`) | Gate 4 (size cap — clipped, not blocked) |
 
 ### 3.1 Exit / Reduce-Only Bypass Summary
@@ -73,9 +73,9 @@ Hard-stops (block) vs hold-for-review (suspend) vs modified-and-continues (clip)
 
 ### 3.2 Order State Pre-Dispatch (`PRE_DISPATCH`)
 
-Orders held by Gate 5 (slippage ceiling) or pending manual review sit in the **`PRE_DISPATCH`** state with status `HELD_FOR_REVIEW` (not in `OPEN` — the `OPEN` state is only valid after exchange acknowledgement). The order can be cancelled via `DELETE /api/pre-dispatch/:id` or manually executed via `POST /api/instances/:id/manual/open`. `PRE_DISPATCH` orders do not consume committed margin and do not appear in `open_orders`.
+(v7: the pre-dispatch review path, `PRE_DISPATCH` order state, and manual open/close endpoints were erased along with the policy engine and gate chain — see [03-03-01-tae-overview-spec.md §7](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md).)
 
-> **Operational hazard.** `PRE_DISPATCH` orders are held only in memory and are **not** persisted. An engine restart, crash, or process termination during the slippage-review window means the held order is lost on restart; only its gate decision survives in `risk_control_events`. Operators relying on Gate 5 for slippage review in a 24/7 deployment should treat `PRE_DISPATCH` as transient and design operator workflows around the manual-review API rather than expecting engine-replayable recovery. The resolution path (available since v4.0) is the `risk_control_events` table (see [`06-02-database-schema-spec.md §3.10`](../integration-and-api/06-02-database-schema-spec.md) and the `GET /api/pre-dispatch` resource in [`06-01-api-gateway-contract.md §2.9`](../integration-and-api/06-01-api-gateway-contract.md)).
+> **v7 note.** The pre-dispatch review path is erased; `risk_control_events` (see [`06-02-database-schema-spec.md §3.10`](../integration-and-api/06-02-database-schema-spec.md)) remains the persistent safety audit trail (releases/resets with `operator_id = "local"`).
 
 ---
 
@@ -112,8 +112,8 @@ Every gate failure produces:
 
 | Gate | Override endpoint | Behaviour |
 |---|---|---|
-| **Gate 2** (`STAND_ASIDE`) | `POST /api/orders/:id/override-readiness` | Marks the held order as `OVERRIDDEN` and re-submits it past Gate 2. The override is logged with `operator_id = "local"` (see [`06-01-api-gateway-contract.md §1 Authentication`](../integration-and-api/06-01-api-gateway-contract.md) — caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled)). |
-| **Gate 5** (slippage ceiling) | `GET /api/pre-dispatch`, `POST /api/pre-dispatch/:id/approve`, `DELETE /api/pre-dispatch/:id` | Order sits in `PRE_DISPATCH` with status `HELD_FOR_REVIEW`. Operator can wait, cancel, or approve. Approve continues the order past Gate 5; cancel aborts it. |
+| ~~Gate 2 (readiness override)~~ | ~~erased~~ | **Erased (v7)** — the 8-gate pre-trade chain and the readiness-override endpoint were removed with the policy engine; the setup executor applies its own gates (see [03-03-01 §7](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md)). |
+
 | **Gate 6** (concentration breach) | (no automatic override) | Close an existing position in the affected sector first, then re-trigger. |
 | **Gate 7** (PME veto) | `POST /api/instances/:id/safety/release-veto` | The operator must clear the underlying condition (e.g. equity must recover above `drawdown_limit_pct`) **and** call this endpoint. Returns `422 Unprocessable Entity` if the veto condition is still active. |
 | **Gate 1** (symbol stance `AVOID` after Hard Exit) | `POST /api/instances/:id/safety/release-veto` | Same endpoint as Gate 7; restores the default stance after the Hard Exit completes. The `/safety/reset` endpoint only clears `consecutive_losses` and is **not** the right call for drawdown- or systemic-risk-based vetoes. |
@@ -128,6 +128,6 @@ All overrides are logged with operator ID, timestamp, and prior state for audit.
 - [TAE Layer 2 — Execution](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — Position Sizing Protocol & order dispatch.
 - [PME Layer 3 — Capital](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) — Available margin source.
 - [PME Layer 4 — Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Veto authority.
-- [TAE Execution Policy Spec](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md) — Per-policy risk parameters.
+- [TAE Overview — Risk gates](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — the executor's risk gates.
 - [TAE Instance Lifecycle Spec](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) — Gate 0 (lifecycle), `LifecycleState` enum, automation schema.
 - [User Manual](08-01-user-manual.md) — Operational context.

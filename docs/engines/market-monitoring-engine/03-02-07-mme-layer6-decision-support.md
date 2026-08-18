@@ -1,6 +1,6 @@
 # MME Layer 6 — Decision Support Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 6 of 7
@@ -122,4 +122,4 @@ When `OpportunityMatrix.profiles` is empty / no profile qualifies, a single "No 
 - [Analysis](../../matrices/02-02-analysis-matrix.md) · [Opportunity](../../matrices/02-08-opportunity-matrix.md) · [Risk](../../matrices/02-11-risk-matrix.md) — Inputs.
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Output contract.
 - [MME Layer 7 — Overview](03-02-08-mme-layer7-overview.md) — Aggregates decision matrices.
-- [TAE Layer 1 — Policy](../trade-automation-engine/03-03-02-tae-layer1-policy.md) — Primary consumer.
+- [TAE Setup Executor](../trade-automation-engine/03-03-01-tae-overview-spec.md) — Primary consumer.

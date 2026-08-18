@@ -1558,6 +1558,71 @@ mod tests {
         }
     }
 
+    /// AUDIT-AIU-125: the registry manifest is a normative contract —
+    /// `03-02-01-mme-overview-spec.md` §Registry and `03-02-12` CA-14
+    /// declare "52 indicators / 12 SignalKinds / 101 signal-kind
+    /// declarations", and the Metrics dashboard's indicator table is
+    /// registry-driven. Deleting an entry (or its signal_types) would
+    /// previously pass CI silently while violating the contract.
+    #[test]
+    fn registry_cardinality_matches_the_documented_contract() {
+        assert_eq!(
+            INDICATORS.len(),
+            52,
+            "registry must declare exactly 52 indicators (03-02-01 §Registry); a registry edit must update the docs + this pin together"
+        );
+        let declared: usize = INDICATORS.iter().map(|m| m.signal_types.len()).sum();
+        assert_eq!(
+            declared, 101,
+            "registry must declare exactly 101 signal-kind entries (03-02-01 §Registry / 03-02-12 CA-14)"
+        );
+        let kinds: std::collections::HashSet<String> = INDICATORS
+            .iter()
+            .flat_map(|m| m.signal_types.iter().map(|s| format!("{:?}", s)))
+            .collect();
+        assert_eq!(
+            kinds.len(),
+            12,
+            "the union of declared signal kinds must be exactly 12 (03-02-01 §Registry), got {}",
+            kinds.len()
+        );
+        // Group-level contract from 03-02-02 §1.3 (10 Trend / 7 Momentum /
+        // 7 Volume / 6 Volatility / 5 Structure / 5 Regime / 4 Institutional
+        // / 8 Derivatives = 52).
+        let group_counts: std::collections::HashMap<IndicatorGroup, usize> = INDICATORS
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut acc, m| {
+                *acc.entry(m.group).or_insert(0) += 1;
+                acc
+            });
+        let expect: std::collections::HashMap<IndicatorGroup, usize> = [
+            (IndicatorGroup::Trend, 10),
+            (IndicatorGroup::Momentum, 7),
+            (IndicatorGroup::Volume, 7),
+            (IndicatorGroup::Volatility, 6),
+            (IndicatorGroup::Structure, 5),
+            (IndicatorGroup::Regime, 5),
+            (IndicatorGroup::Institutional, 4),
+            (IndicatorGroup::DerivativesData, 8),
+        ]
+        .into_iter()
+        .collect();
+        for (group, expected) in &expect {
+            assert_eq!(
+                group_counts.get(group).copied().unwrap_or(0),
+                *expected,
+                "group {:?} must hold {} indicators (03-02-02 §1.3)",
+                group,
+                expected
+            );
+        }
+        assert_eq!(
+            group_counts.values().sum::<usize>(),
+            52,
+            "group counts must sum to 52"
+        );
+    }
+
     #[test]
     fn test_registry_serializes() {
         let json = serde_json::to_string(&all()).expect("registry serializes");

@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -57,7 +57,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 |-------|------|----------|-------------|
 | `exchange` | `Exchange` enum | Yes | Originating venue (`Hyperliquid`, `Bitget`). |
 | `symbol` | `string` | No | Unified instrument key, e.g. `BTC-USDT`. |
-| `timeframe_secs` | `u64` | No | Candle duration in seconds (60 / 180 / 300 / 900). |
+| `timeframe_secs` | `u64` | No | Candle duration in seconds (any positive integer; shipped config uses 60 / 180 / 300 / 900, sub-minute tiers 1 s–30 s are fully supported — see [03-02-16](../engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md)). |
 | `timestamp` | `u64` | No | Candle close time (Unix epoch, **seconds** — `start_time_ms / 1000`). |
 | `is_completed` | `bool` | Yes | `true` for a finalized candle; `false`/absent for a real-time "shadow" flicker snapshot. |
 | `timeframe_slot` | `TimeframeSlot` | Yes | Stable slot identity (`Micro`/`Fast`/`Slow`/`Macro`/`Custom{id}`) stamped on every snapshot — the authoritative wire-side slot identifier (06-01 §3.1). |
@@ -79,7 +79,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `index_price` | `Decimal` | Yes | Index price at snapshot time. `null` until Phase 3. |
 | `mark_index_spread_pct` | `f64` | Yes | Mark/index spread as percentage. Computed live from the in-memory mark/index writers (AUDIT-AIU-091); `null` until both are available. |
 | `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). `None` when liquidity extension disabled. |
-| `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). `None` when liquidity extension disabled. |
+| `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap; refresh cadence = the TF's candle cadence, `[workspace.liquidity] cluster_refresh_secs = 0` default, operator-overridable; the matrix carries `valid_until_ms` (5-min TTL) and the frontend dims + badges it when stale — AUDIT-AIU-116). `None` when liquidity extension disabled or the refresh task cleared a stale matrix after consecutive skips. |
 | `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Omitted entirely when empty** via `skip_serializing_if = "Vec::is_empty"` (liquidity extension disabled or no signals fired this snapshot) — never serialized as a literal `[]`. |
 | `indicators` | `map<string, IndicatorEvaluation>` | No | The unified dual-representation indicator map (see §3). |
 | `context` | `MarketContext` | Yes | Synthesized per-timeframe context (see §5). |
@@ -164,7 +164,7 @@ See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-0
 
 #### 3.3.1 `price_trend_sharpe` — dual-representation wire format (v6.11)
 
-The fifty-second registry entry measures single-timeframe asset-return smoothness: the **annualized Sharpe ratio of price log returns** over the trailing **300-bar window** (equal to the canonical `[candle_buffer] size` — the indicator reaches `Live` exactly when the pipeline buffer fills, so it can never lifecycle-lock).
+The fifty-second registry entry measures single-timeframe asset-return smoothness: the **annualized Sharpe ratio of price log returns** over the trailing **300-bar window** (the indicator reaches `Live` at its 300 real-bar `bars_required`, which the `max(size/10, 50)` pipeline floor never exceeds — it can never lifecycle-lock; warm-state annualization uses the replayed closes' actual spacing, AUDIT-AIU-119).
 
 | Wire field | Format | Meaning |
 |------------|--------|---------|

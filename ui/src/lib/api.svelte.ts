@@ -59,7 +59,7 @@ function pairKeyFromDeclaredSymbol(app: AppStore, symbol: string): string {
 export function applyConfigToStore(app: AppStore, config: Record<string, unknown>): ApplyConfigResult {
     app.apiKeyConfigured = (config.api_key_configured as boolean) ?? true;
 
-    if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number; analysis_limit: number };
+    if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number };
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 
@@ -161,8 +161,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.micro_term.indicators.adx_period,
                     atrPeriodVal: specific.micro_term.indicators.atr_period,
                     squeezePeriodVal: specific.micro_term.indicators.squeeze_period,
-                    analysisLimit: specific.micro_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.fast_term) {
@@ -179,8 +178,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.fast_term.indicators.adx_period,
                     atrPeriodVal: specific.fast_term.indicators.atr_period,
                     squeezePeriodVal: specific.fast_term.indicators.squeeze_period,
-                    analysisLimit: specific.fast_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.fast_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.fast_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.slow_term) {
@@ -197,8 +195,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.slow_term.indicators.adx_period,
                     atrPeriodVal: specific.slow_term.indicators.atr_period,
                     squeezePeriodVal: specific.slow_term.indicators.squeeze_period,
-                    analysisLimit: specific.slow_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.slow_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.slow_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.macro_term) {
@@ -215,8 +212,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     adxPeriodVal: specific.macro_term.indicators.adx_period,
                     atrPeriodVal: specific.macro_term.indicators.atr_period,
                     squeezePeriodVal: specific.macro_term.indicators.squeeze_period,
-                    analysisLimit: specific.macro_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.macro_term.indicators as unknown as Record<string, unknown>),
+                                        ...advancedIndicators(specific.macro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
         }
@@ -392,7 +388,6 @@ export function readDraftFromPair(pair: InstanceState): {
     emaFast: number; emaMedium: number; emaSlow: number; emaLong: number;
     rsiPeriod: number; macdFast: number; macdSlow: number; macdSignal: number;
     adxPeriod: number; atrPeriod: number; squeezePeriod: number;
-    analysisLimit: number;
     showEmas: boolean; showBb: boolean; showVwap: boolean; showVolume: boolean;
     showAdx: boolean; showAtr: boolean; showRsi: boolean; showMacd: boolean;
     showSqueeze: boolean; showBbwp: boolean; showFib: boolean; showRvol: boolean;
@@ -428,7 +423,6 @@ export function readDraftFromPair(pair: InstanceState): {
         adxPeriod: pair.microTerm.adxPeriodVal,
         atrPeriod: pair.microTerm.atrPeriodVal,
         squeezePeriod: pair.microTerm.squeezePeriodVal,
-        analysisLimit: pair.microTerm.analysisLimit,
         showEmas: pair.microTerm.showEmas,
         showBb: pair.microTerm.showBb,
         showVwap: pair.microTerm.showVwap,

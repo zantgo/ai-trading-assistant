@@ -98,9 +98,7 @@ pub async fn ws_handler(
         .as_deref()
         .map(TimeframeSlot::parse)
         .unwrap_or_else(|| TimeframeSlot::parse_from_secs(tf_secs));
-    ws.on_upgrade(move |socket| {
-        handle_ws_socket(socket, state, pair_key, tf_secs, slot, _guard)
-    })
+    ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key, tf_secs, slot, _guard))
 }
 
 /// Serialize and send a `broadcast.market_snapshot` notification for the

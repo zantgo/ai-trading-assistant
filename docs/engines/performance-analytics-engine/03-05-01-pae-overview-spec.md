@@ -1,18 +1,19 @@
-# Performance Analytics Engine — Overview Specification
+# Performance Analytics Engine — Overview Specification (v7)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; the PAE backend (`crates/performance-analytics/`) is implemented and the `PerformanceDashboard` Overview/Strategy/Risk/Regimes/Trades panels render real data from `/api/analytics/*`. The **Backtesting panel is a UI-only mock** (no `/api/backtest/*` route) and the in-process backtest runner + equity-curve visualization are pending. See [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase D.
+**Version:** 7.0 (2026-08-18) — the v7 release adds the **L5 Backtest layer**: recorded MME decisions are replayed through the unchanged setup executor + unified engine (paper only), and every result carries the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification).
+**Status:** Specified — implemented; backtest delivered 2026-08-18.
 **Engine:** Performance Analytics Engine (PAE)
-**Purpose:** This document specifies the boundaries, performance database, scheduled tasks, and report templates of the Performance Analytics Engine — the engine that evaluates historical trading records to isolate strategy efficacy and identify system drag.
+**Purpose:** This document specifies the boundaries, performance database, scheduled tasks, report templates, and the backtest layer of the Performance Analytics Engine — the engine that evaluates historical trading records to isolate strategy efficacy, quantify the statistical significance of the edge, and answer **"would the setup executor have been profitable over this history?"**
 
 ---
 
 ## 1. Mission & Boundaries
 
-The PAE is the platform's **retrospective analyst**. It consumes closed-trade ledgers from the PME, reconstructs trades, computes statistics and significance tests, and maps strategy performance to market regimes. It is **read-only with respect to live trading** — it never influences active positions or market interpretation.
+The PAE is the platform's **retrospective analyst and scoreboard**. It consumes closed-trade ledgers, reconstructs trades, computes statistics and significance tests, maps strategy performance to market regimes, and runs **backtests** by replaying recorded MME decisions through the TAE setup executor in paper mode. It is **read-only with respect to live trading** — it never influences active positions or market interpretation.
 
 ```
-[Closed Trade Ledgers] ──► PAE ──► [Performance Matrix] ──► [GUI / optimization feedback]
+[Closed Trade Ledgers] ──► PAE ──► [Performance Matrix] ──► [GUI]
+[Recorded Decisions]   ──► L5 Backtest ──► [NHST verdict] ──► [GUI]
 ```
 
 ### 1.1 Layer Structure
@@ -20,9 +21,10 @@ The PAE is the platform's **retrospective analyst**. It consumes closed-trade le
 | Layer | Name | Output |
 |-------|------|--------|
 | L1 | [Trade Analytics](03-05-02-pae-layer1-trade-analytics.md) | Trade Analytics Matrix |
-| L2 | [Strategy Analytics](03-05-03-pae-layer2-strategy-analytics.md) | Strategy Analytics Matrix (NHST) |
+| L2 | [Strategy Analytics](03-05-03-pae-layer2-strategy-analytics.md) | Strategy Analytics Matrix (NHST, grouped by **setup type**) |
 | L3 | [Risk Analytics](03-05-04-pae-layer3-risk-analytics.md) | Risk Analytics Matrix |
 | L4 | [Performance](03-05-05-pae-layer4-performance.md) | Performance Matrix (regime compatibility) |
+| L5 | [Backtest](03-05-06-pae-layer5-backtest.md) | BacktestResult (trades, stats, NHST verdict, equity curve) |
 
 ---
 
@@ -33,12 +35,13 @@ The PAE reads from the shared telemetry store (see [Database Schema](../../integ
 | Table | Role |
 |-------|------|
 | `paper_trades` | Closed paper-trade records. |
-| `trade_telemetry_history` | Automated trade telemetry (entry/exit, fees, PnL, ROI). |
+| `trade_telemetry_history` | Automated trade telemetry (entry/exit, fees, PnL, ROI, `trigger_source` = setup type). |
 | `trade_learning_journal` | Human-annotated trade journal. |
 | `portfolio_equity_history` | Equity time-series for drawdown/Sharpe. |
-| `market_snapshots` | Regime context at trade time. |
+| `market_snapshots` | Completed-candle snapshots with **recorded decision matrices** (`opportunity_json`, `decision_context_json`, `analysis_json`, `advisory_json`, `market_regime`) — the backtest replay source. |
+| `backtest_runs` | **Written by PAE** — persisted backtest results (params, summary, NHST stats, trades, equity curve). |
 | `performance_matrix_snapshots` | **Written by PAE** — Performance Matrix snapshots at scheduled cadence (default 300 s). |
-| `strategy_analytics_history` | **Written by PAE** — Statistical-significance history per execution policy. |
+| `strategy_analytics_history` | **Written by PAE** — Statistical-significance history per setup type. |
 
 ---
 
@@ -52,19 +55,26 @@ The PAE reads from the shared telemetry store (see [Database Schema](../../integ
 
 ---
 
-## 4. Report Templates
+## 4. Statistical contract (edge, alpha, Monte Carlo, null hypothesis)
 
-The PAE produces:
+Every strategy/backtest verdict uses the same tested machinery (`strategy_analytics.rs`):
 
-- **DashboardStats** — 20+ metric categories (equity curve, win rates, calendar, streaks, direction breakdown, trader style, commissions, monthly summaries).
-- **OptimizationReport** — per-regime performance + recommendations.
-- **Trade journal exports** — CSV/JSON downloads of the annotated ledger.
+| Concept | Definition | Wire field |
+|---------|-----------|------------|
+| **Null hypothesis** | H₀: the setup's true mean PnL ≤ 0 (no edge) vs H₁: mean PnL > 0. | — (documented) |
+| **t-statistic** | `mean / (std_dev / √n)` (one-tailed Student t). | `t_statistic` |
+| **p-value** | One-tailed t p-value: probability of observing ≥ this profit under H₀. | `p_value` |
+| **Monte Carlo p** | 10,000-run deterministic sign-randomization: fraction of shuffled portfolios that beat the actual result. | `p_mc`, `monte_carlo_runs` |
+| **Alpha (α)** | Significance bar, **α = 0.05** (named constant). `is_significant = p_value < α && p_mc < α`. | `alpha`, `is_significant` |
+| **Edge** | Verdict: `StrongEdge` / `ModerateEdge` / `WeakMarginalEdge` / `NoEdgeNegative` / `InsufficientData` (< 30 trades). | `classification` |
+
+Grouping is by **setup type** (`trigger_source` on telemetry — e.g. `TrendContinuation`), the post-v7 successor of the erased per-policy grouping.
 
 ---
 
-## 5. Dual-Mode Analytics
+## 5. Backtest (L5) in one paragraph
 
-Per [Global Architecture §4.4](../../conceptual-foundations/01-02-global-architecture.md), the PAE enables **retroactive analysis** of headless CLI runs: trades persisted during cloud execution are re-analyzed when the operator later boots the GUI, running full trade reconstruction, significance tests, and regime mapping against the historical record.
+`POST /api/backtest/run` takes `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital }`; the runner loads the **recorded completed snapshots** for that symbol/timeframe/window (each already embeds the full MTF-synthesized decision), feeds them in time order through a **fresh paper `ExecutionEngine` + the unchanged `SetupExecutor`** (mark-to-market → fills → executor tick per snapshot), and returns `{ backtest_id, summary, stats, trades, equity_curve }` where `stats` includes the classic metrics (win rate, profit factor, expectancy, max drawdown) **and the full NHST block** (§4) computed over the *simulated* trades. `GET /api/backtest/:id` returns a persisted run. Full spec: [03-05-06](03-05-06-pae-layer5-backtest.md).
 
 ---
 
@@ -74,5 +84,6 @@ Per [Global Architecture §4.4](../../conceptual-foundations/01-02-global-archit
 - [PAE Layer 2 — Strategy Analytics](03-05-03-pae-layer2-strategy-analytics.md)
 - [PAE Layer 3 — Risk Analytics](03-05-04-pae-layer3-risk-analytics.md)
 - [PAE Layer 4 — Performance](03-05-05-pae-layer4-performance.md)
-- [Systemic Data Flow — Sequence E](../../conceptual-foundations/01-03-systemic-data-flow.md) — Analytics loop.
+- [PAE Layer 5 — Backtest](03-05-06-pae-layer5-backtest.md)
+- [TAE Overview — Setup Executor](../trade-automation-engine/03-03-01-tae-overview-spec.md) — the replayed logic.
 - [UI Dashboard Layout](../../ui-ux/07-02-ui-dashboard-layout.md) — Report rendering.

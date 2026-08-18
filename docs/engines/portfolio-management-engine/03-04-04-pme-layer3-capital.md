@@ -1,7 +1,7 @@
 # PME Layer 3 — Capital Layer
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Specified — **WIP**; backend (`crates/portfolio-supervisor/src/capital_layer.rs`, `risk_calculator.rs`, `commission.rs`) is implemented; dashboard wiring lands in [`docs/ROADMAP.md`](../../ROADMAP.md) §3 Phase A.
+**Version:** 7.0 (2026-08-18) — v7: PME is informational; this layer's math is unchanged.
+**Status:** Specified — implemented (pure math); v7 surface wiring in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 3 of 4
 **Input Contract:** Position Matrix (L1), Exposure Matrix (L2), exchange balance events

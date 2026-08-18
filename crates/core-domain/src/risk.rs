@@ -307,13 +307,36 @@ fn assess_volatility_risk(
         evidence.push("Squeeze compression active".into());
     }
     // v6.10.18 (I-8): the fast-weighted TF volatility state.
+    // AUDIT-AIU-109: pair the micro/fast states BY SLOT LABEL, not by list
+    // position. `tf_volatility` arrives in `tf_data` order, which is
+    // current-pipeline-first — on the fast/slow/macro pipelines `.first()`
+    // was the pipeline itself, so the documented `0.7 × micro + 0.3 × fast`
+    // blend was silently computed as `0.7 × self + 0.3 × micro` on 3 of 4
+    // pipelines (corrupting `volatility_risk` and its downstream guidance
+    // on those snapshots). Label-based pairing restores the actionable-
+    // horizon blend on every pipeline.
     let mut vol_component: Option<f64> = None;
     if !tf_volatility.is_empty() {
         for (label, state, _) in tf_volatility {
             evidence.push(format!("{} volatility {}", label, state));
         }
-        let micro = tf_volatility.first().map(|(_, _, s)| *s);
-        let fast = tf_volatility.get(1).map(|(_, _, s)| *s);
+        let micro = tf_volatility
+            .iter()
+            .find(|(label, _, _)| label.eq_ignore_ascii_case("micro"))
+            .map(|(_, _, s)| *s);
+        let fast = tf_volatility
+            .iter()
+            .find(|(label, _, _)| label.eq_ignore_ascii_case("fast"))
+            .map(|(_, _, s)| *s);
+        let (micro, fast) = match (micro, fast) {
+            // Defensive fallback: no labeled entries (e.g. a degenerate
+            // single-TF snapshot) — fall back to the legacy positional read.
+            (None, None) => (
+                tf_volatility.first().map(|(_, _, s)| *s),
+                tf_volatility.get(1).map(|(_, _, s)| *s),
+            ),
+            other => other,
+        };
         vol_component = match (micro, fast) {
             (Some(m), Some(f)) => Some(0.7 * m + 0.3 * f),
             (Some(m), None) => Some(m),
@@ -812,10 +835,10 @@ mod tests {
             NormalizedIndicatorValue::scalar(9.26, 0.0, "ATR".to_string()),
         );
         let tf_volatility = vec![
-            ("micro60".to_string(), "EXPANDING".to_string(), 83.25),
-            ("fast180".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
-            ("slow300".to_string(), "NORMAL".to_string(), 58.0),
-            ("macro900".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
+            ("MICRO".to_string(), "EXPANDING".to_string(), 83.25),
+            ("FAST".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
+            ("SLOW".to_string(), "NORMAL".to_string(), 58.0),
+            ("MACRO".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
         ];
         let risk = compute_risk(
             "BTC-USD",
@@ -842,6 +865,48 @@ mod tests {
             evidence
         );
         assert!(evidence.contains("BBWP elevated"));
+    }
+
+    #[test]
+    fn volatility_risk_pairs_micro_fast_by_label_not_position() {
+        // AUDIT-AIU-109: `tf_volatility` arrives current-pipeline-first —
+        // on the fast/slow/macro pipelines the legacy positional read
+        // computed `0.7 × self + 0.3 × micro` instead of the documented
+        // `0.7 × micro + 0.3 × fast`. The blend must follow the SLOT
+        // LABELS regardless of list order.
+        let mut analysis = AnalysisMatrix::empty("BTC-USD");
+        analysis.timeframes_considered = 4;
+        analysis.state_confidence = 0.5;
+        let indicators = HashMap::new();
+
+        // Fast pipeline order: [FAST, MICRO, SLOW, MACRO] — micro is NOT
+        // first. Legacy positional read would blend 0.7×fast + 0.3×micro.
+        let tf_volatility = vec![
+            ("FAST".to_string(), "EXPANSION_CLIMAX".to_string(), 97.2),
+            ("MICRO".to_string(), "EXPANDING".to_string(), 83.25),
+            ("SLOW".to_string(), "NORMAL".to_string(), 58.0),
+            ("MACRO".to_string(), "MAX_COMPRESSION".to_string(), 1.2),
+        ];
+        let risk = compute_risk(
+            "BTC-USD",
+            &analysis,
+            &indicators,
+            None,
+            None,
+            63017.0,
+            &[],
+            None,
+            &tf_volatility,
+        );
+        let vol = &risk.volatility_risk;
+        // (30 + 0) blended with 0.7×83.25 + 0.3×97.2 = 87.435 → 58.72.
+        let expected = (30.0 + 0.7 * 83.25 + 0.3 * 97.2) / 2.0;
+        assert!(
+            (vol.score - expected).abs() < 0.01,
+            "volatility_risk {} must blend micro/fast by label (expected ~{}), not position",
+            vol.score,
+            expected
+        );
     }
 
     #[test]

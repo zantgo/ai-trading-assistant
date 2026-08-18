@@ -60,7 +60,10 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
-        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        automation: None,
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new(
+            portfolio_supervisor::paper_trading::FeesConfig::default(),
+        )),
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
 
         snapshot_export: Arc::new(RwLock::new(

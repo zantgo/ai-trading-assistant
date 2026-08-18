@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -12,7 +12,7 @@
 |----------|-------|
 | Framework | Axum (Rust) on a Tokio runtime |
 | Base URL | `http://127.0.0.1:3000` (localhost only) |
-| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local"` (the canonical default). Caller-supplied identity via `X-Operator-Id` header is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id` defaults to `"local"`. There is no per-route authentication in the current release. The `operator_id` value is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
+| Authentication | **Single-operator local deployment.** The Trading Platform is built for a single operator and their team: one workspace, one operator identity (`operator_id = "local"`), no per-route authentication, no caller-supplied identity, and no multi-client model. Every audit event (`risk_control_events.operator_id`, see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)) and WebSocket control frame carries `operator_id = "local"`. |
 | Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
 
 ### 1.0 Canonical glossary (Market Instance identifier)
@@ -157,30 +157,24 @@ The response shape is:
 | `POST` | `/api/instances/:instance_id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
 | `POST` | `/api/instances/:instance_id/reload` | **Specified but not yet registered** (returns 404 per §5): tear down + rebuild a single TF pipeline (`slot=micro|fast|slow|macro`) or all four (`slot=all`). See [08-08 CB-11](../operations-and-compliance/08-08-candle-buffer-spec.md) and [03-01-06 DCP-09](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
 | `GET` | `/api/instances/:instance_id/activation` | **Specified but not yet registered** (returns 404 per §5). Planned response: the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) as applied at the current `config_version` — `{ disabled_indicators: [], disabled_signals: [], disabled_signal_kinds: [], liquidity: {...}, config_version: u64 }`. The activation is applied config-side today (see [`03-02-12-mme-configurable-activation.md §2`](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)); the REST surface is AUDIT-V6-212. |
-| `POST` | `/api/instances/:instance_id/start` | Transition STOPPED/lifecycle PAUSED → RUNNING (Gate 0 admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
-| `POST` | `/api/instances/:instance_id/pause` | Close Gate 0 entry path; loop keeps running for policy-driven exits. Lifecycle axis only — distinct from stance `CLOSE_ONLY` and policy `AUTO_PAUSED` (see [03-03-06 §6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
+| `POST` | `/api/instances/:instance_id/start` | Transition STOPPED / instance PAUSED → RUNNING (executor admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
+| `POST` | `/api/instances/:instance_id/pause` | Pending entries cancelled; open positions still managed (TP/SL/invalidation remain armed); no new setups. See [03-03-06 §3](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
 | `POST` | `/api/instances/:instance_id/stop` | Transition RUNNING/lifecycle PAUSED → STOPPING → STOPPED (flatten: cancel orders + market-close positions with `is_emergency_liquidation = true`, `reduce_only = true`). DELETE on a non-STOPPED instance returns `409` (see [03-03-06 IL-08](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
 | `POST` | `/api/instances/:instance_id/safety/reset` | Reset the per-symbol `consecutive_losses` counter (clears `consecutive_losses[sym]`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
-| `POST` | `/api/instances/:instance_id/safety/release-veto` | **Release a hard drawdown / systemic veto.** The endpoint checks that the underlying veto condition (drawdown below threshold *and* `systemic_risk_score < systemic_risk_threshold`) has cleared, then restores the operator-configured default stances and clears the operator one-time-acknowledge flag. Returns `422 Unprocessable Entity` if the veto condition is still active, `200 OK` on success. Distinct from `/safety/reset` (which only clears the consecutive-loss counter). The `operator_id` from the local-operator model is recorded in the resulting `risk_control_events` row. |
-| `POST` | `/api/instances/:instance_id/manual/open` | Log manual position open. Request: `InstanceManualRequest { action: string (required), direction: Option<string> ("LONG"\|"SHORT"), price: Option<f64>, pre_dispatch_order_id: Option<string> }`. The optional `pre_dispatch_order_id` references a held order in `PRE_DISPATCH` from Gate 5; if present, the manual action approves the held order rather than opening a separate position. |
-| `POST` | `/api/instances/:instance_id/manual/close` | Log manual position close. Same `InstanceManualRequest` shape. |
+| `POST` | `/api/instances/:instance_id/safety/release-veto` | **Informational safety reset (v7).** Returns the safety state to `NORMAL` (only when the underlying drawdown condition has cleared) + optional peak-equity reset. Returns `422` if the drawdown condition is still active. Distinct from `/safety/reset` (consecutive-loss counters). `operator_id = "local"` is recorded in the resulting `risk_control_events` row. |
+| `GET` | `/api/instances/:instance_id/automation` | **v7 TAE surface (served).** Full setup-executor state: mode (paper/live), phase, tracked setup + projected risk/return, entry + bracket orders, position, invalidation state, activity log, safety gate, lifecycle, equity. See [03-03-01 §8.1](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md). |
+| `POST` | `/api/instances/:instance_id/automation/close` | **v7 manual override (served).** Cancels pending/bracket orders and closes the open position at market. `exit_reason = "manual"`. |
 | `POST` | `/api/instances/:instance_id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |
-| `GET` | `/api/instances/:instance_id/portfolio` | PME Portfolio summary (served since v6.10.3 — moved here from the planned table 2026-08-17). |
-| `GET` | `/api/instances/:instance_id/safety` | PME Safety state (served since v6.10.3 — moved here from the planned table 2026-08-17). |
-| `POST` | `/api/orders/:id/override-readiness` | **Specified but not yet registered** (returns 404 per §5) — **Gate 2 override** that clears a `STAND_ASIDE` decision for a specific held order, logged with `operator_id = "local"`. |
+| `GET` | `/api/instances/:instance_id/portfolio` | **PME v7 (served): rich informational portfolio state** — equity, realized/unrealized/daily PnL, peak + max drawdown %, safety state + context, systemic risk, exposure block (gross/net/long/short/concentration), capital block (available/committed margin, usage, leverage, alert), positions with mark-to-market, lifecycle. Read-only. See [03-04-01 §5](../engines/portfolio-management-engine/03-04-01-pme-overview-spec.md). |
+| `GET` | `/api/instances/:instance_id/exposure` | **PME v7 (served):** Exposure Matrix (gross/net/long/short, per-symbol concentration, max single-pair). Read-only. |
+| `GET` | `/api/instances/:instance_id/capital` | **PME v7 (served):** Capital Matrix (available/committed margin, margin-usage + leverage ratios, alerts). Read-only. |
+| `GET` | `/api/instances/:instance_id/safety` | PME Safety state (v7 extended: adds `max_drawdown_pct`, `daily_pnl`, `margin_usage_ratio`). |
+| `POST` | `/api/instances/:instance_id/safety/session-reset` | **PME v7 (served, informational):** rebaseline peak equity + daily PnL to current equity (`session_reset`). |
 
-### 2.5 Decision & Risk Profiles
+### 2.5 Risk Profiles
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/decision-profiles` | List profiles with indicators. |
-| `POST` | `/api/decision-profiles` | Create (`{ profile_name, long_threshold, short_threshold }`). |
-| `DELETE` | `/api/decision-profiles/:id` | Delete (CASCADE indicators). |
-| `POST` | `/api/decision-profiles/:id` | Update thresholds. |
-| `POST` | `/api/decision-profiles/:id/evaluate` | Evaluate snapshot → `DecisionScore`. |
-| `POST` | `/api/decision-profiles/:id/indicators` | Add indicator rule (`{ indicator_name, weight, override_status }`). |
-| `POST` | `/api/decision-profiles/:id/indicators/:iid` | Update indicator rule. |
-| `DELETE` | `/api/decision-profiles/:id/indicators/:iid` | Delete indicator rule. |
 | `GET` | `/api/risk-profiles` | List risk profiles. |
 | `POST` | `/api/risk-profiles` | Create (`{ profile_name, capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread }`). `funding_rate_8h` is nullable: `null` inherits the global config value; the string `"0"` disables funding accrual; a non-zero string sets an explicit per-profile override. |
 | `DELETE` | `/api/risk-profiles/:id` | Delete. |
@@ -258,7 +252,7 @@ The response shape is:
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v6.10; retired name recorded in `docs/CHANGELOG.md`). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v7.0; retired name recorded in `docs/CHANGELOG.md`). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -287,18 +281,6 @@ for the operator manual and
 
 
 
-### 2.9 Pre-dispatch Approval (Gate 5)
-
-> **Not yet registered (returns 404 per §5).** The handlers below are **specified and implemented in `crates/api-gateway/src/handlers/pre_dispatch.rs` but never mounted on the router** (audit fix 2026-08-17). `PRE_DISPATCH` orders are held in process memory only by the TAE Execution Layer. The HTTP resource below provides the durable audit-trail surface that was missing in earlier versions. The `risk_control_events` table (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)) is the persistent record of every gate-rejection and every pre-dispatch event.
-
-| Method | Path | Request | Response |
-|--------|------|---------|----------|
-| `GET` | `/api/pre-dispatch?instance_id=` | — | `{ items: PreDispatchOrder[] }` — every `PRE_DISPATCH` order matching the instance scope (or all instances if `instance_id` is omitted). `PreDispatchOrder { order_id, instance_id, pair_key, side, requested_size, estimated_slippage_pct, gate_reasons, held_since_ms }`. |
-| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local"`; caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled). |
-| `DELETE` | `/api/pre-dispatch/:id` | — | `204 No Content` (the held order is discarded without dispatch; the associated `risk_control_events` row is preserved). |
-
-`Pre-dispatch` orders are not persisted to the `open_orders` table (per [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)); They live only in process memory. An engine restart, crash, or process termination during the slippage-review window means the held order is lost on restart; only its gate decision survives in `risk_control_events`. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery. The future `pre_dispatch_orders` table for crash-recoverable persistence is unscheduled (see `docs/CHANGELOG.md`).
-
 ### 2.10 Exchange Keys (encrypted credentials)
 
 > **Not yet mounted (returns 404 per §5).** The key-management handler exists in `crates/api-gateway/src/handlers/keys.rs` (list/add/delete) but is **not registered on the router** — do not build clients against it. Since audit 2026-08-18 the handler encrypts `api_secret`/`passphrase` with `EXCHANGE_SECRET_KEY` (AES-256-GCM, `database_storage::crypto`) and refuses to store plaintext when no master key is provisioned (`503`).
@@ -323,41 +305,31 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 
 ### 2.12 Planned endpoints (not yet served)
 
-The key-rotation routes and the backtest routes are **specified but not yet served**. They are listed here for forward planning only and are not part of the served surface above: today they return `404 Not Found` per §5. Do not build clients against them.
-
-> **Served since v6.10.3 (removed from this table, audit fix 2026-08-17):** `GET /api/instances/:id/portfolio` (PME Portfolio summary) and `GET /api/instances/:id/safety` (PME Safety state) ARE registered and live — see §2.4.
+The following are **specified but not yet served** (return `404` per §5). Listed for forward planning only.
 
 | Method | Path | Planned purpose | Audit ID |
 |--------|------|-----------------|----------|
-| `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). | AUDIT-V6-077 (Unscheduled) |
-| `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. | AUDIT-V6-077 (Unscheduled) |
-| `POST` | `/api/backtest/run` | Submit a backtest request (policy, symbol, date range, capital, fee). | AUDIT-V6-403 (Phase D of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| `GET` | `/api/backtest/:id` | Poll backtest status + result. | AUDIT-V6-403 (Phase D) |
-| `GET` | `/api/backtest` | Catch-all for `/api/backtest/*` references (none served yet). | AUDIT-V6-403 (Phase D) |
-| `GET` | `/api/instances/:id/policies` | List per-instance execution policies. | AUDIT-V6-401 (Phase A) |
-| `GET` | `/api/instances/:id/triggers` | Recent `ObservableTrigger` events. | AUDIT-V6-401 (Phase A) |
-| `GET` | `/api/instances/:id/paper/positions` | Live paper trading positions. | AUDIT-V6-401 (Phase A) |
-| `GET` | `/api/instances/:id/paper/orders` | Live paper trading orders. | AUDIT-V6-401 (Phase A) |
-| `GET` | `/api/instances/:id/paper/history` | Paper-trade history. | AUDIT-V6-401 (Phase A) |
-| `GET` | `/api/instances/:id/lifecycle` | Per-instance `LifecycleState`. | AUDIT-V6-401 (Phase A) |
-| `GET` | `/api/instances/:id/exposure` | PME Exposure metrics. | AUDIT-V6-402 (Phase A) |
-| `GET` | `/api/instances/:id/capital` | PME Capital ledger. | AUDIT-V6-402 (Phase A) |
-| `GET` | `/api/instances/:id/veto` | PME Veto events. | AUDIT-V6-402 (Phase A) |
+| `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). | AUDIT-V6-077 |
+| `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. | AUDIT-V6-077 |
+| `GET` | `/api/instances/:id/activation` | Effective activation set (global `[activation]` ∪ per-instance) at the current `config_version`. | AUDIT-V6-212 |
 
 ### 2.13 Performance Analytics endpoints (live)
 
-The Performance Analytics Engine exposes serving endpoints under `/api/analytics/*`. These are **live** today and consumed by the `PerformanceDashboard` Overview / Strategy / Risk Metrics / Regime Map / Trade Analytics panels. The Backtesting endpoints (`/api/backtest/*`) are **not yet served** — see §2.12 above.
+The Performance Analytics Engine exposes serving endpoints under `/api/analytics/*` and `/api/backtest/*`. These are **live** and consumed by the `PerformanceDashboard` Overview / Strategy / Risk Metrics / Regime Map / Trade Analytics / Backtesting panels.
 
 | Method | Path | Response |
 |--------|------|----------|
 | `GET` | `/api/analytics/summary` | `{ total_trades, total_pnl, win_rate, ... }` aggregate analytics summary. |
-| `GET` | `/api/analytics/strategy` | `StrategyAnalyticsRow[]` — per-policy NHST (T-Stat, P-Value, P_MC, classification). |
+| `GET` | `/api/analytics/strategy` | `StrategyAnalyticsRow[]` — per-setup-type NHST (T-Stat, P-Value, P_MC, α = 0.05, edge classification). |
 | `GET` | `/api/analytics/risk` | `RiskAnalyticsRow` — Sharpe, Sortino, Calmar, Ulcer, VaR, ES, max drawdown. |
 | `GET` | `/api/analytics/performance` | `PerformanceMatrixRow[]` — regime-strategy performance map. |
 | `GET` | `/api/analytics/optimization` | `OptimizationReport` — per-regime performance + recommendations. |
 | `GET` | `/api/analytics/strategy/history?limit=` | `StrategyAnalyticsRow[]` — historical strategy analytics. |
 | `GET` | `/api/analytics/trades?limit=200` | `TradeAnalyticsRecord[]` — reconstructed closed trades (default limit 200). |
-| `GET` | `/api/analytics` | Catch-all for `/api/analytics/*` references — **not registered** (returns 404; only the seven concrete `/api/analytics/*` rows below are served). | AUDIT-V6-403 |
+| `GET` | `/api/analytics` | Catch-all for `/api/analytics/*` references — **not registered** (returns 404; only the concrete `/api/analytics/*` rows above are served). |
+| `POST` | `/api/backtest/run` | Run a backtest `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital }` — replays recorded MME decisions through the setup executor (paper only); returns `{ backtest_id, summary, stats (NHST + α), trades, equity_curve }`. See [03-05-06](../engines/performance-analytics-engine/03-05-06-pae-layer5-backtest.md). |
+| `GET` | `/api/backtest/:id` | Fetch a persisted backtest run (or 404). |
+| `GET` | `/api/backtest` | Catch-all for `/api/backtest/*` references — **not registered** (returns 404; only the concrete rows above are served). |
 
 The endpoints above are documented in segment form (not in the canonical `(METHOD, /path)` row layout) for readability. Each path is canonical to the per-tab `PerformanceDashboard` `fetch()` call and the `api-gateway` HTTP handler in `crates/api-gateway/src/handlers/analytics.rs`.
 
@@ -407,7 +379,7 @@ Key properties:
 
 The shared crate (`crates/core-domain/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is the **`broadcast.market_snapshot`** notification (server→client, §3.2 — the frame every `/ws` connection receives, one per `(symbol, timeframe_slot)` subscription). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.
 
-The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the local-operator identity (see §1) — `"local"` today; caller-supplied identity via the `X-Operator-Id` header is deferred (see `docs/CHANGELOG.md` Open Items).
+The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the single-operator identity (see §1) — always `"local"`. There is no caller-supplied identity.
 
 ---
 
@@ -435,6 +407,6 @@ The `operator_id` field on internal `execution.*` and `safety.*` control frames 
 - [Database Schema](06-02-database-schema-spec.md) — Persistent state; persistent `risk_control_events` table (§3.10); encrypted `exchange_keys` table (§3.5); canonical `order_fills` table (§3.7); `open_orders` lifecycle (§3.2).
 - [UI Overview](../ui-ux/07-01-ui-overview-spec.md) — Frontend consumption and the `microTerm` / `fastTerm` / `slowTerm` / `macroTerm` demux shape (07-01 §2.3).
 - [Systemic Data Flow](../conceptual-foundations/01-03-systemic-data-flow.md) — Sequence diagrams for the engine pipeline.
-- [Pre-Trade Risk Controls](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — Gate ordering and override semantics for `/api/pre-dispatch/*` and `/api/orders/:id/override-readiness`.
+- [Pre-Trade Risk Controls](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — the v7 executor's risk gates (informational).
 - [Connection Quality](../operations-and-compliance/08-05-connection-quality.md) — `/api/connection-quality` scope (instance × timeframe) and score formula.
 - [Connection Resilience](../operations-and-compliance/08-03-connection-resilience.md) — Backoff and retry budgets referenced from §3.2.

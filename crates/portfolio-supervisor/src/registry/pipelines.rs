@@ -321,7 +321,8 @@ pub async fn build_pipelines(
         ctx.exchange_choice.clone(),
         ctx.quote.clone(),
         ctx.liquidity_config.clone(),
-        ctx.heatmap_config.clone(),        ctx.api_failover.clone(),
+        ctx.heatmap_config.clone(),
+        ctx.api_failover.clone(),
         &micro_cluster_matrix,
         &fast_cluster_matrix,
         &slow_cluster_matrix,
@@ -1260,6 +1261,15 @@ async fn spawn_tasks(
             let cancel_for_refresh = cancel.clone();
             let exchange_for_refresh = exchange_choice;
             tokio::spawn(async move {
+                // AUDIT-AIU-116: consecutive-skip counter. Every `Skipped`
+                // tick keeps the LAST successful matrix in the handle, so a
+                // dead OI feed would serve a stale estimate anchored to an
+                // old mid indefinitely. After `MAX_CONSECUTIVE_SKIPS`
+                // consecutive failures the handle is cleared (cluster → None
+                // on the wire, the heatmap/panel degrade to placeholders)
+                // instead of silently showing stale data as current.
+                const MAX_CONSECUTIVE_SKIPS: u32 = 3;
+                let mut consecutive_skips: u32 = 0;
                 // ── First fire: immediate (don't wait one tick) ──
                 let started = std::time::Instant::now();
                 match compute_cluster_for_tf(
@@ -1271,6 +1281,7 @@ async fn spawn_tasks(
                 .await
                 {
                     Ok(matrix) => {
+                        consecutive_skips = 0;
                         let n_short = matrix.short_clusters.len();
                         let n_long = matrix.long_clusters.len();
                         let mid = matrix.mid_price;
@@ -1349,6 +1360,7 @@ async fn spawn_tasks(
                     .await
                     {
                         Ok(matrix) => {
+                            consecutive_skips = 0;
                             let n_short = matrix.short_clusters.len();
                             let n_long = matrix.long_clusters.len();
                             let mid = matrix.mid_price;
@@ -1373,11 +1385,14 @@ async fn spawn_tasks(
                             *handle.write().await = Some(matrix);
                         }
                         Err(e) => {
+                            consecutive_skips += 1;
                             eprintln!(
-                                "⚠️  Cluster Refresh: {} {} skipped this tick: {}",
+                                "⚠️  Cluster Refresh: {} {} skipped this tick: {} (skip {} of {})",
                                 pair_log,
                                 &slot.as_str(),
                                 e,
+                                consecutive_skips,
+                                MAX_CONSECUTIVE_SKIPS,
                             );
                             write_cluster_status(
                                 &status_handle,
@@ -1386,6 +1401,24 @@ async fn spawn_tasks(
                                 None,
                             )
                             .await;
+                            if consecutive_skips >= MAX_CONSECUTIVE_SKIPS {
+                                // AUDIT-AIU-116: the feed has been down for
+                                // several refresh cycles — drop the stale
+                                // matrix so the wire carries `cluster: None`
+                                // and the frontend degrades to placeholders
+                                // instead of showing an estimate anchored to
+                                // an outdated mid.
+                                let mut guard = handle.write().await;
+                                if guard.is_some() {
+                                    println!(
+                                        "🕸️  Cluster Refresh: {} {} cleared stale matrix after {} consecutive skips",
+                                        pair_log,
+                                        &slot.as_str(),
+                                        consecutive_skips,
+                                    );
+                                }
+                                *guard = None;
+                            }
                         }
                     }
                 }

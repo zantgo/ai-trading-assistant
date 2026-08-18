@@ -527,7 +527,7 @@ export function connectWebsocketForTimeframe(
         // the first caller after the purge actually re-requests).
         const bo = state.backoff[wsKey];
         if (bo.retries > 0) {
-            purgeCacheForKey(symbol, tfSecs);
+            purgeCacheForKey(symbol, tfSecs, tf.slot);
         }
         state.backoff[wsKey] = freshBackoff();
     };

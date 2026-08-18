@@ -81,7 +81,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const kPts = pairsFromHistory(h, 'stochastic', 'k_line');
             const dPts = pairsFromHistory(h, 'stochastic', 'd_line');

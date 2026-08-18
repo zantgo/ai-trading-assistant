@@ -34,6 +34,18 @@ const MIN_INTENSITY = 0.05;
 /// for the typical chart height.
 const CELL_HEIGHT_PX = 3;
 
+/// AUDIT-AIU-116: staleness check for a cluster matrix. The backend stamps
+/// `valid_until_ms` (5-minute TTL from estimation); a matrix whose TTL has
+/// elapsed is anchored to an outdated mid and must be rendered dimmed +
+/// badged instead of presented as current. Zero / absent TTL never counts
+/// as stale (older fixtures and tests omit it).
+export function isClusterStale(cluster: LiquidationClusterMatrix | null | undefined): boolean {
+    if (!cluster) return false;
+    const ttl = cluster.valid_until_ms;
+    if (!ttl || ttl <= 0) return false;
+    return ttl < Date.now();
+}
+
 /** Color ramp for the **estimated** cluster matrix (Block C fallback).
  *  Mirrors the original TradingView-style ramp: navy → blue → cyan →
  *  green → yellow → orange → red. Alpha ramps with intensity. */
@@ -402,6 +414,13 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
             // `highlightTiers` integers have their intensity boosted
             // (and their globalAlpha is bumped to 0.85 so they pop out
             // from the surrounding estimated layer).
+            //
+            // AUDIT-AIU-116 — staleness: when the matrix TTL has elapsed
+            // (OI feed down), the whole estimated layer renders at 0.4×
+            // its normal alpha and a "STALE" watermark is drawn, so a
+            // dead feed can never masquerade as current data.
+            const stale = isClusterStale(input.cluster);
+            const staleAlpha = stale ? 0.4 : 1.0;
             const highlightTiers = input.highlightTiers ?? [];
             if (hasEstimated) {
                 ctx.save();
@@ -428,7 +447,7 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
                     const startY = Math.min(yHigh, yLow);
                     const endY = Math.max(yHigh, yLow);
 
-                    ctx.globalAlpha = matched ? 0.85 : 0.45;
+                    ctx.globalAlpha = (matched ? 0.85 : 0.45) * staleAlpha;
                     ctx.fillStyle = intensityColor(intensity);
                     let ry = Math.floor(startY / CELL_HEIGHT_PX) * CELL_HEIGHT_PX;
                     while (ry < endY && ry < bottomY) {
@@ -457,6 +476,17 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
                     10,
                     14,
                 );
+                ctx.restore();
+            }
+
+            // AUDIT-AIU-116: staleness watermark — the OI feed has been
+            // down past the matrix TTL; the bands are anchored to an
+            // outdated mid.
+            if (stale) {
+                ctx.save();
+                ctx.font = 'bold 12px ui-monospace, SFMono-Regular, monospace';
+                ctx.fillStyle = 'rgba(255, 170, 60, 0.9)';
+                ctx.fillText('⚠ STALE — OI feed down', 10, 14);
                 ctx.restore();
             }
 

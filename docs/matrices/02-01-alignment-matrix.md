@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -148,17 +148,19 @@ $$\text{trend\_agreement\_pct} = \frac{\max(\text{positive\_tf\_count}, \text{ne
 When ≥2 timeframes are present:
 
 ```
-signal_cross_tf_count = round(0.30 × Σ over all timeframes of per-indicator signal counts)
+signal_cross_tf_count = number of DISTINCT (indicator, label, kind) signal
+                        identities active on ≥2 timeframes
 ```
 
-Implemented in `crates/core-domain/src/alignment.rs` (`cross_tf_count`). The value is a
-**breadth heuristic** — 30% of the raw signal total — **not** the number of distinct
-signal keys active on ≥2 timeframes. It tracks signal volume across the matrix: on a
-typical 4-TF snapshot with 20–35 signals per TF it lands in the mid-20s–low-30s.
-Consumers should treat it as an activity indicator, not an exact cross-TF agreement
-count. Note: this threshold-free heuristic makes any downstream rule like
-`signal_cross_tf_count ≥ 3` (`02-02-analysis-matrix.md`) trivially true whenever at
-least two timeframes contribute signals.
+Implemented in `crates/core-domain/src/alignment.rs` (`cross_tf_count`). The value
+is the honest cross-TF agreement count — a signal identity shared by two or more
+timeframes — **not** `round(0.30 × total signals)`. (AUDIT-H1, v6.10.16: the old
+`0.3 × total` heuristic saturated the signal-alignment dimension at 100% with
+≥13 total signals and made every downstream `≥ 3` gate trivially true; the
+dimension formula `cross_tf / tf_count × 100` is unchanged — only its input is
+honest now.) Consumers should treat it as a cross-TF agreement count: gates
+like `signal_cross_tf_count ≥ 3` (`02-02-analysis-matrix.md`) fire only when
+three distinct signal identities are genuinely shared across timeframes.
 
 ### 4.5 Overall Label
 

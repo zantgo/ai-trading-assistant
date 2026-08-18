@@ -87,7 +87,7 @@ pub async fn compute_performance_matrix(
                 classify_regime_compatibility(profit_factor, win_rate, trade_count);
 
             results.push(PerformanceMatrixRow {
-                policy_id: policy_id.clone(),
+                setup_type: policy_id.clone(),
                 regime: regime.clone(),
                 trade_count,
                 win_rate,
@@ -115,7 +115,7 @@ pub async fn compute_performance_matrix_summary(
         std::collections::HashMap::new();
     for row in &per_regime_rows {
         rows_by_policy
-            .entry(row.policy_id.clone())
+            .entry(row.setup_type.clone())
             .or_default()
             .push(row.clone());
     }
@@ -192,7 +192,7 @@ pub async fn compute_performance_matrix_summary(
         );
 
         summaries.push(PerformanceMatrixSummary {
-            policy_id: policy_id.clone(),
+            setup_type: policy_id.clone(),
             total_trades: policy_trades.len() as u32,
             overall_profit_factor,
             overall_expectancy,
@@ -548,7 +548,7 @@ mod tests {
     fn test_regime_strength_sorting() {
         let rows = vec![
             PerformanceMatrixRow {
-                policy_id: "P1".into(),
+                setup_type: "P1".into(),
                 regime: "AVOID_ME".into(),
                 trade_count: 10,
                 win_rate: 0.3,
@@ -558,7 +558,7 @@ mod tests {
                 compatibility_label: RegimeCompatibility::Avoid,
             },
             PerformanceMatrixRow {
-                policy_id: "P1".into(),
+                setup_type: "P1".into(),
                 regime: "STRONG_ME".into(),
                 trade_count: 20,
                 win_rate: 0.65,
@@ -568,7 +568,7 @@ mod tests {
                 compatibility_label: RegimeCompatibility::Strong,
             },
             PerformanceMatrixRow {
-                policy_id: "P1".into(),
+                setup_type: "P1".into(),
                 regime: "FAVORABLE_ME".into(),
                 trade_count: 15,
                 win_rate: 0.50,
@@ -638,7 +638,7 @@ mod tests {
     #[test]
     fn test_generate_recommendations_avoid_regime() {
         let rows = vec![PerformanceMatrixRow {
-            policy_id: "P1".into(),
+            setup_type: "P1".into(),
             regime: "BAD_REGIME".into(),
             trade_count: 10,
             win_rate: 0.25,

@@ -1,138 +1,167 @@
 .dashboard {
+    padding: 1rem;
+    max-width: 1280px;
+    margin: 0 auto;
+    color: #e4e6eb;
+    font-size: 0.85rem;
+}
+
+.header {
     display: flex;
-    height: 100%;
-    background: #000;
-    color: #fff;
-    font-family: var(--mono);
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #23262e;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.title {
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    margin: 0;
+    color: #e4e6eb;
+}
+
+.instance-select {
+    background: #16181d;
+    color: #e4e6eb;
+    border: 1px solid #2c3038;
+    border-radius: 4px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.78rem;
+}
+
+.badge {
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.badge-normal { background: #173a2a; color: #58d68d; border: 1px solid #1f5c40; }
+.badge-warn { background: #3a3317; color: #f5c542; border: 1px solid #5c4f1f; }
+.badge-cautious { background: #3a2a17; color: #f0a94e; border: 1px solid #5c4a1f; }
+.badge-suspended { background: #3a1717; color: #ff7b7b; border: 1px solid #5c1f1f; }
+.badge-drawdown { background: #2a0d0d; color: #ff5252; border: 1px solid #6b1414; }
+.badge-lifecycle { background: #262a31; color: #8b93a1; border: 1px solid #333842; }
+
+.sidebar-layout {
+    display: flex;
+    gap: 1rem;
 }
 
 .sidebar {
-    width: 200px;
-    border-right: 1px solid rgba(255, 255, 255, 0.07);
-    padding: 1rem 0;
-    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 130px;
 }
 
-.sidebarTitle {
+.sidebar-btn {
+    background: #15171c;
+    border: 1px solid #23262e;
+    border-radius: 6px;
+    color: #8b93a1;
+    padding: 0.5rem 0.75rem;
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.35);
-    padding: 0 1rem;
-    margin-bottom: 0.75rem;
-}
-
-.sidebarBtn {
-    display: block;
-    width: 100%;
     text-align: left;
-    padding: 0.5rem 1rem;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
-    font-size: 0.82rem;
-    font-family: var(--mono);
-    transition: background 0.15s;
+    letter-spacing: 0.04em;
 }
 
-.sidebarBtn:hover { background: rgba(255, 255, 255, 0.04); }
-.sidebarBtnActive { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.sidebar-btn:hover {
+    color: #e4e6eb;
+    border-color: #2c3038;
+}
+
+.sidebar-btn-active {
+    background: #1c2230;
+    color: #7db4ff;
+    border-color: #2f5d8f;
+}
 
 .content {
     flex: 1;
-    padding: 1.5rem;
-    overflow-y: auto;
+    min-width: 0;
 }
 
-.sectionTitle {
-    font-size: 1rem;
-    margin-bottom: 0.5rem;
-}
-
-.sectionDesc {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 0.8rem;
-    margin-bottom: 1rem;
-}
-
-/* ─── Safety state banner ─── */
-.safetyBanner {
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-}
-
-.safetyNormal { background: rgba(76, 175, 80, 0.12); border: 1px solid rgba(76, 175, 80, 0.3); color: #4caf50; }
-.safetyWarn { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); color: #ffb74d; }
-.safetyCautious { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #ff9800; }
-.safetySuspended { background: rgba(239, 83, 80, 0.12); border: 1px solid rgba(239, 83, 80, 0.3); color: #ef5350; }
-.safetyDrawdown { background: rgba(183, 28, 28, 0.2); border: 1px solid rgba(183, 28, 28, 0.5); color: #e53935; }
-
-.safetyIcon {
-    font-size: 1.2rem;
-}
-
-.safetyBadge {
-    padding: 0.2rem 0.6rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: 700;
+.section-title {
+    font-size: 0.78rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
+    color: #8b93a1;
+    margin: 0 0 0.5rem;
 }
 
-.safetyBadgeNormal { background: #1b5e20; color: #4caf50; }
-.safetyBadgeWarn { background: #e65100; color: #ffb74d; }
-.safetyBadgeCautious { background: #bf360c; color: #ff9800; }
-.safetyBadgeSuspended { background: #b71c1c; color: #ef5350; }
-.safetyBadgeDrawdown { background: #880e4f; color: #e53935; }
+.sub-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8b93a1;
+    margin: 1rem 0 0.5rem;
+}
 
-/* ─── Stats grid ─── */
-.statsGrid {
+.info-line {
+    font-size: 0.72rem;
+    color: #5f6672;
+    margin: 0 0 0.85rem;
+    line-height: 1.5;
+}
+
+.stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 0.75rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
 }
 
-.statCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
+.stat-card {
+    background: #15171c;
+    border: 1px solid #23262e;
     border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-    background: rgba(255, 255, 255, 0.02);
+    padding: 0.8rem;
 }
 
-.statLabel {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
+.stat-label {
+    font-size: 0.68rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.35rem;
+    letter-spacing: 0.06em;
+    color: #8b93a1;
+    margin-bottom: 0.3rem;
 }
 
-.statValue {
-    font-size: 1.3rem;
-    font-weight: 600;
+.stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #e4e6eb;
+    margin-bottom: 0.2rem;
 }
 
-.statSub {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
+.stat-sub {
+    font-size: 0.66rem;
+    color: #5f6672;
 }
 
-.statPositive { color: #4caf50; }
-.statNegative { color: #ef5350; }
-.statNeutral { color: #ffb74d; }
+.pos { color: #58d68d; }
+.neg { color: #ff7b7b; }
+.warn { color: #f0a94e; }
 
-/* ─── Table ─── */
 .table {
     width: 100%;
     border-collapse: collapse;
@@ -141,511 +170,122 @@
 
 .table th {
     text-align: left;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.72rem;
+    font-size: 0.66rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    color: #5f6672;
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid #23262e;
 }
 
 .table td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid #1b1e24;
+    color: #c8ccd4;
 }
 
-.table tr:hover { background: rgba(255, 255, 255, 0.03); }
+.td-right { text-align: right; }
+.td-mono { font-family: var(--mono, monospace); }
 
-.tdRight { text-align: right; font-variant-numeric: tabular-nums; }
-.tdCenter { text-align: center; }
-.tdMono { font-family: var(--mono); font-size: 0.75rem; }
-
-/* ─── Badges ─── */
-.badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
-
-.badgeLong { background: rgba(76,175,80,0.15); color: #4caf50; }
-.badgeShort { background: rgba(239,83,80,0.15); color: #ef5350; }
-
-/* ─── Exposure bars ─── */
-.exposureRow {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.78rem;
-}
-
-.exposureLabel {
-    width: 130px;
-    text-align: right;
-    color: rgba(255, 255, 255, 0.45);
-    flex-shrink: 0;
-}
-
-.exposureBar {
-    flex: 1;
-    height: 10px;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 5px;
-    overflow: hidden;
-    position: relative;
-}
-
-.exposureFill {
-    height: 100%;
-    border-radius: 5px;
-    transition: width 0.4s ease;
-}
-
-.exposureFillLong { background: #4caf50; }
-.exposureFillShort { background: #ef5350; }
-.exposureFillNet { background: #64ffda; }
-
-.exposureValue {
-    width: 120px;
-    font-size: 0.72rem;
-    color: rgba(255, 255, 255, 0.85);
-    font-variant-numeric: tabular-nums;
-}
-
-/* ─── Concentration card ─── */
-.concentrationCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.concentrationHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.3rem;
-}
-
-.concentrationSymbol {
-    font-weight: 600;
-    font-size: 0.82rem;
-}
-
-.concentrationPct {
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
-}
-
-.concentrationLimitBar {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    position: relative;
-}
-
-.concentrationLimitFill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.4s ease;
-}
-
-.concentrationLimitLine {
-    position: absolute;
-    top: -2px;
-    height: 10px;
-    width: 1px;
-    background: #ef5350;
-}
-
-.concentrationLimitLabel {
-    font-size: 0.6rem;
-    color: #ef5350;
-    margin-top: 0.1rem;
-}
-
-/* ─── Capital gauge ─── */
-.capitalGauge {
-    margin-bottom: 1rem;
-}
-
-.capitalGaugeHeader {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.72rem;
-    margin-bottom: 0.25rem;
-}
-
-.capitalGaugeLabel { color: rgba(255, 255, 255, 0.45); }
-.capitalGaugeValue { font-variant-numeric: tabular-nums; }
-
-.capitalGaugeBar {
-    width: 100%;
-    height: 12px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    position: relative;
-}
-
-.capitalGaugeFill {
-    height: 100%;
-    border-radius: 6px;
-    transition: width 0.4s ease;
-}
-
-.capitalGaugeMarkers {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.6rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-/* ─── Threshold info row ─── */
-.thresholdRow {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.3rem 0;
-    font-size: 0.72rem;
-}
-
-.thresholdLevel {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-.thresholdText {
-    color: rgba(255, 255, 255, 0.45);
-}
-
-/* ─── Drawdown monitor ─── */
-.drawdownCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 0.75rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.drawdownStats {
-    display: flex;
-    gap: 1.5rem;
-    margin-bottom: 0.5rem;
-}
-
-.drawdownStat {
+.conc-list {
     display: flex;
     flex-direction: column;
+    gap: 0.4rem;
+    max-width: 520px;
 }
 
-.drawdownStatLabel {
-    font-size: 0.65rem;
-    color: rgba(255, 255, 255, 0.35);
-    text-transform: uppercase;
+.conc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.76rem;
 }
 
-.drawdownStatValue {
-    font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.85);
-    font-variant-numeric: tabular-nums;
-}
-
-.drawdownBar {
+.conc-track {
+    flex: 1;
     height: 8px;
+    background: #1a1d23;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
 }
 
-.drawdownBarFill {
+.conc-fill {
     height: 100%;
+    background: #7db4ff;
     border-radius: 4px;
-    transition: width 0.5s ease;
 }
 
-.drawdownBarMarker {
-    position: absolute;
-    top: -3px;
-    height: 14px;
-    width: 1px;
-    background: #ef5350;
-    z-index: 1;
+.conc-pct {
+    min-width: 60px;
+    text-align: right;
+    color: #c8ccd4;
+    font-family: var(--mono, monospace);
 }
 
-/* ─── Veto triggers table ─── */
-.vetoCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.02);
+.conc-limit {
+    font-size: 0.64rem;
+    color: #5f6672;
 }
 
-.vetoHeader {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.3rem;
-}
-
-.vetoTrigger {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
-}
-
-.vetoArrow {
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.7rem;
-}
-
-.vetoResult {
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-
-.vetoHardExit {
-    font-size: 0.7rem;
-    color: #ef5350;
-    font-weight: 600;
-}
-
-.vetoMeta {
-    font-size: 0.68rem;
-    color: rgba(255, 255, 255, 0.35);
-    display: flex;
-    gap: 0.75rem;
-}
-
-/* ─── Positions grid ─── */
-.positionCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    margin-bottom: 0.75rem;
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.positionHeader {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.positionHeader:hover { background: rgba(255, 255, 255, 0.03); }
-
-.positionSymbol {
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.positionDirection {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.positionPnl {
-    font-size: 0.8rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-}
-
-.positionMeta {
-    margin-left: auto;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-    display: flex;
-    gap: 0.75rem;
-}
-
-.positionDetail {
-    padding: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.3);
-}
-
-.positionDetailGrid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-}
-
-.positionField {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.72rem;
-}
-
-.positionFieldLabel {
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.positionFieldValue {
-    color: rgba(255, 255, 255, 0.85);
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-}
-
-/* ─── Slots indicator ─── */
-.slotsIndicator {
-    display: flex;
-    gap: 0.15rem;
-}
-
-.slotDot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-}
-
-.slotDotActive { background: #4caf50; }
-.slotDotVacant { background: rgba(255, 255, 255, 0.1); }
-
-/* ─── Loss streak card ─── */
-.lossCard {
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.lossHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.3rem;
-}
-
-.lossSymbol {
-    font-weight: 600;
-    font-size: 0.82rem;
-}
-
-.lossCount {
-    font-size: 0.85rem;
+.alert-banner {
+    margin-top: 0.5rem;
+    padding: 0.6rem;
+    border-radius: 6px;
     font-weight: 700;
-    font-variant-numeric: tabular-nums;
+    font-size: 0.76rem;
+    letter-spacing: 0.05em;
 }
 
-.lossBar {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    overflow: hidden;
-    position: relative;
-}
-
-.lossBarFill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.4s ease;
-}
-
-.lossThreshold {
-    position: absolute;
-    top: -2px;
-    width: 1px;
-    height: 10px;
-}
-
-.lossThresholdCautious { background: #ffb74d; left: 60%; }
-.lossThresholdSuspended { background: #ef5350; left: 100%; }
-
-.lossLegend {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.6rem;
-    color: rgba(255, 255, 255, 0.35);
-    margin-top: 0.2rem;
-}
-
-/* ─── Expand icon ─── */
-.expandIcon {
-    display: inline-block;
-    transition: transform 0.2s;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
-}
-
-.expandIconOpen { transform: rotate(90deg); }
-
-/* ─── Correlation mini heatmap ─── */
-.correlationGrid {
-    display: flex;
-    gap: 0;
-    align-items: center;
-}
-
-.correlationLabel {
-    width: 70px;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.45);
-    flex-shrink: 0;
-}
-
-.correlationRow {
-    display: flex;
-    gap: 0.15rem;
-}
-
-.correlationCell {
-    width: 28px;
-    height: 24px;
-    border-radius: 2px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.6rem;
-    color: #fff;
-}
-
-.correlationHeader {
-    width: 28px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.6rem;
-    color: rgba(255, 255, 255, 0.35);
-}
-
-/* ─── Empty / placeholder ─── */
-.placeholder {
-    border: 1px solid rgba(255, 255, 255, 0.07);
+.safety-card {
+    background: #1a1d23;
+    border: 1px solid #2c3038;
     border-radius: 8px;
-    padding: 2rem;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 0.85rem;
-    background: rgba(255, 255, 255, 0.02);
+    padding: 0.9rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 
-/* ─── Grid 2-column ─── */
-.grid2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+.safety-context {
+    font-size: 0.78rem;
+    color: #c8ccd4;
+    margin: 0;
 }
 
-@media (max-width: 900px) {
-    .grid2 { grid-template-columns: 1fr; }
+.session-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 1rem;
+}
+
+.session-label {
+    font-size: 0.72rem;
+    color: #5f6672;
+}
+
+.reset-btn {
+    background: #1c2230;
+    color: #7db4ff;
+    border: 1px solid #2f5d8f;
+    border-radius: 4px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+.reset-btn:hover:not(:disabled) {
+    background: #243047;
+}
+
+.reset-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.empty {
+    color: #5f6672;
+    font-size: 0.78rem;
+    padding: 0.75rem 0;
 }

@@ -1196,14 +1196,12 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
         &long_bins,
         input.mid_price,
         price_bin_pct,
-        true,
         input.min_cluster_notional_usd,
     );
     let short_clusters = detect_clusters(
         &short_bins,
         input.mid_price,
         price_bin_pct,
-        false,
         input.min_cluster_notional_usd,
     );
 
@@ -1253,7 +1251,6 @@ fn detect_clusters(
     bins: &std::collections::BTreeMap<i64, BinsByLeverage>,
     mid_price: f64,
     price_bin_pct: f64,
-    is_long: bool,
     min_notional: f64,
 ) -> Vec<LiquidationCluster> {
     if bins.is_empty() || mid_price <= 0.0 {
@@ -1320,13 +1317,21 @@ fn detect_clusters(
             .unwrap_or(0);
 
         let distance_pct = ((peak_price - mid_price) / mid_price).abs() * 100.0;
+        // AUDIT-AIU-115: `cluster_kind` must classify by the cluster's
+        // PHYSICAL position relative to the current price — the legacy
+        // side-based assignment (`is_long → BelowCurrentPrice`) mislabeled
+        // clusters in trending markets: during a fresh breakdown the most
+        // recent swing low sits ABOVE mid, so long-liq clusters seeded from
+        // it land above mid yet were reported `BelowCurrentPrice` (and vice
+        // versa for shorts in an uptrend) — wrong panel rows, wrong
+        // `02-13` contract semantics, and a wrong MagnetActivated direction
+        // for such clusters.
         let kind = if distance_pct < 0.5 {
             ClusterKind::AtCurrentPrice
-        } else if is_long {
-            // Long liqs sit below mid (since liq_price = entry * (1 - dist)).
-            ClusterKind::BelowCurrentPrice
-        } else {
+        } else if peak_price > mid_price {
             ClusterKind::AboveCurrentPrice
+        } else {
+            ClusterKind::BelowCurrentPrice
         };
         // Magnet strength: weighted by notional × inverse distance (closer = stronger).
         let proximity = (-distance_pct / 2.0).exp();
@@ -1433,6 +1438,74 @@ mod cluster_tests {
                 c.peak_price
             );
             assert_eq!(c.cluster_kind, ClusterKind::BelowCurrentPrice);
+        }
+    }
+
+    #[test]
+    fn cluster_kind_follows_physical_position_in_a_trending_breakdown() {
+        // AUDIT-AIU-115: `cluster_kind` must classify by PHYSICAL position.
+        // In a fresh breakdown the confirmed swing lows sit ABOVE the
+        // current mid, so high-leverage long-liq clusters seeded from them
+        // land above mid — the legacy side-based assignment labeled them
+        // `BelowCurrentPrice` (wrong panel rows + wrong MagnetActivated
+        // direction).
+        let mut history: Vec<f64> = Vec::new();
+        // Three rising sideways phases → swing lows at 50_400 / 50_800 /
+        // 51_200 (> 0.5% apart so the swing-level dedup keeps all three).
+        for base in [50_600.0, 51_000.0, 51_400.0] {
+            for i in 0..40 {
+                history.push(base + 200.0 * ((i as f64) * std::f64::consts::PI / 12.0).sin());
+            }
+        }
+        // Fresh breakdown: current mid (49_300) well below all swing lows.
+        history.push(50_000.0);
+        history.push(49_800.0);
+        history.push(49_600.0);
+        history.push(49_500.0);
+        history.push(49_400.0);
+        let mid = 49_300.0;
+        history.push(mid);
+
+        let input = ClusterEstimateInput {
+            symbol: "BTC-USDT",
+            mid_price: mid,
+            price_history: &history,
+            total_oi_usd: 50_000_000.0,
+            funding_rate: 0.0001,
+            long_oi_pct: None,
+            maintenance_margin_rate: 0.005,
+            funding_extreme_pct: 0.0005,
+            funding_modulation_active: true,
+            // Weight concentrated at high leverage so the above-mid bins
+            // (50_400 × (1 − 0.005) ≈ 50_148 > mid) form their own cluster.
+            leverage_buckets: &[5, 10, 20, 50, 100],
+            leverage_weights: &[0.05, 0.10, 0.15, 0.20, 0.50],
+            min_cluster_notional_usd: 100_000.0,
+        };
+        let m = estimate_clusters(&input);
+
+        // At least one long cluster sits above mid (seeded from the 50_400 /
+        // 50_800 swing lows at high leverage).
+        assert!(
+            m.long_clusters.iter().any(|c| c.peak_price > m.mid_price),
+            "expected a long cluster above mid in a breakdown, long={:?}",
+            m.long_clusters
+                .iter()
+                .map(|c| (c.peak_price, c.cluster_kind))
+                .collect::<Vec<_>>()
+        );
+        // THE invariant: every cluster's kind matches its physical position.
+        for c in m.long_clusters.iter().chain(m.short_clusters.iter()) {
+            let expected = if c.peak_price > m.mid_price {
+                ClusterKind::AboveCurrentPrice
+            } else {
+                ClusterKind::BelowCurrentPrice
+            };
+            assert_eq!(
+                c.cluster_kind, expected,
+                "cluster at {} (mid {}) must be {:?}",
+                c.peak_price, m.mid_price, expected
+            );
         }
     }
 

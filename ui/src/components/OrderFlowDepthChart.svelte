@@ -82,7 +82,7 @@
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
-        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+        fetchIndicatorHistoryOnce(pairKey, timeframe, slot).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
             const ofiPts = pairsFromHistory(h, 'order_flow_imbalance', undefined, { filterZero: true });
             const depthPts = pairsFromHistory(h, 'depth_bias');

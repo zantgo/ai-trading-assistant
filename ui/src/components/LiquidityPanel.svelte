@@ -22,6 +22,7 @@
     import type { LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal, TimeframeTelemetry } from '../types';
     import { formatTimeframeLabel } from '../lib/telemetry';
     import { cascadeAsymmetryLabel, cascadeAsymmetryIsBullish, cascadeAsymmetryIsBearish } from '../lib/liquidityPanel';
+    import { isClusterStale } from '../lib/liquidationHeatmap';
     import styles from './LiquidityPanel.module.css';
 
     interface Props {
@@ -155,7 +156,11 @@
             {#if !cluster}
                 <div class={styles.placeholder}>Cluster matrix refreshes at each candle cadence. Awaiting first computation…</div>
             {:else}
-                <div class={styles.subSection}>
+                {#if isClusterStale(cluster)}
+                    <div class={styles.staleBadge} title="The OI feed has been down past the matrix TTL — bands are anchored to an outdated mid.">
+                        ⚠ STALE — OI feed down
+                    </div>
+                {/if}                <div class={styles.subSection}>
                     <div class={styles.subLabel}>Assumptions</div>
                     <div class={styles.assumptionRow}>
                         <span>Source:</span>
@@ -184,7 +189,7 @@
                 </div>
 
                 <div class={styles.subSection}>
-                    <div class={styles.subLabel}>Short Clusters (above mid)</div>
+                    <div class={styles.subLabel}>Short-Side Clusters</div>
                     {#if cluster.short_clusters.length === 0}
                         <div class={styles.placeholder}>No short-side clusters above noise threshold.</div>
                     {:else}
@@ -196,7 +201,7 @@
                                 </span>
                                 <span class={styles.clusterNotional}>{fmtUsd(c.notional_usd)}</span>
                                 <span class={styles.clusterDistance}>{fmtPct(c.distance_from_mid_pct)}</span>
-                                <span class="{styles.clusterKind} {styles.kindAbove}">{c.cluster_kind}</span>
+                                <span class="{styles.clusterKind} {c.cluster_kind === 'ABOVE_CURRENT_PRICE' ? styles.kindAbove : ''}">{c.cluster_kind}</span>
                                 <span class={styles.clusterMagnet} style="width: {c.magnet_strength.toFixed(0)}px">
                                     {c.magnet_strength.toFixed(0)}
                                 </span>
@@ -206,7 +211,7 @@
                 </div>
 
                 <div class={styles.subSection}>
-                    <div class={styles.subLabel}>Long Clusters (below mid)</div>
+                    <div class={styles.subLabel}>Long-Side Clusters</div>
                     {#if cluster.long_clusters.length === 0}
                         <div class={styles.placeholder}>No long-side clusters above noise threshold.</div>
                     {:else}
@@ -218,7 +223,7 @@
                                 </span>
                                 <span class={styles.clusterNotional}>{fmtUsd(c.notional_usd)}</span>
                                 <span class={styles.clusterDistance}>{fmtPct(c.distance_from_mid_pct)}</span>
-                                <span class="{styles.clusterKind} {styles.kindBelow}">{c.cluster_kind}</span>
+                                <span class="{styles.clusterKind} {c.cluster_kind === 'BELOW_CURRENT_PRICE' ? styles.kindBelow : ''}">{c.cluster_kind}</span>
                                 <span class={styles.clusterMagnet} style="width: {c.magnet_strength.toFixed(0)}px">
                                     {c.magnet_strength.toFixed(0)}
                                 </span>

@@ -96,8 +96,10 @@ impl SmartMoney {
         // strong one-sided rally with a single swing low reported Neutral
         // forever, and when both BOS flags fired on one bar the bearish flag
         // unconditionally overwrote the bullish one (order-dependent).
-        // Structure is now resolved from whichever side has pivots; both
-        // flags are preserved so the normalizer can prioritize.
+        // Structure is now resolved from whichever side has pivots; the
+        // flags are preserved so the normalizer can prioritize — except the
+        // contradictory double-BOS case, which resolves by dominant
+        // displacement (AUDIT-AIU-113).
         if !sh_idx.is_empty() && !sl_idx.is_empty() {
             let last_sh = sh_idx.last().unwrap().1;
             let prev_sh = if sh_idx.len() >= 2 {
@@ -113,13 +115,35 @@ impl SmartMoney {
             } else {
                 last_sl
             };
-            if last_sh > prev_sh {
-                bos_bull = true;
-                structure = MarketStructure::Bullish;
-            }
-            if last_sl < prev_sl {
-                bos_bear = true;
-                structure = MarketStructure::Bearish;
+            // AUDIT-AIU-113: a wide-range bar breaking BOTH the prior swing
+            // high AND the prior swing low sets both BOS flags — the later
+            // assignment previously overwrote `structure` to Bearish while
+            // the normalizer's label priority kept `bos_bullish`, emitting a
+            // bullish `SMC_STRUCTURE_BULLISH_BOS` label + Breakout signal
+            // alongside a −0.7 bearish normalized score. Resolve the
+            // contradiction by keeping only the side with the larger swing
+            // extension (dominant displacement); a tie keeps neither
+            // (structure stays Neutral) rather than emitting a bullish label
+            // with a bearish score.
+            if last_sh > prev_sh && last_sl < prev_sl {
+                let bull_ext = last_sh - prev_sh;
+                let bear_ext = prev_sl - last_sl;
+                if bull_ext > bear_ext {
+                    bos_bull = true;
+                    structure = MarketStructure::Bullish;
+                } else if bear_ext > bull_ext {
+                    bos_bear = true;
+                    structure = MarketStructure::Bearish;
+                }
+            } else {
+                if last_sh > prev_sh {
+                    bos_bull = true;
+                    structure = MarketStructure::Bullish;
+                }
+                if last_sl < prev_sl {
+                    bos_bear = true;
+                    structure = MarketStructure::Bearish;
+                }
             }
             if last_sh < prev_sh && self.prev_structure == MarketStructure::Bullish {
                 choch_bear = true;
@@ -317,5 +341,49 @@ mod tests {
         assert!(out.is_some());
         let o = out.unwrap();
         assert!(o.bos_bullish);
+    }
+
+    #[test]
+    fn test_wide_range_double_bos_resolves_by_dominant_displacement() {
+        // AUDIT-AIU-113: when the swing structure shows a rising last swing
+        // high AND a falling last swing low on the same update (expanding
+        // range), both BOS flags fire — the legacy code emitted a bullish
+        // `SMC_STRUCTURE_BULLISH_BOS` label with a −0.7 bearish score. The
+        // dominant extension wins; a tie keeps neither.
+        let mut smc = SmartMoney::new(50);
+        // Rising swing highs (110 → 118) and falling swing lows (100 → 96):
+        // bull extension +8, bear extension +4 → bullish BOS only.
+        smc.update(100.0, 105.0, 95.0, 100.0);
+        smc.update(100.0, 103.0, 96.0, 101.0);
+        smc.update(101.0, 110.0, 101.0, 108.0);
+        smc.update(108.0, 105.0, 100.0, 103.0);
+        smc.update(103.0, 118.0, 112.0, 115.0);
+        smc.update(115.0, 110.0, 96.0, 100.0);
+        let out = smc.update(100.0, 108.0, 104.0, 106.0).unwrap();
+        assert!(
+            out.bos_bullish,
+            "dominant bullish displacement must set bos_bullish"
+        );
+        assert!(
+            !out.bos_bearish,
+            "dominant bullish displacement must clear bos_bearish"
+        );
+        assert_eq!(out.structure, MarketStructure::Bullish);
+
+        // Tie case: symmetric extensions (+3 / −3) → neither flag.
+        let mut smc2 = SmartMoney::new(50);
+        smc2.update(100.0, 105.0, 95.0, 100.0);
+        smc2.update(100.0, 106.0, 96.0, 101.0);
+        smc2.update(101.0, 112.0, 103.0, 108.0);
+        smc2.update(108.0, 105.0, 101.0, 103.0);
+        smc2.update(103.0, 115.0, 112.0, 113.0);
+        smc2.update(113.0, 110.0, 98.0, 100.0);
+        let out2 = smc2.update(100.0, 106.0, 104.0, 105.0).unwrap();
+        assert!(
+            !out2.bos_bullish && !out2.bos_bearish,
+            "tie must keep neither flag (bull={} bear={})",
+            out2.bos_bullish,
+            out2.bos_bearish
+        );
     }
 }

@@ -17,7 +17,6 @@
     let draft = $state({
         symbol: '',
         exchange: 'Hyperliquid' as string,
-        analysisLimit: 100 as number,
         visuals: {
             showEmas: true, showBb: true, showVwap: true, showVolume: true,
             showAdx: true, showAtr: true, showRsi: true, showMacd: true,
@@ -57,7 +56,6 @@
         squeezeKcPeriod: number; squeezeKcAtrMult: number;
         atrMultiplier: number; atrTargetRR: number;
         volumeAvgPeriod: number; rvolInstitutional: number; rvolClimax: number;
-        analysisLimit: number;
         // v7.0-prod: per-TF liquidity heatmap leverage tier list
         // (operator-edited integers in [1, 100], default [10]).
         heatmapLeverageTiers: number[];
@@ -82,7 +80,6 @@
             squeezeKcPeriod: 20, squeezeKcAtrMult: 1.5,
             atrMultiplier: 2.0, atrTargetRR: 2.5,
             volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
-            analysisLimit: 100,
             heatmapLeverageTiers: [10],
         };
     }
@@ -108,7 +105,6 @@
             squeezeKcPeriod: tf.squeezeKcPeriodVal, squeezeKcAtrMult: tf.squeezeKcAtrMultVal,
             atrMultiplier: tf.atrMultiplierVal, atrTargetRR: tf.atrTargetRRVal,
             volumeAvgPeriod: tf.volumeAvgPeriodVal, rvolInstitutional: tf.rvolInstitutionalVal, rvolClimax: tf.rvolClimaxVal,
-            analysisLimit: tf.analysisLimit,
             heatmapLeverageTiers: tf.heatmapLeverageTiers ?? [10],
         };
     }
@@ -196,7 +192,6 @@
     $effect(() => {
         if (!pair) return;
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
-        draft.analysisLimit = pair.microTerm.analysisLimit;
         for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
             (draft.visuals as any)[f] = (pair.microTerm as any)[f];
         }
@@ -270,7 +265,6 @@
 
         for (const tf of [target.microTerm, target.fastTerm, target.slowTerm, target.macroTerm]) {
             applyVisualsToTerm(tf, vis);
-            tf.analysisLimit = draft.analysisLimit;
         }
 
         target.automationEnabled = auto.enabled;
@@ -280,10 +274,10 @@
         saveStatus = 'saving';
         try {
             const body = {
-                micro_term: { candles: { duration_seconds: tfDraft.micro.durationSeconds, analysis_limit: tfDraft.micro.analysisLimit }, indicators: buildIndicators(tfDraft.micro) },
-                fast_term: { candles: { duration_seconds: tfDraft.fast.durationSeconds, analysis_limit: tfDraft.fast.analysisLimit }, indicators: buildIndicators(tfDraft.fast) },
-                slow_term: { candles: { duration_seconds: tfDraft.slow.durationSeconds, analysis_limit: tfDraft.slow.analysisLimit }, indicators: buildIndicators(tfDraft.slow) },
-                macro_term: { candles: { duration_seconds: tfDraft.macro.durationSeconds, analysis_limit: tfDraft.macro.analysisLimit }, indicators: buildIndicators(tfDraft.macro) },
+                micro_term: { candles: { duration_seconds: tfDraft.micro.durationSeconds }, indicators: buildIndicators(tfDraft.micro) },
+                fast_term: { candles: { duration_seconds: tfDraft.fast.durationSeconds }, indicators: buildIndicators(tfDraft.fast) },
+                slow_term: { candles: { duration_seconds: tfDraft.slow.durationSeconds }, indicators: buildIndicators(tfDraft.slow) },
+                macro_term: { candles: { duration_seconds: tfDraft.macro.durationSeconds }, indicators: buildIndicators(tfDraft.macro) },
                 automation: { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval },
             };
             // Prefer the backend-assigned UUID; fall back to the pair key only
@@ -375,7 +369,6 @@
         <div class={styles.tfInputRow}><label for={fieldId(p, 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId(p, 'Vol Avg Period')} type="number" bind:value={t.volumeAvgPeriod} /></div>
         <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Inst')}>RVOL Inst</label><input id={fieldId(p, 'RVOL Inst')} type="number" step="0.1" bind:value={t.rvolInstitutional} /></div>
         <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Analysis Limit')}>Analysis Limit</label><input id={fieldId(p, 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={t.analysisLimit} /></div>
     {/snippet}
 
     <aside class={styles.tfShellRail}>

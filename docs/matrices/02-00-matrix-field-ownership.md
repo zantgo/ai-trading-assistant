@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -250,19 +250,18 @@ Owns: cross-symbol aggregation.
 
 ---
 
-### 2.8 Policy Matrix (TAE L1) — `02-14-policy-matrix.md`
+### 2.8 SetupPlan (TAE v7) — replaces the erased Policy Matrix (`02-14` deleted)
 
-Owns: validated execution directives produced by the TAE Policy Layer. Transient in-memory structure consumed immediately by the Execution Layer (L2); not independently persisted.
+Owns: the accepted top setup produced by the v7 Setup Executor. In-memory executor state surfaced via `GET /api/instances/:id/automation`; not independently persisted (the policy matrix, `policy_id`, `stance`, and `risk_parameters` fields were erased with the policy engine).
 
 | Field | Producer | Notes |
 |---|---|---|
-| `policy_id` | TAE L1 | |
-| `symbol` | TAE L1 | |
-| `direction` | TAE L1 | `Long` / `Short` |
-| `trigger_timestamp` | TAE L1 | |
-| `decision_context` | TAE L1 | MME decision snapshot that triggered this policy |
-| `stance` | TAE L1 (PME-managed) | `ACTIVE` / `CLOSE_ONLY` / `AVOID` — read from PME Veto |
-| `risk_parameters` | TAE L1 | |
+| `setup_type` | MME L4 (via executor) | e.g. `TrendContinuation` |
+| `symbol` | MME L4 | |
+| `direction` | MME L6 | `LONG` / `SHORT` |
+| `entry_mid` / `sl` / `tp` | MME L4 zones | zone midpoints + invalidation level |
+| `net_rr` | MME L6 | risk-discounted R:R |
+| `score` / `source_tf` | MME L4 / snapshot | display score + timeframe |
 
 ### 2.9 Execution Matrix (TAE L2) — `02-15-execution-matrix.md`
 
@@ -275,13 +274,13 @@ Owns: persistent log of all order state transitions. Materialized as the `open_o
 | `price`, `trigger_price` | TAE L2 | |
 | `size`, `filled_size` | TAE L2 | |
 | `status` | TAE L2 | 7-state lifecycle vocabulary |
-| `is_reduce_only` | TAE L2 | Forced `true` under `CLOSE_ONLY` stance |
+| `is_reduce_only` | TAE L2 | `true` for all bracket/exit orders (v7) |
 | `is_emergency_liquidation` | TAE L2 | Hard Exit path flag |
 | `associated_position_id` | TAE L2 | |
 | `created_at`, `updated_at` | TAE L2 | |
 | `slippage_bps` | TAE L2 | |
 
-> **Materialization note.** Unlike MME matrices (which are JSON DTOs broadcast over WebSocket), the Execution Matrix is a database artifact — its canonical schema is the `open_orders` DDL in `06-02-database-schema-spec.md §3.2`. The Policy Matrix is a transient in-memory structure; the Execution Matrix is the first persistent artifact in the TAE chain.
+> **Materialization note.** Unlike MME matrices (which are JSON DTOs broadcast over WebSocket), the Execution Matrix is a database artifact — its canonical schema is the `open_orders` DDL in `06-02-database-schema-spec.md §3.2`. The SetupPlan is transient executor state; the Execution Matrix is the persistent artifact of the TAE chain.
 
 ---
 
@@ -319,7 +318,7 @@ L4 ← {L3, L1 metrics signals, L1.5/L2.5 liquidity products}
 L5 ← {L3, L1 indicator map, L1.5, L2.5}
 L6 ← {L2 tradability, L3, L4, L5}
 L7 ← {L6 of all symbols}
-TAE_L1 ← {L6, L7}  (Policy Matrix reads Decision + Overview)
+TAE (v7 executor) ← {L4, L6}  (SetupPlan reads Opportunity + Decision)
 TAE_L2 ← {TAE_L1, PME Capital Matrix, MME L6 stop_loss_distance_pct}  (Execution Matrix reads Policy + sizing inputs)
 ```
 

@@ -9,6 +9,7 @@ pub mod historical_fetch;
 pub mod hl_derivatives_poller;
 pub mod hyperliquid;
 pub mod hyperliquid_historical_fetch;
+pub mod hyperliquid_live;
 pub mod hyperliquid_rest;
 pub mod reconstruction;
 pub mod resilience;

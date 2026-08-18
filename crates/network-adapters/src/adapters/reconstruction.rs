@@ -262,12 +262,12 @@ impl CandleReconstructor {
             close: proj_dec,
             volume,
             trades_count: 0,
-            reconstructed: Some(ReconstructionMethod::LinearInterpolation),
+            reconstructed: Some(ReconstructionMethod::LinearExtrapolation),
         };
 
         ReconstructedCandle {
             candle,
-            method: ReconstructionMethod::LinearInterpolation,
+            method: ReconstructionMethod::LinearExtrapolation,
             source_gap_start_ms: interval_start_ms,
             source_gap_end_ms: interval_end_ms,
         }
@@ -395,10 +395,10 @@ mod tests {
         let result = r
             .reconstruct(Exchange::Hyperliquid, 5_000, 6_000, 1_000, &closes)
             .expect("expected interpolation");
-        assert_eq!(result.method, ReconstructionMethod::LinearInterpolation);
+        assert_eq!(result.method, ReconstructionMethod::LinearExtrapolation);
         assert_eq!(
             result.candle.reconstructed,
-            Some(ReconstructionMethod::LinearInterpolation)
+            Some(ReconstructionMethod::LinearExtrapolation)
         );
         // slope = 110 - 100 = 10, projection = 110 + 10 = 120
         assert_eq!(result.candle.close, Decimal::from(120));

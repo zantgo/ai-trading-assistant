@@ -1,6 +1,6 @@
 # 02-13: LiquidationClusterMatrix — Estimated Heatmap (Phase 2)
 
-**Version:** 6.10 (2026-08-16) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 7.0 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
 
 **Producer:** MME L2.5 (cluster estimation task, one task per TF at the TF's own candle cadence)
 **Consumer:** MME L4 (Opportunity) — LiquiditySqueeze preconditions; MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — inline cluster panel on the Charts tab (07-02 §4.3)
@@ -75,13 +75,24 @@ pub struct LiquidationClusterMatrix {
     pub valid_until_ms: u64,
     pub mid_price: f64,
     pub leverage_assumptions: LeverageAssumptions,
-    pub short_clusters: Vec<LiquidationCluster>,   // price-above-mid
-    pub long_clusters: Vec<LiquidationCluster>,    // price-below-mid
+    pub short_clusters: Vec<LiquidationCluster>,   // seeded from swing HIGHS
+    pub long_clusters: Vec<LiquidationCluster>,    // seeded from swing LOWS
     pub cascade_asymmetry: f64,                    // [-1, +1]
     pub total_long_oi_usd: f64,
     pub total_short_oi_usd: f64,
     pub estimation_confidence: f64,               // 0..1
 }
+```
+
+> **Side vs position (AUDIT-AIU-115, v6.10.21).** `short_clusters` /
+> `long_clusters` denote the SEEDED SIDE (swing highs → short-liq estimates,
+> swing lows → long-liq estimates). `cluster_kind` classifies the cluster's
+> **physical position** relative to `mid_price` — `AboveCurrentPrice` when
+> `peak_price > mid_price`, `BelowCurrentPrice` when below, `AtCurrentPrice`
+> within 0.5%. In trending markets a long cluster can legitimately sit ABOVE
+> mid (a fresh breakdown leaves the last confirmed swing low above the
+> current price, and its high-leverage liq level lands above mid) and vice
+> versa — the kind label always matches the actual position, never the side.
 
 pub struct LiquidationCluster {
     pub price_low: f64,

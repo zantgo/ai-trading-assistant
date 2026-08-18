@@ -383,11 +383,23 @@ fn opportunity_matrix_keys_match_frontend_contract() {
         forecast_confidence: 0.72,
         contributing_signals: vec!["BULLISH_CROSSOVER".into()],
         invalidation_note: "".into(),
-        entry_zone: core_domain::analysis::PriceRange { low: 63100.0, high: 63400.0 },
-        target_zone: core_domain::analysis::PriceRange { low: 66000.0, high: 67000.0 },
+        entry_zone: core_domain::analysis::PriceRange {
+            low: 63100.0,
+            high: 63400.0,
+        },
+        target_zone: core_domain::analysis::PriceRange {
+            low: 66000.0,
+            high: 67000.0,
+        },
         invalidation_level: 62800.0,
-        long_entry_zone: core_domain::analysis::PriceRange { low: 63100.0, high: 63400.0 },
-        long_target_zone: core_domain::analysis::PriceRange { low: 66000.0, high: 67000.0 },
+        long_entry_zone: core_domain::analysis::PriceRange {
+            low: 63100.0,
+            high: 63400.0,
+        },
+        long_target_zone: core_domain::analysis::PriceRange {
+            low: 66000.0,
+            high: 67000.0,
+        },
         long_invalidation_level: 62800.0,
         short_entry_zone: core_domain::analysis::PriceRange::default(),
         short_target_zone: core_domain::analysis::PriceRange::default(),
@@ -421,8 +433,14 @@ fn opportunity_matrix_keys_match_frontend_contract() {
             side: Some("LONG".into()),
         }],
         neutral_reference_bracket: Some(core_domain::opportunity::NeutralBracket {
-            entry_zone: core_domain::analysis::PriceRange { low: 63100.0, high: 63400.0 },
-            target_zone: core_domain::analysis::PriceRange { low: 66000.0, high: 67000.0 },
+            entry_zone: core_domain::analysis::PriceRange {
+                low: 63100.0,
+                high: 63400.0,
+            },
+            target_zone: core_domain::analysis::PriceRange {
+                low: 66000.0,
+                high: 67000.0,
+            },
             invalidation_level: 62800.0,
             expected_rr_internal: 2.5,
             geometry_consistent: true,
@@ -537,12 +555,8 @@ fn liquidation_cluster_matrix_keys_match_frontend_contract() {
 
 #[test]
 fn volume_profile_snapshot_keys_match_frontend_contract() {
-    let vp = core_domain::volume_profile::VolumeProfileSnapshot::empty(
-        "BTC-USDT",
-        "micro",
-        60,
-        50000.0,
-    );
+    let vp =
+        core_domain::volume_profile::VolumeProfileSnapshot::empty("BTC-USDT", "micro", 60, 50000.0);
     let v = serde_json::to_value(&vp).unwrap();
     // No `mid_price` / `buy_volume` / `sell_volume` on the wire — the
     // buy/sell split is derived from the per-bin sides; `timestamp_ms`

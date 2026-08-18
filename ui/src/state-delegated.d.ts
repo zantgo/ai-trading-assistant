@@ -43,7 +43,7 @@ declare module './state.svelte' {
         paperBreakEvenTrailEnabled: boolean;
 
         apiKeyConfigured: boolean; rulesContent: string;
-        globalCandlesConfig: { duration_seconds: number; analysis_limit: number };
+        globalCandlesConfig: { duration_seconds: number };
         globalIndicatorsConfig: Record<string, number>;
         indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;

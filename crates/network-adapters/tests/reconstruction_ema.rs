@@ -71,7 +71,7 @@ fn sub_50_history_falls_back_to_linear() {
     let rc = r
         .reconstruct(Exchange::Hyperliquid, 0, 30_000, 30_000, &history)
         .unwrap();
-    assert_eq!(rc.method, ReconstructionMethod::LinearInterpolation);
+    assert_eq!(rc.method, ReconstructionMethod::LinearExtrapolation);
 }
 
 #[test]
