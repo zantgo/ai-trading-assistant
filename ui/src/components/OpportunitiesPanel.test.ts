@@ -1028,14 +1028,20 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         opp.confluent_invalidation_levels = [{ price: 62800, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
         seedSnapshot('BTC-USDT', opp, 64000);
         render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
-        expect(screen.getByText('10R+')).toBeTruthy();
+        // v7.3: the fixture's SHORT bracket zones (65000-65200 entry,
+        // 62000-62400 target, 66000 invalidation) now surface a
+        // bracket-geometry SHORT row: reward 2900 / risk 900 → 3.22R.
+        expect(screen.getAllByText('10R+').length).toBe(1);
         const fills = Array.from(document.querySelectorAll('[class*="rrBarFill"]')) as HTMLElement[];
-        expect(fills.length).toBe(1);
-        expect(fills[0].style.width).toBe('100%');
+        expect(fills.length).toBe(2);
+        const widths = fills.map((f) => f.style.width);
+        expect(widths).toContain('100%');
+        expect(widths).toContain('32.2%');
         // v7.0: the whole scale is R-multiplier notation — the far-right
-        // anchor reads 10R, never the mixed-unit "10x".
-        expect(screen.getByText('1R')).toBeTruthy();
-        expect(screen.getByText('10R')).toBeTruthy();
+        // anchor reads 10R, never the mixed-unit "10x". (Two R:R cards
+        // now render the scale ticks, hence getAllByText.)
+        expect(screen.getAllByText('1R').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('10R').length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText('10x')).toBeNull();
     });
 
@@ -1064,6 +1070,25 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         // v7.0: the basis label rides the value's tooltip, never a caption.
         expect(screen.getByTitle('risk = distance to market — no confluent invalidation levels')).toBeTruthy();
         expect(screen.queryByText('risk = distance to market — no confluent invalidation levels')).toBeNull();
+    });
+
+    it('v7.3: an incomplete side renders the bracket-geometry basis tooltip', () => {
+        const opp = makeOpportunity() as any;
+        // LONG confluent-complete; SHORT carries NO confluent levels but
+        // its bracket zones are valid (65000-65200 / 62000-62400 / 66000)
+        // → the SHORT row is synthesized from bracket geometry.
+        opp.confluent_entry_levels = [{ price: 63100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_target_levels = [{ price: 66100, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        opp.confluent_invalidation_levels = [{ price: 62400, confluence_count: 1, sources: ['FIBONACCI'], strength: 50, side: 'LONG' }];
+        seedSnapshot('BTC-USDT', opp, 64000);
+        render(OpportunitiesPanel, { props: { pairKey: 'BTC-USDT' } });
+        // SHORT: entry mid 65100, target mid 62200, invalidation 66000 →
+        // reward 2900 / risk 900 → 3.22R, basis flagged on the tooltip.
+        expect(screen.getAllByText('3.22R').length).toBeGreaterThanOrEqual(1);
+        expect(
+            screen.getByTitle('risk = bracket invalidation — confluent set incomplete on this side'),
+        ).toBeTruthy();
+        expect(screen.queryByText('risk = bracket invalidation — confluent set incomplete on this side')).toBeNull();
     });
 
     it('renders the direction-aware invalidation thesis inside each directional setup card', () => {

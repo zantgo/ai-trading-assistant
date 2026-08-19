@@ -123,42 +123,32 @@ describe('PortfolioDashboard (v7 live)', () => {
     });
 
     it('renders the positions panel', async () => {
-        render(PortfolioDashboard);
+        render(PortfolioDashboard, { props: { section: 'positions' } });
 
-        await waitFor(() => expect(screen.getByText('Account Overview')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Positions'));
+        await waitFor(() => expect(screen.getByText('Positions')).toBeTruthy());
 
         expect(screen.getByText('BTC-USDC')).toBeTruthy();
         expect(screen.getByText('LONG')).toBeTruthy();
     });
 
     it('renders the exposure panel with concentration', async () => {
-        render(PortfolioDashboard);
+        render(PortfolioDashboard, { props: { section: 'exposure' } });
 
-        await waitFor(() => expect(screen.getByText('Account Overview')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Exposure'));
-
-        expect(screen.getByText('Gross Exposure')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('Gross Exposure')).toBeTruthy());
         expect(screen.getByText('Symbol Concentration')).toBeTruthy();
     });
 
     it('renders the capital panel', async () => {
-        render(PortfolioDashboard);
+        render(PortfolioDashboard, { props: { section: 'capital' } });
 
-        await waitFor(() => expect(screen.getByText('Account Overview')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Capital'));
-
-        expect(screen.getByText('Available Margin')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('Available Margin')).toBeTruthy());
         expect(screen.getByText('Margin Usage')).toBeTruthy();
     });
 
     it('renders the safety panel and POSTs session-reset', async () => {
-        render(PortfolioDashboard);
+        render(PortfolioDashboard, { props: { section: 'safety' } });
 
-        await waitFor(() => expect(screen.getByText('Account Overview')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Safety'));
-
-        expect(screen.getByText('Normal risk mode.')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('Normal risk mode.')).toBeTruthy());
         expect(screen.getByText('Consecutive Losses')).toBeTruthy();
 
         await fireEvent.click(screen.getByText(/Reset session/));

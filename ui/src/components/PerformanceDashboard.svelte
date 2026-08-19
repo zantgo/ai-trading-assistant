@@ -9,9 +9,7 @@
 
     const app = useAppStore();
 
-    type Panel = 'overview' | 'strategy' | 'risk' | 'regimes' | 'trades' | 'backtesting';
-
-    let activePanel = $state<Panel>('overview');
+    let { section = 'overview' }: { section?: string } = $props();
     let loading = $state(false);
 
     let dashboardStats = $state<any>(null);
@@ -162,23 +160,13 @@
 </script>
 
 <div class={styles.dashboard}>
-    <div class={styles.sidebar}>
-        <h2 class={styles.sidebarTitle}>PERFORMANCE ANALYTICS</h2>
-        <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>Overview</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'strategy' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'strategy'}>Strategy</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'risk' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'risk'}>Risk Metrics</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'regimes' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'regimes'}>Regime Map</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'trades' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'trades'}>Trade Analytics</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'backtesting' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'backtesting'}>Backtesting</button>
-    </div>
-
     <div class={styles.content}>
         {#if loading}
             <div class={styles.loading}>Loading analytics data...</div>
         {:else if errorMsg}
             <div class={styles.loading} style="color:#ef5350">{errorMsg}</div>
         {:else}
-            {#if activePanel === 'overview'}
+            {#if section === 'overview'}
                 <h3 class={styles.sectionTitle}>Performance Overview</h3>
                 <p class={styles.sectionDesc}>Realized trading performance across all closed trades.</p>
                 {#if dashboardStats?.core_stats}
@@ -262,7 +250,7 @@
                     </div>
                 {/if}
 
-            {:else if activePanel === 'strategy'}
+            {:else if section === 'strategy'}
                 <h3 class={styles.sectionTitle}>Strategy Analytics</h3>
                 <p class={styles.sectionDesc}>Null Hypothesis Significance Testing — determines whether each setup type generates a statistically significant positive edge (H₀: μ ≤ 0 vs H₁: μ > 0). An edge is significant at α = {fmtNum(strategyRows[0]?.alpha ?? 0.05, 2)} when both p-values are below it; p_mc comes from 10,000 Monte Carlo sign-randomization runs.</p>
                 {#if strategyRows.length === 0}
@@ -305,7 +293,7 @@
                     </table>
                 {/if}
 
-            {:else if activePanel === 'risk'}
+            {:else if section === 'risk'}
                 <h3 class={styles.sectionTitle}>Risk Analytics</h3>
                 <p class={styles.sectionDesc}>Risk-adjusted return metrics computed from portfolio equity history. Sharpe/Sortino annualized assuming 365 trading days for crypto.</p>
                 {#if !riskData}
@@ -363,7 +351,7 @@
                     </div>
                 {/if}
 
-            {:else if activePanel === 'regimes'}
+            {:else if section === 'regimes'}
                 <h3 class={styles.sectionTitle}>Regime-Performance Map</h3>
                 <p class={styles.sectionDesc}>Strategy performance segmented by market regime at trade entry. Regimes resolved from market_snapshots.</p>
                 {#if performanceRows.length === 0}
@@ -397,7 +385,7 @@
                     {/each}
                 {/if}
 
-            {:else if activePanel === 'trades'}
+            {:else if section === 'trades'}
                 <h3 class={styles.sectionTitle}>Trade Analytics</h3>
                 <p class={styles.sectionDesc}>Reconstructed closed trades with execution efficiency metrics.</p>
                 {#if tradeRecords.length === 0}
@@ -436,7 +424,7 @@
                         </tbody>
                     </table>
                 {/if}
-            {:else if activePanel === 'backtesting'}
+            {:else if section === 'backtesting'}
                 <h3 class={styles.sectionTitle}>Strategy Backtesting</h3>
                 <p class={styles.sectionDesc}>
                     Simulate strategy performance over historical data. Configure parameters and run

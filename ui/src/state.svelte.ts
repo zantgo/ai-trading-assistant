@@ -14,6 +14,7 @@ import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
+import { ENGINE_DEFAULT_TAB } from './lib/engineTabs';
 
 function createTimeframeTelemetry(
     symbol: string,
@@ -135,9 +136,7 @@ export class AppStore {
 
     selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings') {
         this.currentEngine = engine;
-        if (engine !== 'market_monitor') {
-            this.middleTab = 'overview';
-        }
+        this.middleTab = ENGINE_DEFAULT_TAB[engine];
         if (engine === 'market_monitor') {
             this.activeEngineTab = this.selectedInstance ? 'instance' : 'overview';
         }

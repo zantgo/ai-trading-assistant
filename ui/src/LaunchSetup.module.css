@@ -352,7 +352,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
-.tf-input {
+.tf-select {
     width: 100%;
     padding: 0.5rem 0.4rem;
     background: #0b0d12;
@@ -362,11 +362,13 @@
     font-family: var(--mono, monospace);
     font-size: 0.75rem;
     box-sizing: border-box;
-}
-.tf-input:focus {
+    cursor: pointer;
     outline: none;
+}
+.tf-select:focus {
     border-color: rgba(255, 255, 255, 0.35);
 }
+.tf-select option { background: #000; color: #e4e6eb; }
 .add-btn {
     padding: 0.55rem 0.9rem;
     background: rgba(255, 255, 255, 0.1);

@@ -251,7 +251,7 @@
         {@const activeTerm = activeTermFor(pair)}
         {@const activeLabel = activeLabelFor(activeTf)}
 
-        <ChartToggles {pairKey} symbol={pairKey} />
+        <ChartToggles {pairKey} />
         <div class={styles.workspaceSidebar}>
             <aside class={styles.tfSidebar}>
                 <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>

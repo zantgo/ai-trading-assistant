@@ -100,8 +100,11 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
    (USD)** field (prefilled from the previous session). Execute mode collects the exchange
    credentials inline (Hyperliquid: wallet address + private key; Bitget: API key + secret +
    passphrase) and stores them encrypted via `POST /api/keys`.
-3. **Instances** — add one or more symbols with per-instance timeframe durations
-   (micro/fast/slow/macro, defaults 60/300/900/3600 s), or skip and add them later from the
+3. **Instances** — add one or more symbols with per-instance timeframe durations chosen
+   from the **same timeframe dropdowns the Workspace Settings offer** (14 tiers, 1 s → 1 day,
+   plus a disabled "Custom: …" fallback). Each slot is preseeded with the workspace ladder —
+   micro 60 s, fast 180 s, slow/macro from the workspace config (`slow_timeframe` /
+   `macro_timeframe`, shipped defaults 300/900 s) — or skip and add them later from the
    workspace panel.
 4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
    instance list) → **Launch** lands you directly in the first instance's workspace.

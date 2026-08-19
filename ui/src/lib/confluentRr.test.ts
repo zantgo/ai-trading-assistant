@@ -11,11 +11,29 @@ function oppWith(levels: {
     entry?: ConfluentLevel[];
     target?: ConfluentLevel[];
     invalidation?: ConfluentLevel[];
+    zones?: {
+        long?: { entry: [number, number]; target: [number, number]; invalidation: number };
+        short?: { entry: [number, number]; target: [number, number]; invalidation: number };
+    };
 }): OpportunityMatrix {
     return {
         confluent_entry_levels: levels.entry ?? [],
         confluent_target_levels: levels.target ?? [],
         confluent_invalidation_levels: levels.invalidation ?? [],
+        ...(levels.zones?.long
+            ? {
+                long_entry_zone: { low: levels.zones.long.entry[0], high: levels.zones.long.entry[1] },
+                long_target_zone: { low: levels.zones.long.target[0], high: levels.zones.long.target[1] },
+                long_invalidation_level: levels.zones.long.invalidation,
+            }
+            : {}),
+        ...(levels.zones?.short
+            ? {
+                short_entry_zone: { low: levels.zones.short.entry[0], high: levels.zones.short.entry[1] },
+                short_target_zone: { low: levels.zones.short.target[0], high: levels.zones.short.target[1] },
+                short_invalidation_level: levels.zones.short.invalidation,
+            }
+            : {}),
     } as unknown as OpportunityMatrix;
 }
 
@@ -160,6 +178,111 @@ describe('computeConfluentRr', () => {
         expect(res.sides).toHaveLength(1);
         expect(res.sides[0].side).toBe('LONG');
     });
+
+    it('v7.3: falls back to bracket geometry for a side whose confluent set lacks targets', () => {
+        // The user-observed NoClear shape: LONG entries + invalidation
+        // levels exist but the LONG target set is empty (its target zone
+        // was ATR-derived), while SHORT is confluent-complete.
+        const res = computeConfluentRr(
+            oppWith({
+                entry: [lvl(63100, 'LONG'), lvl(64900, 'SHORT')],
+                target: [lvl(61900, 'SHORT')],
+                invalidation: [lvl(62400, 'LONG'), lvl(65600, 'SHORT')],
+                zones: {
+                    long: {
+                        entry: [63000, 63400],
+                        target: [66000, 67000],
+                        invalidation: 62600,
+                    },
+                },
+            }),
+            64000,
+        );
+        expect(res.reason).toBeNull();
+        expect(res.sides).toHaveLength(2);
+        const long = res.sides.find((s) => s.side === 'LONG')!;
+        // Entry/target averages come from the zone MIDPOINTS, risk from
+        // the zone invalidation — flagged so the operator can tell the
+        // row was not confluent-averaged.
+        expect(long.entryAvg).toBe(63200);
+        expect(long.targetAvg).toBe(66500);
+        expect(long.invalidationAvg).toBe(62600);
+        expect(long.riskBasis).toBe('bracket_geometry');
+        // reward = 3300, risk = 600 → 5.5
+        expect(long.rr).toBe(5.5);
+        expect(long.reason).toBeNull();
+        // The SHORT side stays confluent-averaged (unchanged behavior).
+        const short = res.sides.find((s) => s.side === 'SHORT')!;
+        expect(short.riskBasis).toBe('invalidation');
+        expect(short.rr).toBe(4.29);
+    });
+
+    it('v7.3: falls back to bracket geometry when a side has NO confluent levels at all', () => {
+        const res = computeConfluentRr(
+            oppWith({
+                entry: [lvl(64900, 'SHORT')],
+                target: [lvl(61900, 'SHORT')],
+                invalidation: [lvl(65600, 'SHORT')],
+                zones: {
+                    long: {
+                        entry: [63000, 63400],
+                        target: [66000, 67000],
+                        invalidation: 62600,
+                    },
+                },
+            }),
+            64000,
+        );
+        expect(res.sides).toHaveLength(2);
+        const long = res.sides.find((s) => s.side === 'LONG')!;
+        expect(long.riskBasis).toBe('bracket_geometry');
+        expect(long.rr).toBe(5.5);
+    });
+
+    it('v7.3: does NOT fabricate rows when every level is pinned on close (side null)', () => {
+        // The activity gate: untagged levels carry no directional meaning,
+        // so valid bracket zones must NOT synthesize rows on their own.
+        const res = computeConfluentRr(
+            oppWith({
+                entry: [lvl(64000, null)],
+                target: [lvl(64000, null)],
+                zones: {
+                    long: {
+                        entry: [63000, 63400],
+                        target: [66000, 67000],
+                        invalidation: 62600,
+                    },
+                },
+            }),
+            64000,
+        );
+        expect(res.sides).toEqual([]);
+        expect(res.reason).toBe('incomplete confluent levels');
+    });
+
+    it('v7.3: an incomplete side with invalid zones is skipped, keeping the complete side', () => {
+        const res = computeConfluentRr(
+            oppWith({
+                entry: [lvl(63100, 'LONG'), lvl(64900, 'SHORT')],
+                target: [lvl(61900, 'SHORT')],
+                invalidation: [lvl(65600, 'SHORT')],
+                zones: {
+                    // LONG is incomplete (no target level) but its zones
+                    // are the zeroed sentinel — the fallback must skip it.
+                    long: {
+                        entry: [0, 0],
+                        target: [0, 0],
+                        invalidation: 0,
+                    },
+                },
+            }),
+            64000,
+        );
+        expect(res.sides).toHaveLength(1);
+        expect(res.sides[0].side).toBe('SHORT');
+        expect(res.sides[0].riskBasis).toBe('invalidation');
+        expect(res.sides[0].rr).toBe(4.29);
+    });
 });
 
 describe('formatting helpers', () => {
@@ -184,8 +307,9 @@ describe('formatting helpers', () => {
         expect(rrBarPct(NaN)).toBe(0);
     });
 
-    it('labels both risk bases', () => {
+    it('labels all three risk bases', () => {
         expect(riskBasisLabel('invalidation')).toContain('invalidation');
         expect(riskBasisLabel('market_distance')).toContain('market');
+        expect(riskBasisLabel('bracket_geometry')).toContain('bracket');
     });
 });

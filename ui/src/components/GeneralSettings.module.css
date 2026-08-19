@@ -5,16 +5,6 @@
     color: #fff;
 }
 
-/* ─── Sidebar ──────────────────────────────────────────────────────────── */
-.profileSidebar {
-    width: 220px;
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 24px 0;
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-}
-
 .profileTitle {
     font-size: 0.85rem;
     font-weight: 700;
@@ -22,37 +12,7 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin: 0 0 20px 0;
-    padding: 0 20px;
-}
-
-.sidebarItem {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 10px 20px;
-    font-size: 0.78rem;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.45);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    text-align: left;
-    letter-spacing: 0.03em;
-    transition: all 0.15s ease;
-    box-sizing: border-box;
-}
-
-.sidebarItem:hover {
-    color: rgba(255, 255, 255, 0.75);
-    background: rgba(255, 255, 255, 0.03);
-}
-
-.sidebarActive {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.06);
-    font-weight: 600;
-    border-right: 2px solid rgba(255, 255, 255, 0.5);
+    padding: 0;
 }
 
 /* ─── Content ──────────────────────────────────────────────────────────── */

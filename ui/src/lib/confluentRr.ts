@@ -10,12 +10,28 @@
 // alone, and the fallback is flagged on the result so the UI can label
 // it.
 //
+// v7.3 (bracket-geometry fallback): a side whose confluent set is
+// INCOMPLETE (no entry or no target levels — e.g. the LONG side of a
+// NoClear state whose confluent pool carries only SHORT entries plus
+// an ATR-fallback target zone) falls back to the matrix's per-side
+// BRACKET zones (`long_entry_zone`/`short_*`, the same geometry the
+// reference-bracket cards render). Entry and target averages become
+// the zone midpoints, the risk denominator the zone invalidation
+// level, and the row is flagged `riskBasis: 'bracket_geometry'`. The
+// fallback only fires while the section is ACTIVE — at least one
+// side-tagged confluent level must exist somewhere — so the
+// `no confluent levels` / `incomplete confluent levels` empty-states
+// never fabricate rows from zones alone.
+//
 // Every case is handled consistently:
 //   - no confluent levels at all            → `reason: 'no confluent levels'`
 //   - entries without targets (or reverse)  → `reason: 'incomplete confluent levels'`
 //   - one side only                         → a single `ConfluentRrSide`
 //   - both sides                            → two `ConfluentRrSide` rows, each
 //                                              labelled with its own side badge
+//   - a side missing entries/targets        → `riskBasis: 'bracket_geometry'`
+//                                              row from the per-side bracket
+//                                              zones (when valid)
 //   - levels pinned exactly on the close    → excluded (they carry `side: null`
 //                                              — no directional meaning)
 //   - degenerate reward/risk (≤ 0, non-finite) → per-side `rr: null`,
@@ -45,10 +61,11 @@ export interface ConfluentRrSide {
     targetAvg: number;
     /** Mean of the side's confluent invalidation level prices, `null` when
      *  the backend emitted none for this side (risk falls back to market
-     *  distance). */
+     *  distance — or the bracket-zone invalidation under
+     *  `bracket_geometry`). */
     invalidationAvg: number | null;
     /** How the risk denominator was derived. */
-    riskBasis: 'invalidation' | 'market_distance';
+    riskBasis: 'invalidation' | 'market_distance' | 'bracket_geometry';
     /** The R:R (reward/risk) rounded to 2 decimals, `null` when degenerate. */
     rr: number | null;
     /** Human-readable N/A reason when `rr` is null. */
@@ -73,6 +90,39 @@ function sidePrices(levels: ConfluentLevel[], side: ConfluentSide): number[] {
         .map((l) => l.price);
 }
 
+/**
+ * v7.3: per-side bracket-geometry fallback. Reads the matrix's per-side
+ * zones — the SAME fields the reference-bracket cards render
+ * (`sideBracketSummary`/`aggregateZones`) — and returns the entry/target
+ * midpoints plus the zone invalidation level. `null` when the side has
+ * no valid zones (mirrors `aggregateZones`' non-positive guard, so a
+ * neutral-sentinel or zeroed matrix never fabricates geometry).
+ */
+function sideBracketFallback(
+    opportunity: OpportunityMatrix,
+    side: ConfluentSide,
+): { entryMid: number; targetMid: number; invalidation: number } | null {
+    const entry = side === 'LONG' ? opportunity.long_entry_zone : opportunity.short_entry_zone;
+    const target = side === 'LONG' ? opportunity.long_target_zone : opportunity.short_target_zone;
+    const invalidation =
+        side === 'LONG'
+            ? opportunity.long_invalidation_level
+            : opportunity.short_invalidation_level;
+    if (
+        !entry || !target
+        || entry.low <= 0 || entry.high <= 0
+        || target.low <= 0 || target.high <= 0
+        || !invalidation || invalidation <= 0
+    ) {
+        return null;
+    }
+    return {
+        entryMid: (entry.low + entry.high) / 2,
+        targetMid: (target.low + target.high) / 2,
+        invalidation,
+    };
+}
+
 export function computeConfluentRr(
     opportunity: OpportunityMatrix | null | undefined,
     markPrice: number,
@@ -86,19 +136,45 @@ export function computeConfluentRr(
     if (entries.length === 0 || targets.length === 0) {
         return { sides: [], reason: 'incomplete confluent levels' };
     }
+    // v7.3 activity gate: the bracket-geometry fallback may only fire
+    // while the confluent pipeline actually produced directional levels
+    // somewhere — otherwise a matrix whose levels are all pinned on close
+    // (`side: null`, no directional meaning) would fabricate rows from
+    // the zones alone.
+    const anySideTagged = [...entries, ...targets, ...invalidations].some(
+        (l) => l.side === 'LONG' || l.side === 'SHORT',
+    );
 
     const out: ConfluentRrSide[] = [];
     for (const side of ['LONG', 'SHORT'] as const) {
         const entryPrices = sidePrices(entries, side);
         const targetPrices = sidePrices(targets, side);
-        if (entryPrices.length === 0 || targetPrices.length === 0) continue;
 
-        const entryAvg = avg(entryPrices);
-        const targetAvg = avg(targetPrices);
-        const invalPrices = sidePrices(invalidations, side);
-        const invalidationAvg = invalPrices.length > 0 ? avg(invalPrices) : null;
-        const riskBasis: ConfluentRrSide['riskBasis'] =
-            invalidationAvg != null ? 'invalidation' : 'market_distance';
+        let entryAvg: number;
+        let targetAvg: number;
+        let invalidationAvg: number | null;
+        let riskBasis: ConfluentRrSide['riskBasis'];
+        if (entryPrices.length > 0 && targetPrices.length > 0) {
+            // Complete confluent set — pure confluent averages.
+            entryAvg = avg(entryPrices);
+            targetAvg = avg(targetPrices);
+            const invalPrices = sidePrices(invalidations, side);
+            invalidationAvg = invalPrices.length > 0 ? avg(invalPrices) : null;
+            riskBasis = invalidationAvg != null ? 'invalidation' : 'market_distance';
+        } else {
+            // v7.3: incomplete confluent set — fall back to the side's
+            // bracket zones (the reference-bracket geometry). Gated on
+            // the section being active (some side-tagged level exists
+            // somewhere) so on-close-only levels never fabricate rows.
+            // Skip the side entirely when the zones are absent/invalid.
+            if (!opportunity || !anySideTagged) continue;
+            const bracket = sideBracketFallback(opportunity, side);
+            if (!bracket) continue;
+            entryAvg = bracket.entryMid;
+            targetAvg = bracket.targetMid;
+            invalidationAvg = bracket.invalidation;
+            riskBasis = 'bracket_geometry';
+        }
 
         // Direction-aware reward (mirrors `geometricRrFromZones`): a LONG
         // target must sit above its entry, a SHORT target below — a
@@ -177,7 +253,11 @@ export function rrBarPct(rr: number): number {
 
 /** Human-readable risk-basis label for the per-side card sub-line. */
 export function riskBasisLabel(basis: ConfluentRrSide['riskBasis']): string {
-    return basis === 'invalidation'
-        ? 'risk = confluent invalidation average'
-        : 'risk = distance to market — no confluent invalidation levels';
+    if (basis === 'invalidation') {
+        return 'risk = confluent invalidation average';
+    }
+    if (basis === 'bracket_geometry') {
+        return 'risk = bracket invalidation — confluent set incomplete on this side';
+    }
+    return 'risk = distance to market — no confluent invalidation levels';
 }

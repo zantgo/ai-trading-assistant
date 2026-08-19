@@ -225,6 +225,47 @@ describe('buildOpportunityTabExport', () => {
     expect(long.reason).toBeNull();
   });
 
+  it('v7.3: an incomplete side falls back to bracket geometry (bracket_geometry basis)', () => {
+    // The user-observed NoClear shape: only SHORT confluent levels are
+    // side-tagged while the LONG reference bracket's zones are valid —
+    // the export must mirror the panel's bracket-geometry LONG row.
+    const opp = makeOpportunity() as any;
+    opp.confluent_entry_levels = [
+      { price: 64384.0, sources: ['FIBONACCI'], strength: 100, side: 'SHORT' },
+    ];
+    opp.confluent_target_levels = [
+      { price: 63310.0, sources: ['ATR_FALLBACK'], strength: 35, side: 'SHORT' },
+    ];
+    opp.confluent_invalidation_levels = [
+      { price: 64400.0, sources: ['FIBONACCI'], strength: 50, side: 'SHORT' },
+    ];
+    // LONG zones already valid in the fixture: entry 63320-63340
+    // (mid 63330), target 63681-64380 (mid 64030.5), invalidation 63327.
+    const p = JSON.parse(buildOpportunityTabExport({
+      opportunity: opp,
+      analysis: makeAnalysis(),
+      decisionContext: makeDecisionContext(),
+      symbol: 'BTC-USDC',
+      markPrice: 63369,
+      headerSpec,
+    }));
+    expect(p.confluent_rr.reason).toBeNull();
+    expect(p.confluent_rr.sides.length).toBe(2);
+    const long = p.confluent_rr.sides.find((s: { side: string }) => s.side === 'LONG');
+    expect(long).toBeDefined();
+    expect(long.risk_basis).toBe('bracket_geometry');
+    expect(long.entry_avg).toBe(63330);
+    expect(long.target_avg).toBe(64030.5);
+    expect(long.invalidation_avg).toBe(63327);
+    expect(long.rr).toBeTypeOf('number');
+    expect(long.rr_display).toMatch(/R(\+)?$/);
+    expect(long.reason).toBeNull();
+    // The SHORT side stays confluent-averaged.
+    const short = p.confluent_rr.sides.find((s: { side: string }) => s.side === 'SHORT');
+    expect(short.risk_basis).toBe('invalidation');
+    expect(short.rr).toBeTypeOf('number');
+  });
+
   it('v6.14: score_display prefers the backend display_score (drift guard)', () => {
     // A 2/3-precondition profile: the local legacy rule would compute
     // round(60.12 × 2/3) = 40, but the wire carries the authoritative 37

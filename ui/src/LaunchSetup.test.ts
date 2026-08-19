@@ -5,7 +5,8 @@
 //   1. Mode        — Observe / Simulate / Execute
 //   2. Environment — exchange + settlement currency (+ capital for paper,
 //                    credentials for live)
-//   3. Instances   — staged drafts with per-TF durations (durations only)
+//   3. Instances   — staged drafts with per-TF duration dropdowns (same
+//                    TIMEFRAME_OPTIONS tier list as the workspace Settings)
 //   4. Review      — summary → Launch
 //
 // Currency contract per exchange (unchanged from WelcomeGate):
@@ -153,6 +154,34 @@ describe('Launch Setup — currency contract', () => {
 });
 
 describe('Launch Setup — instances step', () => {
+    it('renders per-slot timeframe dropdowns preseeded from the workspace ladder', async () => {
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container);
+
+        // The four TF slots are the only selects on this step.
+        const selects = container.querySelectorAll<HTMLSelectElement>('select');
+        expect(selects.length).toBe(4);
+
+        // Same tier list as the Workspace Settings timeframe selector, with
+        // the preset ladder (60/180/workspace-slow/workspace-macro) selected.
+        const expected = [
+            { seconds: 60, label: '1 min' },
+            { seconds: 180, label: '3 min' },
+            { seconds: 300, label: '5 min' },
+            { seconds: 900, label: '15 min' },
+        ];
+        expected.forEach((exp, i) => {
+            const opts = Array.from(selects[i].options);
+            const tier = opts.find((o) => o.value === String(exp.seconds));
+            expect(tier?.textContent).toBe(exp.label);
+            expect(selects[i].value).toBe(String(exp.seconds));
+        });
+
+        // Full option parity with the workspace selector: 14 tiers + the
+        // disabled "Custom:" fallback.
+        expect(selects[0].options.length).toBe(15);
+    });
+
     it('adds and removes staged instances with per-TF durations', async () => {
         const { container } = await render(LaunchSetup);
         await goToInstances(container);
@@ -256,6 +285,34 @@ describe('Launch Setup — launch orchestration', () => {
             micro_term: { candles: { duration_seconds: 60 } },
             fast_term: { candles: { duration_seconds: 180 } },
             slow_term: { candles: { duration_seconds: 300 } },
+            macro_term: { candles: { duration_seconds: 900 } },
+        });
+    });
+
+    it('launches with dropdown-selected durations in the config payload', async () => {
+        const { calls } = mockBackend();
+        const { container } = await render(LaunchSetup);
+        await goToInstances(container);
+
+        const selects = container.querySelectorAll<HTMLSelectElement>('select');
+        // Micro → 15 min, slow → 1 hrs; fast/macro keep the ladder presets.
+        await fireEvent.change(selects[0], { target: { value: '900' } });
+        await fireEvent.change(selects[2], { target: { value: '3600' } });
+
+        const baseInput = container.querySelector<HTMLInputElement>('#launch-base');
+        await fireEvent.input(baseInput!, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('+ Add'));
+        expect(container.textContent).toContain('15m / 3m / 1h / 15m');
+
+        await goToReviewFromInstances();
+        await fireEvent.click(screen.getByText('Launch'));
+
+        await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
+        const configCall = calls.find((c) => String(c.url).includes('/config'));
+        expect(configCall?.body).toMatchObject({
+            micro_term: { candles: { duration_seconds: 900 } },
+            fast_term: { candles: { duration_seconds: 180 } },
+            slow_term: { candles: { duration_seconds: 3600 } },
             macro_term: { candles: { duration_seconds: 900 } },
         });
     });

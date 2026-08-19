@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from './state.svelte';
     import { createInstance, postInstanceConfig } from './lib/api.svelte';
+    import { TIMEFRAME_OPTIONS } from './types';
     import styles from './LaunchSetup.module.css';
 
     const app = useAppStore();
@@ -135,6 +136,15 @@
         const n = Number(v);
         if (!Number.isFinite(n)) return 60;
         return Math.min(86400, Math.max(10, Math.round(n)));
+    }
+
+    // v7.3 parity: the Instances step offers the same timeframe dropdown the
+    // Workspace Settings does (TIMEFRAME_OPTIONS). A preset that is not one of
+    // the standard tiers (e.g. a custom slow_timeframe from config.toml)
+    // renders the disabled "Custom: …" fallback option.
+    function selectedOption(seconds: number): number {
+        const found = TIMEFRAME_OPTIONS.find(o => o.seconds === seconds);
+        return found ? found.seconds : -1;
     }
 
     function tfLabel(secs: number): string {
@@ -381,10 +391,14 @@
                         {#each ['micro', 'fast', 'slow', 'macro'] as slot (slot)}
                             <label class={styles.tfField}>
                                 <span class={styles.tfLabel}>{slot}</span>
-                                <input type="number" min="10" max="86400" step="10"
-                                    class={styles.tfInput}
-                                    value={newTfs[slot as keyof typeof newTfs]}
-                                    oninput={(e) => (newTfs[slot as keyof typeof newTfs] = Number((e.currentTarget as HTMLInputElement).value))} />
+                                <select class={styles.tfSelect}
+                                    value={selectedOption(newTfs[slot as keyof typeof newTfs])}
+                                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) newTfs[slot as keyof typeof newTfs] = v; }}>
+                                    <option value={-1} disabled>Custom: {tfLabel(newTfs[slot as keyof typeof newTfs])}</option>
+                                    {#each TIMEFRAME_OPTIONS as opt}
+                                        <option value={opt.seconds}>{opt.label}</option>
+                                    {/each}
+                                </select>
                             </label>
                         {/each}
                         <button class={styles.addBtn} onclick={addInstance}>+ Add</button>

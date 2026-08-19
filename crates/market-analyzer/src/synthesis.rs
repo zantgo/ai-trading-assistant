@@ -1641,35 +1641,64 @@ fn compute_opportunity(
 
     let actionable_side_long = top_side_long.unwrap_or(bias_bullish);
 
-    // Legacy scalar fields + matrix-level confluent display key off the
-    // actionable side so PME/TAE consumers and the Opportunities tab
-    // speak with one voice. The per-direction siblings
-    // (`long_*_zone` / `short_*_zone`) are always published untouched.
-    let (
-        entry_zone,
-        target_zone,
-        invalidation_level,
-        confluent_entry,
-        confluent_target,
-        confluent_inval,
-    ) = if actionable_side_long {
+    // Legacy scalar fields key off the actionable side so PME/TAE
+    // consumers and the Opportunities tab speak with one voice. The
+    // per-direction siblings (`long_*_zone` / `short_*_zone`) are always
+    // published untouched.
+    let (entry_zone, target_zone, invalidation_level) = if actionable_side_long {
         (
             long_entry_zone.clone(),
             long_target_zone.clone(),
             long_invalidation_level,
-            long_conf_entry,
-            long_conf_target,
-            long_conf_inval,
         )
     } else {
         (
             short_entry_zone.clone(),
             short_target_zone.clone(),
             short_invalidation_level,
-            short_conf_entry,
-            short_conf_target,
-            short_conf_inval,
         )
+    };
+
+    // v7.3: the matrix-level confluent level sets carry the UNION of both
+    // sides' pools (`derive_side_zones` computed long AND short confluent
+    // levels). The actionable side alone was published before, so a
+    // NoClear state whose actionable side fell back to SHORT surfaced
+    // only SHORT-tagged levels while the panel showed a LONG reference
+    // bracket — the Expected R:R section had no LONG row. Each side's
+    // vector is already sorted by strength (desc); merge and stable-sort
+    // so ties keep long-before-short determinism. No dedup is needed:
+    // long and short levels are disjoint per vector by close-position
+    // semantics (a structural level below close is a LONG entry / SHORT
+    // target — it lands in different role vectors, never twice in one).
+    let confluent_entry = {
+        let mut merged: Vec<ConfluentLevel> =
+            long_conf_entry.into_iter().chain(short_conf_entry).collect();
+        merged.sort_by(|a, b| {
+            b.strength
+                .partial_cmp(&a.strength)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        merged
+    };
+    let confluent_target = {
+        let mut merged: Vec<ConfluentLevel> =
+            long_conf_target.into_iter().chain(short_conf_target).collect();
+        merged.sort_by(|a, b| {
+            b.strength
+                .partial_cmp(&a.strength)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        merged
+    };
+    let confluent_inval = {
+        let mut merged: Vec<ConfluentLevel> =
+            long_conf_inval.into_iter().chain(short_conf_inval).collect();
+        merged.sort_by(|a, b| {
+            b.strength
+                .partial_cmp(&a.strength)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        merged
     };
 
     let contributing_signals: Vec<String> = indicators
@@ -2929,7 +2958,10 @@ mod tests {
     /// Phase C pin: the ATR fallback's directionality is correct.
     /// For a bullish bias the fallback entry sits BELOW close and the
     /// fallback target sits ABOVE close. For a bearish bias it's the
-    /// mirror.
+    /// mirror. v7.3: the matrix-level confluent sets carry the union of
+    /// BOTH sides' levels, so the directionality pin must select the
+    /// level by its side tag instead of `.first()` (the merged vector
+    /// holds long levels ahead of short on equal strength).
     #[test]
     fn atr_fallback_levels_respect_bias_directionality() {
         // Bullish context → bias Bullish → entry below close.
@@ -2950,11 +2982,13 @@ mod tests {
         let close = 64000.0_f64;
         let bull_entry = bull_opp
             .confluent_entry_levels
-            .first()
+            .iter()
+            .find(|l| l.side.as_deref() == Some("LONG"))
             .expect("bullish fallback entry must be present");
         let bull_target = bull_opp
             .confluent_target_levels
-            .first()
+            .iter()
+            .find(|l| l.side.as_deref() == Some("LONG"))
             .expect("bullish fallback target must be present");
         assert!(
             bull_entry.price < close,
@@ -2984,11 +3018,13 @@ mod tests {
         let bear_opp = bear_result.opportunity.expect("bearish opp");
         let bear_entry = bear_opp
             .confluent_entry_levels
-            .first()
+            .iter()
+            .find(|l| l.side.as_deref() == Some("SHORT"))
             .expect("bearish fallback entry must be present");
         let bear_target = bear_opp
             .confluent_target_levels
-            .first()
+            .iter()
+            .find(|l| l.side.as_deref() == Some("SHORT"))
             .expect("bearish fallback target must be present");
         assert!(
             bear_entry.price > close,
@@ -2999,6 +3035,58 @@ mod tests {
             bear_target.price < close,
             "bearish fallback target {} must be < close {close}",
             bear_target.price
+        );
+    }
+
+    /// v7.3 pin: the matrix-level confluent level sets carry the UNION of
+    /// both sides' pools, not just the actionable side's. Before the fix a
+    /// NoClear state whose actionable side fell back to SHORT published
+    /// only SHORT-tagged levels while the panel showed a LONG reference
+    /// bracket — the frontend Expected R:R section had no LONG row. Both
+    /// sides' pools are always derived (`derive_side_zones` runs for both
+    /// biases), so even a single-sided bias context must surface LONG AND
+    /// SHORT-tagged levels once the union is published.
+    #[test]
+    fn confluent_levels_union_both_sides_even_when_single_side_actionable() {
+        // Bearish context → actionable side SHORT (the pre-fix publisher
+        // would emit short_conf_* only).
+        let bear_ctx = make_context("TRENDING", -0.7, -0.6, 0.2, 0.1, -60);
+        let bear_snap = make_snapshot(60, 64000.0, bear_ctx);
+        let bear_result = synthesize_cross_tf(
+            "BTC-USD",
+            &[(60, &bear_snap)],
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            None,
+        );
+        let opp = bear_result.opportunity.expect("bearish opp");
+        assert!(
+            opp.confluent_entry_levels
+                .iter()
+                .any(|l| l.side.as_deref() == Some("SHORT")),
+            "SHORT entry levels must be present (actionable side)"
+        );
+        assert!(
+            opp.confluent_entry_levels
+                .iter()
+                .any(|l| l.side.as_deref() == Some("LONG")),
+            "LONG entry levels must also be present (union — informational bracket side)"
+        );
+        assert!(
+            opp.confluent_target_levels
+                .iter()
+                .any(|l| l.side.as_deref() == Some("SHORT")),
+            "SHORT target levels must be present"
+        );
+        assert!(
+            opp.confluent_target_levels
+                .iter()
+                .any(|l| l.side.as_deref() == Some("LONG")),
+            "LONG target levels must also be present (union)"
         );
     }
 

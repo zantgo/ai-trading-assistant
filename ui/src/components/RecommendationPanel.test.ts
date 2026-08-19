@@ -1098,4 +1098,19 @@ describe('RecommendationPanel — v7.0 Project Risk and Return drawer', () => {
         expect(document.querySelectorAll('[class*="resultValueRed"]').length).toBe(3);
         expect(document.querySelectorAll('[class*="resultValuePos"]').length).toBeGreaterThanOrEqual(1);
     });
+
+    it('v7.4: with no active setup the drawer opens as a blank manual what-if editor', async () => {
+        const entry = seedPair('BTC-USDT');
+        zeroProfiles(entry);
+        render(RecommendationPanel, { props: { pairKey: 'BTC-USDT' } });
+        await screen.getByText('Project Risk and Return').click();
+        const drawer = screen.getByLabelText('Project Risk and Return');
+        expect(drawer).toBeTruthy();
+        expect(screen.getByText('Capital Allocation')).toBeTruthy();
+        expect(screen.getByText('Leverage')).toBeTruthy();
+        expect((screen.getByLabelText(/Direction/) as HTMLSelectElement).value).toBe('LONG');
+        expect((screen.getByLabelText(/Entry/) as HTMLInputElement).value).toBe('');
+        expect((screen.getByLabelText(/Stop Loss/) as HTMLInputElement).value).toBe('');
+        expect((screen.getByLabelText(/Take Profit/) as HTMLInputElement).value).toBe('');
+    });
 });

@@ -2,6 +2,7 @@
     import type { CurrentView } from '../../types';
     import type { InstanceState } from '../../types';
     import type { WsState } from '../../lib/websocket.svelte';
+    import { resolveEngineTab, type EngineKey } from '../../lib/engineTabs';
     import styles from '../../styles/brutalist-grid.module.css';
 
     import LiveTerminal from '../LiveTerminal.svelte';
@@ -46,21 +47,18 @@
     // `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`) all read this
     // to feed the `LayerHeader` status pill (live / stale / error).
     const activeWss = $derived<WsState | undefined>(wssMap[activeTab]);
+
+    // Section for the section-driven engine dashboards. Stale or legacy
+    // middleTab values (e.g. `#/engine/data_infra/overview`) resolve to
+    // the engine's default tab so the navbar always has an active item.
+    const section = $derived(resolveEngineTab(currentEngine as EngineKey, middleTab));
 </script>
 
 <main class={styles.contentArea}>
-    {#if currentEngine === 'profile'}
+    {#if currentEngine === 'profile' || currentEngine === 'exchange_settings'}
         <GeneralSettings />
     {:else if currentEngine === 'data_infra'}
-        {#if middleTab === 'overview'}
-            <DataInfraDashboard />
-        {:else}
-            <div class={styles.profileCard} style="padding:2rem">
-                <h3>Data Infrastructure Settings</h3>
-                <p class={styles.cardSub}>Exchange endpoints and NTP clock monitor configuration.</p>
-                <p class={styles.cardSub}>Edit <code>config.toml</code> → <code>[hyperliquid]</code>, <code>[bitget]</code>, <code>[clock_monitor]</code> sections directly. Restart the daemon after changes.</p>
-            </div>
-        {/if}
+        <DataInfraDashboard section={section} />
     {:else if currentEngine === 'market_monitor'}
         {#if middleTab === 'workspace'}
             {#if selectedInstance && activePair}
@@ -95,33 +93,10 @@
             {/if}
         {/if}
     {:else if currentEngine === 'performance'}
-        {#if middleTab === 'overview'}
-            <PerformanceDashboard />
-        {:else}
-            <div class={styles.profileCard} style="padding:2rem">
-                <h3>Performance Analytics Settings</h3>
-                <p class={styles.cardSub}>Configure analytics execution cadences and optimizer intervals in <code>config.toml</code> → <code>[workspace]</code> → <code>eval_interval_secs</code> and <code>optimizer_interval_secs</code>.</p>
-            </div>
-        {/if}
+        <PerformanceDashboard section={section} />
     {:else if currentEngine === 'trade_automation'}
-        {#if middleTab === 'overview'}
-            <TradeAutomationDashboard />
-        {:else}
-            <div class={styles.profileCard} style="padding:2rem">
-                <h3>Trade Automation Settings</h3>
-                <p class={styles.cardSub}>Configure execution policies, trigger modes, risk parameters, and paper/live trading adapter settings in <code>config.toml</code> → <code>[execution_engine]</code>. Edit policy files in <code>config/policies/</code>.</p>
-            </div>
-        {/if}
+        <TradeAutomationDashboard section={section} />
     {:else if currentEngine === 'portfolio'}
-        {#if middleTab === 'overview'}
-            <PortfolioDashboard />
-        {:else}
-            <div class={styles.profileCard} style="padding:2rem">
-                <h3>Portfolio Management Settings</h3>
-                <p class={styles.cardSub}>Configure safety thresholds, fee rates, leverage caps, concentration limits, and drawdown enforcement in <code>config.toml</code> → <code>[portfolio]</code>. Edit risk profiles in <code>config/</code>.</p>
-            </div>
-        {/if}
-    {:else if currentEngine === 'exchange_settings'}
-        <GeneralSettings />
+        <PortfolioDashboard section={section} />
     {/if}
 </main>

@@ -61,43 +61,7 @@
 .badge-drawdown { background: #2a0d0d; color: #ff5252; border: 1px solid #6b1414; }
 .badge-lifecycle { background: #262a31; color: #8b93a1; border: 1px solid #333842; }
 
-.sidebar-layout {
-    display: flex;
-    gap: 1rem;
-}
-
-.sidebar {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    min-width: 130px;
-}
-
-.sidebar-btn {
-    background: #15171c;
-    border: 1px solid #23262e;
-    border-radius: 6px;
-    color: #8b93a1;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-    text-align: left;
-    cursor: pointer;
-    letter-spacing: 0.04em;
-}
-
-.sidebar-btn:hover {
-    color: #e4e6eb;
-    border-color: #2c3038;
-}
-
-.sidebar-btn-active {
-    background: #1c2230;
-    color: #7db4ff;
-    border-color: #2f5d8f;
-}
-
 .content {
-    flex: 1;
     min-width: 0;
 }
 

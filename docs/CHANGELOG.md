@@ -5,6 +5,16 @@
 ------
 
 
+## Unreleased (2026-08-19) — v7.3: per-side confluent R:R parity
+
+**The Expected R:R section now mirrors every directional reference bracket.** A NoClear state showed LONG/SHORT/NEUTRAL informational brackets while the confluent level sets carried only the single actionable side's levels — so the panel's Expected Reward-to-Risk section rendered a lone SHORT row (190R) next to a LONG reference bracket with no R:R at all.
+
+- **Backend** (`crates/market-analyzer/src/synthesis.rs`): the matrix-level `confluent_entry_levels` / `confluent_target_levels` / `confluent_invalidation_levels` now carry the **union of both sides' pools** (long ∪ short, stable-sorted by strength) instead of the actionable side's only. The legacy scalars (`entry_zone` / `target_zone` / `invalidation_level`) still key off the actionable side — PME/TAE consumers unchanged.
+- **Frontend** (`ui/src/lib/confluentRr.ts`): a side whose confluent set is incomplete (no entry or no target levels) falls back to the matrix's per-side bracket zones — the same geometry the reference-bracket cards render — with `riskBasis: 'bracket_geometry'` flagged on the row (tooltip: "risk = bracket invalidation — confluent set incomplete on this side"). The fallback is gated on at least one side-tagged confluent level existing somewhere, so the `no confluent levels` / `incomplete confluent levels` empty-states never fabricate rows from zones alone.
+- **Export** (`opportunityTab.ts`): `confluent_rr.sides[].risk_basis` gains the `"bracket_geometry"` value; the export mirrors the panel automatically (both call `computeConfluentRr`).
+- **Tests**: +1 Rust union pin (`confluent_levels_union_both_sides_even_when_single_side_actionable`), +5 `confluentRr` unit cases, +1 export audit case, +1 panel tooltip case; the `10R+` clamp panel test now expects both sides' cards. `atr_fallback_levels_respect_bias_directionality` selects levels by side tag (union order).
+- **Launch Setup parity** (`ui/src/LaunchSetup.svelte`): the wizard's Instances step replaces the four free-form number inputs with the **same timeframe dropdowns the Workspace Settings offer** — one per slot (micro/fast/slow/macro), fed by the shared `TIMEFRAME_OPTIONS` tier list (14 tiers, 1 s → 1 day) plus the disabled "Custom: …" fallback for non-tier durations, and **preseeded with the workspace ladder** (micro 60 s, fast 180 s, slow/macro from `GET /api/config`, shipped 300/900 s). Docs: `08-01` step 3, `07-02` §11 panel row, `01-09` §2.2 — all describe the dropdown parity. Tests: +2 (preseeded preset assertions + dropdown-selected durations flow into the `/config` payload).
+
 ## Unreleased (2026-08-18) — v7.1 follow-up: Welcome session mode + paper capital
 
 **Welcome screen becomes the session entry point for execution mode.** The gate now asks for exchange, settlement currency, **execution mode (Paper Trading | Live Trading)**, and — in paper mode — the **Paper Session Capital (USD)**.

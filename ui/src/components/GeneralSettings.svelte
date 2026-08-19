@@ -7,7 +7,12 @@
 
     const app = useAppStore();
 
-    let activeSection = $state<'fee' | 'exchange' | 'share' | 'settings'>('settings');
+    // Section pages are driven by the engine navbar (profile /
+    // exchange_settings tab rows). Falls back to `settings` for any
+    // middleTab value that is not one of the Home page's sections.
+    let section = $derived(
+        ['fee', 'exchange', 'share', 'settings'].includes(app.middleTab) ? app.middleTab : 'settings',
+    );
 
     // ─── Config sharing ───────────────────────────────────────────────
     let importStatus = $state<'idle' | 'importing' | 'success' | 'error'>('idle');
@@ -109,36 +114,9 @@
 </script>
 
 <div class={styles.profileLayout}>
-    <div class={styles.profileSidebar}>
-        <h2 class={styles.profileTitle}>HOME</h2>
-        <button
-            class="{styles.sidebarItem} {activeSection === 'fee' ? styles.sidebarActive : ''}"
-            onclick={() => activeSection = 'fee'}
-        >
-            <SvgIcon name="dollar" size="sm" /> Fee Projection
-        </button>
-        <button
-            class="{styles.sidebarItem} {activeSection === 'exchange' ? styles.sidebarActive : ''}"
-            onclick={() => activeSection = 'exchange'}
-        >
-            <SvgIcon name="key" size="sm" /> Exchange
-        </button>
-        <button
-            class="{styles.sidebarItem} {activeSection === 'share' ? styles.sidebarActive : ''}"
-            onclick={() => activeSection = 'share'}
-        >
-            <SvgIcon name="upload" size="sm" /> Share Config
-        </button>
-        <button
-            class="{styles.sidebarItem} {activeSection === 'settings' ? styles.sidebarActive : ''}"
-            onclick={() => activeSection = 'settings'}
-        >
-            <SvgIcon name="settings" size="sm" /> Settings
-        </button>
-    </div>
-
     <div class={styles.profileContent}>
-        {#if activeSection === 'fee'}
+        <h2 class={styles.profileTitle}>HOME</h2>
+        {#if section === 'fee'}
             <div class={styles.profileCard}>
                 <h3>Fee Reference Calculator</h3>
                 <p class={styles.cardSub}>Calculate round-trip fees and minimum profit needed to break even</p>
@@ -175,9 +153,9 @@
                     </div>
                 </div>
             </div>
-        {:else if activeSection === 'exchange'}
+        {:else if section === 'exchange'}
             <ExchangeSettings />
-        {:else if activeSection === 'share'}
+        {:else if section === 'share'}
             <div class={styles.profileCard}>
                 <h3>Share Configuration</h3>
                 <p class={styles.cardSub}>

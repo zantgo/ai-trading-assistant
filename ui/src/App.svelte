@@ -25,6 +25,11 @@
         applyResilientCache,
         type PairCacheEntry,
     } from './lib/resilientActivePair';
+    import {
+        ENGINE_TABS,
+        ENGINE_DEFAULT_TAB,
+        type EngineKey,
+    } from './lib/engineTabs';
 
     const app = useAppStore();
     
@@ -55,14 +60,6 @@
         if (panelDeleteErrorTimer) clearTimeout(panelDeleteErrorTimer);
         panelDeleteErrorTimer = setTimeout(() => { panelDeleteError = null; }, 6000);
     }
-
-    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
-
-    const MARKET_TABS: { key: string; label: string }[] = [
-        { key: 'overview',  label: 'Overview' },
-        { key: 'workspace', label: 'Workspace' },
-        { key: 'settings',  label: 'Settings' },
-    ];
 
     const SUB_TABS: { view: CurrentView; label: string }[] = [
         { view: 'terminal',    label: 'Charts' },
@@ -217,7 +214,7 @@
         const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
         return buildEngineHash(
             app.currentEngine,
-            app.currentEngine === 'exchange_settings' ? undefined : app.middleTab,
+            app.middleTab,
             app.selectedInstance ?? undefined,
             pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
         );
@@ -236,8 +233,8 @@
         // restore `…/workspace/…` on top of the user's navigation.
         if (middleTab) {
             app.middleTab = middleTab;
-        } else if (e === 'market_monitor') {
-            app.middleTab = 'overview';
+        } else {
+            app.middleTab = ENGINE_DEFAULT_TAB[e];
         }
         if (instance && app.instancesMap[instance]) {
             app.selectedInstance = instance;
@@ -493,10 +490,10 @@
             </div>
         </header>
 
-        <!-- Middle tabs -->
-        {#if app.currentEngine === 'market_monitor'}
+        <!-- Middle tabs (engine navbar rows) -->
+        {#if ENGINE_TABS[app.currentEngine]}
             <nav class="{styles.row} {styles.rowTabs}">
-                {#each MARKET_TABS as tab (tab.key)}
+                {#each ENGINE_TABS[app.currentEngine] as tab (tab.key)}
                     <a href={buildEngineHash(app.currentEngine, tab.key)} class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}" onclick={(e) => { handleNavClick(e); app.middleTab = tab.key; }}>
                         {tab.label}
                     </a>

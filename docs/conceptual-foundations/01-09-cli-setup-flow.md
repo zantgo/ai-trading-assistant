@@ -61,7 +61,10 @@ The default per-instance durations derive from the **same ladder the registry fa
 to** (`WorkspaceConfig::tf_ladder_defaults`): micro 60 s, fast 180 s, slow/macro from the
 workspace config (`slow_timeframe` / `macro_timeframe`, shipped defaults 300 / 900). The GUI
 Launch Setup wizard reads the same values from `GET /api/config`, so every surface agrees on
-the default pipeline durations.
+the default pipeline durations. In the wizard's Instances step the four slots are presented
+as the **same timeframe dropdowns the Workspace Settings offer** (`TIMEFRAME_OPTIONS`, 14
+tiers from 1 s to 1 day, plus a disabled "Custom: …" fallback), preseeded with that ladder —
+the CLI prompts and the GUI dropdowns therefore accept the identical duration set.
 
 ### 2.3 Terminal monitor output
 

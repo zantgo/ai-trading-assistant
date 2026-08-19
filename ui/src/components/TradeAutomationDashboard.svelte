@@ -101,6 +101,8 @@
     let switchingMode = $state(false);
     let modeError = $state('');
 
+    let { section = 'overview' }: { section?: string } = $props();
+
     async function toggleMode() {
         if (!selectedId || switchingMode) return;
         switchingMode = true;
@@ -294,6 +296,7 @@
     {:else if !automation}
         <div class={styles.empty}>No automation state available (is the daemon running with [workspace.minimal_tae] enabled?).</div>
     {:else}
+        {#if section === 'overview'}
         <!-- ── Equity strip ── -->
         <div class={styles.statsGrid}>
             <div class={styles.statCard}>
@@ -377,6 +380,28 @@
             </section>
         {/if}
 
+        <!-- ── Position card ── -->
+        <section class={styles.section}>
+            <h3 class={styles.sectionTitle}>Position</h3>
+            {#if automation.position}
+                <div class={styles.positionCard}>
+                    <div class={styles.positionRow}>
+                        <span class="{styles.badge} {automation.position.direction === 'LONG' ? styles.badgeLong : styles.badgeShort}">{automation.position.direction}</span>
+                        <span class={styles.positionSymbol}>{automation.position.symbol}</span>
+                        <span class={styles.positionMeta}>size {fmtNum(automation.position.size, 4)} · entry ${fmtUsd(automation.position.entry_price)}</span>
+                        <span class="{styles.positionPnl} {pnlClass(automation.position.unrealized_pnl)}">uPnL {signedUsd(automation.position.unrealized_pnl)}</span>
+                        <button class="{styles.closeBtn}" onclick={closeNow} disabled={closing}>{closing ? 'Closing…' : 'Close now'}</button>
+                    </div>
+                    <div class={styles.invalidationBanner}>
+                        <strong>Invalidation:</strong> a position closes when price hits TP or SL (LEVEL), or when the recommendation flips to the opposite direction (SIGNAL → close at market). A neutral signal does not invalidate an open position.
+                    </div>
+                </div>
+            {:else}
+                <div class={styles.empty}>No open position.</div>
+            {/if}
+        </section>
+
+        {:else if section === 'orders'}
         <!-- ── Order board ── -->
         <section class={styles.section}>
             <h3 class={styles.sectionTitle}>Order Board</h3>
@@ -424,27 +449,7 @@
             {/if}
         </section>
 
-        <!-- ── Position card ── -->
-        <section class={styles.section}>
-            <h3 class={styles.sectionTitle}>Position</h3>
-            {#if automation.position}
-                <div class={styles.positionCard}>
-                    <div class={styles.positionRow}>
-                        <span class="{styles.badge} {automation.position.direction === 'LONG' ? styles.badgeLong : styles.badgeShort}">{automation.position.direction}</span>
-                        <span class={styles.positionSymbol}>{automation.position.symbol}</span>
-                        <span class={styles.positionMeta}>size {fmtNum(automation.position.size, 4)} · entry ${fmtUsd(automation.position.entry_price)}</span>
-                        <span class="{styles.positionPnl} {pnlClass(automation.position.unrealized_pnl)}">uPnL {signedUsd(automation.position.unrealized_pnl)}</span>
-                        <button class="{styles.closeBtn}" onclick={closeNow} disabled={closing}>{closing ? 'Closing…' : 'Close now'}</button>
-                    </div>
-                    <div class={styles.invalidationBanner}>
-                        <strong>Invalidation:</strong> a position closes when price hits TP or SL (LEVEL), or when the recommendation flips to the opposite direction (SIGNAL → close at market). A neutral signal does not invalidate an open position.
-                    </div>
-                </div>
-            {:else}
-                <div class={styles.empty}>No open position.</div>
-            {/if}
-        </section>
-
+        {:else if section === 'activity'}
         <!-- ── Activity log ── -->
         <section class={styles.section}>
             <h3 class={styles.sectionTitle}>Activity Log</h3>
@@ -463,6 +468,7 @@
             {/if}
         </section>
 
+        {:else if section === 'history'}
         <!-- ── Trade history ── -->
         <section class={styles.section}>
             <h3 class={styles.sectionTitle}>Trade History</h3>
@@ -497,5 +503,6 @@
                 </table>
             {/if}
         </section>
+        {/if}
     {/if}
 </div>

@@ -99,10 +99,7 @@ afterEach(() => {
 
 describe('PerformanceDashboard backtest tab (v7 live)', () => {
     it('runs a backtest and renders stats + edge verdict + trades + equity curve', async () => {
-        render(PerformanceDashboard);
-
-        await waitFor(() => expect(screen.getByText('Backtesting')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Backtesting'));
+        render(PerformanceDashboard, { props: { section: 'backtesting' } });
 
         // Real form fields.
         await waitFor(() => expect(document.querySelector('#bt-symbol')).toBeTruthy());

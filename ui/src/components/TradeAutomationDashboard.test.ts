@@ -182,7 +182,7 @@ describe('TradeAutomationDashboard (v7 live)', () => {
     });
 
     it('renders the order board with entry / TP / SL roles', async () => {
-        render(TradeAutomationDashboard);
+        render(TradeAutomationDashboard, { props: { section: 'orders' } });
 
         await waitFor(() => expect(screen.getByText('ENTRY')).toBeTruthy());
         expect(screen.getByText('TP')).toBeTruthy();
@@ -208,7 +208,7 @@ describe('TradeAutomationDashboard (v7 live)', () => {
     });
 
     it('renders activity-log events with invalidation labels', async () => {
-        render(TradeAutomationDashboard);
+        render(TradeAutomationDashboard, { props: { section: 'activity' } });
 
         await waitFor(() => expect(screen.getByText('SETUP ACCEPTED')).toBeTruthy());
         expect(screen.getByText('ENTRY FILLED')).toBeTruthy();

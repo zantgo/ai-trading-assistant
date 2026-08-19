@@ -178,7 +178,11 @@ export interface OpportunityPayload {
       entry_avg: number;
       target_avg: number;
       invalidation_avg: number | null;
-      risk_basis: 'invalidation' | 'market_distance';
+      /** v7.3: `bracket_geometry` marks a row synthesized from the side's
+       *  per-side bracket zones (midpoints + zone invalidation) because
+       *  its confluent set was incomplete — the confluent-averaged rows
+       *  carry `invalidation` or `market_distance` as before. */
+      risk_basis: 'invalidation' | 'market_distance' | 'bracket_geometry';
       rr: number | null;
       /** The exact magnitude label the screen renders ("1.5R", "10R+"). */
       rr_display: string;

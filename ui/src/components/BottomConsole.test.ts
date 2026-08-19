@@ -4,7 +4,7 @@
 // each sub-tab, and assert the JSON payload matches the schema.
 //
 // Uses the Svelte 5 `mount` API and the `navigator.clipboard` mock
-// pattern documented in LiquidityStatusPanel.test.ts.
+// pattern. 
 
 // @vitest-environment jsdom
 

@@ -48,26 +48,10 @@ warn_on_breach = true
 id = "main"
 name = "My Portfolio"
 
-# Live trading (v7.1): the engine is globally paper OR live for the whole
-# workspace. Set `mode = "live"` on any instance below to enable live
-# dispatch (requires an active API key — see Settings → Exchange API Keys
-# or POST /api/keys, with EXCHANGE_SECRET_KEY set at daemon start).
-# default_exchange selects the venue: "Hyperliquid" (wallet address +
-# private key) or "Bitget" (api_key + api_secret + passphrase).
-
 # Settlement currency + preferred exchange applied to new instances that
 # don't override them.
 default_currency = "USDC"
 default_exchange = "Hyperliquid"
-
-[workspace.minimal_tae]
-enabled = true          # setup executor master switch
-risk_per_trade_pct = 1.0
-min_net_rr = 1.0
-max_position_size_usd = 200.0
-max_open_positions = 1
-entry_mode = "zone_midpoint"
-invalidate_on = "direction_flip"
 
 # ── Market-monitor defaults (per-instance inheritance) ──
 
@@ -262,6 +246,6 @@ render_hl_caveat = true
 # quote = "USDT"
 # initial_capital_usd = 1000.0
 # status = "running"
-# mode = "paper"                 # paper | live (global engine mode)
+# operational_mode = "advisory"
 # [workspace.instances.micro_term]
 # candles = { duration_seconds = 60 }

@@ -68,8 +68,7 @@
         margin_usage_ratio: string;
     }
 
-    type Panel = 'overview' | 'positions' | 'exposure' | 'capital' | 'safety';
-    let activePanel = $state<Panel>('overview');
+    let { section = 'overview' }: { section?: string } = $props();
 
     let instances = $state<InstanceSummary[]>([]);
     let selectedId = $state('');
@@ -194,23 +193,14 @@
         </div>
     </header>
 
-    <div class={styles.sidebarLayout}>
-        <nav class={styles.sidebar}>
-            <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>Overview</button>
-            <button class="{styles.sidebarBtn} {activePanel === 'positions' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'positions'}>Positions</button>
-            <button class="{styles.sidebarBtn} {activePanel === 'exposure' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'exposure'}>Exposure</button>
-            <button class="{styles.sidebarBtn} {activePanel === 'capital' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'capital'}>Capital</button>
-            <button class="{styles.sidebarBtn} {activePanel === 'safety' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'safety'}>Safety</button>
-        </nav>
-
-        <div class={styles.content}>
-            {#if loading}
-                <div class={styles.empty}>Loading portfolio state…</div>
-            {:else if error && !portfolio}
-                <div class={styles.empty}>{error}</div>
-            {:else if !portfolio}
-                <div class={styles.empty}>No portfolio state available (is the daemon running?).</div>
-            {:else if activePanel === 'overview'}
+    <div class={styles.content}>
+        {#if loading}
+            <div class={styles.empty}>Loading portfolio state…</div>
+        {:else if error && !portfolio}
+            <div class={styles.empty}>{error}</div>
+        {:else if !portfolio}
+            <div class={styles.empty}>No portfolio state available (is the daemon running?).</div>
+        {:else if section === 'overview'}
                 <h3 class={styles.sectionTitle}>Account Overview</h3>
                 <p class={styles.infoLine}>PME reports current portfolio state. It never executes: the automation executor is the only thing that trades, and it blocks new entries in DRAWDOWN_STOP / SUSPENDED.</p>
                 <div class={styles.statsGrid}>
@@ -231,7 +221,7 @@
                     </button>
                 </div>
 
-            {:else if activePanel === 'positions'}
+            {:else if section === 'positions'}
                 <h3 class={styles.sectionTitle}>Positions</h3>
                 {#if portfolio.positions.length === 0}
                     <div class={styles.empty}>No open positions.</div>
@@ -256,7 +246,7 @@
                     </table>
                 {/if}
 
-            {:else if activePanel === 'exposure'}
+            {:else if section === 'exposure'}
                 <h3 class={styles.sectionTitle}>Exposure</h3>
                 <div class={styles.statsGrid}>
                     <div class={styles.statCard}><div class={styles.statLabel}>Gross Exposure</div><div class={styles.statValue}>${fmtUsd(portfolio.exposure.gross_exposure)}</div><div class={styles.statSub}>total notional</div></div>
@@ -282,7 +272,7 @@
                     </div>
                 {/if}
 
-            {:else if activePanel === 'capital'}
+            {:else if section === 'capital'}
                 <h3 class={styles.sectionTitle}>Capital</h3>
                 <div class={styles.statsGrid}>
                     <div class={styles.statCard}><div class={styles.statLabel}>Available Margin</div><div class={styles.statValue}>${fmtUsd(portfolio.capital.available_margin)}</div><div class={styles.statSub}>free for new entries</div></div>
@@ -296,7 +286,7 @@
                     </div>
                 {/if}
 
-            {:else if activePanel === 'safety'}
+            {:else if section === 'safety'}
                 <h3 class={styles.sectionTitle}>Safety</h3>
                 <div class={styles.safetyCard}>
                     <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">{portfolio.safety_state}</span>
@@ -331,5 +321,4 @@
                 </div>
             {/if}
         </div>
-    </div>
 </div>
