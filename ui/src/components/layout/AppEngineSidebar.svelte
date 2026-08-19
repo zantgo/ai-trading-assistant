@@ -16,12 +16,12 @@
 
     type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
 
-    const ENGINES_SIDEBAR: { key: EngineKey; label: string; status?: 'live' | 'wip'; divider?: boolean }[] = [
-        { key: 'data_infra',        label: 'Data Infrastructure',    status: 'live' },
-        { key: 'market_monitor',    label: 'Market Monitor',         status: 'live' },
-        { key: 'trade_automation',  label: 'Trade Automation',       status: 'wip' },
-        { key: 'portfolio',         label: 'Portfolio Management',   status: 'wip' },
-        { key: 'performance',       label: 'Performance Analytics',  status: 'wip' },
+    const ENGINES_SIDEBAR: { key: EngineKey; label: string; divider?: boolean }[] = [
+        { key: 'data_infra',        label: 'Data Infrastructure' },
+        { key: 'market_monitor',    label: 'Market Monitor' },
+        { key: 'trade_automation',  label: 'Trade Automation' },
+        { key: 'portfolio',         label: 'Portfolio Management' },
+        { key: 'performance',       label: 'Performance Analytics' },
         { key: 'profile', label: 'Settings', divider: true },
     ];
 
@@ -65,7 +65,6 @@
                 {/if}
                 <a href={buildEngineHash(engine.key)} class={sidebarItemClass(engine.key)} onclick={(e) => { handleNavClick(e); onnavigate(engine.key); }}>
                     <span class={styles.navIcon}><SvgIcon name={sidebarIconName(engine.key)} size={15} /></span>{engine.label}
-                    {#if engine.status === 'wip'}<span class={styles.wipBadge} title="Work in progress — backend live, dashboard is a placeholder. See docs/ROADMAP.md">WIP</span>{/if}
                 </a>
             {/each}
         </div>

@@ -927,6 +927,12 @@ fn default_trigger() -> String {
 pub struct SessionInitRequest {
     pub exchange: String,
     pub currency: String,
+    /// "paper" | "live" — default execution mode for created instances.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Paper-session capital (USD) — default `initial_capital_usd`.
+    #[serde(default)]
+    pub initial_capital_usd: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -935,6 +941,10 @@ pub struct SessionStatusResponse {
     pub currency: Option<String>,
     pub exchange: Option<String>,
     pub instance_count: usize,
+    /// Default execution mode for created instances ("paper" | "live").
+    pub mode: Option<String>,
+    /// Paper-session capital (USD).
+    pub capital: Option<f64>,
 }
 
 // ─── Instance ──────────────────────────────────────────────────

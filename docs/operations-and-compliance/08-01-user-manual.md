@@ -89,6 +89,8 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 **Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
 
+**Starting a session (Welcome screen, v7.1).** The Welcome gate asks for three things: the **exchange** (Hyperliquid or Bitget), the **settlement currency**, and the **execution mode** — **Paper Trading** or **Live Trading**. In Paper mode you also enter the **Paper Session Capital (USD)** — the paper balance applied to instances created during that session (prefilled from the previous session). In Live mode there is no capital field (live uses your exchange account balance); the gate requires an active API key for the chosen exchange and shows a clear message if none exists. The per-instance **Switch to LIVE/PAPER** toggle on the Automation dashboard remains available after the session starts.
+
 **Going Live (v7.1, step by step).**
 
 1. **Set the master key** — start the daemon with `EXCHANGE_SECRET_KEY` set (a long random string). Without it, the engine refuses to store plaintext credentials (`503`).

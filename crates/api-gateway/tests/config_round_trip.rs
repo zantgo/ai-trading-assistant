@@ -12,13 +12,12 @@ use portfolio_supervisor::execution::ExecutionEngine;
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::sync::{broadcast, mpsc, Notify, RwLock};
+use tokio::sync::{broadcast, mpsc, Mutex, Notify, RwLock};
 use tower::ServiceExt;
 
 /// The on-disk config path is process-global (`MARKET_MONITOR_CONFIG`), so
 /// the two tests must not interleave their sandbox setup/teardown.
-static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+static CONFIG_ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
 async fn setup_state_with_config(
     workspace: config_models::WorkspaceConfig,
@@ -93,7 +92,7 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
 
 #[tokio::test]
 async fn config_post_round_trip_persists_merged_workspace() {
-    let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+    let _guard = CONFIG_ENV_LOCK.lock().await;
     // Sandbox the on-disk config path so the test cannot clobber the
     // developer's real config.toml.
     let sandbox = std::env::temp_dir().join(format!("config_post_test_{}", std::process::id()));
@@ -212,7 +211,7 @@ ema_fast = 8
 
 #[tokio::test]
 async fn config_post_without_platform_fields_keeps_runtime_config() {
-    let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+    let _guard = CONFIG_ENV_LOCK.lock().await;
     let sandbox = std::env::temp_dir().join(format!("config_post_min_{}", std::process::id()));
     std::fs::create_dir_all(&sandbox).unwrap();
     let cfg_path = sandbox.join("config.toml");

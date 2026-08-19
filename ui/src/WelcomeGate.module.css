@@ -147,3 +147,25 @@
     animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.form-input {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    background: #0b0d12;
+    border: 1px solid #2a2e39;
+    border-radius: 4px;
+    color: #e4e6eb;
+    font-family: var(--mono, monospace);
+    font-size: 0.85rem;
+}
+
+.form-hint {
+    font-size: 0.72rem;
+    color: #5f6672;
+    margin: 0.35rem 0 0;
+    line-height: 1.5;
+}
+
+.form-hint strong {
+    color: #8b93a1;
+}

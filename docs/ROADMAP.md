@@ -12,12 +12,12 @@
 
 | Engine | Backend code | Frontend | Production-ready? | Status |
 |---|---|---|---|---|
-| **DIE — Data Infrastructure** | `crates/network-adapters`, `crates/database-storage`, L2–L4 in `crates/market-analyzer` | `DataInfraDashboard` (live fetches) | **Yes — implemented** | ✅ Implemented |
-| **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | ✅ Implemented |
-| **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7: setup executor, unified execution engine + `ExecutionBackend` trait, `PaperSimulation`, lifecycle manager) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — paper mode implemented** (live broker dispatch is a future phase) | ✅ Implemented (paper) |
-| **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state reporting, position/exposure/capital/portfolio layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the single safety soft gate) | ✅ Implemented (informational) |
-| **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer, **backtest runner**) | `PerformanceDashboard` (fetches real data incl. the **backtest tab**: form, edge verdict, equity curve) | **Yes — implemented** | ✅ Implemented |
-| **Cross-cutting** (DTOs, config, API gateway, execution-daemon) | All 4 crates | App shell, store, websocket, settings, watchlist scanner | **Yes — implemented** | ✅ Implemented |
+| **DIE — Data Infrastructure** | `crates/network-adapters`, `crates/database-storage`, L2–L4 in `crates/market-analyzer` | `DataInfraDashboard` (live fetches) | **Yes — implemented** | Implemented |
+| **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | Implemented |
+| **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7: setup executor, unified execution engine + `ExecutionBackend` trait, `PaperSimulation`, `LiveBroker` + `BitgetLiveBroker`, lifecycle manager) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — implemented** (paper default; live dispatch for Hyperliquid + Bitget) | Implemented |
+| **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state reporting, position/exposure/capital/portfolio layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the single safety soft gate) | Implemented (informational) |
+| **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer, **backtest runner**) | `PerformanceDashboard` (fetches real data incl. the **backtest tab**: form, edge verdict, equity curve) | **Yes — implemented** | Implemented |
+| **Cross-cutting** (DTOs, config, API gateway, execution-daemon) | All 4 crates | App shell, store, websocket, settings, watchlist scanner | **Yes — implemented** | Implemented |
 
 ### 1.1 Three honest categories
 
@@ -33,7 +33,7 @@ The platform is **not** in two categories ("done" vs. "not started"). It is in t
 
 ## 2. Engine-by-engine reality (what is and is not working today)
 
-### 2.1 DIE — Data Infrastructure Engine ✅
+### 2.1 DIE — Data Infrastructure Engine
 
 - **WebSocket ingestion** of Hyperliquid and Bitget ticks + order-book deltas — live, both venues.
 - **NTP clock monitor** with a 10 ms default UTC drift budget (`[clock_monitor] threshold_micros`); configurable `BreachAction` (`Warn` / `Panic`).
@@ -44,7 +44,7 @@ The platform is **not** in two categories ("done" vs. "not started"). It is in t
 
 The Data Infrastructure dashboard (`ui/src/components/DataInfraDashboard.svelte`) reads `app.connectionQuality`, polls `GET /api/system/clock`, `GET /api/exchange-status`, and `GET /api/data-quality`, and surfaces the live numbers.
 
-### 2.2 MME — Market Monitoring Engine ✅
+### 2.2 MME — Market Monitoring Engine
 
 - **52 indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data; the v6.6 `mark_index_spread` registry entry moved Derivatives to 8 rows and the total to 51, and the v6.11 `price_trend_sharpe` entry moved Regime to 5 rows and the total to 52 — see [01-01-ontology.md Appendix B §B.2](conceptual-foundations/01-01-ontology.md)).
 - **4 configurable timeframes** (micro / fast / slow / macro), each with its own `TimeframePipeline`.
@@ -55,7 +55,7 @@ The Data Infrastructure dashboard (`ui/src/components/DataInfraDashboard.svelte`
 
 The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`) all consume the WebSocket-fed `app.instancesMap[*].microTerm / fastTerm / slowTerm / macroTerm` state — no hardcoded data.
 
-### 2.3 TAE — Trade Automation Engine ✅ (paper mode)
+### 2.3 TAE — Trade Automation Engine
 
 **v7 redesign (2026-08-18).** The policy engine was **erased**. The TAE is now a **setup executor** that consumes the MME's top setup directly (best Actionable/READY profile across the 4 TF snapshots) and manages the trade lifecycle (entry limit at zone midpoint → TP/SL bracket → LEVEL/SIGNAL invalidation) through a **single unified execution engine** whose only mode-dependent part is the `ExecutionBackend` (`PaperSimulation` today; a `LiveBroker` later — same fees/slippage/funding/PnL accounting in both modes). See [03-03-01-tae-overview-spec.md](engines/trade-automation-engine/03-03-01-tae-overview-spec.md).
 
@@ -72,7 +72,7 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 **API (served):** `GET /api/instances/:id/automation`, `POST /api/instances/:id/automation/close`, `GET /api/instances/:id/portfolio` (real positions/equity), `GET /api/instances/:id/safety`.
 
-### 2.4 PME — Portfolio Management Engine ✅ (informational)
+### 2.4 PME — Portfolio Management Engine
 
 **v7 redesign (2026-08-18).** PME is now **purely informational**: the veto/stance machinery was erased; PME maintains the safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP) as a read-only status that the TAE setup executor's soft gate consumes before opening new entries. See [03-04-01-pme-overview-spec.md](engines/portfolio-management-engine/03-04-01-pme-overview-spec.md).
 
@@ -89,7 +89,7 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 **API (served, read-only):** `GET /api/instances/:id/portfolio` (rich), `GET /api/instances/:id/exposure`, `GET /api/instances/:id/capital`, `GET /api/instances/:id/safety` (extended), `POST /api/instances/:id/safety/session-reset`.
 
-### 2.5 PAE — Performance Analytics Engine ✅
+### 2.5 PAE — Performance Analytics Engine
 
 **Backend (real):**
 
@@ -103,7 +103,7 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 **API (served):** `POST /api/backtest/run`, `GET /api/backtest/:id`.
 
-### 2.6 Cross-cutting layers ✅
+### 2.6 Cross-cutting layers
 
 - **`core-domain`** — All DTOs (`MarketSnapshot`, matrices, indicator value types), JSON-RPC envelopes, liquidity module.
 - **`config-models`** — `load_config()` / `load_instances()`, every `*Config` struct.
@@ -174,13 +174,13 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | E5. WS per-timeframe subscriptions | `api-gateway`, `network-adapters` | AUDIT-V6-302 closed |
 | E6. Timeframe editor (operator-editable timeframe set) | `config-models`, `market-analyzer`, UI | AUDIT-V6-303 closed |
 
-> **Rescinding the "WIP" label.** Each engine's row in §1 transitions from ⚠️ WIP to ✅ Implemented **only** when every phase whose first column names that engine has a passing acceptance criterion. Until then, the doc corpus — README, AGENTS.md, every `**Status:**` header, every UI banner, every docs banner — must continue to say **WIP**.
+> **Rescinding the "WIP" label.** Each engine's row in §1 transitions from WIP to Implemented **only** when every phase whose first column names that engine has a passing acceptance criterion. Until then, the doc corpus — README, AGENTS.md, every `**Status:**` header, every UI banner, every docs banner — must continue to say **WIP**.
 
 ---
 
 ## 4. Delivery markers (v7.0 — removed)
 
-The v6-era "visible WIP" inventory (documentation banners, UI amber banners, `// ── Placeholder data ───` anchors) is **fully retired**: every TAE/PME/PAE dashboard fetches live data, no placeholder comments or amber banners remain, and every engine row in §1 reads ✅. This section is intentionally empty.
+The v6-era "visible WIP" inventory (documentation banners, UI amber banners, `// ── Placeholder data ───` anchors) is **fully retired**: every TAE/PME/PAE dashboard fetches live data, no placeholder comments or amber banners remain, and every engine row in §1 reads Implemented. This section is intentionally empty.
 
 ---
 
@@ -229,8 +229,8 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **`docs/README.md §Feature Status` distinguishes Implemented / WIP / Not started for every engine and major feature** (all five engines: Implemented)
 - [x] **Every `**Status:**` header in the engine docs reflects the v7.0 implemented state**
 - [x] **`docs/conceptual-foundations/01-02-global-architecture.md §2.3-2.5` no WIP callouts remain**
-- [ ] **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` no longer calls `performance-analytics` "stub" (it's a real evaluator, even if PAE is WIP)**
-- [ ] **`docs/conceptual-foundations/01-02-global-architecture.md §2.3 Layer 2 line 132** no longer claims "currently only live execution is supported" — paper trading is the default and only path**
+- [x] **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` no longer calls `performance-analytics` / `portfolio-supervisor` WIP** (both crate rows read Implemented — closed 2026-08-18)
+- [x] **`docs/conceptual-foundations/01-02-global-architecture.md` §2.3 Layer 2 status callout reflects the implemented execution path** (paper default, live Hyperliquid/Bitget dispatch available — closed 2026-08-18)
 - [x] **`README.md §Quick Start` carries the v7 implementation-status callout**
 - [x] **`AGENTS.md §Project overview` reflects the completed v7.0 state**
 - [x] **All numbered docs carry `**Version:** 7.1 (2026-08-18)` and the CHANGELOG top entry is `## v7.0 (2026-08-18)`**
@@ -241,7 +241,7 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **No `// ── Placeholder data ───` comment in `TradeAutomationDashboard.svelte`** (v7 live dashboard — delivered 2026-08-18)
 - [x] **No `// ── Placeholder data ───` comment in `PortfolioDashboard.svelte`** (v7 live dashboard — delivered 2026-08-18)
 - [x] **`runBacktest` in `PerformanceDashboard.svelte` is replaced by a `fetch`** (v7 backtest tab — delivered 2026-08-18)
-- [ ] **No amber banner mounted in the engine dashboard indicates WIP status**
+- [x] **No amber banner mounted in the engine dashboard indicates WIP status** (WIP badges removed from `AppEngineSidebar` — closed 2026-08-18)
 
 ### 6.3 Backend integration points
 
@@ -280,7 +280,7 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 
 ### 6.5 Final sign-off
 
-- [x] **All WIP labels in §1 of this roadmap removed** (DIE ✅, MME ✅, TAE ✅, PME ✅, PAE ✅)
+- [x] **All WIP labels in §1 of this roadmap removed** (DIE, MME, TAE, PME, PAE)
 - [x] **`docs/README.md §Feature Status` row for each engine reads "Implemented"**
 - [x] **Amber UI banners removed from `TradeAutomationDashboard`, `PortfolioDashboard`, `PerformanceDashboard`**
 - [x] **`docs/CHANGELOG.md` top entry reads `## v7.0 (2026-08-18) — TAE / PME / PAE production-ready`** with sub-bullets referencing the closed audit IDs

@@ -239,16 +239,16 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 ### 5.3 Engine Mapping
 
-> **Implementation status (v6.8).** The Data Infrastructure and Market Monitoring engines are **implemented**; their dashboards read live data. The Trade Automation, Portfolio Management, and Performance Analytics engines are **WIP** — the screen surfaces listed below match the **spec** but the components themselves currently render hardcoded placeholder data (the analytics tabs of Performance Analytics are real, but the Backtesting panel is a UI mock). See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3, §2.4, §2.5 and the phased delivery plan for the phases that finish each dashboard.
+> **Implementation status (v7.1).** All five engine dashboards are **implemented** and read live data: DIE and MME are WS-fed, TAE/PME dashboards fetch `/api/instances/:id/automation`, `/api/instances/:id/portfolio`, and `/api/instances/:id/safety`, and the PAE dashboard fetches `/api/dashboard/stats`, `/api/analytics/*`, and the real backtest tab (`POST /api/backtest/run` + `GET /api/backtest/:id`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
 | Display label | Internal key | Active content when selected | Status |
 |---------------|--------------|-------------------------------|--------|
-| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (backend `GET /api/exchange-status` served — see 06-01 §2.11), NTP Clock Monitor (backend `GET /api/system/clock` served — see 06-01 §2.11). Overview + Settings tabs. | ✅ Implemented |
-| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). | ✅ Implemented |
-| Trade Automation | `trade_automation` | `TradeAutomationDashboard` — 5-panel internal sidebar: Overview, Policies (expandable condition trees with risk parameters), Observability (trigger log), Paper Trading (positions/orders/history tabs), Lifecycle (per-instance cards with Start/Pause/Stop). Settings tab for strategy config. | ⚠️ WIP — backend live, dashboard is a hardcoded placeholder (Phase A of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| Portfolio Management | `portfolio` | `PortfolioDashboard` — 5-panel internal sidebar: Overview (safety state banner, equity composition), Positions (expandable cards with SL/TP/invalidation levels), Exposure (long/short bars, concentration, correlation), Capital (margin usage gauge, liquidation thresholds), Safety (circuit breakers, loss streaks, drawdown monitor, veto triggers). Settings tab for safety/fees config. | ⚠️ WIP — backend live, dashboard is a hardcoded placeholder (Phase A + C of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| Performance Analytics | `performance` | `PerformanceDashboard` — 6-panel internal sidebar: Overview (real `/api/dashboard/stats`), Strategy (real `/api/analytics/strategy`), Risk Metrics (real `/api/analytics/risk`), Regime Map (real `/api/analytics/performance`), Trade Analytics (real `/api/analytics/trades`), **Backtesting** (⚠️ UI mock today — `setTimeout` + placeholder data; no `/api/backtest/*` route). | ⚠️ WIP — analytics live, backtest UI mock (Phase D of [`docs/ROADMAP.md`](../ROADMAP.md)) |
-| Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, active account count display, last sync timestamps. No Overview/Settings tabs (single-page engine). Added in v6.5. | ✅ Implemented |
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (backend `GET /api/exchange-status` served — see 06-01 §2.11), NTP Clock Monitor (backend `GET /api/system/clock` served — see 06-01 §2.11). Overview + Settings tabs. | Implemented |
+| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). | Implemented |
+| Trade Automation | `trade_automation` | `TradeAutomationDashboard` — mode badge (PAPER/LIVE), tracked setup + projected risk/return, order board, position card with manual Close, invalidation banner, activity log (live fetches of `/api/instances/:id/automation` + `/api/trade-ledger`). | Implemented |
+| Portfolio Management | `portfolio` | `PortfolioDashboard` — Overview (safety state banner, equity composition), Positions, Exposure, Capital, Safety (live fetches of `/api/instances/:id/portfolio`, `/api/instances/:id/exposure`, `/api/instances/:id/capital`, `/api/instances/:id/safety`). | Implemented (informational) |
+| Performance Analytics | `performance` | `PerformanceDashboard` — 6-panel internal sidebar: Overview (real `/api/dashboard/stats`), Strategy (real `/api/analytics/strategy`), Risk Metrics (real `/api/analytics/risk`), Regime Map (real `/api/analytics/performance`), Trade Analytics (real `/api/analytics/trades`), **Backtesting** (real: form → `POST /api/backtest/run` → stat cards, edge verdict, trade log, equity-curve chart; results survive restart via `GET /api/backtest/:id`). | Implemented |
+| Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, rotation (`POST /api/keys/rotate`) and passphrase-keyed backup, active account count display, last sync timestamps. Added in v6.5; key rotation in v7.1. | Implemented |
 
 ### 5.4 Quit Session Flow
 
@@ -375,11 +375,11 @@ Three new engine dashboards follow the same sub-sidebar pattern:
 | Panel | Key | Content |
 |-------|-----|---------|
 | Overview | `'overview'` | Core stats (Total P&L, Win Rate, Profit Factor, Expectancy, Avg R:R, Largest Gain/Loss). Risk-adjusted metrics (Sharpe, Sortino, Max Drawdown, Calmar, Ulcer, Volatility, VaR, Expected Shortfall) |
-| Strategy | `'strategy'` | Strategy analytics table: policy, trades, win rate, profit factor, expectancy, t-statistic, p-value, p_mc, Monte Carlo significance classification |
+| Strategy | `'strategy'` | Strategy analytics table: setup type, trades, win rate, profit factor, expectancy, t-statistic, p-value, p_mc, Monte Carlo significance classification |
 | Risk Metrics | `'risk'` | Detailed risk analytics cards with gauge bars and interpretative labels |
 | Regime Map | `'regimes'` | Per-regime performance cards (trade count, WR, PF, avg R, P&L) with compatibility labels (Strong/Favorable/Marginal/Avoid). Optimization recommendations |
 | Trade Analytics | `'trades'` | Trade ledger table: Trade ID, Symbol, Direction, Hold time, Gross/Net P&L, ROI, MFE, MAE, Flat flag |
-| **Backtesting** | `'backtesting'` | Strategy config form (policy selector, date range, capital, fee %). Run button with loading state. Results: 8 stat cards (trades, WR, PF, P&L, drawdown, Sharpe, expectancy, avg win/loss). Equity curve placeholder. Simulated trade log table |
+| **Backtesting** | `'backtesting'` | Backtest form (setup type, date range, capital, fee %) → `POST /api/backtest/run` → 8 stat cards, NHST verdict block (t, p, MC p, α = 0.05, edge), equity-curve chart, trade log; results re-fetched via `GET /api/backtest/:id` |
 
 ### 7.3 Distinguishing Rules
 
@@ -709,25 +709,25 @@ A `$effect` watches navigation state changes and calls `history.replaceState(nul
 
 ## 16. Performance & Equity Views
 
-### 16.1 Backtesting Panel (v6.5)
+### 16.1 Backtesting Panel (v7.1)
 
-The `PerformanceDashboard` Backtesting panel provides a frontend-only strategy simulation interface:
+The `PerformanceDashboard` Backtesting panel provides the **recorded-decision replay backtest**: `POST /api/backtest/run` replays recorded MME decision matrices through the unchanged TAE setup executor + paper execution engine, applies the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict), and persists the run (`backtest_runs`); results are re-fetched via `GET /api/backtest/:id`.
 
 **Configuration form:**
 | Field | Type | Range/Options | Default |
 |-------|------|---------------|---------|
-| Strategy | `<select>` | BTC Trend Following, ETH Mean Reversion, SOL Breakout | btc-trend-follow |
+| Strategy | `<select>` | Setup types from the recorded opportunity matrices (e.g. BTC Trend Following, ETH Mean Reversion, SOL Breakout) | btc-trend-follow |
 | Start Date | `<input type="date">` | any | 2024-01-01 |
 | End Date | `<input type="date">` | any | 2025-01-01 |
 | Capital ($) | `<input type="number">` | ≥ 100, step 1000 | 10000 |
 | Fee % | `<input type="number">` | 0–1, step 0.01 | 0.06 |
 
-**Results summary** (placeholder data until backend is implemented):
-- 8 stat cards: Total Trades, Win Rate, Profit Factor, Total P&L, Max Drawdown, Sharpe Ratio, Expectancy, Avg Win/Loss
+**Results summary** (live server-computed data):
+- 8 stat cards: Total Trades, Win Rate, Profit Factor, Total P&L, Max Drawdown, Sharpe Ratio, Expectancy, Avg Win/Loss — plus the NHST verdict block (t-statistic, p-value, Monte Carlo p, α = 0.05, significant / edge classification, `<30` trades → `InsufficientData`).
 
-**Equity curve:** Styled placeholder card with chart icon and "Equity curve visualization coming soon" message.
+**Equity curve:** Lightweight Charts area series rendered from the returned equity curve.
 
-**Trade log:** Table with 5 rows of simulated placeholder trades (Date, Symbol, Dir, Entry, Exit, Hold, P&L, ROI, Exit Reason).
+**Trade log:** Server-computed trade log (entry/exit, direction, P&L, ROI, exit reason).
 
 ### 16.2 Other Equity Views
 

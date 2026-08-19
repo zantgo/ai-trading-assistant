@@ -2,9 +2,9 @@
 
 > **Single-operator local deployment.** This platform is built for one operator and their team — no clients, no multi-tenant/SaaS model. One workspace, one operator identity (`local`), no per-route authentication. All audit events carry `operator_id = "local"`.
 
-This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 52 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
+This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 52 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates trade setups, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
 
-> **Implementation status (v7.1 — roadmap complete).** All five engines are **implemented and production-ready in paper mode**: DIE + MME end-to-end; TAE = v7 setup executor on the unified execution engine (`ExecutionBackend`: PaperSimulation today, LiveBroker for Hyperliquid live dispatch); PME = informational portfolio mirror (safety ladder live, veto erased); PAE = live analytics + recorded-decision backtest with the full significance treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict). The roadmap and its verification checklist are closed; `./manage.sh test-doc` reports ALL CHECKS PASSED.
+> **Implementation status (v7.1 — roadmap complete).** All five engines are **implemented and production-ready**: DIE + MME end-to-end; TAE = v7 setup executor on the unified execution engine (`ExecutionBackend`: `PaperSimulation` default, `LiveBroker` + `BitgetLiveBroker` for live dispatch); PME = informational portfolio mirror (safety ladder live); PAE = live analytics + recorded-decision backtest with the full significance treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict). The roadmap and its verification checklist are closed; `./manage.sh test-doc` reports ALL CHECKS PASSED.
 
 ## Project overview
 
@@ -12,15 +12,15 @@ The platform is organized around a **Two-Dimensional Architecture** — 5 specia
 
 | Logical Engine | Physical Crate(s) | Responsibility | Status |
 |---------------|-------------------|----------------|--------|
-| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` + `market-analyzer` (L2–L4) | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries; candle generation, quality validation, distribution (executes in `market-analyzer` for latency — logical ownership remains DIE's) | ✅ Implemented |
-| Market Monitoring Engine (MME) | `market-analyzer` | 52 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis; plus L1.5 (derivatives telemetry) and L2.5 (liquidity synthesis) fractional extension layers | ✅ Implemented |
-| Trade Automation Engine (TAE) | `portfolio-supervisor` | Policy evaluation, position sizing, profile evaluation, trigger engine, paper-trading matching engine, veto loop | ⚠️ WIP — backend runs; `TradeAutomationDashboard` is placeholder data; full wiring lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase A–B |
-| Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto | ⚠️ WIP — backend runs; `PortfolioDashboard` is placeholder data; full wiring lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase A + C |
-| Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator; SQLite persistence for analytics tables | ⚠️ WIP — analytics APIs live and Overview/Strategy/Risk/Regimes/Trades panels render real data; **backtest tab is a UI mock**; lands in [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 Phase D |
-| (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps | ✅ Implemented |
-| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers | ✅ Implemented |
-| (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving | ✅ Implemented |
-| (cross-cutting) | `execution-daemon` | Headless CLI binary that wires everything together | ✅ Implemented |
+| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` + `market-analyzer` (L2–L4) | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries; candle generation, quality validation, distribution (executes in `market-analyzer` for latency — logical ownership remains DIE's) | Implemented |
+| Market Monitoring Engine (MME) | `market-analyzer` | 52 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis; plus L1.5 (derivatives telemetry) and L2.5 (liquidity synthesis) fractional extension layers | Implemented |
+| Trade Automation Engine (TAE) | `portfolio-supervisor` | Setup executor (4-TF top-setup aggregation, zone-midpoint geometry, lifecycle state machine, invalidation), unified execution engine + `ExecutionBackend` (`PaperSimulation` default; `LiveBroker` + `BitgetLiveBroker` live), risk sizing, STOP flatten; live `TradeAutomationDashboard` (`/api/instances/:id/automation`) | Implemented (paper default; live dispatch Hyperliquid + Bitget) |
+| Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP), capital/margin ledger, position/exposure/capital/portfolio layers; informational (read-only); live `PortfolioDashboard` (`/api/instances/:id/portfolio` + `/safety`) | Implemented (informational) |
+| Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator, recorded-decision backtest runner (NHST: t-test, 10k Monte Carlo, α = 0.05, edge verdict); SQLite persistence for analytics tables; live backtest tab (`POST /api/backtest/run`) | Implemented |
+| (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps | Implemented |
+| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers | Implemented |
+| (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving | Implemented |
+| (cross-cutting) | `execution-daemon` | Headless CLI binary that wires everything together | Implemented |
 
 ```
 crates/
@@ -119,16 +119,17 @@ Full specification documents under `docs/`:
 
 Start at `docs/README.md` for a guided reading order.
 
-## Testing (481 tests across 4 boundaries)
+## Testing (~2,355 tests across 5 stages)
 
 | Suite | Command | Boundary | Tests | Runtime |
 |-------|---------|----------|-------|---------|
-| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization, liquidity module (`core-domain`, `market-analyzer`, `config-models`) | ~280 | <3s |
-| TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation e2e, performance analytics, network adapters, daemon (`database-storage`, `api-gateway`, `portfolio-supervisor`, `performance-analytics`, `network-adapters`, `execution-daemon`) | ~177 | <10s |
+| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization, liquidity module (`core-domain`, `market-analyzer`, `config-models`) | 831 | <3s |
+| TEST-GOLDEN | `./manage.sh test-golden` | Golden-vector conformance (AUDIT-AIU Phase 10) | 24 | <5s |
+| TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation e2e, performance analytics, network adapters, daemon (`database-storage`, `api-gateway`, `portfolio-supervisor`, `performance-analytics`, `network-adapters`, `execution-daemon`) | 331 | <10s |
 | TEST-DOC | `./manage.sh test-doc` | Documentation corpus: file inventory, worked-example recomputation, grep-based consistency sweeps (`docs/`) | — | <5s |
-| TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots, LiquidityPanel | 24 | <10s |
-| TEST-INDICATORS | `./manage.sh test-indicators` | Per-indicator pipeline e2e (37 candle-based) with terminal console reporting. Exercises calculator → normalizer → signal deriver → lifecycle builder across 4 market patterns. Catches duplicate `(label, kind)` signal pairs that would trigger `each_key_duplicate` in the UI, lifecycle regressions, value-map key collisions. | 37 | ~8s |
-| All | `./manage.sh test` | Core → Engine → UI → Indicators sequentially; `test-doc` runs at release time | 518 | <30s |
+| TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots, LiquidityPanel (76 test files) | 1125 | ~150s |
+| TEST-INDICATORS | `./manage.sh test-indicators` | Per-indicator pipeline e2e (37 candle-based) with terminal console reporting. Exercises calculator → normalizer → signal deriver → lifecycle builder across 4 market patterns. Catches duplicate `(label, kind)` signal pairs that would trigger `each_key_duplicate` in the UI, lifecycle regressions, value-map key collisions. | 44 | ~8s |
+| All | `./manage.sh test` | Core → Golden → Indicators → Engine → UI sequentially (5 stages); `test-doc` runs at release time | 2,355 | <3 min |
 
 ### Liquidity Intelligence (Phases 0-4) test coverage
 
@@ -137,9 +138,9 @@ Start at `docs/README.md` for a guided reading order.
 | 0 | `crates/portfolio-supervisor/tests/phase0_derivatives.rs` | 11 | portfolio-supervisor |
 | 1 | `crates/core-domain/tests/phase1_liquidity_flow.rs` + `crates/portfolio-supervisor/tests/phase1_liquidation_e2e.rs` | 15 + 1 | core + portfolio-supervisor |
 | 2 | `crates/core-domain/tests/phase2_cluster_matrix.rs` | 14 | core |
-| 3 | `crates/core-domain/tests/phase3_signals.rs` | 10 | core |
+| 3 | `crates/core-domain/tests/phase3_signals.rs` | 12 | core |
 | 4 | `ui/src/components/LiquidityPanel.test.ts` | 5 | ui |
-| **Total** | | **56** | |
+| **Total** | | **58** | |
 
 ### Specialized test selectors
 

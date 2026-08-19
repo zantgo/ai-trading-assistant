@@ -77,8 +77,8 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| `GET` | `/api/session/status` | — | `{ active: bool, currency: string, exchange: string, instance_count: u32 }` (the response field is `active`, not `session_active` — the frontend reads `data.active`; corrected 2026-08-17) |
-| `POST` | `/api/session/init` | `{ exchange: string, currency: string }` | Session status |
+| `GET` | `/api/session/status` | — | `{ active: bool, currency: string, exchange: string, instance_count: u32, mode?: "paper"\|"live", capital?: number }` — `mode` + `capital` are the v7.1 session defaults (the frontend reads `data.active`; corrected 2026-08-17) |
+| `POST` | `/api/session/init` | `{ exchange: "Hyperliquid"\|"Bitget", currency: "USDT"\|"USDC", mode?: "paper"\|"live", initial_capital_usd?: number }` — `mode` + `initial_capital_usd` are the v7.1 session defaults for instances created during the session (live requires an active API key for the chosen exchange — otherwise `400` with a clear message). | `{ success: bool, message: string, mode?: string, capital?: number }` |
 | `POST` | `/api/session/quit` | — | `200 OK` + JSON (cleanup result) → cleans all instances (corrected 2026-08-17 — the handler returns `200` with a body, not `204`) |
 
 ### 2.2 Configuration

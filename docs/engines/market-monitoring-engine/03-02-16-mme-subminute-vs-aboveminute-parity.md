@@ -148,14 +148,14 @@ Replayed warm data is real price history at a coarser scale. Consequences, valid
 
 | ID | Item | Status |
 |----|------|--------|
-| PRI-02/PRI-03 | Warmup: ≥ 1 m REST bootstrap + sub-minute state replay | ✅ Implemented (`warm.rs`, bootstrap pagination) |
-| PRI-05 | Uniform live floor replaces 50-vs-500 split | ✅ Implemented (`derive_pipeline_state`, `max(buffer_size/10, 50)`) |
-| PRI-06 | Force-close candles feed `history` | ✅ Implemented (PRI-06 continuity + AUDIT-H8 mid-widened closes) |
-| PRI-07 | Cadence adaptation: shadow throttle, D4 budget, SIL MC cadence, cluster sync | ✅ Implemented |
-| PRI-09 | Per-slot matrix guard | ✅ Implemented |
-| PRI-10 | ema_stack raw/value contract + no raw fallback in history layer | ✅ Implemented |
-| PRI-11 | Per-TF shadow throttle + frontend `values` deep-merge | ✅ Implemented |
-| PRI-12 | `bars_seen_real` in lifecycle | ✅ Implemented (`bars_seen_real` on the wire) |
+| PRI-02/PRI-03 | Warmup: ≥ 1 m REST bootstrap + sub-minute state replay | Implemented (`warm.rs`, bootstrap pagination) |
+| PRI-05 | Uniform live floor replaces 50-vs-500 split | Implemented (`derive_pipeline_state`, `max(buffer_size/10, 50)`) |
+| PRI-06 | Force-close candles feed `history` | Implemented (PRI-06 continuity + AUDIT-H8 mid-widened closes) |
+| PRI-07 | Cadence adaptation: shadow throttle, D4 budget, SIL MC cadence, cluster sync | Implemented |
+| PRI-09 | Per-slot matrix guard | Implemented |
+| PRI-10 | ema_stack raw/value contract + no raw fallback in history layer | Implemented |
+| PRI-11 | Per-TF shadow throttle + frontend `values` deep-merge | Implemented |
+| PRI-12 | `bars_seen_real` in lifecycle | Implemented (`bars_seen_real` on the wire) |
 
 ## §6 References
 

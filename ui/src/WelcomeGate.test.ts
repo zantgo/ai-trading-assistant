@@ -80,3 +80,80 @@ describe('WelcomeGate currency selector', () => {
         expect(src).not.toMatch(/\[\s*['"]USDT['"]\s*,\s*['"]USDC['"]\s*\]/);
     });
 });
+// ── v7.1 follow-up: mode + paper capital flow ─────────────────────────
+// The Welcome screen lets the operator choose Paper Trading or Live
+// Trading; paper mode shows a USD capital field that is submitted with
+// the session init request. `useAppStore()` returns the real singleton,
+// so the session-init POST is mocked via `globalThis.fetch`.
+
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { vi } from 'vitest';
+
+function mockSessionInit(handler: (body: unknown) => Response) {
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+        if (typeof url === 'string' && url.includes('/api/session/init')) {
+            let body: unknown = null;
+            try { body = JSON.parse(String(opts?.body ?? '{}')); } catch { /* noop */ }
+            return Promise.resolve(handler(body));
+        }
+        return Promise.resolve(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+}
+
+describe('WelcomeGate mode + paper capital (v7.1)', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('shows the paper capital field in paper mode and submits it', async () => {
+        let captured: unknown = null;
+        mockSessionInit((body) => {
+            captured = body;
+            return new Response(JSON.stringify({ success: true }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        });
+
+        const { container } = await render(WelcomeGate);
+        const capitalInput = container.querySelector<HTMLInputElement>('#paper-capital');
+        expect(capitalInput).toBeTruthy();
+
+        capitalInput!.value = '2500';
+        await fireEvent.input(capitalInput!);
+        await fireEvent.click(screen.getByText('Enter System'));
+
+        await waitFor(() => expect(captured).toBeTruthy());
+        expect(captured).toMatchObject({
+            mode: 'paper',
+            initial_capital_usd: 2500,
+            exchange: 'Hyperliquid',
+        });
+    });
+
+    it('live mode hides the capital field and shows the key hint', async () => {
+        const { container } = await render(WelcomeGate);
+        const liveRadio = container.querySelector<HTMLInputElement>('input[type="radio"][value="live"]');
+        await fireEvent.click(liveRadio!);
+
+        expect(container.querySelector('#paper-capital')).toBeFalsy();
+        expect(container.textContent).toContain('Exchange API Keys');
+    });
+
+    it('surfaces a backend error (e.g. live without a key)', async () => {
+        mockSessionInit(() =>
+            new Response(
+                JSON.stringify({ success: false, error: 'Live session requires an active Hyperliquid API key' }),
+                { status: 400, headers: { 'content-type': 'application/json' } },
+            ),
+        );
+
+        const { container } = await render(WelcomeGate);
+        await fireEvent.click(screen.getByText('Enter System'));
+        await waitFor(() =>
+            expect(container.textContent).toContain('Live session requires an active Hyperliquid API key'),
+        );
+    });
+});

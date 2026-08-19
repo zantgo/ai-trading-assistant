@@ -5,8 +5,18 @@
     const app = useAppStore();
     let exchange = $state('Hyperliquid');
     let currency = $state('USDC');
+    let mode = $state<'paper' | 'live'>('paper');
+    let capital = $state(1000);
     let error = $state<string | null>(null);
     let loading = $state(false);
+
+    // Prefill the paper capital + mode from an existing session.
+    $effect(() => {
+        if (app.sessionChecked && app.sessionActive) {
+            mode = (app.sessionMode as 'paper' | 'live') ?? 'paper';
+            if (app.sessionCapital > 0) capital = app.sessionCapital;
+        }
+    });
 
 // Perpetual-futures settlement rules per exchange:
 //  - Hyperliquid settles exclusively in USDC.
@@ -32,7 +42,12 @@ const supportedCurrencies = $derived(
     async function handleEnter() {
         error = null;
         loading = true;
-        const result = await app.initSession(currency, exchange);
+        const result = await app.initSession(
+            currency,
+            exchange,
+            mode,
+            mode === 'paper' ? Number(capital) : undefined,
+        );
         if (!result.success) {
             error = result.error || 'Failed to initialize session.';
         }
@@ -83,6 +98,40 @@ const supportedCurrencies = $derived(
                     </label>
                 </div>
             </div>
+
+            <!-- Execution Mode -->
+            <div class={styles.formGroup}>
+                <span class={styles.formLabel}>Execution Mode</span>
+                <div class={styles.radioGroup}>
+                    <label class="{styles.radioOption} {mode === 'paper' ? styles.active : ''}">
+                        <input type="radio" name="mode" value="paper" bind:group={mode} />
+                        <span class={styles.radioLabel}>Paper Trading</span>
+                        <span class="{styles.radioBadge} {styles.enabled}">Simulated</span>
+                    </label>
+                    <label class="{styles.radioOption} {mode === 'live' ? styles.active : ''}">
+                        <input type="radio" name="mode" value="live" bind:group={mode} />
+                        <span class={styles.radioLabel}>Live Trading</span>
+                        <span class="{styles.radioBadge} {styles.enabled}">Real orders</span>
+                    </label>
+                </div>
+            </div>
+
+            {#if mode === 'paper'}
+                <div class={styles.formGroup}>
+                    <label class={styles.formLabel} for="paper-capital">Paper Session Capital (USD)</label>
+                    <input id="paper-capital" type="number" min="100" step="100"
+                        class={styles.formInput} bind:value={capital} />
+                    <p class={styles.formHint}>The paper balance for instances created in this session.</p>
+                </div>
+            {:else}
+                <div class={styles.formGroup}>
+                    <p class={styles.formHint}>
+                        Add your exchange API key in <strong>Settings → Exchange API Keys</strong> first
+                        (with EXCHANGE_SECRET_KEY set on the server). Live trading uses the balance of your
+                        exchange account — there is no paper balance.
+                    </p>
+                </div>
+            {/if}
 
             {#if error}
                 <div class={styles.formError}>{error}</div>

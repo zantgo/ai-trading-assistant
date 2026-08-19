@@ -127,13 +127,13 @@ Total: **156 markdown files** at v7.1 — 153 numbered docs + 3 governance docs 
 
 | Engine | Role | Layers | Key Output | Status |
 |--------|------|--------|------------|--------|
-| **Data Infrastructure Engine (DIE)** `03-01` | Data ingest, normalization, quality, broadcast | 4 | Market Data Matrix | ✅ Implemented |
-| **Market Monitoring Engine (MME)** `03-02` | 52 indicators, signals, multi-TF alignment, decision support | 7 (+2 fractional: L1.5, L2.5; L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix | ✅ Implemented |
-| **Trade Automation Engine (TAE)** `03-03` | Policy evaluation, position sizing, order routing | 2 | Policy Matrix + Execution Matrix | ⚠️ WIP (see [ROADMAP.md §2.3, §3 Phase A–B](ROADMAP.md)) |
-| **Portfolio Management Engine (PME)** `03-04` | Position tracking, exposure, capital, safety veto | 4 | Portfolio Matrix | ⚠️ WIP (see [ROADMAP.md §2.4, §3 Phase A + C](ROADMAP.md)) |
-| **Performance Analytics Engine (PAE)** `03-05` | Trade reconstruction, NHST (sign-randomized Monte Carlo), drawdown/Sharpe, regime maps | 4 | Performance Matrix | ⚠️ WIP — analytics live, backtest UI mock (see [ROADMAP.md §2.5, §3 Phase D](ROADMAP.md)) |
+| **Data Infrastructure Engine (DIE)** `03-01` | Data ingest, normalization, quality, broadcast | 4 | Market Data Matrix | Implemented |
+| **Market Monitoring Engine (MME)** `03-02` | 52 indicators, signals, multi-TF alignment, decision support | 7 (+2 fractional: L1.5, L2.5; L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix | Implemented |
+| **Trade Automation Engine (TAE)** `03-03` | Setup executor, position sizing, order routing, trade lifecycle | 2 | Execution Matrix | Implemented (paper default; live dispatch for Hyperliquid + Bitget) |
+| **Portfolio Management Engine (PME)** `03-04` | Position tracking, exposure, capital, safety-state ladder | 4 | Portfolio Matrix | Implemented (informational) |
+| **Performance Analytics Engine (PAE)** `03-05` | Trade reconstruction, NHST (sign-randomized Monte Carlo), drawdown/Sharpe, regime maps, backtest | 4 | Performance Matrix | Implemented |
 
-> **Three honest categories.** The platform is in three implementation categories: (1) **Implemented** — DIE and MME end-to-end with every dashboard live. (2) **WIP / partial** — TAE, PME, PAE have real Rust backends that compile and produce state, but their dedicated dashboards render hardcoded placeholder data and are clearly labelled as such. (3) **Not yet started** — none at engine level; only sub-features of WIP engines. See [`docs/ROADMAP.md`](ROADMAP.md) for the phased delivery plan.
+> **Implementation status (v7.1).** All five engines are implemented: DIE and MME end-to-end; TAE as a setup executor on the unified execution engine (paper by default, live Hyperliquid/Bitget dispatch available); PME as a read-only informational portfolio mirror; PAE with live analytics and the recorded-decision backtest runner. See [`docs/ROADMAP.md`](ROADMAP.md) §2 for the engine-by-engine reality.
 
 ## Recommended Reading Order
 
@@ -168,50 +168,49 @@ Total: **156 markdown files** at v7.1 — 153 numbered docs + 3 governance docs 
 
 ## Feature Status
 
-This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built. **Implementation status is the registered status at v6.9 (2026-08-04). For the detailed phased delivery plan, see [`docs/ROADMAP.md`](ROADMAP.md).**
+This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built. **Implementation status is the registered status at v7.1 (2026-08-18). For the detailed phased delivery plan, see [`docs/ROADMAP.md`](ROADMAP.md).**
 
 **Status legend.**
-- **✅ Implemented** — end-to-end, exercised by integration tests, observable in the running system.
-- **⚠️ WIP** — Rust code compiles, runs, and produces state, but the surface an operator clicks (dashboard, panel, endpoint) is a placeholder or a partial mock; not production-ready. See `ROADMAP.md §3` for the phase that finishes it.
-- **⛔ Not yet started** — only the spec exists; no Rust code, no UI, no API.
-- **🟡 Partial** — some layers live, others pending (used for cross-cutting features that span multiple sub-deliveries).
+- **Implemented** — end-to-end, exercised by integration tests, observable in the running system.
+- **Superseded** — designed out by a later revision (v7 policy-engine erasure); no longer part of the delivered system.
+- **Not yet started** — only the spec exists; no Rust code, no UI, no API.
 
 ### 6.x Engines
 
 | Engine | Status | Spec of record |
 |---------|--------|---------------|
-| **DIE — Data Infrastructure** | ✅ Implemented | `03-01-01`…`03-01-07`, `01-06`, `08-03`, `08-04`, `08-05`, `08-06` |
-| **MME — Market Monitoring** (52 indicators, 4 TFs, 12 SignalKinds, Liquidity Intelligence Phases 0-2) | ✅ Implemented | `03-02-01`…`03-02-15`, `01-05`, `04-02-00`, `05-02-00` |
-| **TAE — Trade Automation** (Policy + Execution + Paper trading + Lifecycle) | ⚠️ WIP — backend runs (paper engine fills, veto loop drains), but the `TradeAutomationDashboard` is a placeholder | `03-03-01`…`03-03-06`, `ROADMAP.md §3 Phase A–B` |
-| **PME — Portfolio Management** (Position + Exposure + Capital + Portfolio/Safety) | ⚠️ WIP — backend runs (safety manager + veto loop live, ledger persists), but the `PortfolioDashboard` is a placeholder | `03-04-01`…`03-04-05`, `ROADMAP.md §3 Phase A + C` |
-| **PAE — Performance Analytics** (Stats compiler + Strategy NHST + Risk analytics + Optimizer + Backtest) | ✅ Implemented — analytics live; **backtest tab replays recorded decisions with the full significance treatment** | `03-05-01`…`03-05-06`, `ROADMAP.md §3 Phase D` |
+| **DIE — Data Infrastructure** | Implemented | `03-01-01`…`03-01-07`, `01-06`, `08-03`, `08-04`, `08-05`, `08-06` |
+| **MME — Market Monitoring** (52 indicators, 4 TFs, 12 SignalKinds, Liquidity Intelligence Phases 0-4) | Implemented | `03-02-01`…`03-02-15`, `01-05`, `04-02-00`, `05-02-00` |
+| **TAE — Trade Automation** (Setup executor + unified execution engine + Paper/Live backends + Lifecycle) | Implemented — paper by default; live dispatch (Hyperliquid + Bitget) behind `mode` toggle | `03-03-01`…`03-03-06`, `ROADMAP.md §2.3` |
+| **PME — Portfolio Management** (Position + Exposure + Capital + Portfolio/Safety) | Implemented — informational mirror (safety-state ladder, read-only) | `03-04-01`…`03-04-05`, `ROADMAP.md §2.4` |
+| **PAE — Performance Analytics** (Stats compiler + Strategy NHST + Risk analytics + Optimizer + Backtest) | Implemented — analytics live; backtest tab replays recorded decisions with the full significance treatment | `03-05-01`…`03-05-06`, `ROADMAP.md §2.5` |
 
 ### 6.x Cross-cutting features
 
 | Feature | Status | Spec of record |
 |---------|--------|---------------|
-| Multi-timeframe indicators (52) | ✅ Implemented | `04-02-00` |
-| Signal pipeline (12 SignalKinds, 101 declarations) | ✅ Implemented | `05-02-00` |
-| WebSocket ingestion (Hyperliquid, Bitget) | ✅ Implemented | `03-01-01`, `03-01-02` |
-| Candle reconstruction | ✅ Implemented | `03-01-03`, `08-04` |
-| Connection resilience + backoff | ✅ Implemented | `08-03` |
-| Connection quality tracking + persistence | ✅ Implemented | `08-05`, `03-01-00` |
-| Clock monitor (NTP) | ✅ Implemented | `08-06` |
-| Pre-trade risk gates (1–7) | ✅ Implemented | `08-02` |
-| Position sizing protocol `S = E·R / (Dₛₗ / 100)` (backend math) | ✅ Implemented | `03-03-02`, `03-03-03` |
-| PME safety veto + stance control (backend safety loop) | ✅ Implemented | `03-04-05` |
-| Performance analytics (PAE L1–L5: analytics + backtest) | ✅ Implemented | `03-05-01`…`03-05-06` |
-| Overview UI panel (market cockpit) | ✅ Implemented | `07-02`, `03-02-08` |
-| **TAE / PME dedicated dashboards** | ⚠️ WIP — `TradeAutomationDashboard`, `PortfolioDashboard` are placeholder mock-ups | `07-02 §5.3`, `ROADMAP.md §3 Phase A` |
-| **PAE backtest runner + equity curve** | ⚠️ WIP — UI mock today; no `/api/backtest/*` routes | `ROADMAP.md §3 Phase D` |
-| Instance lifecycle (Gate 0, lifecycle tables, automation) | 🟡 Partial — `LifecycleState` enum defined; Gate 0 not yet enforced; tables not yet migrated (AUDIT-V6-202…207) | `03-03-06`, `ROADMAP.md §3 Phase B` |
-| Configurable activation (denylists, `config_version`, `AUTO_PAUSED`) | ✅ Implemented — global + per-instance `[activation]` blocks wired through pipeline construction; liquidity sub-toggles (`liquidation_feed`, `cluster_estimation`, `signals`) honored (AUDIT-V6-208…214, shipped in the 2026-08-17 MME coherence sweep; the `AUTO_PAUSED` TAE guardrail is a ROADMAP Phase-A follow-up) | `03-02-12`, `ROADMAP.md §3 Phase C` |
-| Pre-dispatch persistence (`pre_dispatch_orders` table) | ⛔ Not yet started | `06-01` §2.9, `ROADMAP.md §3 Phase C` |
-| Liquidity Intelligence (Phases 0-4) | 🟡 Partial — Phases 0-2 (derivatives telemetry, flow, cluster matrix) implemented; Phase 3 (`cascade_risk_index` aggregation into `systemic_risk_score`) pending (AUDIT-V4-005); Phase 4 (cluster price-chart overlay) pending (AUDIT-V4-079) | `01-05`, `03-02-11` |
-| Exchange key rotation | 🟡 Partial — manual rotation procedure documented; in-process rotation tool unscheduled (AUDIT-V6-077) | `08-07` |
-| Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | ✅ Implemented — served surface documented in `06-01` §2.11; `clock.breach_count` placeholder pending (AUDIT-V6-301) | `06-01` |
-| **Standardized candle formation + unified indicator lifecycle (v6.5)** | ✅ Implemented — trait migration, lifecycle map, UI badges shipped (AUDIT-V7-330…334 resolved; see `03-02-15 §8`) | `08-08`, `03-01-06`, `03-01-07`, `03-02-15`, `01-08` |
-| **TAE live exchange order dispatch** | ⛔ Not yet started — paper trading is the default and only execution path today | `ROADMAP.md §3 Phase E` |
+| Multi-timeframe indicators (52) | Implemented | `04-02-00` |
+| Signal pipeline (12 SignalKinds, 101 declarations) | Implemented | `05-02-00` |
+| WebSocket ingestion (Hyperliquid, Bitget) | Implemented | `03-01-01`, `03-01-02` |
+| Candle reconstruction | Implemented | `03-01-03`, `08-04` |
+| Connection resilience + backoff | Implemented | `08-03` |
+| Connection quality tracking + persistence | Implemented | `08-05`, `03-01-00` |
+| Clock monitor (NTP) | Implemented | `08-06` |
+| Pre-trade risk gates (1–7) | Implemented | `08-02` |
+| Position sizing protocol `S = E·R / (Dₛₗ / 100)` (backend math) | Implemented | `03-03-02`, `03-03-03` |
+| PME safety-state ladder (informational) | Implemented | `03-04-05` |
+| Performance analytics (PAE L1–L5: analytics + backtest) | Implemented | `03-05-01`…`03-05-06` |
+| Overview UI panel (market cockpit) | Implemented | `07-02`, `03-02-08` |
+| **TAE / PME dedicated dashboards** | Implemented — both fetch live API state (`/api/instances/:id/automation`, `/api/instances/:id/portfolio`, `/api/instances/:id/safety`) | `07-02 §5.3` |
+| **PAE backtest runner + equity curve** | Implemented — `POST /api/backtest/run` + `GET /api/backtest/:id`, equity-curve chart | `03-05-06`, `ROADMAP.md §2.5` |
+| Instance lifecycle (Gate 0, lifecycle tables, automation) | Implemented — start/pause/stop + STOP flatten orchestration (v7 design) | `03-03-06` |
+| Configurable activation (denylists, `config_version`, `AUTO_PAUSED`) | Implemented — global + per-instance `[activation]` blocks wired through pipeline construction; liquidity sub-toggles honored | `03-02-12` |
+| Pre-dispatch persistence (`pre_dispatch_orders` table) | Superseded — machinery erased with the policy engine (v7) | `06-01` §2.9 |
+| Liquidity Intelligence (Phases 0-4) | Implemented — Phases 0–2 (derivatives telemetry, flow, cluster matrix) + Phase 4 price-chart cluster overlay (`LiquidationHeatmapPrimitive`); Phase 3 aggregation tracked in `docs/CHANGELOG.md §Open Items` (AUDIT-V4-005) | `01-05`, `03-02-11` |
+| Exchange key rotation | Implemented — `POST /api/keys/rotate` (in-process re-encryption) + passphrase-keyed backup (v7.1; see `08-07`, AUDIT-V6-077) | `08-07` |
+| Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | Implemented — served surface documented in `06-01` §2.11; persistent `clock.breach_count` counter pending (AUDIT-V6-301) | `06-01` |
+| **Standardized candle formation + unified indicator lifecycle (v6.5)** | Implemented — trait migration, lifecycle map, UI badges shipped | `08-08`, `03-01-06`, `03-01-07`, `03-02-15`, `01-08` |
+| **TAE live exchange order dispatch** | Implemented — `LiveBroker` (Hyperliquid, EIP-712) + `BitgetLiveBroker` (Bitget V5 HMAC) behind the engine-wide paper/live toggle | `03-03-03 §5b`, `ROADMAP.md §2.3` |
 
 ## Key Conventions
 

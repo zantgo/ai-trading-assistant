@@ -5,7 +5,16 @@
 ------
 
 
+## Unreleased (2026-08-18) — v7.1 follow-up: Welcome session mode + paper capital
+
+**Welcome screen becomes the session entry point for execution mode.** The gate now asks for exchange, settlement currency, **execution mode (Paper Trading | Live Trading)**, and — in paper mode — the **Paper Session Capital (USD)**.
+
+- **Backend:** `SessionState` gains `mode` + `initial_capital_usd` defaults; `POST /api/session/init` accepts `mode` + `initial_capital_usd` (validated; **live requires an active API key** for the chosen exchange — clear `400` otherwise, error envelope JSON); `GET /api/session/status` echoes both. Instance creation (`POST /api/instances` + `registry::add_instance`) uses the session defaults for `mode` and `initial_capital_usd` (fallback paper / 1000) — the engine's boot equity seed picks the paper capital up naturally.
+- **Frontend:** `WelcomeGate` shows the mode selector + paper-capital number field (prefilled from the session); live mode hides the capital field and shows the "add an API key" hint; `SessionStore.initSession` sends mode/capital and stores them.
+- **Tests:** +4 session-init integration tests (paper capital stored + echoed, live-without-key rejected, live-with-key accepted, invalid mode rejected), +3 WelcomeGate UI tests. `test-doc` ALL CHECKS PASSED (corpus stays v7.1).
+
 ## v7.1 (2026-08-18) — Bitget live + production hardening
+
 
 **Live trading completed for both venues.** The final production gap is closed:
 

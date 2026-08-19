@@ -4,7 +4,7 @@
 **Status:** Approved
 **Purpose:** This document is the canonical home for "Target Architecture (Not Yet Implemented)" callouts scattered across the corpus. It enumerates each target state, its current status, blocking requirements, and target version. Future revisions update this single document instead of duplicating target notes across layer docs.
 
-> **Implementation status (v6.8).** This roadmap covers **future design improvements** that go beyond the as-spec'd target (e.g. layout changes, f64 hot-path, SoA history). It is **orthogonal** to the implementation roadmap at [`docs/ROADMAP.md`](../ROADMAP.md), which covers the phased delivery of the **as-spec'd** WIP engines (TAE, PME, PAE) and their dashboards. Both are required for the v6.8 documentation set.
+> **Implementation status (v7.1).** This roadmap covers **future design improvements** that go beyond the as-spec'd target (e.g. layout changes, SoA history). It is **orthogonal** to the implementation roadmap at [`docs/ROADMAP.md`](../ROADMAP.md), which covers the phased delivery of the as-spec'd engines. Both are required for the v7.1 documentation set.
 
 ---
 

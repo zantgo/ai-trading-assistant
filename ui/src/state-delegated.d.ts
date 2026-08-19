@@ -59,7 +59,12 @@ declare module './state.svelte' {
         stopOverviewPolling(): void;
 
         fetchSessionStatus(): Promise<void>;
-        initSession(currency: string, exchange: string): Promise<{ success: boolean; error?: string }>;
+        initSession(
+            currency: string,
+            exchange: string,
+            mode?: 'paper' | 'live',
+            capital?: number,
+        ): Promise<{ success: boolean; error?: string }>;
         quitSession(): Promise<any>;
         fetchDecisionProfiles(): Promise<void>;
         createDecisionProfile(name: string, longT: number, shortT: number): Promise<void>;
