@@ -427,7 +427,7 @@ export class AppStore {
             return { ok: false, error: 'Backup failed' };
         }
     }
-    async setInstanceMode(instanceId: string, mode: 'paper' | 'live'): Promise<{ ok: boolean; error?: string }> {
+    async setInstanceMode(instanceId: string, mode: 'observe' | 'paper' | 'live'): Promise<{ ok: boolean; error?: string }> {
         try {
             const res = await fetch(`/api/instances/${instanceId}/mode`, {
                 method: 'POST',
@@ -483,7 +483,7 @@ export class AppStore {
             'apiKeyConfigured', 'rulesContent', 'globalCandlesConfig',
             'globalIndicatorsConfig', 'indicatorRegistry', 'emaFastLabel', 'emaMediumLabel',
             'emaSlowLabel', 'emaLongLabel', 'rsiLabel', 'adxLabel', 'atrLabel',
-            'macdLabel',
+            'macdLabel', 'workspaceSlowTimeframeSecs', 'workspaceMacroTimeframeSecs',
         ]);
 
         this._delegate(this.analytics, [

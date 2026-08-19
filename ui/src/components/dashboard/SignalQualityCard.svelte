@@ -10,7 +10,22 @@
 
     const app = useAppStore();
 
+    // v7.2 parity: server-computed buckets (single source, also rendered
+    // by the CLI monitor); local derivation is the warmup fallback.
     const buckets = $derived.by(() => {
+        const server = app.overviewMatrix?.signal_quality;
+        if (server) {
+            const total = server.strong + server.moderate + server.weak;
+            return {
+                strong: server.strong,
+                moderate: server.moderate,
+                weak: server.weak,
+                total,
+                strongPct: total > 0 ? (server.strong / total) * 100 : 0,
+                moderatePct: total > 0 ? (server.moderate / total) * 100 : 0,
+                weakPct: total > 0 ? (server.weak / total) * 100 : 0,
+            };
+        }
         const instances = Object.values(app.instancesMap);
         const q = aggregateSignalQuality(instances);
         const total = q.strong + q.moderate + q.weak;

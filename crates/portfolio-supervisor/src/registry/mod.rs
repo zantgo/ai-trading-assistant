@@ -201,6 +201,15 @@ pub async fn add_instance(
 
     let cancel = CancellationToken::new();
 
+    // v7.1+: per-instance execution mode from the session default
+    // (observe | paper | live). Drives both the runtime TAE gate
+    // (`Instance::execution_mode`) and the persisted `InstanceEntry.mode`.
+    let execution_mode = match state.session.session_mode().await.as_deref() {
+        Some("live") => config_models::ExecutionMode::Live,
+        Some("observe") => config_models::ExecutionMode::Observe,
+        _ => config_models::ExecutionMode::Paper,
+    };
+
     let micro_secs = micro_cfg.candles.duration_seconds;
     let fast_secs = fast_cfg.candles.duration_seconds;
     let slow_secs = slow_cfg.candles.duration_seconds;
@@ -274,6 +283,7 @@ pub async fn add_instance(
     let artifacts =
         pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
             .await;
+    artifacts.instance.set_execution_mode(execution_mode).await;
 
     // Populates buffers directly if warmed states are present
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -342,10 +352,7 @@ pub async fn add_instance(
                 macro_term: Some(macro_cfg.clone()),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
-                mode: match state.session.session_mode().await.as_deref() {
-                    Some("live") => config_models::ExecutionMode::Live,
-                    _ => config_models::ExecutionMode::Paper,
-                },
+                mode: execution_mode,
                 weight_overrides: weight_overrides.clone(),
                 position_scaling: position_scaling.clone(),
                 activation: None,
@@ -722,6 +729,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let artifacts =
         pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
             .await;
+    artifacts.instance.set_execution_mode(pair_cfg.mode).await;
 
     // Populate buffers from warmed states
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -783,6 +791,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         slow: artifacts.slow,
         r#macro: artifacts.r#macro,
         lifecycle: RwLock::new(LifecycleManager::new(None)),
+        execution_mode: tokio::sync::RwLock::new(pair_cfg.mode),
     });
 
     // Swap in state map

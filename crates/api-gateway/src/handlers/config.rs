@@ -14,6 +14,8 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
         instances: current_config.instances.clone(),
         indicator_registry: market_analyzer::indicators::registry::all(),
         api_failover: current_config.api_failover,
+        slow_timeframe: Some(current_config.slow_timeframe.clone()),
+        macro_timeframe: Some(current_config.macro_timeframe.clone()),
     };
     let json = axum::Json(response_body);
     let mut response = json.into_response();

@@ -10,7 +10,26 @@
 
     const app = useAppStore();
 
+    // v7.2 parity: the server-computed sub-dimension bars (single source,
+    // also rendered by the CLI monitor) are the primary input; the local
+    // L5 aggregation stays as the warmup fallback.
     const health = $derived.by(() => {
+        const dims = app.overviewMatrix?.market_health_dims;
+        if (dims && dims.bars.length > 0) {
+            const bars = dims.bars.map((b) => ({
+                label: b.label,
+                value: b.value,
+                invert: false,
+                available: b.available,
+                contributingInstances: b.contributing_instances,
+            }));
+            return {
+                overall: app.overviewMatrix?.market_health ?? null,
+                sync: app.overviewMatrix?.market_synchronization ?? null,
+                bars,
+                activeInstanceCount: dims.active_instance_count,
+            };
+        }
         const instances = Object.values(app.instancesMap);
         return computeMarketHealth(instances, app.overviewMatrix);
     });

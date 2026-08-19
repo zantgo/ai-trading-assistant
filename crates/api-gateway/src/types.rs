@@ -136,6 +136,15 @@ pub struct ConfigResponse {
     pub instances: Vec<config_models::InstanceEntry>,
     pub indicator_registry: Vec<market_analyzer::indicators::IndicatorMeta>,
     pub api_failover: config_models::ApiFailoverConfig,
+    /// v7.2 parity: the workspace's slow/macro timeframe defaults — the
+    /// same values the registry falls back to when an instance is created
+    /// without a config entry. The Launch Setup wizard derives its
+    /// per-instance TF defaults from these, so GUI, CLI, and registry
+    /// always agree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slow_timeframe: Option<config_models::SlowTimeframeConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macro_timeframe: Option<config_models::SlowTimeframeConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -927,7 +936,8 @@ fn default_trigger() -> String {
 pub struct SessionInitRequest {
     pub exchange: String,
     pub currency: String,
-    /// "paper" | "live" — default execution mode for created instances.
+    /// "observe" | "paper" | "live" — default execution mode for created
+    /// instances. Observe is market-monitoring only (no orders dispatched).
     #[serde(default)]
     pub mode: Option<String>,
     /// Paper-session capital (USD) — default `initial_capital_usd`.
@@ -941,7 +951,8 @@ pub struct SessionStatusResponse {
     pub currency: Option<String>,
     pub exchange: Option<String>,
     pub instance_count: usize,
-    /// Default execution mode for created instances ("paper" | "live").
+    /// Default execution mode for created instances
+    /// ("observe" | "paper" | "live").
     pub mode: Option<String>,
     /// Paper-session capital (USD).
     pub capital: Option<f64>,

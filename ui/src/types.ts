@@ -633,6 +633,73 @@ export interface OverviewMatrix {
     /// from `market_synchronization` (cross-symbol, derived from
     /// `breadth_pct`).
     multi_tf_agreement_pct?: number;
+    /// v7.2 parity — server-computed hero verdict (TRADE / WAIT /
+    /// STAND_ASIDE). Single source for the GUI + CLI overview panels.
+    hero?: OverviewHero | null;
+    /// v7.2 parity — per-instance asset-ranking rows (price, signal,
+    /// direction, R:R, confidence, MTF, risk, updated). The GUI's
+    /// 12-column table and the CLI renderer read the same rows.
+    overview_rows?: OverviewRow[];
+    /// v7.2 parity — signal-quality buckets (strong/moderate/weak).
+    signal_quality?: SignalQuality | null;
+    /// v7.2 parity — direction counts (long/short/neutral).
+    direction_distribution?: DirectionDistribution | null;
+    /// v7.2 parity — market-health sub-dimension bars.
+    market_health_dims?: MarketHealthDims | null;
+}
+
+export type HeroVerdict = 'TRADE' | 'WAIT' | 'STAND_ASIDE';
+
+export interface OverviewHero {
+    verdict: HeroVerdict;
+    actionable_count: number;
+    candidate_count: number;
+    best_symbol: string | null;
+    best_score: number;
+    best_direction: 'LONG' | 'SHORT' | 'NEUTRAL';
+    best_confidence: number;
+    best_rr: number;
+    instance_count: number;
+}
+
+export interface OverviewRow {
+    symbol: string;
+    price: number;
+    bias: string;
+    signal: 'BUY' | 'SELL' | 'WAIT';
+    direction: 'LONG' | 'SHORT' | 'NEUTRAL';
+    rr: number;
+    score: number;
+    confidence: number;
+    mtf_score: number;
+    mtf_label: string;
+    risk: number;
+    updated_ts: number;
+    active: boolean;
+}
+
+export interface SignalQuality {
+    strong: number;
+    moderate: number;
+    weak: number;
+}
+
+export interface DirectionDistribution {
+    long: number;
+    short: number;
+    neutral: number;
+}
+
+export interface HealthBar {
+    label: string;
+    value: number;
+    available: boolean;
+    contributing_instances: number;
+}
+
+export interface MarketHealthDims {
+    bars: HealthBar[];
+    active_instance_count: number;
 }
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──

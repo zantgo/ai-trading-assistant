@@ -18,6 +18,7 @@ pub mod models;
 pub mod normalized;
 pub mod opportunity;
 pub mod overview;
+pub mod overview_panel;
 pub mod performance;
 pub mod portfolio;
 pub mod risk;

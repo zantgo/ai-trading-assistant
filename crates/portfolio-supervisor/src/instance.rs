@@ -109,6 +109,12 @@ pub struct Instance {
     pub r#macro: TimeframeBuffers,
 
     pub lifecycle: RwLock<LifecycleManager>,
+
+    /// Per-instance execution mode (Observe / Paper / Live). `Observe`
+    /// instances are market-monitoring only: the TAE setup executor never
+    /// evaluates or dispatches orders for them. Mirrors the persisted
+    /// `InstanceEntry.mode` so the runtime gate needs no config round-trip.
+    pub execution_mode: RwLock<config_models::ExecutionMode>,
 }
 
 impl Instance {
@@ -156,7 +162,16 @@ impl Instance {
             slow,
             r#macro,
             lifecycle: RwLock::new(lifecycle_mgr),
+            execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
         }
+    }
+
+    pub async fn execution_mode(&self) -> config_models::ExecutionMode {
+        *self.execution_mode.read().await
+    }
+
+    pub async fn set_execution_mode(&self, mode: config_models::ExecutionMode) {
+        *self.execution_mode.write().await = mode;
     }
 
     pub fn symbol(&self) -> String {
@@ -319,6 +334,7 @@ impl Instance {
             slow: empty_buffers.clone(),
             r#macro: empty_buffers,
             lifecycle: RwLock::new(LifecycleManager::new(None)),
+            execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
         }
     }
 }

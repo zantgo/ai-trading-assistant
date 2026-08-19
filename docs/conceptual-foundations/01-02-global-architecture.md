@@ -304,10 +304,17 @@ To ensure that an execution profile developed on a local setup runs identically 
 *   **Purpose:** The main interface for interactive development, validation, and optimization of trading setups.
 *   **Operation:** Boots all five engines with full graphical visualization modules. Users load assets, visualize indicator axes, paper-trade live streams to prove a statistical edge (alpha), adjust safety guidelines, and export the finalized environment payload.
 
-### 4.3 CLI Mode (Headless Automated Execution)
-*   **Purpose:** High-performance, zero-overhead execution designed for cloud environments.
-*   **Operation:** Operates purely headlessly with no visual interface. Upon initialization, it consumes the standardized configuration file, boots the DIE, MME, TAE, and PME internally, constructs the defined pair pipelines, and executes pre-configured live or paper trades automatically.
-*   **Boundaries:** The CLI mode is restricted to loading and applying previously validated configuration payloads. It is strictly banned from exploratory research, manual pair configurations, or manual visualization task processing.
+### 4.3 CLI Mode (Terminal Monitor — `--mode cli`)
+*   **Purpose:** Low-overhead terminal monitoring for cloud environments (v7.2). The retired
+    `setup` subcommand and `--mode headless` were replaced by an interactive launch prompt
+    (exchange, currency, instances with per-TF durations, pre-filled from `config.toml`).
+*   **Operation:** Boots the DIE/MME pipelines, session pinned to **observe** (no orders ever
+    dispatched — paper/live parity is planned), and renders the same L7 overview the dashboard
+    shows as box-drawing terminal tables, redrawn every `--interval` seconds. `--save` enables
+    snapshot-export JSON dumps. No HTTP server is bound — lighter than web mode, same SQLite
+    `telemetry.db`.
+*   **Boundaries:** Currently observe-only. Config and instances persist via the normal
+    registry/`save_workspace` path, so the GUI can adopt the same deployment later.
 
 ### 4.4 Shared Persistence & Retroactive Visualization
 Both modes write metrics, signals, orders, and execution events to a shared SQL/Time-Series database.

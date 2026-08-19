@@ -234,6 +234,7 @@ pub async fn serve_update_instance_config(
             operational_mode: Default::default(),
             mode: match state.session.session_mode().await.as_deref() {
                 Some("live") => config_models::ExecutionMode::Live,
+                Some("observe") => config_models::ExecutionMode::Observe,
                 _ => config_models::ExecutionMode::Paper,
             },
             weight_overrides: None,
@@ -921,6 +922,7 @@ pub async fn serve_get_automation(
         "instance_id": instance_id,
         "symbol": symbol,
         "mode": match mode {
+            config_models::ExecutionMode::Observe => "observe",
             config_models::ExecutionMode::Paper => "paper",
             config_models::ExecutionMode::Live => "live",
         },
@@ -1135,12 +1137,14 @@ pub async fn serve_reload_timeframe(
 
 #[derive(serde::Deserialize)]
 pub struct ModeRequest {
-    pub mode: String, // "paper" | "live"
+    pub mode: String, // "observe" | "paper" | "live"
 }
 
-/// POST /api/instances/:id/mode — switch the engine between paper and live
-/// execution (global mode: the engine is paper XOR live for the whole
-/// workspace). Live requires an active API key for the workspace exchange.
+/// POST /api/instances/:id/mode — switch the instance's execution mode.
+/// Live requires an active API key for the workspace exchange. Observe is
+/// market-monitoring only (no orders ever dispatched); the engine backend
+/// resets to paper simulation so no stale live broker survives an observe
+/// switch.
 pub async fn serve_set_mode(
     State(state): State<Arc<AppState>>,
     Path(instance_id): Path<String>,
@@ -1151,12 +1155,13 @@ pub async fn serve_set_mode(
     };
 
     let mode = match req.mode.as_str() {
+        "observe" => config_models::ExecutionMode::Observe,
         "paper" => config_models::ExecutionMode::Paper,
         "live" => config_models::ExecutionMode::Live,
         other => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
-                format!("Unknown mode '{}' (paper|live)", other),
+                format!("Unknown mode '{}' (observe|paper|live)", other),
             )
                 .into_response();
         }
@@ -1246,7 +1251,8 @@ pub async fn serve_set_mode(
         state.execution_engine.set_paper_backend().await;
     }
 
-    // Persist the mode into the workspace config.
+    // Persist the mode into the workspace config + runtime instance gate.
+    inst.set_execution_mode(mode).await;
     let mut workspace = workspace;
     for entry in &mut workspace.instances {
         if entry.id == instance_id {
@@ -1256,11 +1262,16 @@ pub async fn serve_set_mode(
     let _ = config_models::save_workspace(&workspace);
     state.workspace.set_config(workspace).await;
 
+    let mode_str = match mode {
+        config_models::ExecutionMode::Observe => "observe",
+        config_models::ExecutionMode::Paper => "paper",
+        config_models::ExecutionMode::Live => "live",
+    };
     Json(serde_json::json!({
         "success": true,
         "instance_id": instance_id,
-        "mode": if mode == config_models::ExecutionMode::Live { "live" } else { "paper" },
-        "note": "mode applies engine-wide (paper XOR live)",
+        "mode": mode_str,
+        "note": "mode applies per-instance (observe | paper | live); the live broker is engine-wide",
     }))
     .into_response()
 }

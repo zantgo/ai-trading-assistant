@@ -79,6 +79,50 @@
     }
 
     const rows = $derived.by((): Row[] => {
+        // v7.2 parity: the server-computed `overview_rows` (single source,
+        // also rendered by the CLI monitor) are the primary input — every
+        // column (price, signal, direction, R:R, confidence, MTF, risk,
+        // updated) comes from the same payload. The local derivation below
+        // stays as the warmup fallback while the L7 payload is absent.
+        const serverRows = app.overviewMatrix?.overview_rows ?? [];
+        if (serverRows.length > 0) {
+            const serverOut: Row[] = serverRows.map((r) => ({
+                symbol: r.symbol,
+                price: r.price > 0
+                    ? r.price.toLocaleString('en-US', { maximumFractionDigits: 6 })
+                    : '--',
+                bias: r.bias ?? 'Neutral',
+                signal: r.signal,
+                direction: r.direction,
+                rr: r.rr ?? 0,
+                score: r.score ?? 0,
+                confidence: r.confidence ?? 0,
+                mtf_score: r.mtf_score ?? 0,
+                mtf_label: r.mtf_label ?? 'NO_DATA',
+                risk: r.risk ?? 0,
+                updatedMs: r.updated_ts ? r.updated_ts * 1000 : null,
+                connected: r.active,
+            }));
+            // Sort, mirroring the local path below.
+            const sdir = sortDir === 'asc' ? 1 : -1;
+            serverOut.sort((a, b) => {
+                const av = (a as any)[sortKey];
+                const bv = (b as any)[sortKey];
+                const an = typeof av === 'string' ? Number(av.replace(/,/g, '')) : Number(av);
+                const bn = typeof bv === 'string' ? Number(bv.replace(/,/g, '')) : Number(bv);
+                if (Number.isFinite(an) && Number.isFinite(bn)) {
+                    return (an - bn) * sdir;
+                }
+                if (typeof av === 'string' && typeof bv === 'string') {
+                    return av.localeCompare(bv) * sdir;
+                }
+                if (av == null && bv != null) return 1;
+                if (av != null && bv == null) return -1;
+                if (av == null && bv == null) return 0;
+                return (Number(av) - Number(bv)) * sdir;
+            });
+            return serverOut;
+        }
         // v2026-08 (M4): one Score definition per column — the canonical L7
         // AssetRank score (`0.5 × mean_conf + 50`, [50,100]) from the
         // OverviewMatrix, with a local fallback to the max qualifying

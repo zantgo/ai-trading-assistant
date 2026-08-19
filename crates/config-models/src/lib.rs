@@ -291,6 +291,22 @@ impl WorkspaceConfig {
     pub fn declared_symbols(&self) -> Vec<String> {
         self.instances.iter().map(|i| i.symbol.clone()).collect()
     }
+
+    /// v7.2 parity: the canonical default timeframe ladder — the SAME
+    /// values the registry falls back to when an instance is created
+    /// without a config entry (`registry::add_instance`): micro 60s,
+    /// fast 180s, slow/macro from the workspace defaults. The Launch
+    /// Setup wizard and the CLI launch prompt derive their per-instance
+    /// defaults from this ladder, so every surface agrees on the default
+    /// pipeline durations.
+    pub fn tf_ladder_defaults(&self) -> (u64, u64, u64, u64) {
+        (
+            60,
+            180,
+            self.slow_timeframe.duration_seconds,
+            self.macro_timeframe.duration_seconds,
+        )
+    }
 }
 
 /// One trading-pair instance inside a workspace.
@@ -321,7 +337,7 @@ pub struct InstanceEntry {
     pub automation: AutomationConfig,
     #[serde(default)]
     pub operational_mode: OperationalMode,
-    /// v7 execution mode (Paper / Live). Default Paper.
+    /// v7 execution mode (Observe / Paper / Live). Default Paper.
     #[serde(default)]
     pub mode: ExecutionMode,
     #[serde(default)]
@@ -344,12 +360,15 @@ fn default_initial_capital() -> f64 {
 }
 
 /// Execution mode for the unified execution engine. The mode only affects
-/// the final broker dispatch: `Paper` simulates fills internally, `Live`
+/// the final broker dispatch: `Observe` never submits orders (advisory /
+/// market-monitoring only), `Paper` simulates fills internally, `Live`
 /// routes to an exchange. All accounting (fees, slippage, funding, PnL) is
-/// identical in both modes.
+/// identical in `Paper` and `Live`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
+    /// Market/signal monitoring only — no orders are ever dispatched.
+    Observe,
     Paper,
     Live,
 }
@@ -690,6 +709,49 @@ indicators = { rsi_period = 14 }
         let toml = "";
         let r: std::result::Result<OnDiskConfig, _> = toml::from_str(toml);
         assert!(r.is_err(), "missing [workspace] must fail parse");
+    }
+
+    #[test]
+    #[test]
+    fn tf_ladder_defaults_match_registry_fallback() {
+        // v7.2 parity gate: the ladder the CLI/GUI derive their instance
+        // defaults from must equal the registry's fallback (micro 60,
+        // fast 180, slow/macro from the workspace config).
+        let mut ws = WorkspaceConfig::default();
+        ws.slow_timeframe.duration_seconds = 300;
+        ws.macro_timeframe.duration_seconds = 900;
+        let (micro, fast, slow, r#macro) = ws.tf_ladder_defaults();
+        assert_eq!((micro, fast), (60, 180));
+        assert_eq!((slow, r#macro), (300, 900));
+    }
+
+    #[test]
+    fn execution_mode_serde_roundtrip_observe() {
+        let toml = r#"
+[workspace]
+id = "main"
+name = "Test"
+default_currency = "USDC"
+default_exchange = "Hyperliquid"
+
+[[workspace.instances]]
+id = "btc"
+symbol = "BTC-USDT"
+quote = "USDT"
+mode = "observe"
+
+[workspace.instances.micro_term]
+candles = { duration_seconds = 60 }
+
+[workspace.instances.fast_term]
+candles = { duration_seconds = 180 }
+"#;
+        let cfg: OnDiskConfig = toml::from_str(toml).expect("observe mode must parse");
+        let (_platform, workspace) = cfg.split();
+        assert_eq!(workspace.instances[0].mode, ExecutionMode::Observe);
+
+        let serialized = toml::to_string(&workspace).expect("roundtrip");
+        assert!(serialized.contains("mode = \"observe\""));
     }
 
     #[test]

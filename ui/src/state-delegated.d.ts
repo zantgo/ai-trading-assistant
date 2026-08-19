@@ -48,6 +48,7 @@ declare module './state.svelte' {
         indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
+        workspaceSlowTimeframeSecs: number; workspaceMacroTimeframeSecs: number;
 
         dashboardStats: DashboardStats | null;
         dashboardPeriod: string; dashboardOrigin: string;
@@ -62,7 +63,7 @@ declare module './state.svelte' {
         initSession(
             currency: string,
             exchange: string,
-            mode?: 'paper' | 'live',
+            mode?: 'observe' | 'paper' | 'live',
             capital?: number,
         ): Promise<{ success: boolean; error?: string }>;
         quitSession(): Promise<any>;

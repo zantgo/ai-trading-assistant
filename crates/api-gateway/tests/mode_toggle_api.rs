@@ -221,3 +221,32 @@ async fn mode_live_requires_key() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     assert_eq!(state.execution_engine.mode().await, ExecutionMode::Paper);
 }
+
+#[tokio::test]
+async fn mode_observe_gates_instance_without_key() {
+    let (state, inst) = build_state().await;
+
+    // Observe requires no API key and never routes to a venue broker.
+    let resp = post_mode(state.clone(), "observe").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(inst.execution_mode().await, ExecutionMode::Observe);
+    // Engine backend stays on simulation — observe never dispatches orders.
+    assert_eq!(state.execution_engine.mode().await, ExecutionMode::Paper);
+
+    // Persisted in the workspace config.
+    let cfg = state.workspace.config().await;
+    let entry = cfg.instances.iter().find(|i| i.id == "inst_test").unwrap();
+    assert_eq!(entry.mode, ExecutionMode::Observe);
+
+    // Back to paper restores the runtime gate.
+    let resp = post_mode(state.clone(), "paper").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(inst.execution_mode().await, ExecutionMode::Paper);
+}
+
+#[tokio::test]
+async fn mode_rejects_unknown_values() {
+    let (state, _inst) = build_state().await;
+    let resp = post_mode(state.clone(), "monitor").await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

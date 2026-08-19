@@ -89,7 +89,25 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 **Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
 
-**Starting a session (Welcome screen, v7.1).** The Welcome gate asks for three things: the **exchange** (Hyperliquid or Bitget), the **settlement currency**, and the **execution mode** — **Paper Trading** or **Live Trading**. In Paper mode you also enter the **Paper Session Capital (USD)** — the paper balance applied to instances created during that session (prefilled from the previous session). In Live mode there is no capital field (live uses your exchange account balance); the gate requires an active API key for the chosen exchange and shows a clear message if none exists. The per-instance **Switch to LIVE/PAPER** toggle on the Automation dashboard remains available after the session starts.
+**Starting a session (Launch Setup wizard, v7.2).** The landing screen is a four-step installer
+(**Mode → Environment → Instances → Review**):
+
+1. **Mode** — three cards: **Observe** (monitor markets/signals, no orders, safest),
+   **Simulate** (paper trading with a starting capital), **Execute** (live trading with real
+   credentials).
+2. **Environment** — the **exchange** (Hyperliquid or Bitget) and the **settlement currency**
+   (Hyperliquid = USDC only, Bitget = USDT only). Simulate mode adds the **Starting Capital
+   (USD)** field (prefilled from the previous session). Execute mode collects the exchange
+   credentials inline (Hyperliquid: wallet address + private key; Bitget: API key + secret +
+   passphrase) and stores them encrypted via `POST /api/keys`.
+3. **Instances** — add one or more symbols with per-instance timeframe durations
+   (micro/fast/slow/macro, defaults 60/300/900/3600 s), or skip and add them later from the
+   workspace panel.
+4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
+   instance list) → **Launch** lands you directly in the first instance's workspace.
+
+Observe mode requires no capital and no credentials. The per-instance **mode toggle** on the
+Automation dashboard now cycles Observe → Paper → Live.
 
 **Going Live (v7.1, step by step).**
 

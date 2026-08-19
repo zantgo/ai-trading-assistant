@@ -2,35 +2,36 @@
 //!
 //! Headless orchestrator binary. Reads configuration, initializes the
 //! SQLite database, builds the Axum `AppState`, spawns background tasks,
-//! then runs the Axum HTTP server on `127.0.0.1:3000`.
+//! then runs the launch surface.
 //!
 //! ## Launch modes
 //!
 //! - `--mode web` (default): starts the Axum server + serves the Svelte
-//!   dashboard. The Welcome Gate prompts the user to select an exchange and
-//!   currency before adding instances.
-//! - `--mode headless`: auto-initialises the session from CLI args (or
-//!   workspace config defaults), auto-spawns all instances declared in
-//!   `workspace.instances[]`, then starts the Axum server for monitoring
-//!   (accessible via SSH tunnel). No Welcome Gate prompt appears.
+//!   dashboard. The Launch Setup wizard prompts the user to choose a mode
+//!   (Observe / Simulate / Execute), exchange, currency, and instances
+//!   before entering the workspace.
+//! - `--mode cli`: interactive terminal launch (exchange, currency,
+//!   instances with per-TF durations), then a live terminal monitor that
+//!   redraws the L7 overview + per-instance rows. Observe-only for now —
+//!   paper/live parity is planned. No HTTP server is bound; the SQLite
+//!   telemetry DB is still used for analytics.
 //!
 //! ## CLI flags
 //!
-//! - `--exchange <hyperliquid|bitget>` — overrides the workspace
-//!   `default_exchange`. Only meaningful in `headless` mode.
-//! - `--currency <USDC|USDT>` — overrides the workspace `default_currency`.
-//!   Only meaningful in `headless` mode.
+//! - `--exchange <hyperliquid|bitget>` — pre-fills the interactive prompt
+//!   (both modes).
+//! - `--currency <USDC|USDT>` — pre-fills the interactive prompt.
 //! - `--config <path>` — path to `config.toml`. Overrides the
 //!   `MARKET_MONITOR_CONFIG` env var.
+//! - `--interval <secs>` — CLI monitor redraw interval (default 5).
+//! - `--save` — CLI mode: enable snapshot-export JSON dumps.
 //!
 //! ## Config sharing workflow
 //!
 //! 1. GUI machine: `./manage.sh run`, configure settings + instances via
 //!    the dashboard, click "Download Config" → `config.toml` saved.
 //! 2. Headless machine: `scp config.toml ec2-user@host:/app/`
-//! 3. Start: `cargo run --bin execution-daemon -- --mode headless --exchange hyperliquid --currency USDC`
-//! 4. Or point at config directly:
-//!    `MARKET_MONITOR_CONFIG=/mnt/efs/config.toml cargo run --bin execution-daemon -- --mode headless`
+//! 3. Start: `cargo run --bin execution-daemon -- --mode cli --config config.toml`
 //!
 //! See `docs/conceptual-foundations/01-07-data-model-hierarchy.md` for the
 //! canonical design document.
@@ -66,25 +67,15 @@ struct CliArgs {
     exchange: Option<String>,
     currency: Option<String>,
     config_path: Option<String>,
-    /// When `Some`, run the interactive setup flow that writes
-    /// `config.toml` + (optionally) starts the daemon in headless
-    /// mode. Value is the sub-mode: `"interactive"` (default), or
-    /// `"status"` to print current snapshot-export state without
-    /// writing anything.
-    setup_mode: Option<String>,
-    /// `--dry-run` for the setup subcommand — print what *would* be
-    /// written but don't touch `config.toml`.
-    dry_run: bool,
-    /// When `true`, the setup flow auto-spawns the daemon in
-    /// headless mode at the end (equivalent to answering "yes" to
-    /// the "Start now?" prompt).
-    auto_start: bool,
+    /// CLI monitor redraw interval in seconds (default 5).
+    interval_secs: u64,
+    /// CLI mode: enable snapshot-export JSON dumps at boot.
+    save_snapshots: bool,
 }
 
 enum LaunchMode {
     Web,
-    Headless,
-    Setup,
+    Cli,
 }
 
 fn parse_args() -> CliArgs {
@@ -93,9 +84,8 @@ fn parse_args() -> CliArgs {
     let mut exchange = None;
     let mut currency = None;
     let mut config_path = None;
-    let mut setup_mode = None;
-    let mut dry_run = false;
-    let mut auto_start = false;
+    let mut interval_secs = 5u64;
+    let mut save_snapshots = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -104,8 +94,17 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 if i < args.len() {
                     mode = match args[i].as_str() {
-                        "headless" => LaunchMode::Headless,
-                        "setup" => LaunchMode::Setup,
+                        "cli" | "monitor" => LaunchMode::Cli,
+                        // Legacy modes retired in v7.2 — map to the new CLI
+                        // terminal monitor with an explicit notice instead of
+                        // silently booting the web server.
+                        "headless" | "setup" => {
+                            eprintln!(
+                                "⚠️  `--mode {}` was retired. Use `--mode cli` (terminal monitor) or `--mode web` (dashboard).",
+                                args[i]
+                            );
+                            LaunchMode::Cli
+                        }
                         _ => LaunchMode::Web,
                     };
                 }
@@ -128,21 +127,17 @@ fn parse_args() -> CliArgs {
                     config_path = Some(args[i].clone());
                 }
             }
-            "--sub" => {
+            "--interval" => {
                 i += 1;
                 if i < args.len() {
-                    setup_mode = Some(args[i].clone());
+                    if let Ok(n) = args[i].parse::<u64>() {
+                        interval_secs = n.max(1);
+                    }
                 }
             }
-            "--dry-run" => dry_run = true,
-            "--auto-start" => auto_start = true,
+            "--save" => save_snapshots = true,
             "--web" | "--gui" => {
                 mode = LaunchMode::Web;
-            }
-            "setup" => {
-                // Positional shorthand: `execution-daemon setup` ≡
-                // `execution-daemon --mode setup`.
-                mode = LaunchMode::Setup;
             }
             _ => { /* ignore unknown args */ }
         }
@@ -154,9 +149,8 @@ fn parse_args() -> CliArgs {
         exchange,
         currency,
         config_path,
-        setup_mode,
-        dry_run,
-        auto_start,
+        interval_secs,
+        save_snapshots,
     }
 }
 
@@ -180,27 +174,26 @@ impl CliArgs {
     }
 }
 
-// ─── Setup CLI (interactive + status) ──────────────────────────────────
+// ─── CLI launch flow (--mode cli) ─────────────────────────────────────
 //
 // Hand-rolled minimal stdin/stdout prompts. We deliberately avoid
 // pulling in `inquire` or `dialoguer` for this single-purpose flow —
-// the surface is small (text input + single-select + confirm) and
-// staying dep-free keeps the binary slim. If more interactive flows
-// are added later, consider migrating to `inquire`.
+// the surface is small (text input + confirm) and staying dep-free
+// keeps the binary slim. If more interactive flows are added later,
+// consider migrating to `inquire`.
 //
-// The setup flow:
-//   1. Loads `config.toml` (if any) to seed the prompts with the
-//      existing defaults.
-//   2. Asks for: exchange, settlement currency, trading pair,
-//      which timeframes to enable (multi-select), per-timeframe
-//      `timeframe_secs`, snapshot-export enabled + interval.
-//   3. Validates: symbol existence on the chosen exchange (live
-//      REST call), each timeframe against the per-TF floor/ceiling.
-//   4. Writes `config.toml` (preserving platform-level sections
-//      via `save_workspace` + a small platform-section rewrite).
-//   5. Prints a summary + asks "Start the daemon now? [y/N]".
-//      On `y` (or `--auto-start`), re-execs itself as a child
-//      process in `--mode headless`.
+// The flow mirrors the GUI Launch Setup wizard (observe-only for now):
+//   1. Exchange          — pre-filled from --exchange or workspace default.
+//   2. Settlement currency — forced per exchange (HL=USDC, Bitget=USDT).
+//   3. Instances         — one or more (base symbol + per-TF durations),
+//                          pre-filled from existing workspace.instances[].
+//   4. Confirm           — then the instances just run in the terminal
+//                          monitor. No config.toml is rewritten by the
+//                          prompts; created instances persist via the
+//                          registry's normal save_workspace path.
+//
+// Paper/live parity is planned — `--mode cli` currently boots an
+// observe session (no orders ever dispatched).
 
 /// One prompt of an interactive CLI flow — printed to stdout, the
 /// answer is read from stdin.
@@ -242,40 +235,6 @@ fn confirm(label: &str, default_yes: bool) -> bool {
     }
 }
 
-/// Multi-select prompt — reads a comma-separated list of integers
-/// (1-based, per the menu shown to the user). Returns the 0-based
-/// indices. Empty input returns the default set.
-fn prompt_multi_select(label: &str, options: &[(&str, &str)], defaults: &[usize]) -> Vec<usize> {
-    println!("\n{}", label);
-    for (i, (key, desc)) in options.iter().enumerate() {
-        println!("  {}. {} — {}", i + 1, key, desc);
-    }
-    print!("\nChoose (comma-separated, blank = default): ");
-    std::io::Write::flush(&mut std::io::stdout()).ok();
-    let mut buf = String::new();
-    std::io::stdin().read_line(&mut buf).ok();
-    let trimmed = buf.trim();
-    if trimmed.is_empty() {
-        return defaults.to_vec();
-    }
-    let mut out = Vec::new();
-    for token in trimmed.split(|c: char| c == ',' || c == ' ' || c == '\t') {
-        if let Ok(n) = token.parse::<usize>() {
-            if n >= 1 && n <= options.len() {
-                let idx = n - 1;
-                if !out.contains(&idx) {
-                    out.push(idx);
-                }
-            }
-        }
-    }
-    if out.is_empty() {
-        defaults.to_vec()
-    } else {
-        out
-    }
-}
-
 const TIMEFRAME_FLOOR_SECS: u64 = 10;
 const TIMEFRAME_CEIL_SECS: u64 = 86_400;
 
@@ -297,212 +256,73 @@ fn prompt_timeframe_secs(label: &str, default_secs: u64) -> u64 {
     }
 }
 
-fn prompt_snapshot_interval() -> u64 {
-    loop {
-        let raw = prompt("Snapshot interval in seconds", "60");
-        match raw.parse::<u64>() {
-            Ok(n) if (5..=3600).contains(&n) => return n,
-            Ok(n) => eprintln!("  ⚠️  {}s is outside the allowed range [5, 3600].", n),
-            Err(_) => eprintln!("  ⚠️  '{}' is not a number.", raw),
-        }
+/// One instance configured in the CLI launch prompt.
+struct CliInstance {
+    base: String,
+    micro: u64,
+    fast: u64,
+    slow: u64,
+    r#macro: u64,
+}
+
+/// The full CLI launch plan: exchange + currency + instances.
+struct CliLaunchPlan {
+    exchange: String,
+    currency: String,
+    instances: Vec<CliInstance>,
+}
+
+/// v7.2 parity: the default timeframe ladder is the registry's ladder
+/// (`registry::add_instance` fallback): micro 60s, fast 180s, slow/macro
+/// from the workspace defaults — one canonical source for CLI, GUI, and
+/// registry.
+fn tf_default(slot: &str, workspace: &config_models::WorkspaceConfig) -> u64 {
+    let (micro, fast, slow, r#macro) = workspace.tf_ladder_defaults();
+    match slot {
+        "micro" => micro,
+        "fast" => fast,
+        "slow" => slow,
+        "macro" => r#macro,
+        _ => slow,
     }
 }
 
-fn render_setup_summary(
-    exchange: &str,
-    currency: &str,
-    pair: &str,
-    selected_tfs: &[(&'static str, u64, &'static str)],
-    snapshot_enabled: bool,
-    snapshot_interval: u64,
-    snapshot_path: &str,
-) {
-    println!("\n──────────────────────────────────────────────");
-    println!("Trading Platform — Setup Summary");
-    println!("──────────────────────────────────────────────");
-    println!("  Exchange              : {}", exchange);
-    println!("  Settlement currency   : {}", currency);
-    println!("  Trading pair          : {}", pair);
-    println!("  Timeframes            :");
-    for (label, secs, slot) in selected_tfs {
-        println!("    - {:<6} (slot {}) — {}s", label, slot, secs);
-    }
-    println!(
-        "  Snapshot export       : {} (every {}s, → {})",
-        if snapshot_enabled {
-            "ENABLED"
-        } else {
-            "DISABLED"
-        },
-        snapshot_interval,
-        snapshot_path
-    );
-    println!("──────────────────────────────────────────────\n");
-}
-
-/// Validate that a symbol is tradeable on the chosen exchange.
-/// Mirrors the production-time validation in `registry::add_instance`
-/// so a setup session can't write a `config.toml` that immediately
-/// fails at boot.
-async fn validate_symbol(exchange: &str, base: &str) -> Result<(), String> {
-    use network_adapters::adapters;
-    let cfg = config_models::load_platform().map_err(|e| format!("config load: {}", e))?;
-    let _pair = format!(
-        "{}-{}",
-        base,
-        if exchange.eq_ignore_ascii_case("bitget") {
-            "USDT"
-        } else {
-            "USDC"
-        }
-    );
-    let ex = if exchange.eq_ignore_ascii_case("bitget") {
-        portfolio_supervisor::session::ExchangeChoice::Bitget
+fn tf_label(secs: u64) -> String {
+    if secs % 3600 == 0 {
+        format!("{}h", secs / 3600)
+    } else if secs % 60 == 0 {
+        format!("{}m", secs / 60)
     } else {
-        portfolio_supervisor::session::ExchangeChoice::Hyperliquid
-    };
-    let quote = if exchange.eq_ignore_ascii_case("bitget") {
-        portfolio_supervisor::session::Currency::USDT
-    } else {
-        portfolio_supervisor::session::Currency::USDC
-    };
-    let raw = ex.raw_symbol(base, &quote);
-    let availability = if ex == portfolio_supervisor::session::ExchangeChoice::Bitget {
-        let url = cfg.bitget.ticker_url();
-        let pt = ex.bitget_product_type(&quote).unwrap_or("USDT-FUTURES");
-        adapters::bitget_rest::symbol_exists(&raw, pt, &url).await
-    } else {
-        let url = cfg.hyperliquid.rest_url();
-        adapters::hyperliquid_rest::symbol_exists(base, &url).await
-    };
-    match availability {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(format!(
-            "'{}' isn't available on {} perpetual futures.",
-            base, exchange
-        )),
-        Err(e) => Err(format!("availability check failed: {}", e)),
+        format!("{}s", secs)
     }
 }
 
-/// Apply the prompt result to `config.toml`. We rewrite only the
-/// `[workspace]` table (preserving `[snapshot_export]` if present
-/// already), then re-emit the file. This is the same path
-/// `save_workspace` uses, extended for the snapshot section.
-fn apply_setup_to_config(
-    workspace: &mut config_models::WorkspaceConfig,
-    exchange: &str,
-    currency: &str,
-    pair: &str,
-    selected_tfs: &[(u64, &'static str)], // (timeframe_secs, slot_label)
-    _snapshot_enabled: bool,
-    _snapshot_interval: u64,
-    _snapshot_path: &str,
-) {
-    workspace.default_exchange = exchange.to_string();
-    workspace.default_currency = currency.to_string();
-
-    // Default IndicatorsConfig — used as the base for each TF.
-    let indicators = config_models::IndicatorsConfig::default();
-
-    let tf_for = |secs: u64| config_models::TimeframeConfig::new(secs, indicators.clone());
-
-    let find = |slot: &str| -> Option<u64> {
-        selected_tfs
-            .iter()
-            .find(|(.., s)| *s == slot)
-            .map(|(s, _)| *s)
-    };
-
-    // Replace the instances table with the new entry. This is a
-    // single-pair setup flow; operators wanting many pairs should
-    // hand-edit `config.toml`.
-    workspace.instances = vec![config_models::InstanceEntry {
-        id: pair.to_lowercase(),
-        symbol: pair.to_string(),
-        quote: currency.to_string(),
-        initial_capital_usd: 1000.0,
-        status: config_models::InstanceStatus::Running,
-        micro_term: tf_for(find("micro").unwrap_or(60)),
-        fast_term: tf_for(find("fast").unwrap_or(300)),
-        slow_term: find("slow").map(tf_for),
-        macro_term: find("macro").map(tf_for),
-        automation: config_models::AutomationConfig::default(),
-        operational_mode: config_models::OperationalMode::default(),
-        mode: config_models::ExecutionMode::Paper,
-        weight_overrides: None,
-        position_scaling: None,
-        activation: None,
-        custom_pipelines: std::collections::HashMap::new(),
-    }];
-}
-
-fn apply_snapshot_to_platform(
-    platform: &mut config_models::PlatformConfig,
-    enabled: bool,
-    interval_secs: u64,
-    output_path: &str,
-) {
-    platform.snapshot_export = config_models::SnapshotExportConfig {
-        enabled,
-        output_path: output_path.to_string(),
-        interval_secs,
-        max_snapshots_retained: 1000,
-        tabs: None,
-    };
-}
-
-/// Re-serialise the full `config.toml` (preserving all
-/// platform-level sections not handled by `save_workspace`).
-fn write_full_config(
-    platform: &config_models::PlatformConfig,
+/// Collect the launch configuration from the operator. Exchange/currency
+/// pre-fill from CLI args or workspace defaults; the instance list
+/// pre-seeds from `workspace.instances[]` when present. Mirrors the GUI
+/// wizard's Review step: the summary is printed, then the operator
+/// confirms before anything starts. Returns `None` when the operator
+/// declines to start.
+fn cli_launch_plan(
+    cli: &CliArgs,
     workspace: &config_models::WorkspaceConfig,
-) -> Result<(), String> {
-    // Mirror the `OnDiskConfig` shape in `config-models`.
-    #[derive(serde::Serialize)]
-    struct OnDiskConfig<'a> {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        hyperliquid: Option<&'a config_models::HyperliquidConfig>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        bitget: Option<&'a config_models::BitgetConfig>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        clock_monitor: Option<&'a config_models::ClockMonitorTomlConfig>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        quality: Option<&'a config_models::QualityConfig>,
-        reconnect: &'a config_models::ReconnectConfig,
-        candle_buffer: &'a config_models::CandleBufferConfig,
-        snapshot_export: &'a config_models::SnapshotExportConfig,
-        workspace: &'a config_models::WorkspaceConfig,
-    }
-
-    let on_disk = OnDiskConfig {
-        hyperliquid: Some(&platform.hyperliquid),
-        bitget: Some(&platform.bitget),
-        clock_monitor: platform.clock_monitor.as_ref(),
-        quality: platform.quality.as_ref(),
-        reconnect: &platform.reconnect,
-        candle_buffer: &platform.candle_buffer,
-        snapshot_export: &platform.snapshot_export,
-        workspace,
-    };
-    let body = toml::to_string_pretty(&on_disk).map_err(|e| format!("toml: {}", e))?;
-    std::fs::write("config.toml", body).map_err(|e| format!("write: {}", e))?;
-    Ok(())
-}
-
-async fn run_setup_interactive(cli: &CliArgs) {
+) -> Option<CliLaunchPlan> {
     println!("╔════════════════════════════════════════════╗");
-    println!("║  Trading Platform — Interactive Setup      ║");
+    println!("║  Trading Platform — CLI Launch Setup       ║");
     println!("╚════════════════════════════════════════════╝");
     println!();
-    println!("This flow writes `config.toml` and (optionally) starts the");
-    println!("daemon in headless mode. Press <Enter> to accept each default.");
+    println!("Observe mode: markets + signals are monitored in the terminal —");
+    println!("no orders are ever dispatched. Press <Enter> to accept each default.");
     println!();
 
     // 1. Exchange
+    let default_exchange = cli
+        .exchange
+        .clone()
+        .unwrap_or_else(|| workspace.default_exchange.clone());
     let exchange = {
         loop {
-            let raw = prompt("Exchange (hyperliquid / bitget)", "hyperliquid");
+            let raw = prompt("Exchange (hyperliquid / bitget)", &default_exchange);
             match raw.to_lowercase().as_str() {
                 "hyperliquid" | "hl" => break "hyperliquid".to_string(),
                 "bitget" | "bg" => break "bitget".to_string(),
@@ -515,229 +335,184 @@ async fn run_setup_interactive(cli: &CliArgs) {
     } else {
         "USDC".to_string()
     };
-    println!(
-        "  → Settlement currency forced to {} for {}",
-        currency, exchange
-    );
+    println!("  → Settlement currency forced to {}", currency);
 
-    // 2. Pair
-    let pair_base = {
-        loop {
-            let raw = prompt("Trading pair base symbol (e.g. BTC, ETH, SOL)", "BTC");
-            let cleaned = raw.trim().to_uppercase();
-            if cleaned.is_empty() || cleaned.len() > 10 {
-                eprintln!("  ⚠️  Symbol must be 1–10 chars.");
-                continue;
-            }
-            if !cli.dry_run {
-                match validate_symbol(&exchange, &cleaned).await {
-                    Ok(()) => break cleaned,
-                    Err(e) => {
-                        eprintln!("  ⚠️  {}", e);
-                        if !confirm("Try a different symbol?", false) {
-                            std::process::exit(1);
-                        }
-                    }
-                }
-            } else {
-                break cleaned;
-            }
-        }
-    };
-    let pair = format!("{}-{}", pair_base, currency);
-    println!("  → Pair: {}", pair);
-
-    // 3. Timeframes
-    let tf_choices: &[(&str, &str)] = &[
-        ("micro", "1-min grain — fastest signal, most noise"),
-        ("fast", "5-min grain — intraday"),
-        ("slow", "15-min grain — swing (always recommended)"),
-        ("macro", "60-min grain — positional / regime"),
-    ];
-    let defaults = vec![0usize, 1, 2, 3]; // all four by default
-    let selected_indices = prompt_multi_select(
-        "Timeframes to enable (slot → which candle grain feeds analysis):",
-        tf_choices,
-        &defaults,
-    );
-
-    let mut selected_tfs: Vec<(u64, &'static str)> = Vec::new();
-    for &idx in &selected_indices {
-        let (slot, _desc) = tf_choices[idx];
-        let default_secs = match slot {
-            "micro" => 60u64,
-            "fast" => 300,
-            "slow" => 900,
-            "macro" => 3600,
-            _ => 900,
-        };
-        let secs = prompt_timeframe_secs(
-            &format!("  timeframe_secs for {} (default {}s)", slot, default_secs),
-            default_secs,
-        );
-        selected_tfs.push((secs, slot));
-    }
-    let display_selected: Vec<(&str, u64, &str)> = selected_tfs
+    // 2. Instances — pre-seed from workspace.instances[].
+    let mut instances: Vec<CliInstance> = workspace
+        .instances
         .iter()
-        .map(|(secs, slot)| {
-            let label = match *slot {
-                "micro" => "micro",
-                "fast" => "fast",
-                "slow" => "slow",
-                "macro" => "macro",
-                _ => "?",
-            };
-            (label, *secs, *slot)
+        .filter(|e| !e.symbol.is_empty() && e.status == config_models::InstanceStatus::Running)
+        .filter_map(|e| {
+            let base = e
+                .symbol
+                .split_once('-')
+                .map(|(b, _)| b.to_string())
+                .unwrap_or_default();
+            if base.is_empty() {
+                return None;
+            }
+            Some(CliInstance {
+                base,
+                micro: e.micro_term.candles.duration_seconds,
+                fast: e.fast_term.candles.duration_seconds,
+                slow: e
+                    .slow_term
+                    .as_ref()
+                    .map(|t| t.candles.duration_seconds)
+                    .unwrap_or_else(|| tf_default("slow", workspace)),
+                r#macro: e
+                    .macro_term
+                    .as_ref()
+                    .map(|t| t.candles.duration_seconds)
+                    .unwrap_or_else(|| tf_default("macro", workspace)),
+            })
         })
         .collect();
 
-    // 4. Snapshot export
-    println!("\nSnapshot export — periodic JSON dump for offline data science.");
-    let snapshot_enabled = confirm("Enable snapshot export?", false);
-    let snapshot_interval = if snapshot_enabled {
-        prompt_snapshot_interval()
-    } else {
-        60
-    };
-    let snapshot_path = if snapshot_enabled {
-        prompt("Output directory", "./snapshots")
-    } else {
-        "./snapshots".to_string()
-    };
-
-    render_setup_summary(
-        &exchange,
-        &currency,
-        &pair,
-        &display_selected,
-        snapshot_enabled,
-        snapshot_interval,
-        &snapshot_path,
+    println!(
+        "\nInstances (blank base = finish). {} configured in config.toml — press Enter to keep.",
+        instances.len()
     );
-
-    if cli.dry_run {
-        println!("--dry-run: would write config.toml and exit.");
-        return;
-    }
-
-    if !confirm("Apply these settings to config.toml?", true) {
-        println!("Aborted — config.toml unchanged.");
-        return;
-    }
-
-    // Apply to PlatformConfig + WorkspaceConfig.
-    let mut platform = config_models::load_platform().unwrap_or_default();
-    let mut workspace =
-        config_models::load_workspace().unwrap_or_else(|_| config_models::WorkspaceConfig {
-            id: "main".into(),
-            name: "Main".into(),
-            default_currency: currency.clone(),
-            default_exchange: exchange.clone(),
-            ..Default::default()
-        });
-    apply_setup_to_config(
-        &mut workspace,
-        &exchange,
-        &currency,
-        &pair,
-        &selected_tfs,
-        snapshot_enabled,
-        snapshot_interval,
-        &snapshot_path,
-    );
-    apply_snapshot_to_platform(
-        &mut platform,
-        snapshot_enabled,
-        snapshot_interval,
-        &snapshot_path,
-    );
-    if let Err(e) = write_full_config(&platform, &workspace) {
-        eprintln!("❌ Failed to write config.toml: {}", e);
-        std::process::exit(1);
-    }
-    println!("✅ config.toml updated.");
-
-    if cli.auto_start || confirm("Start the daemon now (headless mode)?", false) {
-        println!("\n🚀 Starting daemon in headless mode...");
-        let exe = std::env::current_exe()
-            .unwrap_or_else(|_| std::path::PathBuf::from("execution-daemon"));
-        let mut cmd = std::process::Command::new(exe);
-        cmd.arg("--mode").arg("headless");
-        if let Some(ref p) = cli.config_path {
-            cmd.arg("--config").arg(p);
+    loop {
+        let default_base = if instances.is_empty() {
+            "BTC".to_string()
+        } else {
+            String::new()
+        };
+        let raw = prompt(
+            &format!(
+                "Instance #{} base symbol (blank = done)",
+                instances.len() + 1
+            ),
+            &default_base,
+        );
+        let cleaned = raw.trim().to_uppercase();
+        if cleaned.is_empty() {
+            break;
         }
-        match cmd.spawn() {
-            Ok(child) => {
-                println!(
-                    "Daemon spawned (pid {}). Logs go to engine.log.",
-                    child.id()
-                );
+        if cleaned.len() > 10 || !cleaned.chars().all(|c| c.is_ascii_alphanumeric()) {
+            eprintln!("  ⚠️  Symbol must be 1-10 alphanumeric characters.");
+            continue;
+        }
+        if instances.iter().any(|i| i.base == cleaned) {
+            eprintln!("  ⚠️  {} is already in the list.", cleaned);
+            continue;
+        }
+        let micro = prompt_timeframe_secs(
+            &format!(
+                "  micro timeframe_secs (default {}s)",
+                tf_default("micro", workspace)
+            ),
+            tf_default("micro", workspace),
+        );
+        let fast = prompt_timeframe_secs(
+            &format!(
+                "  fast timeframe_secs (default {}s)",
+                tf_default("fast", workspace)
+            ),
+            tf_default("fast", workspace),
+        );
+        let slow = prompt_timeframe_secs(
+            &format!(
+                "  slow timeframe_secs (default {}s)",
+                tf_default("slow", workspace)
+            ),
+            tf_default("slow", workspace),
+        );
+        let r#macro = prompt_timeframe_secs(
+            &format!(
+                "  macro timeframe_secs (default {}s)",
+                tf_default("macro", workspace)
+            ),
+            tf_default("macro", workspace),
+        );
+        instances.push(CliInstance {
+            base: cleaned,
+            micro,
+            fast,
+            slow,
+            r#macro,
+        });
+    }
+
+    if instances.is_empty() {
+        println!(
+            "\n⚠️  No instances configured — the terminal monitor will show an empty workspace."
+        );
+        println!("   Add instances later from the dashboard, or restart with `--mode cli`.");
+    }
+
+    // 3. Summary + confirm
+    println!("\n──────────────────────────────────────────────");
+    println!("Trading Platform — CLI Launch Summary");
+    println!("──────────────────────────────────────────────");
+    println!("  Mode                 : observe (monitoring only)");
+    println!("  Exchange             : {}", exchange);
+    println!("  Settlement currency  : {}", currency);
+    for inst in &instances {
+        println!(
+            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} (observe)",
+            inst.base,
+            currency,
+            tf_label(inst.micro),
+            tf_label(inst.fast),
+            tf_label(inst.slow),
+            tf_label(inst.r#macro),
+        );
+    }
+    println!("──────────────────────────────────────────────\n");
+
+    if !confirm("Start the monitor now?", true) {
+        println!("Aborted — nothing was started and config.toml was not modified.");
+        return None;
+    }
+
+    Some(CliLaunchPlan {
+        exchange,
+        currency,
+        instances,
+    })
+}
+
+/// Spawn one CLI instance with retry + backoff (same policy as the boot
+/// auto-spawn loop). The instance is created through the registry so it
+/// persists into config.toml via `save_workspace` and carries the
+/// observe session default.
+async fn spawn_cli_instance(
+    ctx: &portfolio_supervisor::registry_context::RegistryContext,
+    base: &str,
+    quote: &str,
+) {
+    let mut attempt = 0u32;
+    loop {
+        match portfolio_supervisor::registry::add_instance(
+            ctx,
+            (base.to_string(), quote.to_string()),
+        )
+        .await
+        {
+            Ok(_inst) => {
+                println!("✅ Instance spawned: {}-{}", base, quote);
+                return;
             }
             Err(e) => {
-                eprintln!("❌ Failed to spawn daemon: {}", e);
-                eprintln!("Run `./manage.sh run-silent` when ready.");
+                attempt += 1;
+                if attempt >= 20 {
+                    eprintln!(
+                        "⚠️  Failed to spawn instance {}-{} after {} attempts: {} — retry on next restart",
+                        base, quote, attempt, e
+                    );
+                    return;
+                }
+                eprintln!(
+                    "⚠️  Failed to spawn instance {}-{} (attempt {}): {} — retrying in 30 s",
+                    base, quote, attempt, e
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             }
         }
-    } else {
-        println!("\nRun `./manage.sh run-silent` (or `--mode headless`) when ready.");
     }
 }
-
-fn run_setup_status(cli: &CliArgs) {
-    let platform = match config_models::load_platform() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("❌ Failed to load platform config: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let workspace = match config_models::load_workspace() {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("❌ Failed to load workspace config: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let rt = execution_daemon::snapshot_export::runtime_from_config(&platform.snapshot_export);
-
-    println!("──────────────────────────────────────────────");
-    println!("Trading Platform — Snapshot Export Status");
-    println!("──────────────────────────────────────────────");
-    println!(
-        "  Config path            : {}",
-        cli.config_path
-            .as_deref()
-            .unwrap_or("(default: ./config.toml)")
-    );
-    println!("  Enabled                : {}", rt.enabled);
-    println!("  Output path            : {}", rt.output_path);
-    println!("  Interval (s)           : {}", rt.interval_secs);
-    println!("  Retention              : {}", rt.max_snapshots_retained);
-    println!(
-        "  Tabs ({}):              : {}",
-        rt.tabs.len(),
-        rt.tabs.join(", ")
-    );
-    println!(
-        "  Last snapshot          : {}",
-        rt.last_snapshot_at
-            .map(|d| d.to_rfc3339())
-            .unwrap_or_else(|| "(none yet)".into())
-    );
-    println!("  Total written          : {}", rt.total_snapshots_written);
-    println!(
-        "  Last error             : {}",
-        rt.last_error.clone().unwrap_or_else(|| "(none)".into())
-    );
-    println!("  Active instances       : {}", workspace.instances.len());
-    println!("  Default exchange       : {}", workspace.default_exchange);
-    println!("  Default currency       : {}", workspace.default_currency);
-    println!("──────────────────────────────────────────────");
-    println!("NOTE: live runtime counters (last_snapshot_at, total_written,");
-    println!("       last_error, last_instance_count) update only when a");
-    println!("       daemon is running. Use `./manage.sh status` to check.");
-}
-
 // ─── Main ────────────────────────────────────────────────────────────
 
 /// v6.10.19a: the canonical per-pair risk feeding the L7 risk mean is the
@@ -767,34 +542,6 @@ async fn main() {
     }
 
     let _ = rustls::crypto::ring::default_provider().install_default();
-
-    // ── Setup subcommand early-exit ─────────────────────────────────
-    //
-    // The setup flow is interactive (or `--dry-run`) and does its
-    // own config.toml I/O + (optionally) spawns the daemon as a
-    // child process. It must short-circuit BEFORE the heavy daemon
-    // bootstrap (DB pool, telemetry logger, workspace state, …)
-    // fires.
-    if matches!(cli.mode, LaunchMode::Setup) {
-        let sub = cli.setup_mode.as_deref().unwrap_or("interactive");
-        match sub {
-            "status" => {
-                run_setup_status(&cli);
-                std::process::exit(0);
-            }
-            "interactive" | "setup" => {
-                run_setup_interactive(&cli).await;
-                std::process::exit(0);
-            }
-            other => {
-                eprintln!(
-                    "Unknown --sub value: '{}' (expected 'interactive' or 'status')",
-                    other
-                );
-                std::process::exit(2);
-            }
-        }
-    }
 
     println!("⚙️  Trading Platform: Loading Master Configuration...");
 
@@ -826,13 +573,12 @@ async fn main() {
     );
 
     match cli.mode {
-        LaunchMode::Headless => println!("🤖 Launch mode: HEADLESS (auto-spawn, no Welcome Gate)"),
+        LaunchMode::Cli => println!("🖥️  Launch mode: CLI (terminal monitor, observe-only)"),
         LaunchMode::Web => {
-            println!("🖥️  Launch mode: WEB (Welcome Gate will prompt for exchange/currency)")
+            println!(
+                "🖥️  Launch mode: WEB (Launch Setup wizard will prompt for mode/exchange/currency)"
+            )
         }
-        // Setup is short-circuited at the top of main(); this arm
-        // exists for exhaustiveness only.
-        LaunchMode::Setup => unreachable!("Setup is short-circuited at the top of main()"),
     }
 
     println!("🗄️  Initializing local SQLite telemetry database...");
@@ -941,14 +687,62 @@ async fn main() {
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
     });
 
-    // ── Session auto-init (headless and web mode) ──────────────────
+    // ── Launch plan (CLI mode: interactive; web mode: config-driven) ──
+    //
+    // CLI mode prompts the operator for exchange/currency/instances BEFORE
+    // spawning anything — the plan is written into the workspace config so
+    // `registry::add_instance` resolves the per-TF durations, then every
+    // instance is spawned with the boot retry policy.
+    let cli_plan: Option<CliLaunchPlan> = if matches!(cli.mode, LaunchMode::Cli) {
+        cli_launch_plan(&cli, &workspace)
+    } else {
+        None
+    };
+    // Aborted at the Review step — exit cleanly before any heavy boot.
+    let cli_start = matches!(cli.mode, LaunchMode::Cli) && cli_plan.is_some();
+    if matches!(cli.mode, LaunchMode::Cli) && !cli_start {
+        std::process::exit(0);
+    }
+
+    // ── Session auto-init (web and cli mode) ──────────────────────
     //
     // In both modes we initialise the session so that instances can be
     // spawned. In web mode the user may re-select the exchange via the
-    // Welcome Gate; the gate handler will overwrite the session fields.
+    // Launch Setup wizard; the gate handler will overwrite the session
+    // fields. CLI mode uses the interactive plan and pins the session to
+    // observe (no orders ever dispatched).
     {
-        let exchange = cli.resolve_exchange(&workspace.default_exchange);
-        let currency = cli.resolve_currency(&workspace.default_currency);
+        let (exchange, currency) = match &cli_plan {
+            Some(plan) => {
+                let ex = if plan.exchange.eq_ignore_ascii_case("bitget") {
+                    ExchangeChoice::Bitget
+                } else {
+                    ExchangeChoice::Hyperliquid
+                };
+                let cur = if plan.currency.eq_ignore_ascii_case("USDT") {
+                    Currency::USDT
+                } else {
+                    Currency::USDC
+                };
+                (ex, cur)
+            }
+            None => (
+                cli.resolve_exchange(&workspace.default_exchange),
+                cli.resolve_currency(&workspace.default_currency),
+            ),
+        };
+        // v7.2 parity: CLI mode pins the session defaults FIRST (mode
+        // observe) and then initialises the session — the same ordering
+        // as the web handler `POST /api/session/init`
+        // (`set_session_defaults` then `init_session`). The session
+        // default drives every instance's `ExecutionMode` via
+        // `registry::add_instance`.
+        if cli_plan.is_some() {
+            app_state
+                .session
+                .set_session_defaults(Some("observe".to_string()), None)
+                .await;
+        }
         if let Err(e) = app_state.init_session(currency, exchange).await {
             eprintln!("⚠️  Session auto-init failed: {}", e);
         } else {
@@ -958,82 +752,130 @@ async fn main() {
                 exchange.as_str(),
             );
         }
+        if cli_plan.is_some() {
+            println!("✅ Session mode: observe (monitoring only — no orders dispatched)");
+        }
     }
 
-    // ── Instance auto-spawn (both modes) ───────────────────────────
+    // ── CLI plan → workspace config (per-instance TF durations) ────
+    if let Some(plan) = &cli_plan {
+        let mut cfg = workspace_state.config().await;
+        for inst in &plan.instances {
+            let symbol = format!("{}-{}", inst.base, plan.currency);
+            if cfg.instances.iter().any(|e| e.symbol == symbol) {
+                continue;
+            }
+            let indicators = config_models::IndicatorsConfig::default();
+            let tf = |secs: u64| config_models::TimeframeConfig::new(secs, indicators.clone());
+            cfg.instances.push(config_models::InstanceEntry {
+                id: format!("inst_{}", inst.base.to_lowercase()),
+                symbol,
+                quote: plan.currency.clone(),
+                initial_capital_usd: 1000.0,
+                status: config_models::InstanceStatus::Running,
+                micro_term: tf(inst.micro),
+                fast_term: tf(inst.fast),
+                slow_term: Some(tf(inst.slow)),
+                macro_term: Some(tf(inst.r#macro)),
+                automation: config_models::AutomationConfig::default(),
+                operational_mode: config_models::OperationalMode::Advisory,
+                mode: config_models::ExecutionMode::Observe,
+                weight_overrides: None,
+                position_scaling: None,
+                activation: None,
+                custom_pipelines: std::collections::HashMap::new(),
+            });
+        }
+        let _ = config_models::save_workspace(&cfg);
+        workspace_state.set_config(cfg).await;
+        println!(
+            "✅ CLI launch plan applied to workspace config ({} instance{})",
+            plan.instances.len(),
+            if plan.instances.len() == 1 { "" } else { "s" }
+        );
+    }
+
+    // ── Instance auto-spawn (web and cli mode) ─────────────────────
     //
-    // Every entry in workspace.instances[] is spawned automatically.
-    // In web mode the user may additionally add more pairs via the GUI.
-    // In headless mode this is the ONLY way instances are created.
+    // Web mode: every entry in workspace.instances[] is spawned
+    // automatically; the user may additionally add more pairs via the GUI.
+    // CLI mode: the interactive plan's instances are spawned with the same
+    // retry policy.
     //
     // **v6.5 fix (AUDIT-V7-306):** the session is left `active = true`
-    // through the auto-spawn loop. The Welcome Gate only needs the
+    // through the auto-spawn loop. The Launch Setup wizard only needs the
     // session fields (exchange, currency), not the `active` flag — and
     // `add_instance` rejects inactive sessions. We flip to inactive
     // **after** the loop completes, so configured instances bootstrap on
-    // cold start in `--web` mode just like `--headless`.
+    // cold start in `--web` mode just like `--cli`.
     {
         let ctx = app_state.registry_context();
-        for entry in &workspace.instances {
-            if entry.symbol.is_empty() {
-                continue;
+        if let Some(plan) = &cli_plan {
+            for inst in &plan.instances {
+                spawn_cli_instance(&ctx, &inst.base, &plan.currency).await;
             }
-            // M7 (production audit): honor the persisted lifecycle status —
-            // paused/stopped instances were force-started on every restart.
-            if entry.status != config_models::InstanceStatus::Running {
-                eprintln!(
-                    "⏸️  Instance {} skipped at boot (status = {:?})",
-                    entry.symbol, entry.status
-                );
-                continue;
-            }
-            let (base, quote) = match entry.symbol.split_once('-') {
-                Some((b, q)) => (b.to_string(), q.to_string()),
-                None => {
-                    eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
+        } else {
+            for entry in &workspace.instances {
+                if entry.symbol.is_empty() {
                     continue;
                 }
-            };
-            // M7 (production audit): instance creation is gated on a live
-            // exchange symbol_exists REST call — an offline boot previously
-            // failed every instance with NO retry, leaving an empty
-            // deployment. Retry with backoff for up to ~10 minutes so a
-            // boot-time network blip self-heals.
-            let mut attempt = 0u32;
-            loop {
-                match registry::add_instance(&ctx, (base.clone(), quote.clone())).await {
-                    Ok(_inst) => {
-                        println!("✅ Instance spawned: {}", entry.symbol);
-                        break;
+                // M7 (production audit): honor the persisted lifecycle status —
+                // paused/stopped instances were force-started on every restart.
+                if entry.status != config_models::InstanceStatus::Running {
+                    eprintln!(
+                        "⏸️  Instance {} skipped at boot (status = {:?})",
+                        entry.symbol, entry.status
+                    );
+                    continue;
+                }
+                let (base, quote) = match entry.symbol.split_once('-') {
+                    Some((b, q)) => (b.to_string(), q.to_string()),
+                    None => {
+                        eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
+                        continue;
                     }
-                    Err(e) => {
-                        attempt += 1;
-                        if attempt >= 20 {
-                            eprintln!(
-                                "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
-                                entry.symbol, attempt, e
-                            );
+                };
+                // M7 (production audit): instance creation is gated on a live
+                // exchange symbol_exists REST call — an offline boot previously
+                // failed every instance with NO retry, leaving an empty
+                // deployment. Retry with backoff for up to ~10 minutes so a
+                // boot-time network blip self-heals.
+                let mut attempt = 0u32;
+                loop {
+                    match registry::add_instance(&ctx, (base.clone(), quote.clone())).await {
+                        Ok(_inst) => {
+                            println!("✅ Instance spawned: {}", entry.symbol);
                             break;
                         }
-                        eprintln!(
-                            "⚠️  Failed to spawn instance {} (attempt {}): {} — retrying in 30 s",
-                            entry.symbol, attempt, e
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        Err(e) => {
+                            attempt += 1;
+                            if attempt >= 20 {
+                                eprintln!(
+                                    "⚠️  Failed to spawn instance {} after {} attempts: {} — retry on next restart",
+                                    entry.symbol, attempt, e
+                                );
+                                break;
+                            }
+                            eprintln!(
+                                "⚠️  Failed to spawn instance {} (attempt {}): {} — retrying in 30 s",
+                                entry.symbol, attempt, e
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        }
                     }
                 }
             }
         }
 
         // v6.5 (AUDIT-V7-306): in web mode, mark session inactive AFTER
-        // auto-spawn so the Welcome Gate still appears on first page load
-        // but cold-start bootstrap is no longer skipped.
+        // auto-spawn so the Launch Setup wizard still appears on first page
+        // load but cold-start bootstrap is no longer skipped.
         if matches!(cli.mode, LaunchMode::Web) {
             app_state
                 .session
                 .active
                 .store(false, std::sync::atomic::Ordering::Relaxed);
-            println!("   (session marked inactive for Welcome Gate)");
+            println!("   (session marked inactive for Launch Setup wizard)");
         }
     }
 
@@ -1205,8 +1047,6 @@ async fn main() {
         println!("🕒 Clock Monitor: no [clock_monitor] section — drift enforcement disabled");
     }
 
-    let app = build_router(app_state.clone());
-
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     handles.push(logger_handle);
 
@@ -1332,32 +1172,41 @@ async fn main() {
                                 tae_engine.mark_to_market(&symbol, mid).await;
                             }
 
+                            // v7.1+: Observe instances are market-monitoring
+                            // only — no fills processing and no setup
+                            // evaluation. The setup executor never dispatches
+                            // orders for them.
+                            let is_observe = inst.execution_mode().await
+                                == config_models::ExecutionMode::Observe;
+
                             // Fills first (entry, TP, SL), then the state machine.
-                            if tae_engine.mode().await == config_models::ExecutionMode::Live {
-                                let fills = tae_engine
-                                    .backend
-                                    .read()
-                                    .await
-                                    .poll_fills()
+                            if !is_observe {
+                                if tae_engine.mode().await == config_models::ExecutionMode::Live {
+                                    let fills = tae_engine
+                                        .backend
+                                        .read()
+                                        .await
+                                        .poll_fills()
+                                        .await;
+                                    tae_engine.apply_external_fills(fills).await;
+                                } else {
+                                    tae_engine.evaluate_order_fills(mid).await;
+                                }
+                                executor
+                                    .tick(
+                                        &inst.id,
+                                        &symbol,
+                                        snaps,
+                                        mid,
+                                        portfolio_supervisor::setup_executor::TickContext {
+                                            safety_allows_entry: safety_allows,
+                                            lifecycle_running,
+                                            candle_ts,
+                                            safety: Some(inst.safety.clone()),
+                                        },
+                                    )
                                     .await;
-                                tae_engine.apply_external_fills(fills).await;
-                            } else {
-                                tae_engine.evaluate_order_fills(mid).await;
                             }
-                            executor
-                                .tick(
-                                    &inst.id,
-                                    &symbol,
-                                    snaps,
-                                    mid,
-                                    portfolio_supervisor::setup_executor::TickContext {
-                                        safety_allows_entry: safety_allows,
-                                        lifecycle_running,
-                                        candle_ts,
-                                        safety: Some(inst.safety.clone()),
-                                    },
-                                )
-                                .await;
 
                             // Equity sync + PME informational safety update
                             // (peak equity, daily PnL, WARN / DRAWDOWN_STOP).
@@ -1392,6 +1241,12 @@ async fn main() {
                 let mut advisories: Vec<core_domain::advisory::AdvisoryMatrix> = Vec::new();
                 let mut alignments: Vec<core_domain::alignment::AlignmentMatrix> = Vec::new();
                 let mut metas: Vec<core_domain::overview::InstanceMeta> = Vec::new();
+                // v7.2 parity: the panel builder consumes the SAME per-TF
+                // snapshots below (fastest-present reference window) so the
+                // hero / rows / buckets are derived from the identical data
+                // the L7 aggregates read.
+                let mut panel_instances: Vec<core_domain::overview_panel::PanelInstance> =
+                    Vec::new();
                 for inst in &instances {
                     let snapshots = inst.active_pair.latest_snapshots_all_tf().await;
                     // v6.10.18 (I-2): the L7 aggregates ALL FOUR timeframe
@@ -1487,9 +1342,41 @@ async fn main() {
                         ),
                         risk_windows,
                     });
+                    // v7.2 parity: feed the panel builder the present
+                    // snapshots (fastest first) + lifecycle-active flag.
+                    let present_snaps: Vec<core_domain::models::MarketSnapshot> = snaps
+                        .iter()
+                        .filter_map(|s| s.as_ref().map(|x| (*x).clone()))
+                        .collect();
+                    panel_instances.push(core_domain::overview_panel::PanelInstance {
+                        symbol: inst.symbol(),
+                        snapshots: present_snaps,
+                        is_active,
+                        // rank score is attached after compute_overview.
+                        rank_score: 0.0,
+                    });
                 }
-                let overview =
+                let mut overview =
                     core_domain::overview::compute_overview(&advisories, &metas, &alignments);
+                // v7.2 parity: canonical AssetRank scores → the panel rows,
+                // then merge the server-computed panel payload into the
+                // matrix. Both the dashboard and the CLI renderer read the
+                // merged fields — one producer, one result.
+                let ranks: std::collections::HashMap<String, f64> = overview
+                    .asset_ranking
+                    .iter()
+                    .map(|r| (r.symbol.clone(), r.score))
+                    .collect();
+                for pi in &mut panel_instances {
+                    pi.rank_score = ranks.get(&pi.symbol).copied().unwrap_or(0.0);
+                }
+                let panel =
+                    core_domain::overview_panel::build_overview_panel(&panel_instances, &ranks);
+                overview.hero = panel.hero;
+                overview.overview_rows = panel.rows;
+                overview.signal_quality = panel.signal_quality;
+                overview.direction_distribution = panel.direction_distribution;
+                overview.market_health_dims = panel.market_health_dims;
                 *overview_ref.write().await = Some(overview);
             }
         }));
@@ -1511,18 +1398,52 @@ async fn main() {
         }));
     }
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .expect("❌ Web Server Setup: Failed to bind port 3000");
-
-    println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
-
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app)
+    // ── Launch surface: CLI terminal monitor vs web server ──────────
+    //
+    // CLI mode binds NO HTTP server (lighter — no GUI, no WS surface) and
+    // runs the periodic terminal monitor over the same L7 overview the
+    // dashboard would render. `--save` flips the snapshot-export runtime on.
+    if matches!(cli.mode, LaunchMode::Cli) {
+        if cli.save_snapshots {
+            let mut rt = snapshot_export_runtime.write().await;
+            rt.enabled = true;
+            if rt.output_path.is_empty() {
+                rt.output_path = "./snapshots".to_string();
+            }
+            println!("💾 Snapshot export ENABLED (--save) → {}", rt.output_path);
+        }
+        let (ex_label, cur_label) = match &cli_plan {
+            Some(plan) => (plan.exchange.as_str(), plan.currency.as_str()),
+            None => (
+                workspace.default_exchange.as_str(),
+                workspace.default_currency.as_str(),
+            ),
+        };
+        let session_line = format!("observe · {} · {}", ex_label, cur_label);
+        handles.push(tokio::spawn(
+            execution_daemon::cli_renderer::run_terminal_monitor(
+                app_state.overview.clone(),
+                workspace_state.clone(),
+                cli.interval_secs,
+                session_line,
+                CancellationToken::new(),
+            ),
+        ));
+    } else {
+        let app = build_router(app_state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
             .await
-            .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
-    });
-    handles.push(server_handle);
+            .expect("❌ Web Server Setup: Failed to bind port 3000");
+
+        println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+        });
+        handles.push(server_handle);
+    }
 
     let eval_cancel = CancellationToken::new();
     let eval_cancel1 = eval_cancel.clone();

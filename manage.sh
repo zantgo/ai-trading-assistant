@@ -26,7 +26,7 @@ show_help() {
     echo "  build              Compile frontend assets and verify cargo workspace compiles"
     echo "  run                Run the engine in the foreground with live logs (web mode)"
     echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
-    echo "  run-headless       Run in headless mode (no Welcome Gate, auto-spawns instances from config.toml, API server active for monitoring)"
+    echo "  run-cli            Run the terminal monitor (--mode cli, observe-only, no web server)"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
     echo "  test               Run all test suites (core → indicators → engine → ui)"
@@ -114,25 +114,17 @@ run_silent() {
     start_daemon "--web"
 }
 
-run_headless() {
+run_cli() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
-        echo "⚠️  Frontend build missing (needed for monitoring). Triggering compilation first..."
-        build
+        echo "⚠️  Frontend build missing (not required for CLI mode — the web UI is skipped entirely)."
     fi
 
-    if [ -f "$PID_FILE" ]; then
-        PID=$(cat "$PID_FILE")
-        if kill -0 "$PID" 2>/dev/null; then
-            echo "⚠️  Engine is already running in the background (PID: $PID)."
-            exit 0
-        fi
-    fi
-
-    echo "🚀 Starting Trading Platform in HEADLESS mode..."
-    echo "   🔧 No Welcome Gate — session auto-initialised from config.toml"
-    echo "   📡 Instances auto-spawned from workspace.instances[]"
-    echo "   🌐 API server on port 3000 for monitoring"
-    start_daemon "--mode headless"
+    echo "🚀 Starting Trading Platform in CLI mode (terminal monitor)..."
+    echo "   🔧 Observe-only session — markets + signals, no orders dispatched"
+    echo "   📡 Instances from the interactive launch prompt (pre-filled from config.toml)"
+    echo "   🖥️  No web server — the L7 overview redraws in your terminal"
+    echo "   💾 Add --save to the daemon args to enable snapshot-export JSON dumps"
+    cargo run --bin execution-daemon -- --mode cli
 }
 
 stop_instance() {
@@ -375,8 +367,8 @@ case "$1" in
     run-silent)
         run_silent
         ;;
-    run-headless)
-        run_headless
+    run-cli)
+        run_cli
         ;;
     stop)
         stop_instance

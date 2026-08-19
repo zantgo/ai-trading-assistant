@@ -63,6 +63,15 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 
+    // v7.2 parity: the workspace slow/macro ladder (registry fallback
+    // source) — the Launch Setup wizard's per-instance TF defaults.
+    const slowTf = (config.slow_timeframe as { duration_seconds?: number } | undefined)
+        ?.duration_seconds;
+    const macroTf = (config.macro_timeframe as { duration_seconds?: number } | undefined)
+        ?.duration_seconds;
+    if (typeof slowTf === 'number' && slowTf > 0) app.workspaceSlowTimeframeSecs = slowTf;
+    if (typeof macroTf === 'number' && macroTf > 0) app.workspaceMacroTimeframeSecs = macroTf;
+
     // `instances` is a `Vec<InstanceEntry>` on the wire (array, not Record)
     // — each entry carries `symbol` (exchange-native, e.g. "BTC-USDT") and
     // `id`. Index by the pair key so per-instance timeframe config

@@ -151,6 +151,24 @@ pub struct OverviewMatrix {
     pub global_summary: String,
     pub instance_count: u32,
     pub active_symbols: Vec<String>,
+    /// v7.2 parity: server-computed hero verdict (TRADE / WAIT /
+    /// STAND_ASIDE) — single source for GUI + CLI overview panels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hero: Option<crate::overview_panel::OverviewHero>,
+    /// v7.2 parity: per-instance asset-ranking rows (price, signal,
+    /// direction, R:R, confidence, MTF, risk, updated) — the GUI's
+    /// 12-column table and the CLI renderer read the same rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overview_rows: Vec<crate::overview_panel::OverviewRow>,
+    /// v7.2 parity: signal-quality buckets (strong/moderate/weak).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_quality: Option<crate::overview_panel::SignalQuality>,
+    /// v7.2 parity: direction counts (long/short/neutral).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction_distribution: Option<crate::overview_panel::DirectionDistribution>,
+    /// v7.2 parity: market-health sub-dimension bars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_health_dims: Option<crate::overview_panel::MarketHealthDims>,
 }
 
 impl OverviewMatrix {
@@ -179,6 +197,11 @@ impl OverviewMatrix {
             global_summary: "No active instances — no market data available.".into(),
             instance_count: 0,
             active_symbols: Vec::new(),
+            hero: None,
+            overview_rows: Vec::new(),
+            signal_quality: None,
+            direction_distribution: None,
+            market_health_dims: None,
         }
     }
 }
@@ -661,6 +684,14 @@ pub fn compute_overview(
         alignment_distribution,
         alignment_consensus_index,
         multi_tf_agreement_pct,
+        // v7.2 parity: the L7 task merges the overview-panel payload
+        // (hero / rows / signal quality / directions / health bars)
+        // after `compute_overview` returns — empty here by default.
+        hero: None,
+        overview_rows: Vec::new(),
+        signal_quality: None,
+        direction_distribution: None,
+        market_health_dims: None,
     }
 }
 

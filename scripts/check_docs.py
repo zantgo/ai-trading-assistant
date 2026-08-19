@@ -991,6 +991,32 @@ def check_g16_open_item_targets():
     if errors == 0:
         ok(f"All {rows} Open Items rows carry a target ≥ v{cur[0]}.{cur[1]} or 'Unscheduled'")
 
+# ── G18: CLI ↔ GUI Observe-Mode Parity (01-10) ─────────────────────────
+# The parity contract is a release gate: the doc must exist, carry all 13
+# checks, and the renderer's field-coverage test must be present in the
+# CLI renderer source (the automated half of the contract).
+def check_cli_gui_parity():
+    print("\n=== G18: CLI ↔ GUI Observe-Mode Parity (01-10) ===")
+    doc = ROOT / "conceptual-foundations/01-10-cli-gui-parity.md"
+    if not doc.exists():
+        fail("01-10-cli-gui-parity.md missing — the parity contract doc was removed")
+        return
+    text = doc.read_text()
+    missing = [f"C{n}" for n in range(1, 14) if f"C{n}" not in text]
+    if missing:
+        fail(f"01-10 parity checklist incomplete — missing rows: {', '.join(missing)}")
+    else:
+        ok("01-10 carries all 13 parity checks (C1–C13)")
+    renderer = ROOT.parent / "crates/execution-daemon/src/cli_renderer.rs"
+    if renderer.exists():
+        rt = renderer.read_text()
+        if "frame_covers_every_gui_panel_field" in rt:
+            ok("cli_renderer.rs carries the field-coverage parity test")
+        else:
+            fail("cli_renderer.rs lost the field-coverage parity test")
+    else:
+        fail("cli_renderer.rs not found")
+
 # ═══════════════════════════════════════════════════════════════════════
 # LEGACY REGRESSION CHECKS (retained from the v6.2 gate)
 # ═══════════════════════════════════════════════════════════════════════
@@ -1357,6 +1383,7 @@ def main():
     check_g15_index_agreement()
     check_g16_open_item_targets()
     check_g17_export_schema()
+    check_cli_gui_parity()
     # Legacy regression checks retained from the v6.2 gate
     check_retired_terms()
     check_section_refs()

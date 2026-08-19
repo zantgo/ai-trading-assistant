@@ -10,7 +10,7 @@
     import BottomConsole from './components/BottomConsole.svelte';
     import FullscreenChartModal from './components/FullscreenChartModal.svelte';
     import SvgIcon from './lib/SvgIcon.svelte';
-    import WelcomeGate from './WelcomeGate.svelte';
+    import LaunchSetup from './LaunchSetup.svelte';
     import QuitDialog from './QuitDialog.svelte';
 
     import styles from './styles/brutalist-grid.module.css';
@@ -458,7 +458,7 @@
 {#if !app.sessionChecked}
     <div class={styles.loading}><div class={styles.spinner}></div><span>Connecting to Trading Platform…</span></div>
 {:else if !app.sessionActive}
-    <WelcomeGate />
+    <LaunchSetup />
 {:else}
     <div class={styles.gridContainer}>
 

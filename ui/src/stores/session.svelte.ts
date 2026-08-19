@@ -3,7 +3,7 @@ export class SessionStore {
     sessionCurrency = $state<string>('USDT');
     sessionExchange = $state<string>('Hyperliquid');
     sessionCapital = $state(1000);
-    sessionMode = $state<'paper' | 'live'>('paper');
+    sessionMode = $state<'observe' | 'paper' | 'live'>('observe');
     sessionInstanceCount = $state(0);
     sessionLoading = $state(false);
     sessionChecked = $state(false);
@@ -22,7 +22,9 @@ export class SessionStore {
                 this.sessionCurrency = data.currency || 'USDT';
                 this.sessionExchange = data.exchange || 'Hyperliquid';
                 if (data.capital) this.sessionCapital = data.capital;
-                if (data.mode) this.sessionMode = data.mode;
+                if (data.mode === 'observe' || data.mode === 'paper' || data.mode === 'live') {
+                    this.sessionMode = data.mode;
+                }
                 this.sessionInstanceCount = data.instance_count || 0;
             }
         } catch (_) { /* backend may not be ready yet */ } finally { this.sessionChecked = true; }
@@ -31,7 +33,7 @@ export class SessionStore {
     async initSession(
         currency: string,
         exchange: string,
-        mode: 'paper' | 'live' = 'paper',
+        mode: 'observe' | 'paper' | 'live' = 'observe',
         capital?: number,
     ): Promise<{ success: boolean; error?: string }> {
         this.sessionLoading = true; this.sessionError = null;

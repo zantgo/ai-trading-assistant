@@ -10,8 +10,31 @@
 
     const app = useAppStore();
 
+    // v7.2 parity: the server-computed hero (single source, also rendered
+    // by the CLI monitor) provides the best-opportunity summary; the local
+    // derivation is the warmup fallback.
     const summary = $derived.by(() => {
+        const serverHero = app.overviewMatrix?.hero;
+        const serverTotal = app.overviewMatrix?.instance_count ?? 0;
         const instances = Object.values(app.instancesMap);
+        if (serverHero && serverHero.candidate_count > 0) {
+            return {
+                validSetups: Math.min(serverHero.actionable_count, serverTotal),
+                total: serverTotal,
+                best: serverHero.best_symbol
+                    ? {
+                        symbol: serverHero.best_symbol,
+                        direction: serverHero.best_direction,
+                        rr: serverHero.best_rr,
+                        confidence: serverHero.best_confidence,
+                        opportunityScore: serverHero.best_score,
+                    }
+                    : null,
+                actionableCount: serverHero.actionable_count,
+                totalCandidates: serverHero.candidate_count,
+                highestConfidence: serverHero.best_confidence,
+            };
+        }
         const setups = collectActiveSetups(instances);
         const actionable = setups.filter(
             (s) => s.viability === 'Actionable' && s.readiness === 'READY',

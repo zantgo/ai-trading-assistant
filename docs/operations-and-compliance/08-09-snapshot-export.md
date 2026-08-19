@@ -26,11 +26,11 @@ daemon's HTTP handlers):
 | Path | Use when |
 |---|---|
 | **GUI modal** (bottom-left "SCHEDULE SNAPSHOTS" button on the Market Overview dashboard) | The operator has the dashboard open and wants to toggle the schedule interactively. |
-| **CLI subcommand** (`cargo run --bin execution-daemon -- setup` or `--sub status`) | The operator is on a headless machine and wants to write `config.toml` then (optionally) auto-spawn the daemon. |
+| **CLI `--save` flag** (`cargo run --bin execution-daemon -- --mode cli --save`) | The operator is on a headless machine and wants the terminal monitor to also write JSON dumps. `--save` enables the task even when `[snapshot_export]` is disabled in `config.toml`. |
 
 The two paths share the same on-disk state — `config.toml` is the boot-time source of truth, the GUI
 modal is the runtime source of truth, and `GET /api/snapshot-export/status` exposes both as a single
-JSON document.
+JSON document (CLI mode has no HTTP surface; `--save` simply flips the runtime flag at boot).
 
 ---
 
@@ -51,48 +51,33 @@ JSON document.
 5. Click **Save** — the change takes effect on the next tick (no daemon restart).
 6. Click **Run Now** if you want an immediate snapshot.
 
-### 2.2 CLI
+### 2.2 CLI (`--mode cli`)
 
 ```bash
-# 1. Run the interactive setup flow.
+# 1. Launch the terminal monitor with snapshot export enabled.
 cd /path/to/quant-trading-platform
-cargo run --bin execution-daemon -- setup
+cargo run --bin execution-daemon -- --mode cli --save
 
-# ── Interactive prompts ───────────────────────────────────────────
-# Exchange (hyperliquid / bitget): hyperliquid
+# ── Interactive launch prompts ─────────────────────────────────────
+# Exchange (hyperliquid / bitget) [hyperliquid]: hyperliquid
 # Settlement currency forced to USDC for hyperliquid.
-# Trading pair base symbol (e.g. BTC, ETH, SOL): BTC
-# Timeframes to enable: 1, 2, 3, 4 (or any subset)
-# timeframe_secs for micro (default 60s): 60
-# timeframe_secs for fast (default 300s): 300
-# timeframe_secs for slow (default 900s): 900
-# timeframe_secs for macro (default 3600s): 3600
-# Snapshot export — periodic JSON dump for offline data science.
-# Enable snapshot export? [y/N]: y
-# Snapshot interval in seconds [60]: 60
-# Output directory [./snapshots]: ./snapshots
+# Instance #1 base symbol (blank = done) [BTC]: BTC
+#   micro timeframe_secs (default 60s): 60
+#   fast timeframe_secs (default 300s): 300
+#   slow timeframe_secs (default 900s): 900
+#   macro timeframe_secs (default 3600s): 3600
+# Instance #2 base symbol (blank = done):            ← Enter finishes
 # ── Summary ───────────────────────────────────────────────────────
-# Apply these settings to config.toml? [Y/n]: y
-# ✅ config.toml updated.
-# Start the daemon now (headless mode)? [y/N]: y
-# Daemon spawned (pid 12345). Logs go to engine.log.
+# 💾 Snapshot export ENABLED (--save) → ./snapshots
 ```
 
-The CLI's interactive flow validates the trading pair against the live exchange REST endpoint
-(same call `registry::add_instance` makes at boot, so a setup that completes will boot cleanly).
+The CLI's instances are validated against the live exchange REST endpoint by
+`registry::add_instance` (same call the GUI's `POST /api/instances` makes). Snapshots land in
+`<output_path>` (default `./snapshots`) exactly as described in §3.
 
-For non-interactive use:
-
-```bash
-# Print current status without writing anything:
-cargo run --bin execution-daemon -- setup --sub status
-
-# Dry-run: print what would be written:
-cargo run --bin execution-daemon -- setup --dry-run
-
-# Auto-start the daemon without the final "Start now?" prompt:
-cargo run --bin execution-daemon -- setup --auto-start
-```
+The retired `setup` subcommand (`--dry-run`, `--auto-start`, `--sub status`) was removed in v7.2 —
+see [`docs/conceptual-foundations/01-09-cli-setup-flow.md`](../conceptual-foundations/01-09-cli-setup-flow.md)
+for the replacement flow.
 
 ---
 
@@ -234,47 +219,28 @@ Validation rules (clamped, not rejected):
 
 ## 7. CLI reference
 
-`execution-daemon` exposes a `setup` subcommand for headless configuration:
+The retired `setup` subcommand was removed in v7.2. Snapshot export in terminal-only
+deployments is enabled with the `--save` flag on the CLI monitor mode:
 
 ```bash
-# Interactive setup (default).
-execution-daemon setup
+# Terminal monitor with snapshot JSON dumps enabled (default output ./snapshots).
+execution-daemon --mode cli --save
 
-# Or via --mode flag:
-execution-daemon --mode setup
-
-# Print current status without writing.
-execution-daemon setup --sub status
-
-# Dry-run (print what would be written, write nothing).
-execution-daemon setup --dry-run
-
-# Skip the "Start now?" prompt.
-execution-daemon setup --auto-start
-
-# Point at a non-default config.toml.
-execution-daemon setup --config /path/to/config.toml
+# Custom interval + custom config.
+execution-daemon --mode cli --save --interval 10 --config /path/to/config.toml
 ```
 
-The interactive flow prompts (in order):
+The CLI launch prompts (in order):
 
 1. **Exchange** — `hyperliquid` (default) or `bitget`. Unknown values are rejected.
-2. **Trading pair base symbol** — validated against the exchange's REST ticker endpoint
-   (same call `registry::add_instance` makes at boot).
-3. **Timeframes** — multi-select over `micro`, `fast`, `slow`, `macro`. Default: all 4.
-4. **Per-TF `timeframe_secs`** — for each enabled slot. Validated `[10, 86400]`. Each slot's
-   default is the workspace's existing default.
-5. **Snapshot export enabled?** — `y/N`.
-6. **Snapshot interval (seconds)** — default 60, validated `[5, 3600]`.
-7. **Output directory** — default `./snapshots`.
+2. **Settlement currency** — forced per exchange (HL=USDC, Bitget=USDT).
+3. **Instances** — repeated: base symbol + per-TF `timeframe_secs` (`[10, 86400]`), until
+   blank. Pre-seeded from `workspace.instances[]` — pressing Enter keeps them.
+4. **Confirm** — instances just run; the L7 overview redraws in the terminal.
 
-The flow then prints a summary table and asks **"Apply these settings to config.toml? [Y/n]"**.
-On yes, the snapshot-export block is merged into `[snapshot_export]` and the workspace table is
-replaced with the new single-instance entry.
-
-Both the GUI and the CLI converge on the same `config.toml` — they read the same `[snapshot_export]`
-section at boot and (in the GUI's case) write the same fields on Save. Run the same `GET
-/api/snapshot-export/status` from both to confirm parity.
+`--save` flips the snapshot-export runtime flag at boot (even when `[snapshot_export]` is
+disabled in `config.toml`); the output path defaults to `./snapshots`. The GUI modal remains
+the runtime source of truth for web deployments — both paths write the same files.
 
 ---
 

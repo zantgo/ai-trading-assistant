@@ -57,6 +57,12 @@
     border: 1px solid #8f2f2f;
 }
 
+.mode-observe {
+    background: #1e3a2f;
+    color: #7ddba6;
+    border: 1px solid #2f6f4f;
+}
+
 .instance-select {
     background: #16181d;
     color: #e4e6eb;

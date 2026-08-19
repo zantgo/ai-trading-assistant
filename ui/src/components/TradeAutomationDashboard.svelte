@@ -15,7 +15,7 @@
     interface AutomationState {
         instance_id: string;
         symbol: string;
-        mode: 'paper' | 'live';
+        mode: 'observe' | 'paper' | 'live';
         enabled: boolean;
         phase: 'idle' | 'pending_entry' | 'position_open' | null;
         fingerprint: string | null;
@@ -105,7 +105,10 @@
         if (!selectedId || switchingMode) return;
         switchingMode = true;
         modeError = '';
-        const target = automation?.mode === 'live' ? 'paper' : 'live';
+        // observe → paper → live → observe: the mode cycle reflects the
+        // three-level execution ladder (monitoring → simulation → real).
+        const target = automation?.mode === 'live' ? 'observe'
+            : automation?.mode === 'observe' ? 'paper' : 'live';
         const result = await app.setInstanceMode(selectedId, target);
         if (!result.ok) {
             modeError = result.error ?? 'Mode switch failed';
@@ -253,12 +256,12 @@
     <header class={styles.header}>
         <div class={styles.headerLeft}>
             <h2 class={styles.title}>TRADE AUTOMATION</h2>
-            <span class="{styles.modeBadge} {automation?.mode === 'live' ? styles.modeLive : styles.modePaper}">
+            <span class="{styles.modeBadge} {automation?.mode === 'live' ? styles.modeLive : automation?.mode === 'observe' ? styles.modeObserve : styles.modePaper}">
                 {automation?.mode?.toUpperCase() ?? 'PAPER'}
             </span>
             <button class="{styles.modeToggle} {automation?.mode === 'live' ? styles.modeToggleLive : styles.modeTogglePaper}"
                 onclick={toggleMode} disabled={switchingMode || !selectedId}>
-                {switchingMode ? 'Switching…' : automation?.mode === 'live' ? 'Switch to PAPER' : 'Switch to LIVE'}
+                {switchingMode ? 'Switching…' : automation?.mode === 'live' ? 'Switch to OBSERVE' : automation?.mode === 'observe' ? 'Switch to PAPER' : 'Switch to LIVE'}
             </button>
             {#if automation?.enabled}
                 <span class="{styles.badge} {styles.badgeRunning}">AUTOMATION ON</span>

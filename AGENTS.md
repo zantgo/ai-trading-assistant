@@ -69,8 +69,35 @@ The execution-daemon binary reads `config.toml` from CWD at runtime. Run from th
 |---|---|---|
 | `./manage.sh run` | Web (GUI) | Foreground with live logs, dashboard at `http://127.0.0.1:3000` |
 | `./manage.sh run-silent` | Web (GUI) | Background daemon, logs to `engine.log` |
+| `./manage.sh run-cli` | CLI (terminal) | Interactive launch prompt → terminal monitor (`--mode cli`; observe-only, no web server) |
 | `./manage.sh stop` | — | Stop background engine instance |
 | `./manage.sh status` | — | Check process uptime |
+
+## Session modes (Observe / Simulate / Execute)
+
+The Launch Setup wizard (and the CLI launch prompt) offer three execution modes:
+
+| UI | Backend `ExecutionMode` | Meaning |
+|----|-------------------------|---------|
+| **Observe** | `observe` | Market/signal monitoring only — the TAE setup executor never evaluates or dispatches orders. No capital, no credentials. |
+| **Simulate** | `paper` | Simulated orders against paper capital (starting capital default per instance). |
+| **Execute** | `live` | Real orders via `LiveBroker` / `BitgetLiveBroker`; requires an active encrypted exchange key. |
+
+The mode is persisted per instance (`InstanceEntry.mode`) and mirrored at runtime on
+`Instance::execution_mode` (the TAE loop gate in `execution-daemon/src/main.rs` skips fills +
+setup evaluation for `observe`). The session default (`POST /api/session/init` + `set_session_defaults`)
+applies to newly created instances; `POST /api/instances/:id/mode` toggles per instance.
+
+### CLI ↔ GUI parity (observe mode)
+
+The CLI terminal monitor and the GUI Market Overview panel render the **same server-computed
+payload**: the L7 aggregation task produces `OverviewMatrix` + the v7.2 panel fields
+(`hero`, `overview_rows`, `signal_quality`, `direction_distribution`, `market_health_dims`)
+via `core_domain::overview_panel::build_overview_panel`; `GET /api/overview` (GUI) and
+`run_terminal_monitor` (CLI) read the same object. One producer, one payload, two renderers —
+the 13-check contract lives in `docs/conceptual-foundations/01-10-cli-gui-parity.md` and is
+enforced by `test-doc` gate G18. Default TF ladder: registry fallback 60/180/ws-slow/ws-macro,
+shared by CLI (`tf_ladder_defaults`) and the wizard (`/api/config`).
 
 ### Frontend dev mode
 ```bash

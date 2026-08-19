@@ -61,13 +61,16 @@ pub async fn serve_session_init(
     // v7.1 follow-up: mode + paper capital defaults for created instances.
     let mode = match payload.mode.as_deref() {
         None => None,
-        Some("paper") | Some("live") => Some(payload.mode.clone().unwrap()),
+        Some("observe") | Some("paper") | Some("live") => Some(payload.mode.clone().unwrap()),
         Some(other) => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "success": false,
-                    "error": format!("Invalid mode '{}'. Use 'paper' or 'live'.", other),
+                    "error": format!(
+                        "Invalid mode '{}'. Use 'observe', 'paper' or 'live'.",
+                        other
+                    ),
                 })),
             )
                 .into_response();

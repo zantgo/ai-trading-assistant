@@ -255,7 +255,7 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 1. User clicks **Quit Session** in the sidebar footer.
 2. Drawer closes (`isSidebarOpen = false`).
 3. `showQuitDialog = true` mounts the centered `<QuitDialog>` modal (see [§14.1](#141-quitdialog)).
-4. Confirming the dialog tears down the session via the engine's `/api/session/quit` endpoint and returns the user to `WelcomeGate`.
+4. Confirming the dialog tears down the session via the engine's `/api/session/quit` endpoint and returns the user to the `LaunchSetup` wizard.
 
 ---
 
@@ -545,7 +545,7 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `WelcomeGate.svelte` | Session init screen — exchange + currency selection, disabled before session is active. Lives at `ui/src/WelcomeGate.svelte` (top-level, not under `components/`). |
+| `LaunchSetup.svelte` | Pre-session Launch Setup wizard (v7.2): four steps — Mode (Observe/Simulate/Execute) → Environment (exchange, currency, capital or credentials) → Instances (per-TF durations) → Review → Launch. Lives at `ui/src/LaunchSetup.svelte` (top-level, not under `components/`). Replaces the v7.1 `WelcomeGate`. |
 | `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). See [§14.1](#141-quitdialog). |
 
 ---
