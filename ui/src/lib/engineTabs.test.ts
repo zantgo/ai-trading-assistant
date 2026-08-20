@@ -54,10 +54,11 @@ describe('engineTabs v7.3 spec', () => {
     it('DIE / MME are mode-agnostic', () => {
         expect(keys('data_infra', 'observe')).toEqual(keys('data_infra', 'live'));
         expect(keys('market_monitor', 'observe')).toEqual(['overview', 'workspace', 'settings']);
-        // DIE keeps its layer-ordered 8-tab set in every mode.
+        // v7.4: DIE Settings tab removed (read-only platform config is
+        // exported via Profile → Share Config) — 7 layer tabs remain.
         expect(keys('data_infra', 'observe')).toEqual([
             'overview', 'exchange_status', 'connectivity', 'market_data',
-            'clock_monitor', 'data_quality', 'distribution', 'settings',
+            'clock_monitor', 'data_quality', 'distribution',
         ]);
     });
 

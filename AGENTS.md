@@ -116,7 +116,7 @@ bun run check        # svelte-check + tsc typecheck
 - Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
 - Config API: `GET /api/config` (returns parsed `config.toml`)
-- Platform config API: `GET /api/system/platform-config` (returns the serialized `PlatformConfig` — exchange endpoints, clock monitor, quality, reconnect, candle buffer; the DIE Settings tab renders these real values)
+- Platform config API: `GET /api/system/platform-config` (returns the serialized `PlatformConfig` — exchange endpoints, clock monitor, quality, reconnect, candle buffer; DIE has no Settings tab — export `config.toml` via Profile → Share Config)
 - DIE system APIs: `GET /api/system/pipelines` (per-instance × slot candle-pipeline state), `GET /api/system/distribution` (L4 egress telemetry incl. WS client count)
 - PAE backtest APIs: `POST /api/backtest/run`, `GET /api/backtest/:id`, `GET /api/backtest/list` (History tab), `GET /api/backtest/coverage` (recorded-snapshot data availability)
 - History API: `GET /api/history?symbol=&timeframe_secs=&limit=` (default `100`, max `1000`; returns `{ symbol, prices[], candles[], indicator_history }`)
@@ -215,7 +215,8 @@ Every Svelte component with custom styles must follow the **Scoped CSS Modules**
 
 - The four engine dashboards (DIE / TAE / PME / PAE) share `styles/engine-dashboard.module.css` + `DashboardHeader` / `ModeChip` / `ModeBanner` / `KpiStrip` / `ExportDataButton`. Full spec: `docs/ui-ux/07-07-engine-dashboard-vocabulary.md`.
 - **Tab order = layer order:** `[Overview landing] → [L1→Ln tabs] → [cross-cutting last]` (see 07-07 §2). Keep `engineTabs.ts` in sync with the engine layer docs.
-- **Observe-mode collapse:** observe keeps only data-bearing tabs (`OBSERVE_TABS` in `engineTabs.ts`): TAE = Overview + Activity + Settings; PME = Overview + Safety + Settings; PAE = Overview + Backtesting + History + Methodology + Settings; DIE is mode-agnostic. The **Settings tab is always present in every mode**.
+- **Observe-mode collapse:** observe keeps only data-bearing tabs (`OBSERVE_TABS` in `engineTabs.ts`): TAE = Overview + Activity + Settings; PME = Overview + Safety + Settings; PAE = Overview + Backtesting + History + Methodology + Settings; DIE is mode-agnostic. The **Settings tab is always present in every mode** for TAE/PME/PAE/MME/Profile (DIE has no Settings tab — v7.4).
+- **Settings panels are editors (v7.4):** every settings tab is editable — no read-only settings panels. Each carries exactly **one header-mounted save button** (`SettingsSaveButton.svelte`, placed in `headerRight` immediately before Export) with the shared state machine: idle (disabled) → dirty (enabled "SAVE") → saving (disabled "SAVING…") → saved (disabled "SAVED", ~2s → idle) | error (enabled retry). Dirty = drafts vs the post-load baseline. Cards show `ConfigSourceChip` provenance + `LIVE`/`NEW_PIPELINES`/`RESTART` apply chips. Backend: `POST /api/config` accepts the engine-settings sections (validated, M8 ranges) and recharges running instances live.
 - **No active instance:** with no instance, TAE/PME/PAE render the shared `NoInstanceState` SVG component (no data fallback, no loading message — PAE has no default-symbol fallback); the Settings tab is exempt and always renders config. TAE/PME poll the instance list every 3s (MME InstancePicker backstop).
 - **Export Data:** every data tab carries an `ExportDataButton` whose payload mirrors exactly what the tab renders (envelope `engine-tab-export/v1` via `ui/src/lib/engineExport.ts`).
 - **Config-driven values:** no hardcoded numbers on dashboards — risk limits, risk-per-trade, significance treatment and all DIE settings come from config (see 07-07 §5).

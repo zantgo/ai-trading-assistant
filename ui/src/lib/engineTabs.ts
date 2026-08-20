@@ -20,7 +20,7 @@ export interface EngineTab {
 }
 
 export const PROFILE_TABS: EngineTab[] = [
-    { key: 'fee', label: 'Fee Projection' },
+    { key: 'fee', label: 'Fees & Leverage' },
     { key: 'exchange', label: 'Exchange' },
     { key: 'share', label: 'Share Config' },
     { key: 'settings', label: 'Settings' },
@@ -31,7 +31,10 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
     exchange_settings: PROFILE_TABS,
     // v7.3: DIE tabs follow the layer order — Overview (landing) → L1 raw
     // ingestion → L2 market data → L3 data quality → L4 distribution →
-    // cross-cutting (clock contract, settings) last.
+    // cross-cutting (clock contract) last. v7.4: the Settings tab was
+    // removed — DIE is read-only platform config; live health/quality/clock
+    // data lives on Overview and the raw config.toml is exported from
+    // Profile → Share Config.
     data_infra: [
         { key: 'overview', label: 'Overview' },
         { key: 'exchange_status', label: 'Exchange Status' },
@@ -40,7 +43,6 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'clock_monitor', label: 'NTP Clock Monitor' },
         { key: 'data_quality', label: 'Data Quality' },
         { key: 'distribution', label: 'Distribution' },
-        { key: 'settings', label: 'Settings' },
     ],
     market_monitor: [
         { key: 'overview', label: 'Overview' },

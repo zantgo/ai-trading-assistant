@@ -28,6 +28,9 @@ Every engine dashboard renders against `ui/src/styles/engine-dashboard.module.cs
 | `.select` / `.btn` / `.btnPrimary` / `.btnGhost` / `.btnDanger` | Controls |
 | `.formRow` / `.field` / `.fieldLabel` / `.fieldInput` / `.inlineGroup` / `.subTitle` / `.monoList` | Form & list tokens (v7.3) |
 | `.pills` / `.pill` / `.pillActive` | Window / scope selectors (v7.3) |
+| `.saveStatus` / `.saveBtn` / `.saveBtnSaved` / `.saveBtnSaving` | Header save control (v7.4, `SettingsSaveButton.svelte`) |
+| `.sourceChip` / `.sourceApply` + `.sourceApplyLive` / `.sourceApplyNewPipelines` / `.sourceApplyRestart` | Config provenance + apply-semantics chips (v7.4, `ConfigSourceChip.svelte`) |
+| `.cardHead` | Settings card header row (title + source chips) |
 
 Shared components: `DashboardHeader.svelte`, `ModeChip.svelte`, `ModeBanner.svelte`, `KpiStrip.svelte`, `ExportDataButton.svelte`.
 
@@ -48,28 +51,40 @@ Per-engine maps (all config in `ui/src/lib/engineTabs.ts`):
 
 | Engine | Tabs (paper/live) | Layer mapping |
 |---|---|---|
-| DIE | Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution · Settings | L1 raw ingestion (2 tabs) → L2 market data → L3 data quality → L4 distribution; NTP = L2 time contract; Settings cross-cutting last |
+| DIE | Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution | L1 raw ingestion (2 tabs) → L2 market data → L3 data quality → L4 distribution; NTP = L2 time contract. v7.4: **no Settings tab** — platform config is read-only, exported from Profile → Share Config |
 | MME | Overview · Workspace (sub-tabs: Charts · Metrics · Alignment · Analysis · Opportunities · Risks · Recommendation) · Settings | sub-tabs follow L1 Metrics → L6 Decision Support (v7.3: Analysis L3 moved before Opportunities L4) |
-| TAE | Overview · Orders · Activity · Trade History | Overview = ① intake + ② executor + ③ sizing aggregate; Orders = ④ execution; Activity/History = ⑥ telemetry |
-| PME | Overview · Positions · Exposure · Capital · Portfolio · Safety | L1 Position → L2 Exposure → L3 Capital → L4 Portfolio (v7.3 new); Safety ladder cross-cutting last |
-| PAE | Overview · Trades · Strategy · Risk · Performance · Backtesting · History · Methodology | L1 Trade Analytics → L2 Strategy (NHST) → L3 Risk → L4 Performance (renamed from "Regime Map") → L5 Backtesting; History + Methodology cross-cutting last |
+| TAE | Overview · Orders · Activity · Trade History · Settings | Overview = ① intake + ② executor + ③ sizing aggregate; Orders = ④ execution; Activity/History = ⑥ telemetry; Settings cross-cutting last |
+| PME | Overview · Positions · Exposure · Capital · Portfolio · Safety · Settings | L1 Position → L2 Exposure → L3 Capital → L4 Portfolio (v7.3 new); Safety ladder + Settings cross-cutting last |
+| PAE | Overview · Trades · Strategy · Risk · Performance · Backtesting · History · Methodology · Settings | L1 Trade Analytics → L2 Strategy (NHST) → L3 Risk → L4 Performance (renamed from "Regime Map") → L5 Backtesting; History + Methodology + Settings cross-cutting last |
 
 ---
 
 ## 3. Per-mode tab policy
 
-The execution mode (observe / paper / live) is fixed at launch per instance. Observe mode collapses each engine to its data-bearing tabs; paper/live keep the full set. **The Settings tab is always present in every mode** (per-engine config is instance-independent), and no mode ever renders fewer than three tabs.
+The execution mode (observe / paper / live) is fixed at launch per instance. Observe mode collapses each engine to its data-bearing tabs; paper/live keep the full set. **The Settings tab is always present in every mode for TAE / PME / PAE** (per-engine config is instance-independent); MME and Profile keep theirs in all modes too, while DIE has no Settings tab (v7.4). No mode ever renders fewer than three tabs.
 
 | Engine | Observe tabs | Paper / Live tabs |
 |---|---|---|
-| DIE | All 8 (platform-level, mode-agnostic) | All 8 |
-| TAE | Overview · Activity · **Settings** | Overview · Orders · Activity · Trade History · **Settings** |
-| PME | Overview · Safety · **Settings** | Overview · Positions · Exposure · Capital · Portfolio · Safety · **Settings** |
-| PAE | Overview · Backtesting · History · Methodology · **Settings** | Overview · Trades · Strategy · Risk · Performance · Backtesting · History · Methodology · **Settings** |
+| DIE | All 7 (platform-level, mode-agnostic; no Settings) | All 7 |
+| TAE | Overview · Activity · Settings | Overview · Orders · Activity · Trade History · Settings |
+| PME | Overview · Safety · Settings | Overview · Positions · Exposure · Capital · Portfolio · Safety · Settings |
+| PAE | Overview · Backtesting · History · Methodology · Settings | All 9 |
 
 Observe-mode personality (per engine): TAE = "Setup Radar" (ghost would-be setups, no orders); PME = "Readiness Board" (unarmed safety + capital blueprints); PAE = "Edge Validator" (data coverage + recorded-decision backtest + methodology); DIE = unchanged.
 
 The Bottom Console (Positions / Orders / History / Plan) is hidden in observe mode.
+
+---
+
+## 3.5 Settings panel conventions (v7.4)
+
+**Every settings tab is an editor — there are no read-only settings panels.**
+
+- **Editable surfaces:** MME Workspace Settings (per-instance: identity, visual overlays, automation, timeframes, position sizing, activation) and the TAE / PME / PAE Settings tabs (global `[workspace.*]` sections), plus Profile → Fees & Leverage (the single editor for `fees`/`leverage`) and Profile → Settings (API failover). DIE has no Settings tab.
+- **Save control:** exactly **one save button per panel**, mounted in the panel's unified header right side (`headerRight`), immediately before the Export button, via the shared `SettingsSaveButton.svelte`. One state machine everywhere: `idle` (disabled) → `dirty` (enabled "SAVE" + "Unsaved changes") → `saving` (disabled "SAVING…") → `saved` (disabled "SAVED", green, ~2s → idle) | `error` (enabled "SAVE", retry; error rendered as an `alertBanner` at the top of the content). The button is never clickable unless dirty/error, never while saving, never after a successful save.
+- **Dirty tracking:** drafts vs the baseline taken after the initial `GET /api/config` load; any edit flips the panel dirty.
+- **Source chips:** every settings card carries a `ConfigSourceChip` (`config.toml → [workspace.x]`) plus an apply-semantics badge — `LIVE` (green: takes effect on the next cycle), `NEW_PIPELINES` (amber: applies to newly launched instances) or `RESTART` (grey).
+- **Backend:** `POST /api/config` accepts the engine-settings sections with M8-style range validation (`400` on out-of-range); runtime-field saves recharge all running instances live.
 
 ### 3.1 No active instance (v7.3)
 

@@ -75,10 +75,12 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 | `profile` (Home) | *Navbar hidden entirely* (the `!isHome` guard). | |
 | `exchange_settings` (API Keys) | *Navbar hidden entirely* (`isSimplePage` guard — single full-page component, no tabs). | |
 | `market_monitor` (Market) | `Workspace` (forced first) · `Overview` · `Settings` | |
-| `trade_automation` (Trading) | `Overview` · `Settings` | |
-| `portfolio` (Portfolio) | `Overview` · `Settings` | |
-| `performance` (Analytics) | `Overview` · `Settings` | |
-| `data_infra` (Data Infra) | `Overview` · `Settings` | |
+| `trade_automation` (Trading) | `Overview` · `Orders` · `Activity` · `Trade History` · `Settings` | |
+| `portfolio` (Portfolio) | `Overview` · `Positions` · `Exposure` · `Capital` · `Portfolio` · `Safety` · `Settings` | |
+| `performance` (Analytics) | `Overview` · `Trades` · `Strategy` · `Risk` · `Performance` · `Backtesting` · `History` · `Methodology` · `Settings` | |
+| `data_infra` (Data Infra) | `Overview` · `Exchange Status` · `Connectivity` · `Market Data` · `NTP Clock Monitor` · `Data Quality` · `Distribution` | |
+
+v7.4: `data_infra` has **no Settings tab** — DIE platform config is read-only by design and exported from Profile → Share Config; live health/quality/clock data lives on the Overview. The per-mode tab sets are defined in `ui/src/lib/engineTabs.ts` (single source of truth).
 
 `Workspace` is hard-coded for Market because the Market engine is the only one with active workspace instances; the other engines render the generic two-tab pair. Selecting `Workspace` from a non-Market engine is impossible by construction (the tab is not rendered).
 

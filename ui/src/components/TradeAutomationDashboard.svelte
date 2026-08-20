@@ -299,6 +299,7 @@
             orders: 'Order Board',
             activity: 'Activity Log',
             history: 'Trade History',
+            settings: 'Execution Settings',
         };
         return m[s] ?? 'Execution';
     }
@@ -309,6 +310,7 @@
             orders: 'Orders',
             activity: 'Activity',
             history: 'Trade History',
+            settings: 'Settings',
         };
         return m[s] ?? 'Overview';
     }
@@ -413,9 +415,6 @@
         const a = automation;
         let data: Record<string, unknown>;
         switch (safeSection) {
-            case 'settings':
-                data = { mode, ghost, note: 'settings payload is exported by the TradeAutomationSettings tab itself' };
-                break;
             case 'orders':
                 data = {
                     mode,
@@ -486,7 +485,9 @@
                 {:else}
                     <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
                 {/if}
-                <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {#if safeSection !== 'settings'}
+                    <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {/if}
                 {#if automation}
                     {#if automation.enabled}
                         <span class="{styles.badge} {styles.badgeLong}">AUTOMATION ON</span>
@@ -504,7 +505,7 @@
         <ModeBanner engine="trade_automation" {mode} />
 
         {#if safeSection === 'settings'}
-            <TradeAutomationSettings />
+            <TradeAutomationSettings {mode} />
         {:else if instances.length === 0 && !loading}
             <!-- v7.3: no active instance → SVG empty state. No fallback
                  data, no loading message. -->

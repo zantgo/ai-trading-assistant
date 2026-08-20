@@ -4,6 +4,20 @@
 
 ------
 
+## Unreleased (2026-08-20) — v7.4: unified editable settings system
+
+**Every settings panel is now an editor with one header-mounted save button — there are no read-only settings panels left.**
+
+- **Shared save control** (`ui/src/components/SettingsSaveButton.svelte` + `engine-dashboard.module.css` tokens): exactly one save button per panel, always in the unified header right side immediately before Export, with the single state machine `idle` (disabled) → `dirty` (enabled "SAVE") → `saving` (disabled "SAVING…") → `saved` (disabled "SAVED", green, ~2s → idle) | `error` (enabled retry + `alertBanner` at top of content). Never clickable unless dirty/error, never while saving, never after a successful save.
+- **Provenance + apply chips** (`ui/src/components/ConfigSourceChip.svelte`): every settings card shows `config.toml → [workspace.x]` plus a `LIVE` / `NEW_PIPELINES` / `RESTART` apply-semantics badge.
+- **MME Workspace Settings completed:** Identity (symbol/exchange), Visual Overlays (25 toggles in 5 groups), Automation Scheduler restored from dead state; **Position Sizing & Risk** card wires the previously orphaned `PositionScalingPanel` (backend already accepted `position_scaling` per instance and live-recharges — zero backend work); **Indicator Activation** card added (`InstanceConfigPayload.activation` + `ConfigResponse.activation`); dead `rules` state removed (`POST /api/rules` is read-only by design). One header save → `POST /api/instances/:id/config`.
+- **TAE / PME / PAE Settings tabs became validated editors:** Setup Executor + Execution + Allocation Scoring (TAE), Safety Ladder + Risk Limits (PME), Significance Treatment (with "changes every verdict" warning) + Capital Default (PAE) — each with header save via the extended `POST /api/config`. Header `settings` title/tab-label fallthrough fixed in all three dashboards; the dashboard headers no longer emit stub exports on the settings section.
+- **DIE Settings tab removed:** DIE is now Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution — platform config is read-only by design and exported from Profile → Share Config (live health/quality/clock data stays on the Overview). `DataInfraConfig.svelte` deleted.
+- **Profile → "Fees & Leverage"** (renamed from "Fee Projection"): Fees & Leverage editor (maker/taker/funding 8h + cross leverage — the single source for economics, `[workspace.fees]` + `[workspace.leverage]`) and a **funding-aware Cost Projection** (`ui/src/lib/costProjection.ts`): notional, round-trip fees, **funding drag** (`funding_rate × notional × hold periods`, new 1–30 input), combined min-profit %; duplicate result row removed; API Failover now lazy-loads, gains the header save + "applies to new pipelines" chip.
+- **Backend** (`crates/api-gateway`): `ConfigUpdateRequest` accepts `minimal_tae`, `safety`, `risk_limits`, `analytics`, `scoring`, `execution`, `fees`, `leverage`, `activation` (M8-style range validation, `400` + message on breach); engine-settings saves **recharge all running instances live** (idempotent, failures logged); `InstanceConfigPayload.activation` per instance; `ConfigResponse.activation`.
+- **Mode colors (v7.4-a):** observe = blue, paper = amber, live = green everywhere (`engine-dashboard`, `InstancePicker`, `LaunchSetup`, navbar `modeNavChip`).
+- **Tests:** +6 `SettingsSaveButton` state-machine cases, +4 `costProjection` math cases; `engineTabs` DIE set pinned to 7 tabs; TAE/PME/PAE settings-tab dashboard tests updated. Docs: `07-07` §3.5 (settings conventions), `07-02` tab table, `06-01` `POST /api/config`, AGENTS.md.
+- **Remove:** `DataInfraConfig.svelte`, `WorkspaceSettings` dead `rules` state, GeneralSettings dead `fmtPrice` import.
 
 ## Unreleased (2026-08-19) — v7.3: per-side confluent R:R parity
 
@@ -25,7 +39,6 @@
 
 ## v7.1 (2026-08-18) — Bitget live + production hardening
 
-
 **Live trading completed for both venues.** The final production gap is closed:
 
 - **Bitget live broker** (`network-adapters/src/adapters/bitget_live.rs`): Bitget V5 signed REST client — HMAC-SHA256 auth (`ACCESS-KEY`/`ACCESS-SIGN`/`ACCESS-TIMESTAMP`/`ACCESS-PASSPHRASE`), `place-order` / `cancel-order` / `place-tpsl-order` (stop triggers) / `fills` / `accounts`; 10 req/s throttle; `productType` from the instance quote (`USDT-FUTURES`/`USDC-FUTURES`). Signing vector + symbol/product mapping tests.
@@ -37,7 +50,6 @@
 - **Corpus version → v7.1** (full re-stamp).
 
 ## v7.0 (2026-08-18) — TAE / PME / PAE production-ready
-
 
 **Roadmap complete.** All five engines are implemented; `./manage.sh test-doc` reports **ALL CHECKS PASSED** (release gates G1–G16). The finalization pass closed every remaining roadmap item:
 
@@ -554,8 +566,6 @@ Live-capture audit (2026-08-15 00:03–00:05 UTC, BTC-USDC): the system answered
 
 **Doc corrections:** 02-02 §3.1 (grace + hysteresis + vote pinning + COMPRESSION exclusion + haircut scope), 02-01 §4.2 (thin-participation reweight + `blend_weights`), 08-09 §5 (sweep manual), 07-05 (analysis hero, strategy block, asset rows).
 
-
-
 ## v6.10.15 (2026-08-14) — L4 Neutral-bias fix + L6 STAND_ASIDE gate consistency
 
 Two real inconsistencies surfaced from live captures: the Opportunity panel could render directional conviction (57% "bearish" bars + bear-tone badge) on a directionally-neutral setup, and the Recommendation panel rendered a green "+60%" LONG needle plus an "Entry: immediate" final verdict under a STAND ASIDE badge.
@@ -844,7 +854,6 @@ Fixes the sub-minute EMA rendering anomalies (lines all starting at the same rig
 
 ------
 
-
 ## v6.10.4 (2026-08-13) — Snapshot Export scheduler + Interactive CLI setup
 
 The Trading Platform gains a periodic per-tab JSON dump for offline data science, plus an interactive CLI for headless / first-boot configuration. Both GUI and CLI converge on the same `SnapshotExportRuntime` shared via `AppState` — `GET /api/snapshot-export/status` is the single source of truth.
@@ -973,8 +982,6 @@ The Overview Matrix (L7) gains three new aggregate fields sourced from each inst
 
 **Tests added:** 5 unit tests in `crates/core-domain/src/overview.rs::tests` (alignment distribution counts; consensus index mean; AssetRank mirror; AssetRank default when missing; empty alignments don't break advisories). 5 new tests in `ui/src/components/dashboard/MarketAlignmentCard.test.ts`. 1 new test in `ui/src/components/GeneralDashboard.test.ts` for the populated-state path; the existing 11-column asset rankings assertion updated.
 
-
-
 ## v6.10.2 (2026-08-13) — Analytical Input Universe correctness audit (AUDIT-AIU-001 … 091)
 
 Full forensic audit of every item in the Analytical Input Universe (51 indicators + 11 liquidity signals + synthesis layers). All 51 indicators and 11 liquidity signals were verified against their canonical math and docs; every defect below was fixed with a regression test.
@@ -1008,8 +1015,6 @@ Full forensic audit of every item in the Analytical Input Universe (51 indicator
 **Lifecycle (Phase 8):** AUDIT-AIU-080 registry `bars_required` aligned to real warmup (rsi 14→15, stochastic 14→30, squeeze 20→39, hv 20→21; bbwp stays 200 — the `INDICATORS_MAX_BARS_REQUIRED` invariant — with a documented WARMING 200→272).
 
 **Docs (Phase 9):** AUDIT-AIU-090 donchian/keltner/bollinger LevelTest labels, psar removed signal, williams_r normalization, spread scale, RSI divergence labels, mark-index writers status all synced to runtime; AUDIT-AIU-091 stale "writers pending (AUDIT-V6-301)" notes corrected (in-memory writers live; DB persistence remains open).
-
-
 
 ## v7.0-verify (2026-08-13) — Export-JSON ↔ screen parity audit (every MME tab)
 
@@ -1068,7 +1073,6 @@ Full field-by-field audit of every Market Monitoring tab's rendered values again
 **Backwards compatibility.** Risk consumers (`advisory::entry_danger_score`) read `opportunity_score`; they will now see a slightly higher entry-danger for inactive setups. This is informational, not actionable — the dashboard already shows the activation state separately. Trade Automation Engine gating uses `opportunity_score ≥ threshold` for setup selection; this now scales with raw viability rather than activation, which is more conservative (inactive setups are no longer auto-filtered by score-zero).
 
 **Docs touched.** `docs/matrices/02-08-opportunity-matrix.md §6` (added "Activation vs viability" clarification), `docs/engines/market-monitoring-engine/03-02-05-mme-layer4-opportunity.md §3` (cross-reference), `docs/DOCS-CONSISTENCY-MANIFEST.md` (verified stamp refresh).
-
 
 ## v6.10 (2026-08-05) — MME hardening audit + architecture extensions
 
@@ -1134,7 +1138,6 @@ Hardens the Market Monitoring Engine from a comprehensive audit that identified 
 ### Backwards compatibility
 
 `DecisionContext.score` still accepts `f64` in `[-100, 100]` for legacy callers that may pre-date the unsign change. Strictly new callers should produce `[0, 100]`. `ActiveSet::liquidity_enabled` defaults to `true` so existing operators see no behavior change.
-
 
 ## v6.9 (2026-08-04) — Field removal: `OpportunityMatrix.expected_rr_internal` + three-state R:R
 

@@ -6,6 +6,12 @@
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
+    import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
+    import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import ConfigSourceChip from './ConfigSourceChip.svelte';
+    import ModeChip from './ModeChip.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
     import engine from '../styles/engine-dashboard.module.css';
     import styles from './WorkspaceSettings.module.css';
 
@@ -32,10 +38,21 @@
             intervalValue: 15 as number,
             intervalUnit: 'minutes' as 'seconds' | 'minutes' | 'hours',
         },
-        rules: '' as string,
     });
 
-    let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+    // ─── v7.4: position scaling (per-instance, live-recharged) ──────────
+    let sizing = $state<PositionScalingConfig | null>(null);
+    // ─── v7.4: indicator activation (per-instance override) ─────────────
+    let activation = $state({
+        disabledIndicators: '' as string,
+        liquidationFeed: true,
+        clusterEstimation: true,
+        liquiditySignalsEnabled: true,
+    });
+    let cfgLoaded = $state(false);
+
+    // ─── Save state machine (one button in the panel header) ────────────
+    let saveState = $state<SettingsSaveState>('idle');
 
     // ─── Timeframe Indicator Configuration ──────────────────────────────────
 
@@ -57,8 +74,6 @@
         squeezeKcPeriod: number; squeezeKcAtrMult: number;
         atrMultiplier: number; atrTargetRR: number;
         volumeAvgPeriod: number; rvolInstitutional: number; rvolClimax: number;
-        // v7.0-prod: per-TF liquidity heatmap leverage tier list
-        // (operator-edited integers in [1, 100], default [10]).
         heatmapLeverageTiers: number[];
     }
 
@@ -143,7 +158,6 @@
             atr_multiplier_coefficient: term.atrMultiplier, atr_target_rr_ratio: term.atrTargetRR,
             volume_average_period: term.volumeAvgPeriod,
             rvol_threshold_institutional: term.rvolInstitutional, rvol_threshold_climax: term.rvolClimax,
-            // v7.0-prod: leverage tiers are persistent config too.
             heatmap_leverage_tiers: term.heatmapLeverageTiers,
         };
     }
@@ -182,12 +196,87 @@
         return found ? found.label : `${seconds}s`;
     }
 
-    function liveTierForSlot(slot: TfSlot): TimeframeTelemetry | null {
-        if (!pair) return null;
-        if (slot === 'micro') return pair.microTerm;
-        if (slot === 'fast') return pair.fastTerm;
-        if (slot === 'slow') return pair.slowTerm;
-        return pair.macroTerm;
+    // ─── Visual overlay toggles (grouped for the trader) ────────────────
+    const VISUAL_GROUPS: { title: string; keys: { key: string; label: string }[] }[] = [
+        {
+            title: 'Trend',
+            keys: [
+                { key: 'showEmas', label: 'EMA Ribbon' },
+                { key: 'showAdx', label: 'ADX' },
+                { key: 'showSupertrend', label: 'Supertrend' },
+                { key: 'showKeltner', label: 'Keltner' },
+                { key: 'showDonchian', label: 'Donchian' },
+                { key: 'showLinregSlope', label: 'LinReg Slope' },
+            ],
+        },
+        {
+            title: 'Momentum',
+            keys: [
+                { key: 'showRsi', label: 'RSI' },
+                { key: 'showMacd', label: 'MACD' },
+                { key: 'showStochastic', label: 'Stochastic' },
+                { key: 'showChandeMo', label: 'ChandeMO' },
+                { key: 'showSqueeze', label: 'Squeeze' },
+                { key: 'showBbwp', label: 'BBWP' },
+                { key: 'showZscore', label: 'Z-Score' },
+            ],
+        },
+        {
+            title: 'Volatility',
+            keys: [
+                { key: 'showBb', label: 'Bollinger Bands' },
+                { key: 'showAtr', label: 'ATR' },
+                { key: 'showHv', label: 'Historical Vol' },
+                { key: 'showAroon', label: 'Aroon' },
+                { key: 'showChoppiness', label: 'Choppiness' },
+            ],
+        },
+        {
+            title: 'Volume / Flow',
+            keys: [
+                { key: 'showVolume', label: 'Volume' },
+                { key: 'showObv', label: 'OBV' },
+                { key: 'showCmf', label: 'CMF' },
+                { key: 'showMfi', label: 'MFI' },
+                { key: 'showRvol', label: 'Relative Vol' },
+                { key: 'showVwap', label: 'VWAP' },
+            ],
+        },
+        {
+            title: 'Structure',
+            keys: [
+                { key: 'showFib', label: 'Fibonacci' },
+            ],
+        },
+    ];
+
+    // ─── Load (pair telemetry + instance config entry) ──────────────────
+    async function loadInstanceConfig() {
+        if (!pair) return;
+        try {
+            const res = await fetch('/api/config');
+            if (!res.ok) return;
+            const data = await res.json();
+            const symbol = pair.symbol.toLowerCase();
+            const entry = (data.instances ?? []).find(
+                (i: { symbol?: string; id?: string }) =>
+                    (i.symbol ?? '').toLowerCase() === symbol || (i.id ?? '') === pair.instanceId,
+            );
+            if (entry?.position_scaling) sizing = entry.position_scaling;
+            const act = entry?.activation ?? data.activation;
+            if (act) {
+                activation = {
+                    disabledIndicators: (act.disabled_indicators ?? []).join(', '),
+                    liquidationFeed: act.liquidation_feed ?? true,
+                    clusterEstimation: act.cluster_estimation ?? true,
+                    liquiditySignalsEnabled: act.liquidity_signals_enabled ?? true,
+                };
+            }
+        } catch {
+            // Non-fatal: defaults stand.
+        } finally {
+            cfgLoaded = true;
+        }
     }
 
     $effect(() => {
@@ -203,6 +292,38 @@
         tfDraft.fast = readTermFromTelemetry(pair.fastTerm);
         tfDraft.slow = readTermFromTelemetry(pair.slowTerm);
         tfDraft.macro = readTermFromTelemetry(pair.macroTerm);
+        void loadInstanceConfig();
+    });
+
+    // ─── Dirty tracking: drafts vs the baseline taken at load ───────────
+    function snapshotKey(): string {
+        return JSON.stringify({
+            symbol: draft.symbol,
+            exchange: draft.exchange,
+            visuals: draft.visuals,
+            automation: draft.automation,
+            tf: {
+                micro: tfDraft.micro,
+                fast: tfDraft.fast,
+                slow: tfDraft.slow,
+                macro: tfDraft.macro,
+            },
+            sizing,
+            activation,
+        });
+    }
+
+    let baseline = $state('');
+
+    $effect(() => {
+        if (!pair || !cfgLoaded) return;
+        baseline = snapshotKey();
+    });
+
+    const dirty = $derived(snapshotKey() !== baseline);
+
+    $effect(() => {
+        if (dirty && saveState !== 'saving' && saveState !== 'error') saveState = 'dirty';
     });
 
     let calculatedAutomationInterval = $derived.by(() => {
@@ -234,8 +355,25 @@
         else tfDraft.macro.heatmapLeverageTiers = cleaned;
     }
 
-    async function applySettings() {
-        if (!pair) return;
+    function buildExport(): string {
+        return buildEngineExport('market_monitor', 'settings', null, {
+            pair: pair ? { symbol: pair.symbol, exchange: pair.exchange } : null,
+            identity: { symbol: draft.symbol, exchange: draft.exchange },
+            visuals: draft.visuals,
+            automation: { ...draft.automation, interval_seconds: calculatedAutomationInterval },
+            timeframes: {
+                micro: tfDraft.micro,
+                fast: tfDraft.fast,
+                slow: tfDraft.slow,
+                macro: tfDraft.macro,
+            },
+            position_scaling: sizing,
+            activation,
+        });
+    }
+
+    async function save() {
+        if (!pair || (saveState !== 'dirty' && saveState !== 'error')) return;
         const cleanedSymbol = draft.symbol.trim().toUpperCase();
         identityError = null;
 
@@ -272,7 +410,7 @@
         target.automationIntervalValue = auto.intervalValue;
         target.automationIntervalUnit = auto.intervalUnit;
 
-        saveStatus = 'saving';
+        saveState = 'saving';
         try {
             const body = {
                 micro_term: { candles: { duration_seconds: tfDraft.micro.durationSeconds }, indicators: buildIndicators(tfDraft.micro) },
@@ -280,6 +418,15 @@
                 slow_term: { candles: { duration_seconds: tfDraft.slow.durationSeconds }, indicators: buildIndicators(tfDraft.slow) },
                 macro_term: { candles: { duration_seconds: tfDraft.macro.durationSeconds }, indicators: buildIndicators(tfDraft.macro) },
                 automation: { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval },
+                position_scaling: sizing,
+                activation: {
+                    disabled_indicators: activation.disabledIndicators.split(',').map((s) => s.trim()).filter(Boolean),
+                    disabled_signals: [],
+                    disabled_signal_kinds: [],
+                    liquidation_feed: activation.liquidationFeed,
+                    cluster_estimation: activation.clusterEstimation,
+                    liquidity_signals_enabled: activation.liquiditySignalsEnabled,
+                },
             };
             // Prefer the backend-assigned UUID; fall back to the pair key only
             // for the first paint of a freshly added instance whose UUID has
@@ -306,14 +453,15 @@
                 // next PriceChart mount refetches for the new timeframe_secs.
                 clearHistoryCache();
                 clearCandleCache();
-                saveStatus = 'success';
-                setTimeout(() => { saveStatus = 'idle'; }, 2000);
+                baseline = snapshotKey();
+                saveState = 'saved';
+                setTimeout(() => { saveState = 'idle'; }, 2000);
             } else {
-                saveStatus = 'error';
+                saveState = 'error';
             }
         } catch (e) {
             console.error('Config save error:', e);
-            saveStatus = 'error';
+            saveState = 'error';
         }
     }
 </script>
@@ -385,9 +533,21 @@
             </div>
             <div class={engine.headerRight}>
                 <span class={engine.tabLabel}>Settings</span>
+                {#if pair?.mode}
+                    <ModeChip mode={pair.mode} />
+                {/if}
+                <SettingsSaveButton state={saveState} onsave={save} />
+                <ExportDataButton onExport={buildExport} title="Copy this workspace configuration as JSON" />
             </div>
         </div>
     </header>
+
+    {#if identityError}
+        <div class="{engine.alertBanner} {engine.alertError}" role="alert" style="margin:0 24px">{identityError}</div>
+    {/if}
+    {#if saveState === 'error'}
+        <div class="{engine.alertBanner} {engine.alertError}" role="alert" style="margin:0 24px">Save failed — check the console or server log.</div>
+    {/if}
 
     <aside class={styles.tfShellRail}>
         <h3 class={engine.subTitle}>TIMEFRAMES</h3>
@@ -407,46 +567,183 @@
 
     <section class={styles.tfShellBody}>
         <div class={engine.card}>
-            <h3 class={engine.cardTitle}>{slotTitles[selectedSlot]}</h3>
-            <div class={styles.tfRow}>
-                <label class="{engine.fieldLabel} {styles.tfLabel}" for="tf-duration-select">Duration</label>
-                <select class={engine.select} id="tf-duration-select"
-                    value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
-                    {#each TIMEFRAME_OPTIONS as opt}
-                        <option value={opt.seconds}>{opt.label}</option>
-                    {/each}
-                </select>
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Identity</h3>
+                <ConfigSourceChip source="[instances.…]" apply="LIVE" />
             </div>
-            <div class={styles.tfInputScroll}>
-                {@render indicatorInputs(selectedSlot, tfDraft[selectedSlot])}
+            <p class={engine.infoLine}>Rename the instance (recreates it under the new ticker) or switch the venue it subscribes to.</p>
+            <div class={engine.formRow}>
+                <div class={engine.field}>
+                    <label class={engine.fieldLabel} for="ws-symbol">Symbol</label>
+                    <input class={engine.fieldInput} id="ws-symbol" type="text" bind:value={draft.symbol} maxlength="10" spellcheck="false" />
+                </div>
+                <div class={engine.field}>
+                    <label class={engine.fieldLabel} for="ws-exchange">Exchange</label>
+                    <select class={engine.select} id="ws-exchange" bind:value={draft.exchange}>
+                        <option value="Hyperliquid">Hyperliquid</option>
+                        <option value="Bitget">Bitget</option>
+                    </select>
+                </div>
             </div>
         </div>
 
         <div class={engine.card}>
-            <h3 class={engine.cardTitle}>Liquidation Heatmap · {slotTitles[selectedSlot]}</h3>
-            <p class={engine.infoLine}>
-                Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
-                of any selected integer × tier. Matching bands intensify, the rest dim.
-            </p>
-            <LiquidationHeatmapTierPicker
-                tiers={tfDraft[selectedSlot].heatmapLeverageTiers}
-                onChange={(next) => updateSlotLeverageTiers(selectedSlot, next)}
-            />
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Visual Overlays</h3>
+                <ConfigSourceChip source="per-instance" apply="LIVE" />
+            </div>
+            <p class={engine.infoLine}>Which indicator panes and price overlays the Workspace charts render. Applied to all four timeframes.</p>
+            <div class={styles.visGroups}>
+                {#each VISUAL_GROUPS as group (group.title)}
+                    <div class={styles.visGroup}>
+                        <h4 class={styles.visGroupTitle}>{group.title}</h4>
+                        <div class={styles.visGrid}>
+                            {#each group.keys as item (item.key)}
+                                <label class="{styles.visToggle} {(draft.visuals as any)[item.key] ? styles.visToggleOn : ''}">
+                                    <input
+                                        type="checkbox"
+                                        checked={(draft.visuals as any)[item.key]}
+                                        onchange={(e) => { (draft.visuals as any)[item.key] = e.currentTarget.checked; }}
+                                    />
+                                    <span>{item.label}</span>
+                                </label>
+                            {/each}
+                        </div>
+                    </div>
+                {/each}
+            </div>
         </div>
 
-        <!-- Integrated Save & Alert block nested inside the main content section -->
-        <div class={styles.applyRow}>
-            <button class="{engine.btn} {engine.btnPrimary}" disabled={saveStatus === 'saving'} onclick={applySettings}>
-                {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Workspace Configuration'}
-            </button>
-            {#if identityError}
-                <div class="{engine.alertBanner} {engine.alertError}" role="alert">{identityError}</div>
+        <div class={engine.card}>
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Automation Scheduler</h3>
+                <ConfigSourceChip source="[instances.…]" apply="LIVE" />
+            </div>
+            <p class={engine.infoLine}>How often the automation loop evaluates setups and dispatches orders (paper/live modes).</p>
+            <div class={engine.formRow}>
+                <div class={engine.field}>
+                    <label class={engine.fieldLabel} for="ws-auto-enabled">Enabled</label>
+                    <select class={engine.select} id="ws-auto-enabled" bind:value={draft.automation.enabled}>
+                        <option value={true}>On</option>
+                        <option value={false}>Off</option>
+                    </select>
+                </div>
+                <div class={engine.field}>
+                    <label class={engine.fieldLabel} for="ws-auto-value">Interval</label>
+                    <input class={engine.fieldInput} id="ws-auto-value" type="number" min="1" bind:value={draft.automation.intervalValue} />
+                </div>
+                <div class={engine.field}>
+                    <label class={engine.fieldLabel} for="ws-auto-unit">Unit</label>
+                    <select class={engine.select} id="ws-auto-unit" bind:value={draft.automation.intervalUnit}>
+                        <option value="seconds">seconds</option>
+                        <option value="minutes">minutes</option>
+                        <option value="hours">hours</option>
+                    </select>
+                </div>
+                <div class={engine.field}>
+                    <span class={styles.tfLabel}>{calculatedAutomationInterval.toLocaleString()}s computed</span>
+                </div>
+            </div>
+        </div>
+
+        <div class={engine.card}>
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Timeframes &amp; Indicators</h3>
+                <ConfigSourceChip source="per-instance" apply="LIVE" />
+            </div>
+            <div class={styles.tfShell}>
+                <aside class={styles.tfShellRail}>
+                    {#each slotOrder as slot (slot)}
+                        <button
+                            type="button"
+                            class="{styles.tfShellRailItem} {selectedSlot === slot ? styles.active : ''}"
+                            onclick={() => selectedSlot = slot}
+                        >
+                            <span class={styles.tfShellRailLabel}>{slotTitles[slot]}</span>
+                            <span class={styles.tfShellRailSecs}>
+                                {durationLabel(tfDraft[slot].durationSeconds)}
+                            </span>
+                        </button>
+                    {/each}
+                </aside>
+
+                <div class={styles.tfShellPane}>
+                    <div class={styles.tfRow}>
+                        <label class="{engine.fieldLabel} {styles.tfLabel}" for="tf-duration-select">Duration</label>
+                        <select class={engine.select} id="tf-duration-select"
+                            value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
+                            onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
+                            <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
+                            {#each TIMEFRAME_OPTIONS as opt}
+                                <option value={opt.seconds}>{opt.label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <h4 class={styles.tfCardSubTitle}>{slotTitles[selectedSlot]} — indicator parameters</h4>
+                    <div class={styles.tfInputScroll}>
+                        {@render indicatorInputs(selectedSlot, tfDraft[selectedSlot])}
+                    </div>
+                </div>
+
+                <div class={styles.tfShellPane}>
+                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[selectedSlot]}</h4>
+                    <p class={engine.infoLine}>
+                        Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
+                        of any selected integer × tier. Matching bands intensify, the rest dim.
+                    </p>
+                    <LiquidationHeatmapTierPicker
+                        tiers={tfDraft[selectedSlot].heatmapLeverageTiers}
+                        onChange={(next) => updateSlotLeverageTiers(selectedSlot, next)}
+                    />
+                </div>
+            </div>
+        </div>
+
+        <div class={engine.card}>
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Position Sizing &amp; Risk</h3>
+                <ConfigSourceChip source="[instances.….position_scaling]" apply="LIVE" />
+            </div>
+            <p class={engine.infoLine}>How the TAE executor converts setup confluence scores into capital allocation and leverage. Saves live — the pipeline recharges with the new curve.</p>
+            {#if cfgLoaded}
+                <PositionScalingPanel
+                    initial={sizing}
+                    onchange={(next) => { sizing = next; }}
+                />
+            {:else}
+                <div class={styles.empty}>Loading position scaling…</div>
             {/if}
-            {#if saveStatus === 'error'}
-                <div class="{engine.alertBanner} {engine.alertError}" role="alert">Save failed. Check console.</div>
-            {/if}
+        </div>
+
+        <div class={engine.card}>
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Indicator Activation</h3>
+                <ConfigSourceChip source="[instances.….activation]" apply="LIVE" />
+            </div>
+            <p class={engine.infoLine}>
+                Disable noisy indicators for this instance (comma-separated keys, e.g. <code class={engine.code}>choppiness, zscore</code>) and
+                control which liquidity feeds feed the derivatives telemetry.
+            </p>
+            <div class={engine.formRow}>
+                <div class={engine.field}>
+                    <label class={engine.fieldLabel} for="ws-act-disabled">Disabled indicators</label>
+                    <input class={engine.fieldInput} id="ws-act-disabled" type="text" bind:value={activation.disabledIndicators} placeholder="choppiness, zscore" spellcheck="false" />
+                </div>
+            </div>
+            <div class={styles.visGrid}>
+                <label class="{styles.visToggle} {activation.liquidationFeed ? styles.visToggleOn : ''}">
+                    <input type="checkbox" bind:checked={activation.liquidationFeed} />
+                    <span>Liquidation feed</span>
+                </label>
+                <label class="{styles.visToggle} {activation.clusterEstimation ? styles.visToggleOn : ''}">
+                    <input type="checkbox" bind:checked={activation.clusterEstimation} />
+                    <span>Cluster estimation</span>
+                </label>
+                <label class="{styles.visToggle} {activation.liquiditySignalsEnabled ? styles.visToggleOn : ''}">
+                    <input type="checkbox" bind:checked={activation.liquiditySignalsEnabled} />
+                    <span>Liquidity signals</span>
+                </label>
+            </div>
         </div>
     </section>
 </div>

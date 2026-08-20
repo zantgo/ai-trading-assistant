@@ -264,6 +264,7 @@ pub async fn serve_update_instance_config(
         .unwrap_or(entry.operational_mode);
     entry.weight_overrides = payload.weight_overrides.or(entry.weight_overrides);
     entry.position_scaling = payload.position_scaling.or(entry.position_scaling);
+    entry.activation = payload.activation.or(entry.activation);
 
     // Replace or insert the entry in workspace.instances.
     if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == symbol) {

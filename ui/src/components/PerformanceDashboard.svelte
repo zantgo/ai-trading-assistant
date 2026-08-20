@@ -146,6 +146,7 @@
             backtesting: 'Backtesting',
             history: 'History',
             methodology: 'Methodology',
+            settings: 'Analytics Settings',
         };
         return m[s] ?? 'Performance';
     }
@@ -160,6 +161,7 @@
             backtesting: 'Backtesting',
             history: 'History',
             methodology: 'Methodology',
+            settings: 'Settings',
         };
         return m[s] ?? 'Overview';
     }
@@ -168,9 +170,6 @@
     function buildExport(): string {
         let data: Record<string, unknown>;
         switch (safeSection) {
-            case 'settings':
-                data = { mode, note: 'settings payload is exported by the PerformanceSettings tab itself' };
-                break;
             case 'trades':
                 data = { mode, trade_records: tradeRecords };
                 break;
@@ -214,14 +213,16 @@
                 {#if mode}
                     <ModeChip {mode} />
                 {/if}
-                <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {#if safeSection !== 'settings'}
+                    <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {/if}
             {/snippet}
         </DashboardHeader>
 
         <ModeBanner engine="performance" {mode} />
 
         {#if safeSection === 'settings'}
-            <PerformanceSettings />
+            <PerformanceSettings {mode} />
         {:else if Object.keys(app.instancesMap).length === 0 && !loading}
             <!-- v7.3: no active instance → SVG empty state. No fallback
                  symbol, no data, no loading message. -->

@@ -179,6 +179,11 @@ pub struct ConfigResponse {
     /// v7.3: allocation scoring thresholds — TAE Settings tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoring: Option<config_models::ScoringConfig>,
+    /// v7.4: workspace-wide indicator/signal activation defaults — the MME
+    /// Workspace Settings "Indicator Activation" card falls back to these
+    /// when an instance carries no per-instance `activation` override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<config_models::ActivationConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1035,6 +1040,8 @@ pub struct InstanceConfigPayload {
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
     pub position_scaling: Option<config_models::PositionScalingConfig>,
+    #[serde(default)]
+    pub activation: Option<config_models::ActivationConfig>,
 }
 
 #[derive(Debug, Deserialize)]

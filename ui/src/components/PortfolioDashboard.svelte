@@ -289,6 +289,7 @@
             exposure: 'Exposure',
             capital: 'Capital',
             safety: 'Safety',
+            settings: 'Portfolio Settings',
         };
         return m[s] ?? 'Portfolio';
     }
@@ -300,6 +301,7 @@
             exposure: 'Exposure',
             capital: 'Capital',
             safety: 'Safety',
+            settings: 'Settings',
         };
         return m[s] ?? 'Overview';
     }
@@ -350,9 +352,6 @@
     function buildExport(): string {
         let data: Record<string, unknown>;
         switch (safeSection) {
-            case 'settings':
-                data = { mode, ghost, note: 'settings payload is exported by the PortfolioSettings tab itself' };
-                break;
             case 'positions':
                 data = {
                     mode,
@@ -437,7 +436,9 @@
                 {:else}
                     <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
                 {/if}
-                <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {#if safeSection !== 'settings'}
+                    <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {/if}
                 {#if portfolio}
                     <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">
                         {portfolio.safety_state ?? '—'}
@@ -450,7 +451,7 @@
         <ModeBanner engine="portfolio" {mode} />
 
         {#if safeSection === 'settings'}
-            <PortfolioSettings />
+            <PortfolioSettings {mode} />
         {:else if instances.length === 0 && !loading}
             <!-- v7.3: no active instance → SVG empty state. No fallback
                  data, no loading message. -->

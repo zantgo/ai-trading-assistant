@@ -4,7 +4,6 @@
     import ClockMonitorPanel from './ClockMonitorPanel.svelte';
     import ExchangeStatusPanel from './ExchangeStatusPanel.svelte';
     import DataQualityPanel from './DataQualityPanel.svelte';
-    import DataInfraConfig from './DataInfraConfig.svelte';
     import DIEOverviewPanel from './DIEOverviewPanel.svelte';
     import MarketDataPanel from './MarketDataPanel.svelte';
     import DistributionPanel from './DistributionPanel.svelte';
@@ -58,7 +57,6 @@
         clock_monitor: 'NTP Clock Monitor',
         data_quality: 'Data Quality',
         distribution: 'Distribution',
-        settings: 'Settings',
     };
 
     const DESCRIPTIONS: Record<string, string> = {
@@ -69,7 +67,6 @@
         clock_monitor: 'UTC drift enforcement via continuous NTP polling (drift budget is the L2 candle-alignment contract).',
         data_quality: 'Per-session pipeline reliability: coverage, gaps, outlier rejection, out-of-order drops and reconstructed candles.',
         distribution: 'L4 egress telemetry — pipeline latencies, ingest skew and connected WebSocket clients.',
-        settings: 'Real platform configuration from config.toml — endpoints, clock monitor, resilience, candle buffer, quality and persistence.',
     };
 </script>
 
@@ -101,8 +98,6 @@
             <DataQualityPanel />
         {:else if section === 'distribution'}
             <DistributionPanel />
-        {:else if section === 'settings'}
-            <DataInfraConfig />
         {/if}
     </div>
 </div>
