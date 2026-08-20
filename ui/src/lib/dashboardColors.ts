@@ -183,6 +183,16 @@ export function formatRR(rr: number | null | undefined): string {
     return `1 : ${rr.toFixed(2)}`;
 }
 
+/**
+ * Format an R:R value for the Overview panel: a single colon-free number
+ * (`2.33`) or `—` when no meaningful ratio is available. The Overview
+ * surfaces "Risk to Reward Ratio" as a bare multiplier — no `1 : ` prefix.
+ */
+export function formatRewardRatio(rr: number | null | undefined): string {
+    if (rr == null || !isFinite(rr) || rr <= 0) return '—';
+    return rr.toFixed(2);
+}
+
 /// ───────────────────────────────────────────────────────────────────────
 /// v7.0-prod chrome update — direction-vocabulary palette.
 /// ───────────────────────────────────────────────────────────────────────

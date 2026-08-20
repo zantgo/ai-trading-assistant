@@ -5,26 +5,26 @@
     // first question: "Can I trade anything right now?" — within ~3 s
     // of opening the workspace.
     //
-    // Layout (top-down) — v7.0-prod:
-    //   1. LayerHeader (L7 MARKET OVERVIEW) — canonical badge + meta
-    //      chips (health, systemic risk, sync) + status pill; the
-    //      stackRight variant pins the LIVE pill over the ExportDataButton
-    //      in a right-edge column.
-    //   2. Scan bar (MARKET OVERVIEW title + UTC clock + scan strip)
-    //   3. RecommendationHero (TRADE / WAIT / STAND ASIDE)
-    //   4. Header KPI strip (6 cards)
-    //   5. 5-up card row: Trade Opportunities, Risk Distribution,
-    //      Signal Quality, Direction, Market Alignment
-    //   6. Market Health card (4 sub-dim bars)
-    //   7. Regime Distribution (ASCII bars)
-    //   8. Asset Rankings table (11-column leaderboard incl. MTF cols)
-    //   9. Bottom toolbar: [SCHEDULE SNAPSHOTS] [SCAN WATCHLIST] buttons
+    // Layout (top-down) — v7.4:
+    //   1. Unified header (one block) — row 1: MARKET OVERVIEW title +
+    //      UTC clock (left) with the LIVE pill + OVERVIEW label + EXPORT
+    //      DATA pinned top-right (same trailing chrome as every other
+    //      tab); row 2: scan strip (pairs · last scan · auto-refresh);
+    //      row 3: badge (BULLISH • HEALTHY (2 pairs)) + meta chips
+    //      (Instances / Sys Risk / Sync).
+    //   2. RecommendationHero (TRADE / WAIT / STAND ASIDE)
+    //   3. Header KPI strip (6 cards)
+    //   4. 6-up card row (equally sized + distributed): Trade
+    //      Opportunities, Risk Distribution, Signal Quality, Direction,
+    //      Market Alignment, Regime Distribution
+    //   5. Market Health card (full-width, 4 sub-dim bars)
+    //   6. Asset Rankings table (11-column leaderboard incl. MTF cols)
+    //   7. Bottom toolbar: [SCHEDULE SNAPSHOTS] [SCAN WATCHLIST] buttons
     //      grouped and centered; instructional copy lives inside the
     //      watchlist scanner modal
     import type { WsState } from '../lib/websocket.svelte';
     import { useAppStore } from '../state.svelte';
-    import LayerHeader from './LayerHeader.svelte';
-    import { buildL7OverviewHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { buildL7OverviewHeader, type LayerHeaderSpec, type ValueState } from '../lib/layerHeader';
     import styles from './GeneralDashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import WatchlistRunnerButton from './WatchlistRunnerButton.svelte';
@@ -53,7 +53,28 @@
     const app = useAppStore();
     const totalCount = $derived(Object.values(app.instancesMap).filter(i => i.instanceId).length);
 
-    // L7 LayerHeader — sourced from the system-wide Overview Matrix. The
+    const badgeCls: Record<ValueState, string> = {
+        valid: styles.badgeValid,
+        neutral: styles.badgeNeutral,
+        empty: styles.badgeEmpty,
+        error: styles.badgeError,
+    };
+
+    const chipCls: Record<ValueState, string> = {
+        valid: styles.metaChipValueValid,
+        neutral: styles.metaChipValueNeutral,
+        empty: styles.metaChipValueEmpty,
+        error: styles.metaChipValueError,
+    };
+
+    const statusDotCls: Record<LayerHeaderSpec['status'], string> = {
+        live: styles.statusLive,
+        stale: styles.statusStale,
+        error: styles.statusError,
+        loading: styles.statusLoading,
+    };
+
+    // L7 header spec — sourced from the system-wide Overview Matrix. The
     // status pill mirrors the L7 fetch state (live/stale/error) so
     // the operator can see at a glance whether the synthesis is fresh.
     const headerSpec = $derived<LayerHeaderSpec>(buildL7OverviewHeader(
@@ -91,39 +112,76 @@
                 </p>
             </div>
         {:else}
-            <!-- L7 HEADER (v7.0-prod — shared chrome across all MME tabs).
-                 stackRight stacks the LIVE pill over the EXPORT DATA button
-                 in a right-edge column; the scan bar below keeps the
-                 MARKET OVERVIEW title + UTC clock + scan strip. -->
-            <LayerHeader spec={headerSpec} stackRight>
-                {#snippet trailing()}
-                    <ExportDataButton onExport={buildExport} title="Copy all Overview data as JSON" />
-                {/snippet}
-            </LayerHeader>
-
-            <div class={styles.scanBar}>
-                <div class={styles.headerLeft}>
-                    <h2 class={styles.title}>MARKET OVERVIEW</h2>
-                    <UtcClockBadge />
+            <!-- UNIFIED HEADER (v7.4): the L7 header chrome and the scan
+                 bar are merged into ONE block. Row 1 keeps the MARKET
+                 OVERVIEW title + UTC clock on the left and pins the LIVE
+                 pill + OVERVIEW label + EXPORT DATA button top-right
+                 (the same trailing row every other MME tab renders). -->
+            <div class={styles.unifiedHeader}>
+                <div class={styles.headerTop}>
+                    <div class={styles.titleGroup}>
+                        <h2 class={styles.title}>MARKET OVERVIEW</h2>
+                        <UtcClockBadge />
+                    </div>
+                    <div class={styles.headerRight}>
+                        <div class={styles.statusIndicator} aria-live="polite">
+                            <span class="{styles.statusDot} {statusDotCls[headerSpec.status]}"></span>
+                            <span>{headerSpec.status}</span>
+                        </div>
+                        <span class={styles.tabLabel}>OVERVIEW</span>
+                        <ExportDataButton onExport={buildExport} title="Copy all Overview data as JSON" />
+                    </div>
                 </div>
-                <ScanStatusStrip />
+
+                <div class={styles.scanRow}>
+                    <ScanStatusStrip />
+                </div>
+
+                <div class={styles.badgeRow}>
+                    <span
+                        class="{styles.badge} {badgeCls[headerSpec.badge.state]}"
+                        style="border-color: {headerSpec.badge.color}; color: {headerSpec.badge.color}; background-color: {headerSpec.badge.background};"
+                        aria-label="Layer badge: {headerSpec.badge.label}{headerSpec.badge.sublabel ? `, ${headerSpec.badge.sublabel}` : ''}"
+                    >
+                        {#if headerSpec.badge.state === 'error'}
+                            <span class={styles.errorIcon} aria-hidden="true">⚠</span>
+                        {/if}
+                        <span>{headerSpec.badge.label}</span>
+                        {#if headerSpec.badge.sublabel}
+                            <span class={styles.badgeDivider} aria-hidden="true">•</span>
+                            <span>{headerSpec.badge.sublabel}</span>
+                        {/if}
+                    </span>
+                    {#if headerSpec.meta.length > 0}
+                        <div class={styles.metaList}>
+                            {#each headerSpec.meta as chip (chip.label)}
+                                <div class={styles.metaChip} title={chip.title}>
+                                    <span class={styles.metaChipLabel}>{chip.label}:</span>
+                                    <span
+                                        class="{styles.metaChipValue} {chipCls[chip.state]}"
+                                        style={chip.state === 'valid' ? `color: ${chip.color};` : ''}
+                                    >{chip.value}</span>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
             </div>
 
             <RecommendationHero />
 
             <HeaderKpiStrip />
 
-            <div class={styles.grid5}>
+            <div class={styles.grid6}>
                 <TradeOpportunitiesCard />
                 <RiskDistributionCard />
                 <SignalQualityCard />
                 <DirectionDistributionCard />
                 <MarketAlignmentCard />
+                <RegimeDistributionCard />
             </div>
 
             <MarketHealthCard />
-
-            <RegimeDistributionCard />
 
             <AssetRankingsTable />
         {/if}

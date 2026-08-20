@@ -16,18 +16,27 @@
     gap: 20px;
 }
 
-.scanBar {
+/* ── Unified header (v7.4): LayerHeader chrome + scan bar merged into
+   one block — title/clock row, scan strip row, badge + meta-chip row. */
+
+.unifiedHeader {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    padding: 10px 16px;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 16px 12px;
     background: rgba(10, 10, 10, 0.5);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.headerLeft {
+.headerTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.titleGroup {
     display: inline-flex;
     align-items: center;
     gap: 14px;
@@ -42,16 +51,182 @@
     text-transform: uppercase;
 }
 
-.subtitle {
-    font-size: 11px;
-    font-weight: 500;
-    color: #64748b;
-    font-feature-settings: "tnum" 1;
+/* Right-edge action block: LIVE pill + OVERVIEW label + EXPORT DATA,
+   the same grouped trailing row every other MME tab renders. */
+
+.headerRight {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
-.grid5 {
+.tabLabel {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    text-transform: uppercase;
+}
+
+.scanRow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.badgeRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* ── Badge (same visual vocabulary as LayerHeader) ── */
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1.5px solid;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+    letter-spacing: 0.02em;
+    line-height: 1;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.badgeValid {
+    background-color: transparent;
+}
+
+.badgeNeutral {
+    background-color: rgba(245, 158, 11, 0.08);
+}
+
+.badgeEmpty {
+    background-color: transparent;
+    font-style: italic;
+    border-style: dashed;
+}
+
+.badgeError {
+    background-color: rgba(239, 68, 68, 0.08);
+}
+
+.badgeDivider {
+    opacity: 0.5;
+    font-weight: 400;
+}
+
+.errorIcon {
+    font-size: 12px;
+    line-height: 1;
+}
+
+/* ── Meta chips ── */
+
+.metaList {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.metaChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono, 'SF Mono', monospace);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    white-space: nowrap;
+}
+
+.metaChipLabel {
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 500;
+}
+
+.metaChipValue {
+    font-weight: 600;
+}
+
+.metaChipValueValid {
+    /* colour applied via inline style */
+}
+
+.metaChipValueNeutral {
+    color: #f59e0b;
+    opacity: 0.85;
+}
+
+.metaChipValueEmpty {
+    color: rgba(255, 255, 255, 0.25);
+    font-style: italic;
+}
+
+.metaChipValueError {
+    color: #ef4444;
+}
+
+/* ── Status indicator (LIVE / stale / error / loading) ── */
+
+.statusIndicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: var(--mono, 'SF Mono', monospace);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+}
+
+.statusDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.statusLive {
+    background: #22d3ee;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25);
+}
+
+.statusStale {
+    background: #f59e0b;
+}
+
+.statusError {
+    background: rgba(255, 255, 255, 0.35);
+    box-shadow: none;
+}
+
+.statusLoading {
+    background: rgba(255, 255, 255, 0.25);
+    animation: statusPulse 2s infinite;
+}
+
+@keyframes statusPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.grid6 {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 12px;
 }
 
@@ -83,19 +258,23 @@
 }
 
 @media (max-width: 1600px) {
-    .grid5 { grid-template-columns: repeat(3, 1fr); }
+    .grid6 { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 1100px) {
-    .grid5 { grid-template-columns: repeat(2, 1fr); }
+    .grid6 { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 800px) {
-    .grid5 { grid-template-columns: 1fr; }
+    .grid6 { grid-template-columns: 1fr; }
     .grid2 { grid-template-columns: 1fr; }
-    .scanBar {
+    .headerTop {
         flex-direction: column;
         align-items: flex-start;
+    }
+    .headerRight {
+        margin-left: 0;
+        flex-wrap: wrap;
     }
 }
 

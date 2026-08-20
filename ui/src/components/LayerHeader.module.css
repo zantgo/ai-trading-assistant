@@ -198,17 +198,3 @@
     flex-shrink: 0;
     white-space: nowrap;
 }
-
-/* ── Right-edge vertical stack (status pill over trailing slot) ──
-   Opt-in via the `stackRight` prop (Overview page): the LIVE pill sits
-   on top with the trailing content (e.g. ExportDataButton) beneath it,
-   both pinned to the far right of the header row. */
-
-.rightStack {
-    margin-left: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-    flex-shrink: 0;
-}

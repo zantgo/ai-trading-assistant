@@ -41,7 +41,7 @@ import {
 } from '../tradeAggregates';
 import { computeMarketHealth } from '../marketHealth';
 import {
-    formatRR,
+    formatRewardRatio,
     signalLabel,
     directionLabel,
 } from '../dashboardColors';
@@ -288,9 +288,9 @@ function heroSubtext(s: HeroState, n: number, best: ReturnType<typeof pickBestOp
     if (s === 'TRADE') {
         const symbol = best?.symbol ?? '—';
         const dir = best?.direction === 'LONG' ? 'LONG' : best?.direction === 'SHORT' ? 'SHORT' : '—';
-        const rr = formatRR(best?.rr);
+        const rr = formatRewardRatio(best?.rr);
         const conf = (best?.confidence ?? 0).toFixed(0);
-        return `${n} actionable setup${n === 1 ? '' : 's'} · best ${symbol} ${dir} · R:R ${rr} · confidence ${conf}%`;
+        return `${n} actionable setup${n === 1 ? '' : 's'} · best ${symbol} ${dir} · risk-reward ${rr} · confidence ${conf}%`;
     }
     if (s === 'WAIT') {
         return `${n} candidate setup${n === 1 ? '' : 's'} forming — no READY trade yet.`;
@@ -473,7 +473,7 @@ function buildAssetRankingRow(
         signal,
         direction,
         rr,
-        rr_display: formatRR(rr),
+        rr_display: formatRewardRatio(rr),
         score,
         score_display: score.toFixed(0),
         confidence_pct: confidence,
@@ -577,7 +577,7 @@ export function buildOverviewTabExport(args: OverviewTabInputs): string {
             best_direction: best?.direction ?? null,
             best_opportunity_score: best?.opportunityScore ?? 0,
             best_rr: best?.rr ?? 0,
-            best_rr_display: formatRR(best?.rr),
+            best_rr_display: formatRewardRatio(best?.rr),
             best_confidence_pct: best?.confidence ?? 0,
         },
         kpis: buildKpisBlock(instances, actionable, setups, best, overview),
@@ -622,11 +622,11 @@ function buildKpisBlock(
                 : 'no qualifying setup',
         },
         avg_rr: {
-            label: 'AVG R:R',
-            value: formatRR(rr.avg),
+            label: 'RISK TO REWARD RATIO',
+            value: formatRewardRatio(rr.avg),
             sub: rr.count > 0
-                ? `best ${formatRR(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}`
-                : 'no R:R data',
+                ? `best ${formatRewardRatio(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}`
+                : 'no ratio data',
         },
         market_bias: {
             label: 'MARKET BIAS',
@@ -690,7 +690,7 @@ function buildCardsBlock(
                 symbol: best.symbol,
                 direction: best.direction,
                 rr: best.rr,
-                rr_display: formatRR(best.rr),
+                rr_display: formatRewardRatio(best.rr),
                 confidence_pct: best.confidence,
                 opportunity_score: best.opportunityScore,
             }

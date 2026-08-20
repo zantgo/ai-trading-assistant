@@ -23,17 +23,19 @@
     //   • WARMING entries render '--' (never a misleading +0.00) and are
     //     excluded from the agreement average; gated (non-Directional)
     //     indicators render 'N/A' and are excluded too.
-    //   • Section titles (INDICATORS / SIGNALS / DIVERGENCES / LEVELS) are
-    //     standalone headings OUTSIDE the bordered containers, each carrying
-    //     a global lean badge.
+    //   • All four section headings (INDICATORS / SIGNALS / DIVERGENCES /
+    //     LEVELS) are standalone headings OUTSIDE the bordered containers
+    //     with the SAME unified chrome: title + gray count badge + colored
+    //     summary badges with the dominant side lit (▲ bull / ▼ bear /
+    //     — neutral; INDICATORS uses BULL / BEAR / MIXED agreement badges).
     //   • SIGNALS cells show per-direction badges (▲ bull / ▼ bear / — neutral)
     //     instead of a summed number; the TOTAL column lights up the
     //     dominant side.
     //   • DIVERGENCES keep the sub-type abbreviations per cell; the TOTAL
-    //     column adds a BULL / BEAR / MIXED direction badge.
+    //     column uses the same ▲ / ▼ / — badges as the other tables.
     //   • LEVELS cells show chips of the ACTUAL level names (role-colored);
-    //     the TOTAL column adds a directional BULL / BEAR / MIXED badge plus
-    //     a support-vs-resistance split.
+    //     the TOTAL column adds a directional ▲ / ▼ split plus a
+    //     support-vs-resistance split.
 
     import type {
         IndicatorMeta, IndicatorSignal, SignalKind, TimeframeTelemetry,
@@ -130,6 +132,32 @@
         return GROUP_ORDER
             .map((g) => ({ group: g, items: map.get(g) ?? [] }))
             .filter((g) => g.items.length > 0);
+    });
+
+    // ── Indicators heading tally: per-row 4-TF agreement split (only
+    // rows with at least one real reading contribute). ──
+    const indicatorLean = $derived.by(() => {
+        const t = { bull: 0, bear: 0, mixed: 0 };
+        for (const r of rows) {
+            if (!r.active.some(Boolean)) continue;
+            if (r.agreementLabel === 'BULL') t.bull++;
+            else if (r.agreementLabel === 'BEAR') t.bear++;
+            else t.mixed++;
+        }
+        return t;
+    });
+
+    const indicatorLeanTotal = $derived<number>(
+        indicatorLean.bull + indicatorLean.bear + indicatorLean.mixed,
+    );
+
+    /** Strictly dominant agreement category; `null` on a multi-way tie. */
+    const indicatorLit = $derived.by<'bull' | 'bear' | 'mixed' | null>(() => {
+        const t = indicatorLean;
+        if (t.bull > t.bear && t.bull > t.mixed) return 'bull';
+        if (t.bear > t.bull && t.bear > t.mixed) return 'bear';
+        if (t.mixed > t.bull && t.mixed > t.bear) return 'mixed';
+        return null;
     });
 
     // ── Stacked cross-timeframe tables (v6.13, upgraded v6.14) ─────────
@@ -299,6 +327,16 @@
             bear += r.bearCount;
         }
         return bull > bear ? 'BULL' : bear > bull ? 'BEAR' : 'MIXED';
+    });
+
+    const globalDivergenceTally = $derived.by(() => {
+        const t = { bull: 0, bear: 0, unknown: 0 };
+        for (const r of divergenceRows) {
+            t.bull += r.bullCount;
+            t.bear += r.bearCount;
+            t.unknown += r.unknownCount;
+        }
+        return t;
     });
 
     function divShort(sub: DivergenceSubKind | null): string {
@@ -502,10 +540,33 @@
             <div class={styles.summarySpacer}></div>
         </div>
 
-        <!-- ── INDICATORS heading (outside the containers) ── -->
+        <!-- ── INDICATORS heading (outside the containers) — unified
+             chrome: title + gray count badge + colored agreement badges
+             (BULL / BEAR / MIXED) with the dominant category lit. ── -->
         <div class={styles.headingRow}>
             <h3 class={styles.headingTitle}>Indicators</h3>
-            <span class={styles.headingCount}>{rows.length}</span>
+            <span class={styles.headingCount}>
+                {rows.length} indicator{rows.length === 1 ? '' : 's'}
+            </span>
+            {#if indicatorLeanTotal > 0}
+                <span class={styles.headingBadges} title={`BULL ${indicatorLean.bull} · BEAR ${indicatorLean.bear} · MIXED ${indicatorLean.mixed} — per-indicator agreement across all 4 timeframes`}>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {indicatorLit === 'bull' ? styles.dirBadgeLit : ''}"
+                          data-dir="bull" data-lit={indicatorLit === 'bull' ? 'true' : 'false'}>
+                        BULL {indicatorLean.bull}
+                    </span>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {indicatorLit === 'bear' ? styles.dirBadgeLit : ''}"
+                          data-dir="bear" data-lit={indicatorLit === 'bear' ? 'true' : 'false'}>
+                        BEAR {indicatorLean.bear}
+                    </span>
+                    {#if indicatorLean.mixed > 0}
+                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral} {indicatorLit === 'mixed' ? styles.dirBadgeLit : ''}"
+                              data-dir="mixed" data-lit={indicatorLit === 'mixed' ? 'true' : 'false'}>
+                            MIXED {indicatorLean.mixed}
+                        </span>
+                    {/if}
+                </span>
+            {/if}
+            <span class={styles.headingHint}>normalized value per indicator, per timeframe · agreement split</span>
         </div>
 
         {#each groups as g (g.group)}
@@ -652,8 +713,21 @@
                 {totalDivergenceCount} divergence{totalDivergenceCount === 1 ? '' : 's'}
             </span>
             {#if totalDivergenceCount > 0}
-                <span class="{styles.divTotalBadge} {agClass(globalDivergenceLean)}" title="net direction across all divergence sub-types, all timeframes">
-                    {globalDivergenceLean}
+                {@const lit = globalDivergenceLean === 'BULL' ? 'bull' : globalDivergenceLean === 'BEAR' ? 'bear' : null}
+                <span class={styles.headingBadges} title={`Bullish ${globalDivergenceTally.bull} · Bearish ${globalDivergenceTally.bear} · Unknown ${globalDivergenceTally.unknown} — across all 4 timeframes`}>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
+                          data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
+                        ▲ {globalDivergenceTally.bull}
+                    </span>
+                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
+                          data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
+                        ▼ {globalDivergenceTally.bear}
+                    </span>
+                    {#if globalDivergenceTally.unknown > 0}
+                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral}" data-dir="unknown">
+                            — {globalDivergenceTally.unknown}
+                        </span>
+                    {/if}
                 </span>
             {/if}
             <span class={styles.headingHint}>strongest active divergence per oscillator, per timeframe</span>
@@ -683,9 +757,17 @@
                                 </span>
                             {/each}
                             <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 4 timeframes`}>
-                                <span class="{styles.divTotalBadge} {agClass(r.directionLabel)}" data-dir={r.directionLabel.toLowerCase()}>
-                                    {r.directionLabel} · {r.rowCount}
+                                <span class="{styles.dirBadge} {styles.dirBadgeBull} {r.directionLabel === 'BULL' ? styles.dirBadgeLit : ''}"
+                                      data-dir="bull" data-lit={r.directionLabel === 'BULL' ? 'true' : 'false'}>
+                                    ▲ {r.bullCount}
                                 </span>
+                                <span class="{styles.dirBadge} {styles.dirBadgeBear} {r.directionLabel === 'BEAR' ? styles.dirBadgeLit : ''}"
+                                      data-dir="bear" data-lit={r.directionLabel === 'BEAR' ? 'true' : 'false'}>
+                                    ▼ {r.bearCount}
+                                </span>
+                                {#if r.unknownCount > 0}
+                                    <span class="{styles.dirBadge} {styles.dirBadgeNeutral}" data-dir="unknown">— {r.unknownCount}</span>
+                                {/if}
                             </span>
                         </div>
                     {/each}

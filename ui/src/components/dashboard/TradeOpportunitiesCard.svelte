@@ -1,11 +1,11 @@
 <script lang="ts">
     // TradeOpportunitiesCard — compact "what can I trade" summary.
-    // Surfaces the actionable count, best pair, direction, R:R and
-    // highest confidence. Inverse of the Header KPI strip — this is
+    // Surfaces the actionable count, best pair, direction, risk/reward
+    // and highest confidence. Inverse of the Header KPI strip — this is
     // the operator's "show me the plays" panel.
     import { useAppStore } from '../../state.svelte';
     import { collectActiveSetups, pickBestOpportunity } from '../../lib/tradeAggregates';
-    import { directionColor, formatRR, scoreColor } from '../../lib/dashboardColors';
+    import { directionColor, formatRewardRatio, scoreColor } from '../../lib/dashboardColors';
     import styles from './TradeOpportunitiesCard.module.css';
 
     const app = useAppStore();
@@ -78,8 +78,8 @@
                 </span>
             </div>
             <div class={styles.row}>
-                <span class={styles.label}>Best R:R</span>
-                <span class={styles.value}>{formatRR(summary.best.rr)}</span>
+                <span class={styles.label}>Best Risk/Reward</span>
+                <span class={styles.value}>{formatRewardRatio(summary.best.rr)}</span>
             </div>
             <div class={styles.row}>
                 <span class={styles.label}>Confidence</span>

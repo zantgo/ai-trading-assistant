@@ -1143,12 +1143,12 @@ describe('export consistency — Overview tab', () => {
     expect(p.hero.actionable_count).toBeGreaterThan(0);
     expect(p.hero.best_symbol).toBe('BTC');
     expect(p.hero.best_direction).toBeTruthy();
-    expect(c.jsonText).toContain('R:R 1 :');
+    expect(c.jsonText).toContain('risk-reward');
 
     // KPI strip (6 cards).
     expect(c.dom).toContain('VALID TRADES');
     expect(c.dom).toContain('BEST OPPORTUNITY');
-    expect(c.dom).toContain('AVG R:R');
+    expect(c.dom).toContain('RISK TO REWARD RATIO');
     expect(c.dom).toContain('MARKET BIAS');
     expect(c.dom).toContain('AVG RISK');
     expect(c.dom).toContain('COVERAGE');
@@ -1223,7 +1223,7 @@ describe('export consistency — Overview tab', () => {
     const row = p.asset_rankings.rows.find((r: { symbol: string }) => r.symbol === 'BTC');
     expect(row).toBeTruthy();
     expect(row.symbol).toBe('BTC');
-    expect(row.rr_display).toContain('1 : ');
+    expect(row.rr_display).toMatch(/^(\d+(\.\d{1,2})?|—)$/);
     expect(row.confidence_display).toMatch(/^\d+%$/);
     expect(row.score_display).toMatch(/^\d+$/);
     expect(row.mtf_label_display).toBe('WEAK BULL');

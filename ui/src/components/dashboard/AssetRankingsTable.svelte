@@ -4,8 +4,8 @@
     // operator's first question after a glance at the hero is "which
     // pair is best?"
     //
-    // Columns: Symbol, Price, Bias, Signal, Direction, R:R, Score,
-    //          Confidence, MTF Score, MTF Label, Risk, Updated.
+    // Columns: Symbol, Price, Bias, Signal, Direction, Risk/Reward,
+    //          Score, Confidence, MTF Score, MTF Label, Risk, Updated.
     import { useAppStore } from '../../state.svelte';
     import { formatRelativeTime } from '../../lib/relTime';
     import { resolveActiveRr, topQualifyingProfile } from '../../lib/decisionRank';
@@ -14,7 +14,7 @@
         biasColor,
         directionColor,
         directionLabel,
-        formatRR,
+        formatRewardRatio,
         rrColor,
         scoreColor,
         signalLabel,
@@ -81,7 +81,7 @@
     const rows = $derived.by((): Row[] => {
         // v7.2 parity: the server-computed `overview_rows` (single source,
         // also rendered by the CLI monitor) are the primary input — every
-        // column (price, signal, direction, R:R, confidence, MTF, risk,
+        // column (price, signal, direction, risk/reward, confidence, MTF, risk,
         // updated) comes from the same payload. The local derivation below
         // stays as the warmup fallback while the L7 payload is absent.
         const serverRows = app.overviewMatrix?.overview_rows ?? [];
@@ -252,7 +252,7 @@
                     <th class={styles.th} onclick={() => toggleSort('bias')}>Bias{arrow('bias')}</th>
                     <th class={styles.th} onclick={() => toggleSort('signal')}>Signal{arrow('signal')}</th>
                     <th class={styles.th} onclick={() => toggleSort('direction')}>Direction{arrow('direction')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('rr')}>R:R{arrow('rr')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('rr')}>Risk/Reward{arrow('rr')}</th>
                     <th class={styles.th} onclick={() => toggleSort('score')}>Score{arrow('score')}</th>
                     <th class={styles.th} onclick={() => toggleSort('confidence')}>Confidence{arrow('confidence')}</th>
                     <th class={styles.th} onclick={() => toggleSort('mtf_score')}>MTF Score{arrow('mtf_score')}</th>
@@ -276,7 +276,7 @@
                             </span>
                         </td>
                         <td class={styles.td} style="color: {directionColor(r.direction)}">{r.direction}</td>
-                        <td class={styles.td} style="color: {rrColor(r.rr)}">{formatRR(r.rr)}</td>
+                        <td class={styles.td} style="color: {rrColor(r.rr)}">{formatRewardRatio(r.rr)}</td>
                         <td class={styles.td}>
                             <span class={styles.scoreCell}>
                                 <span class={styles.scoreVal} style="color: {scoreColor(r.score)}">{r.score.toFixed(0)}</span>

@@ -286,7 +286,7 @@ describe('GeneralDashboard — hero states', () => {
 });
 
 describe('GeneralDashboard — asset rankings table', () => {
-    it('renders 11 columns (Symbol, Price, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score, MTF Label, Risk, Updated)', () => {
+    it('renders 11 columns (Symbol, Price, Bias, Signal, Direction, Risk/Reward, Score, Confidence, MTF Score, MTF Label, Risk, Updated)', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
         // Verify each column header is present (use getAllByText for
@@ -297,7 +297,7 @@ describe('GeneralDashboard — asset rankings table', () => {
         expect(screen.getAllByText('Bias').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Signal').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('R:R').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Risk/Reward').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
         expect(screen.getAllByText('MTF Score').length).toBeGreaterThan(0);
@@ -398,7 +398,7 @@ describe('GeneralDashboard — header KPI strip', () => {
         render(GeneralDashboard, { props: { wssMap: {} } });
         expect(screen.getByText('VALID TRADES')).toBeTruthy();
         expect(screen.getByText('BEST OPPORTUNITY')).toBeTruthy();
-        expect(screen.getByText('AVG R:R')).toBeTruthy();
+        expect(screen.getByText('RISK TO REWARD RATIO')).toBeTruthy();
         expect(screen.getByText('MARKET BIAS')).toBeTruthy();
         expect(screen.getByText('AVG RISK')).toBeTruthy();
         expect(screen.getByText('COVERAGE')).toBeTruthy();
@@ -460,7 +460,7 @@ describe('GeneralDashboard — trade opportunities card', () => {
         expect(screen.getAllByText('TRADE OPPORTUNITIES').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Best Pair').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Best R:R').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Best Risk/Reward').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
     });
 });

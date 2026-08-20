@@ -1,7 +1,7 @@
 <script lang="ts">
     // HeaderKpiStrip — six top-row KPIs answering the operator's
     // top-of-screen needs:
-    //   Valid Trades, Best Opportunity, Avg R:R, Market Bias,
+    //   Valid Trades, Best Opportunity, Risk to Reward Ratio, Market Bias,
     //   Avg Risk, Coverage.
     import { useAppStore } from '../../state.svelte';
     import {
@@ -11,7 +11,7 @@
         collectActiveSetups,
         pickBestOpportunity,
     } from '../../lib/tradeAggregates';
-    import { biasColor, rrColor, scoreColor, formatRR } from '../../lib/dashboardColors';
+    import { biasColor, rrColor, scoreColor, formatRewardRatio } from '../../lib/dashboardColors';
     import { demoteBiasForCoverage } from '../../lib/layerHeader';
     import styles from './HeaderKpiStrip.module.css';
 
@@ -57,9 +57,9 @@
                 color: best ? scoreColor(best.opportunityScore) : 'rgba(255,255,255,0.35)',
             },
             avgRr: {
-                label: 'AVG R:R',
-                value: formatRR(rr.avg),
-                sub: rr.count > 0 ? `best ${formatRR(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}` : 'no R:R data',
+                label: 'RISK TO REWARD RATIO',
+                value: formatRewardRatio(rr.avg),
+                sub: rr.count > 0 ? `best ${formatRewardRatio(rr.best)} · ${rr.count} pair${rr.count === 1 ? '' : 's'}` : 'no ratio data',
                 color: rrColor(rr.avg),
             },
             marketBias: {
