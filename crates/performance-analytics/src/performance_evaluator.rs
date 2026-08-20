@@ -42,7 +42,7 @@ pub async fn run_full_analytics_pipeline(pool: &SqlitePool) {
     let risk = crate::risk_analytics::compute_risk_analytics(pool).await;
     database_storage::insert_risk_analytics(pool, &risk).await;
 
-    let strategy_rows = crate::strategy_analytics::compute_strategy_analytics(pool, &trades).await;
+    let strategy_rows = crate::strategy_analytics::compute_strategy_analytics(pool, &trades, crate::strategy_analytics::AnalyticsParams::default()).await;
     for row in &strategy_rows {
         database_storage::insert_strategy_analytics(pool, row).await;
     }
@@ -72,9 +72,12 @@ pub async fn compute_risk_on_demand(pool: &SqlitePool) -> RiskAnalyticsRow {
     crate::risk_analytics::compute_risk_analytics(pool).await
 }
 
-pub async fn compute_strategy_on_demand(pool: &SqlitePool) -> Vec<StrategyAnalyticsRow> {
+pub async fn compute_strategy_on_demand(
+    pool: &SqlitePool,
+    params: crate::strategy_analytics::AnalyticsParams,
+) -> Vec<StrategyAnalyticsRow> {
     let trades = crate::trade_analytics::reconstruct_trades(pool).await;
-    crate::strategy_analytics::compute_strategy_analytics(pool, &trades).await
+    crate::strategy_analytics::compute_strategy_analytics(pool, &trades, params).await
 }
 
 pub async fn compute_performance_on_demand(pool: &SqlitePool) -> Vec<PerformanceMatrixRow> {

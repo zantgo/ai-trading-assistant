@@ -10,6 +10,10 @@
     import ModeChip from './ModeChip.svelte';
     import ModeBanner from './ModeBanner.svelte';
     import KpiStrip from './KpiStrip.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import NoInstanceState from './NoInstanceState.svelte';
+    import PortfolioSettings from './PortfolioSettings.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
     import styles from '../styles/engine-dashboard.module.css';
     import local from './PortfolioDashboard.module.css';
     import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
@@ -48,6 +52,11 @@
             short_exposure: string;
             symbol_concentration: Record<string, string>;
             max_single_pair_pct: string;
+            limits?: {
+                max_single_pair_exposure_pct: number;
+                max_portfolio_exposure_pct: number;
+                max_correlation: number;
+            };
         };
         capital: {
             available_margin: string;
@@ -96,6 +105,8 @@
     let lastOkTs = $state(0);
     let pollFailed = $state(false);
     let safetyCfg = $state<{ daily: number; caution: number; dropout: number; hours: number; drawdown: number } | null>(null);
+    // v7.3: real risk-per-trade from `[workspace.minimal_tae]` (ConfigResponse).
+    let riskPerTradePct = $state<number | null>(null);
 
     const mode = $derived.by<ExecutionMode | undefined>(() => {
         const pMode = portfolio?.mode;
@@ -106,9 +117,12 @@
     });
     const ghost = $derived(mode === 'observe');
 
-    // Observe collapses to the data-bearing tabs.
+    // v7.3: Settings is always present — ghost collapse only hides the
+    // money surfaces (Positions / Exposure / Capital / Portfolio), never
+    // Overview / Safety / Settings.
     const safeSection = $derived(
-        ghost && section !== 'overview' && section !== 'safety' ? 'overview' : section,
+        ghost && section !== 'overview' && section !== 'safety' && section !== 'settings'
+            ? 'overview' : section,
     );
 
     const status = $derived<'live' | 'stale' | 'error' | 'loading'>(
@@ -146,13 +160,25 @@
                     drawdown: Number(s.drawdown_limit_pct) || 30,
                 };
             }
+            const tae = cfg?.minimal_tae as { risk_per_trade_pct?: number } | undefined;
+            if (tae && typeof tae.risk_per_trade_pct === 'number' && tae.risk_per_trade_pct > 0) {
+                riskPerTradePct = tae.risk_per_trade_pct;
+            }
         } catch {
             // Blueprint falls back to shipped defaults.
         }
     }
 
     async function refresh() {
-        if (!selectedId) return;
+        // v7.3: with no instance there is nothing to fetch — resolve the
+        // loading state so the UI renders the no-instance empty state
+        // instead of showing "Loading…" forever.
+        if (!selectedId) {
+            loading = false;
+            pollFailed = false;
+            lastOkTs = Date.now();
+            return;
+        }
         try {
             const [pRes, sRes] = await Promise.all([
                 fetch(`/api/instances/${selectedId}/portfolio`),
@@ -201,7 +227,14 @@
         };
         boot();
         const timer = setInterval(refresh, 2000);
-        return () => clearInterval(timer);
+        // v7.3: polling backstop on the instance list (mirrors the MME
+        // InstancePicker) — launching an instance while on this engine
+        // populates the selector and content without remounting.
+        const instanceTimer = setInterval(() => { void loadInstances(); }, 3000);
+        return () => {
+            clearInterval(timer);
+            clearInterval(instanceTimer);
+        };
     });
 
     // ── Formatters ─────────────────────────────────────────────────────
@@ -312,6 +345,76 @@
     const marginZone = $derived<'ok' | 'warn' | 'danger'>(
         marginPct >= 95 ? 'danger' : marginPct >= 80 ? 'warn' : 'ok',
     );
+
+    // ── Export JSON: the current tab's visible state, mode-aware ────────
+    function buildExport(): string {
+        let data: Record<string, unknown>;
+        switch (safeSection) {
+            case 'settings':
+                data = { mode, ghost, note: 'settings payload is exported by the PortfolioSettings tab itself' };
+                break;
+            case 'positions':
+                data = {
+                    mode,
+                    ghost,
+                    position_count: portfolio?.position_count ?? 0,
+                    positions: portfolio?.positions ?? [],
+                };
+                break;
+            case 'exposure':
+                data = {
+                    mode,
+                    ghost,
+                    exposure: portfolio?.exposure ?? null,
+                };
+                break;
+            case 'capital':
+                data = {
+                    mode,
+                    ghost,
+                    margin_usage_pct: marginPct,
+                    margin_zone: marginZone,
+                    capital: portfolio?.capital ?? null,
+                };
+                break;
+            case 'portfolio':
+                data = {
+                    mode,
+                    ghost,
+                    starting_session_equity: portfolio?.starting_session_equity ?? null,
+                    current_equity: portfolio?.current_equity ?? null,
+                    peak_equity: portfolio?.peak_equity ?? null,
+                    max_drawdown_pct: portfolio?.max_drawdown_pct ?? null,
+                    daily_pnl: portfolio?.daily_pnl ?? null,
+                    systemic_risk_score: portfolio?.systemic_risk_score ?? null,
+                };
+                break;
+            case 'safety':
+                data = {
+                    mode,
+                    ghost,
+                    safety_state: portfolio?.safety_state ?? null,
+                    safety_context: portfolio?.safety_context ?? null,
+                    consecutive_losses: portfolio?.consecutive_losses ?? {},
+                    peak_equity: safety?.peak_equity ?? portfolio?.peak_equity ?? null,
+                    max_drawdown_pct: safety?.max_drawdown_pct ?? portfolio?.max_drawdown_pct ?? null,
+                    daily_pnl: safety?.daily_pnl ?? portfolio?.daily_pnl ?? null,
+                };
+                break;
+            default:
+                data = {
+                    mode,
+                    ghost,
+                    lifecycle: portfolio?.lifecycle ?? null,
+                    initial_capital: portfolio?.initial_capital ?? null,
+                    current_equity: portfolio?.current_equity ?? null,
+                    safety_state: portfolio?.safety_state ?? null,
+                    risk_per_trade_pct: riskPerTradePct,
+                    safety_blueprint: safetyCfg,
+                };
+        }
+        return buildEngineExport('portfolio', safeSection, mode ?? null, data);
+    }
 </script>
 
 <div class={styles.dashboard}>
@@ -325,21 +428,34 @@
                 {#if mode}
                     <ModeChip {mode} />
                 {/if}
-                <select class={styles.select} bind:value={selectedId} onchange={refresh}>
-                    {#each instances as inst (inst.id)}
-                        <option value={inst.id}>{inst.pair}</option>
-                    {/each}
-                </select>
-                <span class="{styles.badge} {safetyBadge(portfolio?.safety_state)}">
-                    {portfolio?.safety_state ?? '—'}
-                </span>
-                <span class="{styles.badge} {styles.badgeNeutral}">{portfolio?.lifecycle ?? '—'}</span>
+                {#if instances.length > 0}
+                    <select class={styles.select} bind:value={selectedId} onchange={refresh}>
+                        {#each instances as inst (inst.id)}
+                            <option value={inst.id}>{inst.pair}</option>
+                        {/each}
+                    </select>
+                {:else}
+                    <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
+                {/if}
+                <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {#if portfolio}
+                    <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">
+                        {portfolio.safety_state ?? '—'}
+                    </span>
+                    <span class="{styles.badge} {styles.badgeNeutral}">{portfolio.lifecycle ?? '—'}</span>
+                {/if}
             {/snippet}
         </DashboardHeader>
 
         <ModeBanner engine="portfolio" {mode} />
 
-        {#if loading}
+        {#if safeSection === 'settings'}
+            <PortfolioSettings />
+        {:else if instances.length === 0 && !loading}
+            <!-- v7.3: no active instance → SVG empty state. No fallback
+                 data, no loading message. -->
+            <NoInstanceState engine="portfolio" />
+        {:else if loading}
             <div class={styles.empty}>Loading portfolio state…</div>
         {:else if error && !portfolio}
             <div class={styles.empty}>{error}</div>
@@ -376,7 +492,7 @@
                             </div>
                             <div class={local.blueprintItem}>
                                 <div class={local.blueprintLabel}>Risk per trade</div>
-                                <div class={local.blueprintValue}>{app.sessionMode === 'live' ? '1%' : '1%'}</div>
+                                <div class={local.blueprintValue}>{riskPerTradePct ?? 1}%</div>
                                 <div class={local.blueprintSub}>minimal_tae sizing</div>
                             </div>
                             <div class={local.blueprintItem}>
@@ -454,17 +570,25 @@
                     {#if Object.keys(portfolio.exposure.symbol_concentration).length === 0}
                         <div class={styles.empty}>No exposure.</div>
                     {:else}
+                        {@const pairLimit = portfolio.exposure.limits?.max_single_pair_exposure_pct ?? 20}
+                        {@const portfolioLimit = portfolio.exposure.limits?.max_portfolio_exposure_pct ?? 50}
                         <div class={local.concList}>
                             {#each Object.entries(portfolio.exposure.symbol_concentration) as [sym, pct] (sym)}
+                                {@const pctNum = Number(pct) * 100}
+                                {@const breached = pctNum > pairLimit}
                                 <div class={local.concRow}>
                                     <span class={styles.tdMono}>{sym}</span>
                                     <div class={local.concTrack}>
-                                        <div class={local.concFill} style="width:{Math.min(Number(pct) * 100, 100)}%"></div>
+                                        <div class={local.concFill} style="width:{Math.min(pctNum, 100)}%"></div>
                                     </div>
-                                    <span class={local.concPct}>{fmtPct(Number(pct) * 100)}</span>
-                                    <span class={local.concLimit}>limit 20%</span>
+                                    <span class="{local.concPct} {breached ? styles.warn : ''}">{fmtPct(pctNum)}</span>
+                                    <span class={local.concLimit}>limit {pairLimit.toFixed(0)}%{breached ? ' · BREACH' : ''}</span>
                                 </div>
                             {/each}
+                        </div>
+                        <div class={styles.kpiStrip} style="margin-top:12px">
+                            <div class={styles.kpi}><div class={styles.kpiLabel}>Portfolio Exposure vs Cap</div><div class="{styles.kpiValue} {Number(portfolio.exposure.net_exposure_pct) > portfolioLimit ? styles.warn : ''}">{fmtPct(portfolio.exposure.net_exposure_pct)}</div><div class={styles.kpiSub}>limit {portfolioLimit.toFixed(0)}% of equity</div></div>
+                            <div class={styles.kpi}><div class={styles.kpiLabel}>Correlation Cap</div><div class={styles.kpiValue}>{portfolio.exposure.limits?.max_correlation ?? 0.8}</div><div class={styles.kpiSub}>max pairwise ρ</div></div>
                         </div>
                     {/if}
                 </div>
@@ -490,6 +614,29 @@
                             MARGIN ALERT: {portfolio.capital.margin_alert}
                         </div>
                     {/if}
+                </div>
+
+            {:else if safeSection === 'portfolio'}
+                <!-- ── PME L4: Portfolio Matrix ── -->
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Portfolio Matrix</h3>
+                    <p class={styles.infoLine}>
+                        L4 portfolio view — the aggregate money picture across the instance:
+                        session accounting, drawdown trajectory and systemic risk.
+                    </p>
+                    <div class={styles.grid2}>
+                        <div class={local.overviewStat}><span class={local.overviewLabel}>Session Start</span><span class={local.overviewValue}>${fmtUsd(portfolio.starting_session_equity)}</span></div>
+                        <div class={local.overviewStat}><span class={local.overviewLabel}>Current Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.current_equity)}</span></div>
+                        <div class={local.overviewStat}><span class={local.overviewLabel}>Peak Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.peak_equity)}</span></div>
+                        <div class={local.overviewStat}><span class={local.overviewLabel}>Daily PnL</span><span class="{local.overviewValue} {pnlClass(portfolio.daily_pnl)}">{signedUsd(portfolio.daily_pnl)}</span></div>
+                        <div class={local.overviewStat}><span class={local.overviewLabel}>Max Drawdown</span><span class="{local.overviewValue} {styles.neg}">{fmtPct(portfolio.max_drawdown_pct)}</span></div>
+                        <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class="{local.overviewValue} {Number(portfolio.systemic_risk_score) > 50 ? styles.warn : ''}">{fmtNum(portfolio.systemic_risk_score)}</span></div>
+                    </div>
+                    <div class={local.sessionBar}>
+                        <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting}>
+                            {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
+                        </button>
+                    </div>
                 </div>
 
             {:else if safeSection === 'safety'}

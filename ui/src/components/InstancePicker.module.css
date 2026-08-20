@@ -340,21 +340,21 @@
 }
 
 .modeObserve {
+    color: #7dd3fc;
+    background: rgba(56, 189, 248, 0.08);
+    border-color: rgba(56, 189, 248, 0.35);
+}
+
+.modePaper {
     color: #fbbf24;
     background: rgba(245, 158, 11, 0.08);
     border-color: rgba(245, 158, 11, 0.35);
 }
 
-.modePaper {
-    color: #7dd3fc;
-    background: rgba(56, 189, 248, 0.08);
-    border-color: rgba(56, 189, 248, 0.3);
-}
-
 .modeLive {
-    color: #f87171;
-    background: rgba(239, 68, 68, 0.08);
-    border-color: rgba(239, 68, 68, 0.4);
+    color: #4ade80;
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.4);
 }
 
 /* ─── Delete button ────────────────────────────────────────────────────── */

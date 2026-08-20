@@ -6,6 +6,7 @@
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
+    import engine from '../styles/engine-dashboard.module.css';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -319,60 +320,77 @@
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
     {#snippet indicatorInputs(p: string, t: TermDraft)}
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Instant')}>EMA Instant</label><input id={fieldId(p, 'EMA Instant')} type="number" bind:value={t.emaFast} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaMedium} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Medium')}>EMA Medium</label><input id={fieldId(p, 'EMA Medium')} type="number" bind:value={t.emaSlow} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Slow')}>EMA Slow</label><input id={fieldId(p, 'EMA Slow')} type="number" bind:value={t.emaLong} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'RSI Window')}>RSI Window</label><input id={fieldId(p, 'RSI Window')} type="number" bind:value={t.rsiPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Fast')}>MACD Fast</label><input id={fieldId(p, 'MACD Fast')} type="number" bind:value={t.macdFast} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Slow')}>MACD Slow</label><input id={fieldId(p, 'MACD Slow')} type="number" bind:value={t.macdSlow} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Signal')}>MACD Signal</label><input id={fieldId(p, 'MACD Signal')} type="number" bind:value={t.macdSignal} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Period')}>ADX Period</label><input id={fieldId(p, 'ADX Period')} type="number" bind:value={t.adxPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ATR Period')}>ATR Period</label><input id={fieldId(p, 'ATR Period')} type="number" bind:value={t.atrPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId(p, 'Squeeze Wave')} type="number" bind:value={t.squeezePeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'BBWP Period')}>BBWP Period</label><input id={fieldId(p, 'BBWP Period')} type="number" bind:value={t.bbwpPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId(p, 'BBWP Lookback')} type="number" bind:value={t.bbwpLookback} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch %K')}>Stoch %K Period</label><input id={fieldId(p, 'Stoch %K')} type="number" bind:value={t.stochKPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch %D')}>Stoch %D Period</label><input id={fieldId(p, 'Stoch %D')} type="number" bind:value={t.stochDPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch Slowing')}>Stoch Slowing</label><input id={fieldId(p, 'Stoch Slowing')} type="number" bind:value={t.stochSPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ChandeMO Period')}>ChandeMO Period</label><input id={fieldId(p, 'ChandeMO Period')} type="number" bind:value={t.chandemoPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Supertrend Period')}>Supertrend Period</label><input id={fieldId(p, 'Supertrend Period')} type="number" bind:value={t.supertrendPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Supertrend Mult')}>Supertrend Mult</label><input id={fieldId(p, 'Supertrend Mult')} type="number" step="0.1" bind:value={t.supertrendMultiplier} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner EMA')}>Keltner EMA</label><input id={fieldId(p, 'Keltner EMA')} type="number" bind:value={t.keltnerEmaPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner ATR')}>Keltner ATR</label><input id={fieldId(p, 'Keltner ATR')} type="number" bind:value={t.keltnerAtrPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner Mult')}>Keltner Mult</label><input id={fieldId(p, 'Keltner Mult')} type="number" step="0.1" bind:value={t.keltnerMultiplier} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Donchian Period')}>Donchian Period</label><input id={fieldId(p, 'Donchian Period')} type="number" bind:value={t.donchianPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'OBV Smoothing')}>OBV Smoothing</label><input id={fieldId(p, 'OBV Smoothing')} type="number" bind:value={t.obvSmoothing} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'CMF Period')}>CMF Period</label><input id={fieldId(p, 'CMF Period')} type="number" bind:value={t.cmfPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MFI Period')}>MFI Period</label><input id={fieldId(p, 'MFI Period')} type="number" bind:value={t.mfiPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'HV Period')}>HV Period</label><input id={fieldId(p, 'HV Period')} type="number" bind:value={t.hvPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Aroon Period')}>Aroon Period</label><input id={fieldId(p, 'Aroon Period')} type="number" bind:value={t.aroonPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Chop Period')}>Chop Period</label><input id={fieldId(p, 'Chop Period')} type="number" bind:value={t.chopPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'LinReg Period')}>LinReg Period</label><input id={fieldId(p, 'LinReg Period')} type="number" bind:value={t.linregPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ZScore Period')}>ZScore Period</label><input id={fieldId(p, 'ZScore Period')} type="number" bind:value={t.zscorePeriod} /></div>
-        <hr class={styles.sectionDivider} />
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Extr High')}>MACD Extr High</label><input id={fieldId(p, 'MACD Extr High')} type="number" step="0.01" bind:value={t.macdExtremeHigh} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId(p, 'MACD Extr Low')} type="number" step="0.01" bind:value={t.macdExtremeLow} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Contr %')}>MACD Contr %</label><input id={fieldId(p, 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={t.macdContraction} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId(p, 'ADX Trend Th')} type="number" bind:value={t.adxTrendThreshold} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId(p, 'ADX Exhaustion')} type="number" bind:value={t.adxExhaustionThreshold} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId(p, 'ADX Slope Lbk')} type="number" bind:value={t.adxSlopeLookback} /></div>
-        <hr class={styles.sectionDivider} />
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId(p, 'Sqz Min Dur')} type="number" bind:value={t.squeezeMinDuration} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId(p, 'Sqz BB Period')} type="number" bind:value={t.squeezeBbPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId(p, 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={t.squeezeBbStdDev} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId(p, 'Sqz KC Period')} type="number" bind:value={t.squeezeKcPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId(p, 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={t.squeezeKcAtrMult} /></div>
-        <hr class={styles.sectionDivider} />
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'ATR Mult')}>ATR Mult</label><input id={fieldId(p, 'ATR Mult')} type="number" step="0.1" bind:value={t.atrMultiplier} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Target R:R')}>Target R:R</label><input id={fieldId(p, 'Target R:R')} type="number" step="0.1" bind:value={t.atrTargetRR} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId(p, 'Vol Avg Period')} type="number" bind:value={t.volumeAvgPeriod} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Inst')}>RVOL Inst</label><input id={fieldId(p, 'RVOL Inst')} type="number" step="0.1" bind:value={t.rvolInstitutional} /></div>
-        <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Instant')}>EMA Instant</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Instant')} type="number" bind:value={t.emaFast} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaMedium} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Medium')}>EMA Medium</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Medium')} type="number" bind:value={t.emaSlow} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'EMA Slow')}>EMA Slow</label><input class={engine.fieldInput} id={fieldId(p, 'EMA Slow')} type="number" bind:value={t.emaLong} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'RSI Window')}>RSI Window</label><input class={engine.fieldInput} id={fieldId(p, 'RSI Window')} type="number" bind:value={t.rsiPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MACD Fast')}>MACD Fast</label><input class={engine.fieldInput} id={fieldId(p, 'MACD Fast')} type="number" bind:value={t.macdFast} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MACD Slow')}>MACD Slow</label><input class={engine.fieldInput} id={fieldId(p, 'MACD Slow')} type="number" bind:value={t.macdSlow} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MACD Signal')}>MACD Signal</label><input class={engine.fieldInput} id={fieldId(p, 'MACD Signal')} type="number" bind:value={t.macdSignal} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ADX Period')}>ADX Period</label><input class={engine.fieldInput} id={fieldId(p, 'ADX Period')} type="number" bind:value={t.adxPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ATR Period')}>ATR Period</label><input class={engine.fieldInput} id={fieldId(p, 'ATR Period')} type="number" bind:value={t.atrPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Squeeze Wave')}>Squeeze Wave</label><input class={engine.fieldInput} id={fieldId(p, 'Squeeze Wave')} type="number" bind:value={t.squeezePeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'BBWP Period')}>BBWP Period</label><input class={engine.fieldInput} id={fieldId(p, 'BBWP Period')} type="number" bind:value={t.bbwpPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'BBWP Lookback')}>BBWP Lookback</label><input class={engine.fieldInput} id={fieldId(p, 'BBWP Lookback')} type="number" bind:value={t.bbwpLookback} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Stoch %K')}>Stoch %K Period</label><input class={engine.fieldInput} id={fieldId(p, 'Stoch %K')} type="number" bind:value={t.stochKPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Stoch %D')}>Stoch %D Period</label><input class={engine.fieldInput} id={fieldId(p, 'Stoch %D')} type="number" bind:value={t.stochDPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Stoch Slowing')}>Stoch Slowing</label><input class={engine.fieldInput} id={fieldId(p, 'Stoch Slowing')} type="number" bind:value={t.stochSPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ChandeMO Period')}>ChandeMO Period</label><input class={engine.fieldInput} id={fieldId(p, 'ChandeMO Period')} type="number" bind:value={t.chandemoPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Supertrend Period')}>Supertrend Period</label><input class={engine.fieldInput} id={fieldId(p, 'Supertrend Period')} type="number" bind:value={t.supertrendPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Supertrend Mult')}>Supertrend Mult</label><input class={engine.fieldInput} id={fieldId(p, 'Supertrend Mult')} type="number" step="0.1" bind:value={t.supertrendMultiplier} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Keltner EMA')}>Keltner EMA</label><input class={engine.fieldInput} id={fieldId(p, 'Keltner EMA')} type="number" bind:value={t.keltnerEmaPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Keltner ATR')}>Keltner ATR</label><input class={engine.fieldInput} id={fieldId(p, 'Keltner ATR')} type="number" bind:value={t.keltnerAtrPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Keltner Mult')}>Keltner Mult</label><input class={engine.fieldInput} id={fieldId(p, 'Keltner Mult')} type="number" step="0.1" bind:value={t.keltnerMultiplier} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Donchian Period')}>Donchian Period</label><input class={engine.fieldInput} id={fieldId(p, 'Donchian Period')} type="number" bind:value={t.donchianPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'OBV Smoothing')}>OBV Smoothing</label><input class={engine.fieldInput} id={fieldId(p, 'OBV Smoothing')} type="number" bind:value={t.obvSmoothing} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'CMF Period')}>CMF Period</label><input class={engine.fieldInput} id={fieldId(p, 'CMF Period')} type="number" bind:value={t.cmfPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MFI Period')}>MFI Period</label><input class={engine.fieldInput} id={fieldId(p, 'MFI Period')} type="number" bind:value={t.mfiPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'HV Period')}>HV Period</label><input class={engine.fieldInput} id={fieldId(p, 'HV Period')} type="number" bind:value={t.hvPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Aroon Period')}>Aroon Period</label><input class={engine.fieldInput} id={fieldId(p, 'Aroon Period')} type="number" bind:value={t.aroonPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Chop Period')}>Chop Period</label><input class={engine.fieldInput} id={fieldId(p, 'Chop Period')} type="number" bind:value={t.chopPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'LinReg Period')}>LinReg Period</label><input class={engine.fieldInput} id={fieldId(p, 'LinReg Period')} type="number" bind:value={t.linregPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ZScore Period')}>ZScore Period</label><input class={engine.fieldInput} id={fieldId(p, 'ZScore Period')} type="number" bind:value={t.zscorePeriod} /></div>
+        <hr class={styles.tfSectionDivider} />
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MACD Extr High')}>MACD Extr High</label><input class={engine.fieldInput} id={fieldId(p, 'MACD Extr High')} type="number" step="0.01" bind:value={t.macdExtremeHigh} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MACD Extr Low')}>MACD Extr Low</label><input class={engine.fieldInput} id={fieldId(p, 'MACD Extr Low')} type="number" step="0.01" bind:value={t.macdExtremeLow} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'MACD Contr %')}>MACD Contr %</label><input class={engine.fieldInput} id={fieldId(p, 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={t.macdContraction} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ADX Trend Th')}>ADX Trend Th</label><input class={engine.fieldInput} id={fieldId(p, 'ADX Trend Th')} type="number" bind:value={t.adxTrendThreshold} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ADX Exhaustion')}>ADX Exhaustion</label><input class={engine.fieldInput} id={fieldId(p, 'ADX Exhaustion')} type="number" bind:value={t.adxExhaustionThreshold} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ADX Slope Lbk')}>ADX Slope Lbk</label><input class={engine.fieldInput} id={fieldId(p, 'ADX Slope Lbk')} type="number" bind:value={t.adxSlopeLookback} /></div>
+        <hr class={styles.tfSectionDivider} />
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Sqz Min Dur')}>Sqz Min Dur</label><input class={engine.fieldInput} id={fieldId(p, 'Sqz Min Dur')} type="number" bind:value={t.squeezeMinDuration} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Sqz BB Period')}>Sqz BB Period</label><input class={engine.fieldInput} id={fieldId(p, 'Sqz BB Period')} type="number" bind:value={t.squeezeBbPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input class={engine.fieldInput} id={fieldId(p, 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={t.squeezeBbStdDev} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Sqz KC Period')}>Sqz KC Period</label><input class={engine.fieldInput} id={fieldId(p, 'Sqz KC Period')} type="number" bind:value={t.squeezeKcPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input class={engine.fieldInput} id={fieldId(p, 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={t.squeezeKcAtrMult} /></div>
+        <hr class={styles.tfSectionDivider} />
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'ATR Mult')}>ATR Mult</label><input class={engine.fieldInput} id={fieldId(p, 'ATR Mult')} type="number" step="0.1" bind:value={t.atrMultiplier} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Target R:R')}>Target R:R</label><input class={engine.fieldInput} id={fieldId(p, 'Target R:R')} type="number" step="0.1" bind:value={t.atrTargetRR} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'Vol Avg Period')}>Vol Avg Period</label><input class={engine.fieldInput} id={fieldId(p, 'Vol Avg Period')} type="number" bind:value={t.volumeAvgPeriod} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'RVOL Inst')}>RVOL Inst</label><input class={engine.fieldInput} id={fieldId(p, 'RVOL Inst')} type="number" step="0.1" bind:value={t.rvolInstitutional} /></div>
+        <div class={styles.tfInputRow}><label class="{engine.fieldLabel} {styles.tfLabel}" for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input class={engine.fieldInput} id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
     {/snippet}
 
+    <header class={engine.unifiedHeader}>
+        <div class={engine.headerTop}>
+            <div class={engine.titleGroup}>
+                <h2 class={engine.title}>Workspace Settings</h2>
+                {#if pair}
+                    <span class={engine.metaChip}>
+                        <span class={engine.metaChipLabel}>pair</span>
+                        <span class={engine.metaChipValue}>{pair.symbol} · {pair.exchange}</span>
+                    </span>
+                {/if}
+            </div>
+            <div class={engine.headerRight}>
+                <span class={engine.tabLabel}>Settings</span>
+            </div>
+        </div>
+    </header>
+
     <aside class={styles.tfShellRail}>
-        <h3 class={styles.tfShellRailTitle}>TIMEFRAMES</h3>
+        <h3 class={engine.subTitle}>TIMEFRAMES</h3>
         {#each slotOrder as slot (slot)}
             <button
                 type="button"
@@ -388,10 +406,11 @@
     </aside>
 
     <section class={styles.tfShellBody}>
-        <div class={styles.tfCard}>
-            <h3 class={styles.tfCardTitle}>{slotTitles[selectedSlot]}</h3>
+        <div class={engine.card}>
+            <h3 class={engine.cardTitle}>{slotTitles[selectedSlot]}</h3>
             <div class={styles.tfRow}>
-                <select class={styles.tfSelect}
+                <label class="{engine.fieldLabel} {styles.tfLabel}" for="tf-duration-select">Duration</label>
+                <select class={engine.select} id="tf-duration-select"
                     value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
                     onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
                     <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
@@ -405,10 +424,10 @@
             </div>
         </div>
 
-        <div class={styles.tfCard}>
-            <h3 class={styles.tfCardTitle}>LIQUIDATION HEATMAP · {slotTitles[selectedSlot].toUpperCase()}</h3>
-            <p class={styles.tfCardHint}>
-                Highlight clusters whose <code>dominant_leverage</code> falls within ±0.5
+        <div class={engine.card}>
+            <h3 class={engine.cardTitle}>Liquidation Heatmap · {slotTitles[selectedSlot]}</h3>
+            <p class={engine.infoLine}>
+                Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
                 of any selected integer × tier. Matching bands intensify, the rest dim.
             </p>
             <LiquidationHeatmapTierPicker
@@ -419,14 +438,14 @@
 
         <!-- Integrated Save & Alert block nested inside the main content section -->
         <div class={styles.applyRow}>
-            <button class={styles.applyWorkspaceBtn} disabled={saveStatus === 'saving'} onclick={applySettings}>
+            <button class="{engine.btn} {engine.btnPrimary}" disabled={saveStatus === 'saving'} onclick={applySettings}>
                 {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Workspace Configuration'}
             </button>
             {#if identityError}
-                <div class={styles.identityError} role="alert">{identityError}</div>
+                <div class="{engine.alertBanner} {engine.alertError}" role="alert">{identityError}</div>
             {/if}
             {#if saveStatus === 'error'}
-                <div class={styles.identityError} role="alert">Save failed. Check console.</div>
+                <div class="{engine.alertBanner} {engine.alertError}" role="alert">Save failed. Check console.</div>
             {/if}
         </div>
     </section>

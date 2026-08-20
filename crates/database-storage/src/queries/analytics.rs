@@ -489,3 +489,26 @@ pub async fn query_backtest_run(
     .ok()
     .flatten()
 }
+
+/// One list row for the Backtest History tab: id, run timestamp, params and
+/// the headline summary. The summary JSON is carried as-is so the frontend
+/// renders the same numbers the run produced without re-querying each row.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BacktestRunRow {
+    pub id: i64,
+    pub created_at: i64,
+    pub params_json: String,
+    pub summary_json: String,
+}
+
+/// List persisted backtest runs, newest first — the History tab source.
+pub async fn query_backtest_runs_list(pool: &SqlitePool, limit: u32) -> Vec<BacktestRunRow> {
+    sqlx::query_as::<_, BacktestRunRow>(
+        "SELECT id, created_at, params_json, summary_json \
+         FROM backtest_runs ORDER BY created_at DESC LIMIT ?1",
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}

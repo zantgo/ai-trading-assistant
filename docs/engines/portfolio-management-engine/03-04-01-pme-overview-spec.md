@@ -41,6 +41,9 @@ The PME is the platform's **informational portfolio mirror**. It tracks active p
 | L3 | [Capital Layer](03-04-04-pme-layer3-capital.md) | Capital Matrix |
 | L4 | [Portfolio Layer](03-04-05-pme-layer4-portfolio.md) | Portfolio Matrix (risk *reporting*) |
 
+
+**Dashboard tabs ↔ layers (v7.3).** Overview (landing) · Positions (L1) · Exposure (L2) · Capital (L3) · Portfolio (L4) · Safety (cross-cutting ladder last). Observe mode collapses to Overview + Safety (Readiness Board). Exposure limits are config-driven via `[workspace.risk_limits]` (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
+
 ---
 
 ## 2. Ledger Model

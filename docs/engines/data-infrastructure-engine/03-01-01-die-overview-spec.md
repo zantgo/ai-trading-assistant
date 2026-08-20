@@ -62,6 +62,19 @@ The DIE meets these acceptance criteria when run with default configuration unde
 | L3 | [Data Quality Layer](03-01-04-die-layer3-data-quality.md) | Gap-filled, validated candle sets |
 | L4 | [Data Distribution Layer](03-01-05-die-layer4-data-distribution.md) | Broadcast channels to consumers |
 
+**Dashboard tabs ↔ layers (v7.3).** The DIE dashboard tabs follow the layer order with the aggregate landing first and cross-cutting concerns last (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)):
+
+| Tab | Layer / role | Data source |
+|---|---|---|
+| Overview | Aggregate landing | frontend aggregation of the DIE endpoints |
+| Exchange Status | L1 (raw ingestion) | `GET /api/exchange-status` |
+| Connectivity | L1 (connection quality) | `GET /api/connection-quality` |
+| Market Data | L2 (candle pipelines) | `GET /api/system/pipelines` |
+| NTP Clock Monitor | L2 time-alignment contract | `GET /api/system/clock` |
+| Data Quality | L3 | `GET /api/data-quality` |
+| Distribution | L4 (egress telemetry) | `GET /api/system/distribution` |
+| Settings | cross-cutting | `GET /api/system/platform-config` + `GET /api/config` |
+
 ---
 
 ## 2. Exchange Adapters

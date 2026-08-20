@@ -1,9 +1,11 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { fmtPrice } from '../lib/telemetry';
+    import engine from '../styles/engine-dashboard.module.css';
     import styles from './GeneralSettings.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import ExchangeSettings from './ExchangeSettings.svelte';
+    import { PROFILE_TABS } from '../lib/engineTabs';
 
     const app = useAppStore();
 
@@ -12,6 +14,17 @@
     // middleTab value that is not one of the Home page's sections.
     let section = $derived(
         ['fee', 'exchange', 'share', 'settings'].includes(app.middleTab) ? app.middleTab : 'settings',
+    );
+
+    const sectionTitles: Record<string, string> = {
+        fee: 'Fee Reference Calculator',
+        exchange: 'Exchange Settings',
+        share: 'Share Configuration',
+        settings: 'General Settings',
+    };
+
+    const sectionTabLabel = $derived(
+        PROFILE_TABS.find((t) => t.key === section)?.label ?? 'Settings',
     );
 
     // ─── Config sharing ───────────────────────────────────────────────
@@ -114,24 +127,33 @@
 </script>
 
 <div class={styles.profileLayout}>
+    <header class={engine.unifiedHeader}>
+        <div class={engine.headerTop}>
+            <div class={engine.titleGroup}>
+                <h2 class={engine.title}>{sectionTitles[section]}</h2>
+            </div>
+            <div class={engine.headerRight}>
+                <span class={engine.tabLabel}>{sectionTabLabel}</span>
+            </div>
+        </div>
+    </header>
+
     <div class={styles.profileContent}>
-        <h2 class={styles.profileTitle}>HOME</h2>
         {#if section === 'fee'}
-            <div class={styles.profileCard}>
-                <h3>Fee Reference Calculator</h3>
-                <p class={styles.cardSub}>Calculate round-trip fees and minimum profit needed to break even</p>
+            <div class={engine.card}>
+                <p class={engine.infoLine}>Calculate round-trip fees and minimum profit needed to break even</p>
                 <div class={styles.calcRow}>
                     <div class={styles.calcField}>
-                        <label for="frc-leverage">Leverage</label>
-                        <input id="frc-leverage" type="number" min="1" max="150" bind:value={calcLeverage} />
+                        <label class={engine.fieldLabel} for="frc-leverage">Leverage</label>
+                        <input class={engine.fieldInput} id="frc-leverage" type="number" min="1" max="150" bind:value={calcLeverage} />
                     </div>
                     <div class={styles.calcField}>
-                        <label for="frc-capital">Capital ($)</label>
-                        <input id="frc-capital" type="number" min="1" step="100" bind:value={calcCapital} />
+                        <label class={engine.fieldLabel} for="frc-capital">Capital ($)</label>
+                        <input class={engine.fieldInput} id="frc-capital" type="number" min="1" step="100" bind:value={calcCapital} />
                     </div>
                     <div class={styles.calcField}>
-                        <label for="frc-fee">Exchange Fee (%)</label>
-                        <input id="frc-fee" type="number" min="0" max="10" step="0.01" bind:value={calcFeePct} />
+                        <label class={engine.fieldLabel} for="frc-fee">Exchange Fee (%)</label>
+                        <input class={engine.fieldInput} id="frc-fee" type="number" min="0" max="10" step="0.01" bind:value={calcFeePct} />
                     </div>
                 </div>
                 <div class={styles.calcResults}>
@@ -156,23 +178,22 @@
         {:else if section === 'exchange'}
             <ExchangeSettings />
         {:else if section === 'share'}
-            <div class={styles.profileCard}>
-                <h3>Share Configuration</h3>
-                <p class={styles.cardSub}>
-                    Download your workspace (instances, timeframes, indicators, fees, safety rules) as a single <code>config.toml</code> file.
-                    Copy it to another machine and start with <code>--mode headless</code> to run the same setup there.
+            <div class={engine.card}>
+                <p class={engine.infoLine}>
+                    Download your workspace (instances, timeframes, indicators, fees, safety rules) as a single <code class={engine.code}>config.toml</code> file.
+                    Copy it to another machine and start with <code class={engine.code}>--mode headless</code> to run the same setup there.
                     Platform-level fields (exchange URLs, clock monitor) are preserved from the target machine.
                 </p>
                 <div class={styles.shareActions} style="display:flex; gap:1rem; margin-top:1rem; flex-wrap:wrap;">
                     <a
                         href="/api/workspace/toml"
                         download="config.toml"
-                        class={styles.saveBtn}
+                        class="{engine.btn} {engine.btnPrimary}"
                         style="text-decoration:none; display:inline-block;"
                     >
                         <SvgIcon name="upload" size="sm" /> Download config.toml
                     </a>
-                    <label class={styles.saveBtn} style="cursor:pointer; display:inline-block; margin:0;">
+                    <label class="{engine.btn} {engine.btnPrimary}" style="cursor:pointer; display:inline-block; margin:0;">
                         <SvgIcon name="upload" size="sm" /> Import config.toml
                         <input
                             type="file"
@@ -183,33 +204,34 @@
                     </label>
                 </div>
                 {#if importStatus === 'importing'}
-                    <p class={styles.cardSub} style="margin-top:0.75rem;">Importing...</p>
+                    <p class={engine.infoLine} style="margin-top:0.75rem;">Importing...</p>
                 {:else if importStatus === 'success'}
-                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #4caf50;">{importMessage}</p>
+                    <p class="{engine.pos} {engine.infoLine}" style="margin-top:0.75rem;">{importMessage}</p>
                 {:else if importStatus === 'error'}
-                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #f44336;">{importMessage}</p>
+                    <p class="{engine.neg} {engine.infoLine}" style="margin-top:0.75rem;">{importMessage}</p>
                 {/if}
             </div>
         {:else}
             {#if !loaded}
                 <div class={styles.loadingMsg}>Loading settings...</div>
             {:else}
-                <div class={styles.profileCard}>
-                    <h3>API Failover</h3>
-                    <div class={styles.inputRow}>
-                        <label for="failover-retries">Max Retries Per Call:</label>
-                        <input id="failover-retries" type="number" bind:value={draftFailoverRetries} min="1" max="20" />
+                <div class={engine.card}>
+                    <div class={engine.formRow}>
+                        <div class={engine.field}>
+                            <label class={engine.fieldLabel} for="failover-retries">Max Retries Per Call</label>
+                            <input class={engine.fieldInput} id="failover-retries" type="number" bind:value={draftFailoverRetries} min="1" max="20" />
+                        </div>
+                        <div class={engine.field}>
+                            <label class={engine.fieldLabel} for="failover-delay">Retry Delay (seconds)</label>
+                            <input class={engine.fieldInput} id="failover-delay" type="number" bind:value={draftFailoverDelay} min="1" max="300" />
+                        </div>
+                        <div class={engine.field}>
+                            <label class={engine.fieldLabel} for="failover-max">Max Consecutive Failures</label>
+                            <input class={engine.fieldInput} id="failover-max" type="number" bind:value={draftFailoverMax} min="1" max="50" />
+                            <span class={styles.fieldHint}>halt workspace after this many</span>
+                        </div>
                     </div>
-                    <div class={styles.inputRow}>
-                        <label for="failover-delay">Retry Delay (seconds):</label>
-                        <input id="failover-delay" type="number" bind:value={draftFailoverDelay} min="1" max="300" />
-                    </div>
-                    <div class={styles.inputRow}>
-                        <label for="failover-max">Max Consecutive Failures:</label>
-                        <input id="failover-max" type="number" bind:value={draftFailoverMax} min="1" max="50" />
-                        <span class={styles.fieldHint}>halt workspace after this many</span>
-                    </div>
-                    <button class={styles.saveBtn} onclick={saveFailover} disabled={saveStatus === 'saving'}>
+                    <button class="{engine.btn} {engine.btnPrimary}" onclick={saveFailover} disabled={saveStatus === 'saving'}>
                         {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved' : 'Save API Failover'}
                     </button>
                 </div>

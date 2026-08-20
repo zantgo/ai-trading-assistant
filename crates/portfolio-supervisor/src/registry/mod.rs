@@ -194,13 +194,24 @@ pub async fn add_instance(
 
     let cancel = CancellationToken::new();
 
-    // v7.1+: per-instance execution mode from the session default
-    // (observe | paper | live). Drives both the runtime TAE gate
-    // (`Instance::execution_mode`) and the persisted `InstanceEntry.mode`.
-    let execution_mode = match state.session.session_mode().await.as_deref() {
-        Some("live") => config_models::ExecutionMode::Live,
-        Some("observe") => config_models::ExecutionMode::Observe,
-        _ => config_models::ExecutionMode::Paper,
+    // v7.1+: per-instance execution mode (observe | paper | live). Drives
+    // both the runtime TAE gate (`Instance::execution_mode`) and the
+    // persisted `InstanceEntry.mode`.
+    //
+    // v7.3 fix: a boot-restored instance (one that already has a persisted
+    // `InstanceEntry` in config.toml) MUST keep its declared mode — the
+    // previous implementation always re-derived the mode from the session
+    // default, which is `None` at cold boot, so an `observe` instance
+    // silently booted as `paper`. The session default only applies to
+    // genuinely new instances (no existing entry).
+    let execution_mode = if let Some(existing) = pair_cfg.as_ref() {
+        existing.mode
+    } else {
+        match state.session.session_mode().await.as_deref() {
+            Some("live") => config_models::ExecutionMode::Live,
+            Some("observe") => config_models::ExecutionMode::Observe,
+            _ => config_models::ExecutionMode::Paper,
+        }
     };
 
     let micro_secs = micro_cfg.candles.duration_seconds;

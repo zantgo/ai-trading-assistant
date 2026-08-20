@@ -577,3 +577,33 @@ pub async fn query_backtest_snapshots(
     .await
     .unwrap_or_default()
 }
+
+/// Data coverage for the backtest replay source — per (symbol, timeframe):
+/// how many recorded snapshots exist and over which time window. The PAE
+/// Overview (observe mode) renders this so the operator knows whether a
+/// requested backtest window is coverable before running it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BacktestCoverageRow {
+    pub symbol: String,
+    pub timeframe_secs: i64,
+    pub snapshot_count: i64,
+    pub earliest_ms: i64,
+    pub latest_ms: i64,
+}
+
+/// Aggregate recorded-snapshot coverage grouped by symbol × timeframe.
+pub async fn query_backtest_coverage(pool: &SqlitePool) -> Vec<BacktestCoverageRow> {
+    sqlx::query_as::<_, BacktestCoverageRow>(
+        "SELECT symbol, timeframe_secs,
+                COUNT(*) as snapshot_count,
+                MIN(timestamp) as earliest_ms,
+                MAX(timestamp) as latest_ms
+         FROM market_snapshots
+         WHERE opportunity_json IS NOT NULL OR decision_context_json IS NOT NULL
+         GROUP BY symbol, timeframe_secs
+         ORDER BY symbol, timeframe_secs",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}

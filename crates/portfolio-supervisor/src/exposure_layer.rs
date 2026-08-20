@@ -24,6 +24,18 @@ impl Default for ConcentrationLimits {
     }
 }
 
+impl ConcentrationLimits {
+    /// v7.3: limits from `[workspace.risk_limits]` config — the displayed
+    /// cap and the enforced cap are the same number.
+    pub fn from_config(cfg: &config_models::RiskLimitsConfig) -> Self {
+        Self {
+            max_single_pair_pct: cfg.max_single_pair_exposure_pct,
+            max_portfolio_pct: cfg.max_portfolio_exposure_pct,
+            max_correlation: cfg.max_correlation,
+        }
+    }
+}
+
 fn assign_sector(symbol: &str) -> &'static str {
     let base = symbol.split('-').next().unwrap_or(symbol).to_uppercase();
     match base.as_str() {

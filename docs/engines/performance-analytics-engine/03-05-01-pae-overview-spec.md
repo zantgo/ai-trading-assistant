@@ -26,6 +26,9 @@ The PAE is the platform's **retrospective analyst and scoreboard**. It consumes 
 | L4 | [Performance](03-05-05-pae-layer4-performance.md) | Performance Matrix (regime compatibility) |
 | L5 | [Backtest](03-05-06-pae-layer5-backtest.md) | BacktestResult (trades, stats, NHST verdict, equity curve) |
 
+
+**Dashboard tabs ↔ layers (v7.3).** Overview (landing) · Trades (L1) · Strategy (L2 NHST) · Risk (L3) · Performance (L4, renamed from "Regime Map") · Backtesting (L5) · History · Methodology (cross-cutting last). Observe mode keeps Overview (Edge Validator) · Backtesting · History · Methodology. The significance treatment is config-driven via `[workspace.analytics]` (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
+
 ---
 
 ## 2. Performance Database

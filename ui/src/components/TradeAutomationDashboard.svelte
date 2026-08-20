@@ -11,6 +11,10 @@
     import ModeChip from './ModeChip.svelte';
     import ModeBanner from './ModeBanner.svelte';
     import KpiStrip from './KpiStrip.svelte';
+    import ExportDataButton from './ExportDataButton.svelte';
+    import NoInstanceState from './NoInstanceState.svelte';
+    import TradeAutomationSettings from './TradeAutomationSettings.svelte';
+    import { buildEngineExport } from '../lib/engineExport';
     import styles from '../styles/engine-dashboard.module.css';
     import local from './TradeAutomationDashboard.module.css';
     import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
@@ -121,11 +125,11 @@
     );
     const ghost = $derived(mode === 'observe');
 
-    // Observe collapses to the data-bearing tabs (Orders / History have no
-    // data source without an execution record); stale sections fall back
-    // to the radar overview.
+    // v7.3: Settings is always present — ghost collapse only hides the
+    // execution-data tabs (Orders / Trade History), never Settings.
     const safeSection = $derived(
-        ghost && section !== 'overview' && section !== 'activity' ? 'overview' : section,
+        ghost && section !== 'overview' && section !== 'activity' && section !== 'settings'
+            ? 'overview' : section,
     );
 
     const status = $derived<'live' | 'stale' | 'error' | 'loading'>(
@@ -149,7 +153,15 @@
     }
 
     async function refresh() {
-        if (!selectedId) return;
+        // v7.3: with no instance there is nothing to fetch — resolve the
+        // loading state so the UI renders the no-instance empty state
+        // instead of showing "Loading…" forever.
+        if (!selectedId) {
+            loading = false;
+            pollFailed = false;
+            lastOkTs = Date.now();
+            return;
+        }
         try {
             const [autoRes, tradesRes] = await Promise.all([
                 fetch(`/api/instances/${selectedId}/automation`),
@@ -192,7 +204,14 @@
         };
         boot();
         const timer = setInterval(refresh, 2000);
-        return () => clearInterval(timer);
+        // v7.3: polling backstop on the instance list (mirrors the MME
+        // InstancePicker) — launching an instance while on this engine
+        // populates the selector and content without remounting.
+        const instanceTimer = setInterval(() => { void loadInstances(); }, 3000);
+        return () => {
+            clearInterval(timer);
+            clearInterval(instanceTimer);
+        };
     });
 
     // ── Formatters ─────────────────────────────────────────────────────
@@ -388,6 +407,63 @@
         if (automation?.bracket?.sl_order) rows.push({ role: 'SL', order: automation.bracket.sl_order });
         return rows;
     });
+
+    // ── Export JSON: the current tab's visible state, mode-aware ────────
+    function buildExport(): string {
+        const a = automation;
+        let data: Record<string, unknown>;
+        switch (safeSection) {
+            case 'settings':
+                data = { mode, ghost, note: 'settings payload is exported by the TradeAutomationSettings tab itself' };
+                break;
+            case 'orders':
+                data = {
+                    mode,
+                    ghost,
+                    entry_order: a?.entry_order ?? null,
+                    bracket: a?.bracket ?? { tp_order: null, sl_order: null },
+                };
+                break;
+            case 'activity':
+                data = { mode, ghost, activity_log: a?.activity_log ?? [] };
+                break;
+            case 'history':
+                data = {
+                    mode,
+                    trades: trades.map((t) => ({
+                        id: t.id, symbol: t.symbol, direction: t.direction,
+                        entry_price: t.entry_price, exit_price: t.exit_price,
+                        size: t.size, commission_fees: t.commission_fees,
+                        realized_pnl: t.realized_pnl, roi_pct: t.roi_pct,
+                        trigger_source: t.trigger_source, entry_timestamp: t.entry_timestamp,
+                        exit_timestamp: t.exit_timestamp,
+                    })),
+                };
+                break;
+            default:
+                data = {
+                    mode,
+                    ghost,
+                    phase: a?.phase ?? null,
+                    lifecycle: a?.lifecycle ?? null,
+                    equity: a?.equity ?? null,
+                    enabled: a?.enabled ?? false,
+                    open_positions_count: a?.open_positions_count ?? 0,
+                    safety_gate: a?.safety_gate ?? { blocked: false, reason: null },
+                    tracked_setup: a?.tracked_setup ?? null,
+                    projection: a?.projection ?? null,
+                    position: a?.position ?? null,
+                    would_be: ghost ? {
+                        live_mid: liveMid(),
+                        setup_direction: a?.tracked_setup?.direction ?? null,
+                        setup_entry_mid: a?.tracked_setup?.entry_mid ?? null,
+                        projection_notional: a?.projection?.position_notional ?? null,
+                    } : null,
+                    invalidation: a?.invalidation ?? { state: 'none', detail: '' },
+                };
+        }
+        return buildEngineExport('trade_automation', safeSection, mode ?? null, data);
+    }
 </script>
 
 <div class={styles.dashboard}>
@@ -401,26 +477,39 @@
                 {#if mode}
                     <ModeChip {mode} />
                 {/if}
-                <select class={styles.select} bind:value={selectedId} onchange={refresh}>
-                    {#each instances as inst (inst.id)}
-                        <option value={inst.id}>{inst.pair}</option>
-                    {/each}
-                </select>
-                {#if automation?.enabled}
-                    <span class="{styles.badge} {styles.badgeLong}">AUTOMATION ON</span>
+                {#if instances.length > 0}
+                    <select class={styles.select} bind:value={selectedId} onchange={refresh}>
+                        {#each instances as inst (inst.id)}
+                            <option value={inst.id}>{inst.pair}</option>
+                        {/each}
+                    </select>
                 {:else}
-                    <span class="{styles.badge} {styles.badgeEmpty}">AUTOMATION OFF</span>
+                    <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
                 {/if}
-                <span class="{styles.badge} {styles.badgeNeutral}">{automation?.lifecycle ?? '—'}</span>
-                {#if automation?.safety_gate?.blocked}
-                    <span class="{styles.badge} {styles.badgeError}">SAFETY: {automation.safety_gate.reason}</span>
+                <ExportDataButton onExport={buildExport} title="Copy all data on this tab as JSON" />
+                {#if automation}
+                    {#if automation.enabled}
+                        <span class="{styles.badge} {styles.badgeLong}">AUTOMATION ON</span>
+                    {:else}
+                        <span class="{styles.badge} {styles.badgeEmpty}">AUTOMATION OFF</span>
+                    {/if}
+                    <span class="{styles.badge} {styles.badgeNeutral}">{automation.lifecycle ?? '—'}</span>
+                    {#if automation.safety_gate?.blocked}
+                        <span class="{styles.badge} {styles.badgeError}">SAFETY: {automation.safety_gate.reason}</span>
+                    {/if}
                 {/if}
             {/snippet}
         </DashboardHeader>
 
         <ModeBanner engine="trade_automation" {mode} />
 
-        {#if loading}
+        {#if safeSection === 'settings'}
+            <TradeAutomationSettings />
+        {:else if instances.length === 0 && !loading}
+            <!-- v7.3: no active instance → SVG empty state. No fallback
+                 data, no loading message. -->
+            <NoInstanceState engine="trade_automation" />
+        {:else if loading}
             <div class={styles.empty}>Loading automation state…</div>
         {:else if error && !automation}
             <div class={styles.empty}>{error}</div>

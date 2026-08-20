@@ -69,6 +69,10 @@ function createTimeframeTelemetry(
 function createInstanceState(symbol: string): InstanceState {
     return {
         symbol, exchange: 'Hyperliquid', isConnected: false,
+        // v7.3: `mode` is explicitly declared (undefined until the config
+        // sync populates it) so App-level `activeMode` derivations are
+        // reactive to the later assignment.
+        mode: undefined,
         microTerm: createTimeframeTelemetry(symbol, 'micro', 60),
         fastTerm: createTimeframeTelemetry(symbol, 'fast', 180),
         slowTerm: createTimeframeTelemetry(symbol, 'slow', 300),

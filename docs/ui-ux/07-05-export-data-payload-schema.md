@@ -897,3 +897,16 @@ The v7.0 payload shapes are **not** backwards compatible with the legacy kitchen
 | **Total** | | **111** |
 
 The harness (`ui/src/tests/exportConsistency/`) is the enforcement mechanism for the "export == screen" contract: it renders every Market Monitoring panel with a rich synthetic store state, captures the clipboard JSON, and asserts both directions — every displayed number/string/word is present in the JSON, and every exported display string maps back to the screen.
+
+---
+
+## 6. Engine dashboard exports (v7.3)
+
+The four engine dashboards (DIE / TAE / PME / PAE) extend the same "export == screen" principle with a shared envelope defined in `ui/src/lib/engineExport.ts` and specified in [07-07 Engine Dashboard Vocabulary §4](07-07-engine-dashboard-vocabulary.md#4-export-data-contract-v73):
+
+- DIE — every panel exports its fetched state (platform config, quality report, pipelines, distribution, clock runtime, data quality, exchange status).
+- TAE / PME — one context-aware button in the dashboard header exports the current tab's visible state (mode-aware payloads: radar vs lab vs cockpit; readiness vs accounting).
+- PAE — the shell exports Overview / Trades / Strategy / Risk / Performance / Methodology; the Backtesting and History tabs export their own local state (form + result; run list + selected run).
+
+The envelope fields (`schema`, `engine`, `tab`, `mode`, `exported_at`, `data`) are not part of the MME per-tab contracts above — they are documented in 07-07 and enforced by `ui/src/lib/engineExport.test.ts`.
+

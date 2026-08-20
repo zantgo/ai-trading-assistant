@@ -585,6 +585,14 @@ pub async fn serve_get_portfolio(
 
             let exposure =
                 portfolio_supervisor::exposure_layer::compute_exposure_matrix(&positions, equity);
+            // v7.3: the enforced concentration limits come from
+            // `[workspace.risk_limits]` — rendered by the PME Exposure tab.
+            let risk_limits = {
+                let ws = state.workspace.config().await;
+                portfolio_supervisor::exposure_layer::ConcentrationLimits::from_config(
+                    &ws.risk_limits,
+                )
+            };
             let capital = portfolio_supervisor::capital_layer::compute_capital_matrix(
                 rust_decimal::Decimal::from_f64_retain(trading.initial_capital).unwrap_or_default(),
                 dec!(0),
@@ -655,6 +663,11 @@ pub async fn serve_get_portfolio(
                         "short_exposure": exposure.short_exposure.to_string(),
                         "symbol_concentration": exposure.symbol_concentration.iter().map(|(k, v)| (k.clone(), v.to_string())).collect::<std::collections::HashMap<_, _>>(),
                         "max_single_pair_pct": exposure.max_single_pair_pct.to_string(),
+                        "limits": {
+                            "max_single_pair_exposure_pct": risk_limits.max_single_pair_pct,
+                            "max_portfolio_exposure_pct": risk_limits.max_portfolio_pct,
+                            "max_correlation": risk_limits.max_correlation,
+                        },
                     },
                     "capital": {
                         "available_margin": capital.available_margin.to_string(),
@@ -730,6 +743,11 @@ pub async fn serve_get_exposure(
 
     let exposure =
         portfolio_supervisor::exposure_layer::compute_exposure_matrix(&positions, equity);
+    // v7.3: the enforced concentration limits from `[workspace.risk_limits]`.
+    let risk_limits = {
+        let ws = state.workspace.config().await;
+        portfolio_supervisor::exposure_layer::ConcentrationLimits::from_config(&ws.risk_limits)
+    };
 
     Json(serde_json::json!({
         "instance_id": instance_id,
@@ -741,6 +759,11 @@ pub async fn serve_get_exposure(
         "short_exposure": exposure.short_exposure.to_string(),
         "symbol_concentration": exposure.symbol_concentration.iter().map(|(k, v)| (k.clone(), v.to_string())).collect::<std::collections::HashMap<_, _>>(),
         "max_single_pair_pct": exposure.max_single_pair_pct.to_string(),
+        "limits": {
+            "max_single_pair_exposure_pct": risk_limits.max_single_pair_pct,
+            "max_portfolio_exposure_pct": risk_limits.max_portfolio_pct,
+            "max_correlation": risk_limits.max_correlation,
+        },
     }))
     .into_response()
 }

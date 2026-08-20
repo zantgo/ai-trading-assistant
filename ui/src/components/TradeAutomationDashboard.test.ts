@@ -300,3 +300,45 @@ describe('TradeAutomationDashboard mode badge (v7.2)', () => {
         expect(screen.queryByText('GHOST / NO ACTION')).toBeNull();
     });
 });
+
+describe('TradeAutomationDashboard no-instance state (v7.3)', () => {
+    it('renders the SVG empty state instead of an infinite loading message', async () => {
+        cleanup();
+        const fetchMock = vi.fn((url: string) => {
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [] }));
+            }
+            return Promise.resolve(jsonResponse({}));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        render(TradeAutomationDashboard);
+
+        await waitFor(() => expect(screen.getByText('No active instance')).toBeTruthy());
+        expect(screen.getByText(/Trade automation runs per instance/)).toBeTruthy();
+        // The loading message must never appear once the list resolves empty.
+        expect(screen.queryByText('Loading automation state…')).toBeNull();
+        // Header shows the NO INSTANCE chip instead of an empty select.
+        expect(screen.getByText('NO INSTANCE')).toBeTruthy();
+    });
+
+    it('keeps the Settings tab rendered without an instance', async () => {
+        cleanup();
+        const fetchMock = vi.fn((url: string) => {
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [] }));
+            }
+            if (url === '/api/config') {
+                return Promise.resolve(jsonResponse({ minimal_tae: { enabled: false, risk_per_trade_pct: 1.0 } }));
+            }
+            return Promise.resolve(jsonResponse({}));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        render(TradeAutomationDashboard, { props: { section: 'settings' } });
+
+        await waitFor(() => expect(screen.getByText('Setup Executor')).toBeTruthy());
+        expect(screen.queryByText('No active instance')).toBeNull();
+    });
+});
+

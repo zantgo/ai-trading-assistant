@@ -10,11 +10,32 @@ const MC_SEED: u64 = 42;
 /// the t-test p-value and the Monte Carlo p-value are below this threshold.
 pub const ALPHA: f64 = 0.05;
 
+/// The significance-treatment parameters (v7.3). Defaults reproduce the
+/// legacy constants exactly; operators tune them via `[workspace.analytics]`
+/// in config.toml.
+#[derive(Debug, Clone, Copy)]
+pub struct AnalyticsParams {
+    pub alpha: f64,
+    pub monte_carlo_runs: u32,
+    pub min_trades_for_verdict: u32,
+}
+
+impl Default for AnalyticsParams {
+    fn default() -> Self {
+        Self {
+            alpha: ALPHA,
+            monte_carlo_runs: MC_RUNS,
+            min_trades_for_verdict: 30,
+        }
+    }
+}
+
 /// Compute strategy-level analytics grouped by execution policy.
 /// Implements docs:03-05-03-pae-layer2-strategy-analytics.md
 pub async fn compute_strategy_analytics(
     _pool: &SqlitePool,
     trades: &[TradeAnalyticsRecord],
+    params: AnalyticsParams,
 ) -> Vec<StrategyAnalyticsRow> {
     if trades.is_empty() {
         return vec![];
@@ -31,7 +52,7 @@ pub async fn compute_strategy_analytics(
 
     by_setup
         .into_iter()
-        .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades))
+        .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades, params))
         .collect()
 }
 
@@ -40,6 +61,7 @@ pub async fn compute_strategy_analytics(
 pub fn compute_setup_analytics(
     setup_type: &str,
     trades: &[&TradeAnalyticsRecord],
+    params: AnalyticsParams,
 ) -> StrategyAnalyticsRow {
     let total = trades.len() as u32;
     let wins: Vec<&TradeAnalyticsRecord> =
@@ -120,9 +142,9 @@ pub fn compute_setup_analytics(
         1.0
     };
 
-    let p_mc = monte_carlo_sign_randomization(&net_pnls, MC_RUNS, MC_SEED);
+    let p_mc = monte_carlo_sign_randomization(&net_pnls, params.monte_carlo_runs, MC_SEED);
 
-    let is_significant = p_value < ALPHA && p_mc < ALPHA;
+    let is_significant = p_value < params.alpha && p_mc < params.alpha;
 
     let slippage_overhead = if !trades.is_empty() {
         let total_gross: f64 = trades.iter().map(|t| t.gross_pnl.abs()).sum();
@@ -136,11 +158,12 @@ pub fn compute_setup_analytics(
         0.0
     };
 
-    let classification = classify_performance(profit_factor, win_rate, p_value, p_mc, total);
+    let classification =
+        classify_performance_with_params(profit_factor, win_rate, p_value, p_mc, total, params);
 
     StrategyAnalyticsRow {
         setup_type: setup_type.to_string(),
-        alpha: ALPHA,
+        alpha: params.alpha,
         total_trades: total,
         win_count,
         loss_count,
@@ -156,7 +179,7 @@ pub fn compute_setup_analytics(
         t_statistic,
         p_value,
         p_mc,
-        monte_carlo_runs: MC_RUNS,
+        monte_carlo_runs: params.monte_carlo_runs,
         is_significant,
         classification,
     }
@@ -169,7 +192,27 @@ fn classify_performance(
     p_mc: f64,
     total_trades: u32,
 ) -> PerformanceClassification {
-    if total_trades < 30 {
+    classify_performance_with_params(
+        profit_factor,
+        win_rate,
+        p_value,
+        p_mc,
+        total_trades,
+        AnalyticsParams::default(),
+    )
+}
+
+/// Verdict classification with tunable significance treatment (v7.3). The
+/// min-trade floor and the α bar come from `[workspace.analytics]`.
+fn classify_performance_with_params(
+    profit_factor: Option<f64>,
+    win_rate: f64,
+    p_value: f64,
+    p_mc: f64,
+    total_trades: u32,
+    params: AnalyticsParams,
+) -> PerformanceClassification {
+    if total_trades < params.min_trades_for_verdict {
         return PerformanceClassification::InsufficientData;
     }
 
@@ -177,7 +220,7 @@ fn classify_performance(
 
     if pf > 1.2 && win_rate > 0.50 && p_value < 0.01 && p_mc < 0.01 {
         PerformanceClassification::StrongEdge
-    } else if pf > 1.5 && win_rate > 0.45 && p_value < ALPHA && p_mc < ALPHA {
+    } else if pf > 1.5 && win_rate > 0.45 && p_value < params.alpha && p_mc < params.alpha {
         PerformanceClassification::ModerateEdge
     } else if pf >= 1.0 && p_value <= 0.10 {
         PerformanceClassification::WeakMarginalEdge
@@ -361,7 +404,7 @@ mod tests {
     #[test]
     fn test_empty_trades_returns_empty() {
         let trades: Vec<TradeAnalyticsRecord> = vec![];
-        let result = compute_setup_analytics("POLICY_A", &trades.iter().collect::<Vec<_>>());
+        let result = compute_setup_analytics("POLICY_A", &trades.iter().collect::<Vec<_>>(), AnalyticsParams::default());
         assert_eq!(result.total_trades, 0);
         assert_eq!(result.win_count, 0);
         assert_eq!(result.loss_count, 0);
@@ -531,7 +574,7 @@ mod tests {
         }
         by_setup
             .into_iter()
-            .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades))
+            .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades, AnalyticsParams::default()))
             .collect()
     }
 }

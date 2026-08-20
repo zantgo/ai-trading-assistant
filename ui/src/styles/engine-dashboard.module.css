@@ -138,21 +138,21 @@
 }
 
 .modeChipObserve {
-    border-color: #f59e0b;
-    color: #f59e0b;
-    background-color: rgba(245, 158, 11, 0.08);
-}
-
-.modeChipPaper {
     border-color: #38bdf8;
     color: #7dd3fc;
     background-color: rgba(56, 189, 248, 0.08);
 }
 
+.modeChipPaper {
+    border-color: #f59e0b;
+    color: #fbbf24;
+    background-color: rgba(245, 158, 11, 0.08);
+}
+
 .modeChipLive {
-    border-color: #ef4444;
-    color: #f87171;
-    background-color: rgba(239, 68, 68, 0.08);
+    border-color: #22c55e;
+    color: #4ade80;
+    background-color: rgba(34, 197, 94, 0.08);
 }
 
 .modeBanner {
@@ -168,24 +168,24 @@
 }
 
 .modeBannerObserve {
-    background: rgba(245, 158, 11, 0.06);
-    border-color: rgba(245, 158, 11, 0.25);
-    border-left-color: #f59e0b;
-    color: rgba(251, 191, 36, 0.9);
-}
-
-.modeBannerPaper {
     background: rgba(56, 189, 248, 0.06);
     border-color: rgba(56, 189, 248, 0.25);
     border-left-color: #38bdf8;
     color: rgba(125, 211, 252, 0.9);
 }
 
+.modeBannerPaper {
+    background: rgba(245, 158, 11, 0.06);
+    border-color: rgba(245, 158, 11, 0.25);
+    border-left-color: #f59e0b;
+    color: rgba(251, 191, 36, 0.9);
+}
+
 .modeBannerLive {
-    background: rgba(239, 68, 68, 0.07);
-    border-color: rgba(239, 68, 68, 0.3);
-    border-left-color: #ef4444;
-    color: rgba(248, 113, 113, 0.95);
+    background: rgba(34, 197, 94, 0.07);
+    border-color: rgba(34, 197, 94, 0.3);
+    border-left-color: #22c55e;
+    color: rgba(74, 222, 128, 0.95);
 }
 
 /* ── KPI strip (HeaderKpiStrip vocabulary) ── */
@@ -430,6 +430,108 @@
     color: rgba(255, 255, 255, 0.35);
     font-size: 12px;
     background: rgba(255, 255, 255, 0.01);
+}
+
+/* ── Form & control tokens (P0 — shared across engine dashboards) ── */
+
+.formRow {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.fieldLabel {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.fieldInput {
+    background: #0f0f0f;
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.inlineGroup {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.subTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    margin: 12px 0 8px;
+}
+
+.monoList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--mono, 'SF Mono', monospace);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.code {
+    font-family: var(--mono, 'SF Mono', monospace);
+    font-size: 10.5px;
+    background: rgba(34, 211, 238, 0.1);
+    color: #22d3ee;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+/* ── Pill tabs (window / scope selectors) ── */
+
+.pills {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}
+
+.pill {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.5);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.pill:hover {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.pillActive {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .grid2 {

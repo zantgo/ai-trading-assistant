@@ -85,7 +85,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| `GET` | `/api/config` | — | `{ api_key_configured: bool, symbols: string[], candles, indicators, instances, indicator_registry, api_failover, slow_timeframe?, macro_timeframe? }` — the full `AppConfig` surface including the `[api_failover]` block (see §2.2.1 below). v7.2 adds `slow_timeframe` / `macro_timeframe` (the workspace's default ladder durations) so the Launch Setup wizard and the registry fall back to the same values. |
+| `GET` | `/api/config` | — | `{ api_key_configured: bool, symbols: string[], candles, indicators, instances, indicator_registry, api_failover, slow_timeframe?, macro_timeframe? }` — the full `AppConfig` surface including the `[api_failover]` block (see §2.2.1 below). v7.2 adds `slow_timeframe` / `macro_timeframe` (the workspace's default ladder durations) so the Launch Setup wizard and the registry fall back to the same values. v7.3 adds the engine-settings blocks the TAE/PME/PAE **Settings** tabs render: `liquidity`, `minimal_tae`, `analytics`, `risk_limits`, `safety`, `fees`, `leverage`, `execution`, `scoring` — all read-only config, never mutated by the engine dashboards. |
 | `POST` | `/api/config` | The `GET /api/config` response body (partial update) | `200 OK` on success. The operator-editable groups (`candles`, `indicators`, `instances`, `api_failover`) are merged into the currently loaded workspace config and persisted to `config.toml` (platform sections preserved via `save_workspace`); `config_version` increments on every accepted save. The body does **not** require `id`/`name` — the read-only fields echoed by GET (`api_key_configured`, `symbols`, `indicator_registry`) are accepted and ignored. `500 Internal Server Error` if `config.toml` cannot be written. (No per-field validation is performed; unknown keys are ignored by serde.) |
 
 #### 2.2.1 `[api_failover]` configuration
@@ -304,6 +304,15 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 | `GET` | `/api/exchange-status` | Per-exchange connectivity status (`crates/api-gateway/src/handlers/exchange_status.rs`). |
 | `GET` | `/api/data-quality` | `PipelineReliabilityMetrics` — `{ coverage, gap_count, outliers_rejected, outliers_bypassed, out_of_order_dropped, total_candles_processed, reconstructed_candles, source_mix }` where `source_mix` has `{ db_warm, rest_gap, live }` (`crates/api-gateway/src/handlers/data_quality.rs`; contract in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md)). Aggregates process-wide across all instances. |
 
+### 2.11.1 Platform & DIE system endpoints (v7.3)
+
+| Method | Path | Response |
+|--------|------|----------|
+| `GET` | `/api/system/platform-config` | The serialized `PlatformConfig` from `config.toml` — `{ hyperliquid, bitget, clock_monitor?, quality?, reconnect, candle_buffer, snapshot_export }`. DIE Settings renders these real values (`crates/api-gateway/src/handlers/system.rs`). |
+| `GET` | `/api/system/pipelines` | `{ pipelines: [{ pair, slot, timeframe_secs, pipeline_state, buffer_depth, buffer_size, last_completed_close, last_completed_ts, reconstructed_candles }] }` — per-instance × slot candle-pipeline state (DIE L2 Market Data tab). |
+| `GET` | `/api/system/distribution` | `{ observation_loop_latency_ms, ingest_skew_ms, system_heartbeat_latency_ms, ws_clients_connected }` — DIE L4 egress telemetry (latency snapshot + live WS client count). |
+| `GET` | `/api/connection-quality` | Connection quality report(s) — process-wide aggregate or per-scope when `instance_id` + `timeframe_secs` are supplied; `window=one_hour\|six_hour\|twenty_four_hour`. |
+
 ### 2.12 Planned endpoints (not yet served)
 
 All previously-planned endpoints are now **served** (keys management in §2.10, activation + reload in §2.4, mode in §2.4, backtest in §2.13). This section is intentionally empty.
@@ -322,8 +331,10 @@ The Performance Analytics Engine exposes serving endpoints under `/api/analytics
 | `GET` | `/api/analytics/strategy/history?limit=` | `StrategyAnalyticsRow[]` — historical strategy analytics. |
 | `GET` | `/api/analytics/trades?limit=200` | `TradeAnalyticsRecord[]` — reconstructed closed trades (default limit 200). |
 | `GET` | `/api/analytics` | Catch-all for `/api/analytics/*` references — **not registered** (returns 404; only the concrete `/api/analytics/*` rows above are served). |
-| `POST` | `/api/backtest/run` | Run a backtest `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital }` — replays recorded MME decisions through the setup executor (paper only); returns `{ backtest_id, summary, stats (NHST + α), trades, equity_curve }`. See [03-05-06](../engines/performance-analytics-engine/03-05-06-pae-layer5-backtest.md). |
+| `POST` | `/api/backtest/run` | Run a backtest `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital }` — replays recorded MME decisions through the setup executor (paper only); returns `{ backtest_id, summary, stats (NHST + α), trades, equity_curve }`. See [03-05-06](../engines/performance-analytics-engine/03-05-06-pae-layer5-backtest.md). The significance treatment (α, Monte Carlo runs, min trades) comes from `[workspace.analytics]`. |
 | `GET` | `/api/backtest/:id` | Fetch a persisted backtest run (or 404). |
+| `GET` | `/api/backtest/list?limit=N` | Recent persisted runs, newest first — `[{ id, created_at, params, summary }]` (History tab). |
+| `GET` | `/api/backtest/coverage` | Recorded-snapshot coverage per symbol × timeframe — `[{ symbol, timeframe_secs, snapshot_count, earliest_ms, latest_ms }]` (observe-mode data-availability surface). |
 | `GET` | `/api/backtest` | Catch-all for `/api/backtest/*` references — **not registered** (returns 404; only the concrete rows above are served). |
 
 The endpoints above are documented in segment form (not in the canonical `(METHOD, /path)` row layout) for readability. Each path is canonical to the per-tab `PerformanceDashboard` `fetch()` call and the `api-gateway` HTTP handler in `crates/api-gateway/src/handlers/analytics.rs`.

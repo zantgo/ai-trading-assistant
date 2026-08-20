@@ -31,7 +31,7 @@ describe('DataQualityPanel', () => {
     it('renders_loading_state_initially', () => {
         vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
         render(DataQualityPanel);
-        expect(screen.getByText('Loading...')).toBeTruthy();
+        expect(screen.getByText('Loading…')).toBeTruthy();
     });
 
     it('renders_metrics_after_fetch', async () => {

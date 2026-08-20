@@ -17,6 +17,16 @@ pub async fn serve_strategy_analytics(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
+    // v7.3: the significance treatment comes from `[workspace.analytics]` —
+    // the same α / Monte Carlo runs the on-demand evaluator uses.
+    let analytics = {
+        let ws = state.workspace.config().await;
+        performance_analytics::strategy_analytics::AnalyticsParams {
+            alpha: ws.analytics.alpha,
+            monte_carlo_runs: ws.analytics.monte_carlo_runs,
+            min_trades_for_verdict: ws.analytics.min_trades_for_verdict,
+        }
+    };
     let rows = if let Some(ref pid) = query.policy_id {
         database_storage::query_strategy_analytics_history(
             &state.pool,
@@ -26,8 +36,11 @@ pub async fn serve_strategy_analytics(
         .await
     } else {
         let on_demand =
-            performance_analytics::performance_evaluator::compute_strategy_on_demand(&state.pool)
-                .await;
+            performance_analytics::performance_evaluator::compute_strategy_on_demand(
+                &state.pool,
+                analytics,
+            )
+            .await;
         if on_demand.is_empty() {
             database_storage::query_strategy_analytics_history(
                 &state.pool,
@@ -210,6 +223,11 @@ pub async fn serve_backtest_run(
         &workspace.minimal_tae,
         &fees,
         cross_leverage,
+        performance_analytics::strategy_analytics::AnalyticsParams {
+            alpha: workspace.analytics.alpha,
+            monte_carlo_runs: workspace.analytics.monte_carlo_runs,
+            min_trades_for_verdict: workspace.analytics.min_trades_for_verdict,
+        },
     )
     .await;
 
@@ -278,4 +296,46 @@ pub async fn serve_backtest_get(
         .into_response(),
         None => (axum::http::StatusCode::NOT_FOUND, "Backtest run not found").into_response(),
     }
+}
+
+/// GET /api/backtest/list?limit=N — recent persisted runs (History tab).
+pub async fn serve_backtest_list(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<AnalyticsQuery>,
+) -> impl IntoResponse {
+    let limit = query.limit.unwrap_or(20).min(200);
+    let rows = database_storage::query_backtest_runs_list(&state.pool, limit).await;
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id,
+                "created_at": r.created_at,
+                "params": serde_json::from_str::<serde_json::Value>(&r.params_json).unwrap_or_default(),
+                "summary": serde_json::from_str::<serde_json::Value>(&r.summary_json).unwrap_or_default(),
+            })
+        })
+        .collect();
+    Json(items)
+}
+
+/// GET /api/backtest/coverage — recorded-snapshot coverage per symbol × TF
+/// (data availability for the backtest replay source).
+pub async fn serve_backtest_coverage(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let rows = database_storage::query_backtest_coverage(&state.pool).await;
+    let items: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "symbol": r.symbol,
+                "timeframe_secs": r.timeframe_secs,
+                "snapshot_count": r.snapshot_count,
+                "earliest_ms": r.earliest_ms,
+                "latest_ms": r.latest_ms,
+            })
+        })
+        .collect();
+    Json(items)
 }

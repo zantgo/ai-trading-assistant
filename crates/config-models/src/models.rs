@@ -1802,6 +1802,89 @@ mod tests {
 /// limit) — the two are differentiated only by convention.
 pub type FastTimeframeConfig = SlowTimeframeConfig;
 
+/// v7 setup-executor configuration (minimal TAE) is defined above; below is
+/// the PAE significance-treatment configuration.
+///
+/// The statistical significance treatment (t-test, Monte Carlo sign
+/// randomization, verdict classification) previously ran on hardcoded
+/// constants. Operators of an institutional platform must be able to audit
+/// and tune the bar: `alpha` is the significance level, `monte_carlo_runs`
+/// the randomization count, and `min_trades_for_verdict` the minimum sample
+/// below which no edge verdict is issued.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnalyticsConfig {
+    /// Significance level α — an edge is significant when BOTH the t-test
+    /// p-value and the Monte Carlo p-value fall below this threshold.
+    /// Default: 0.05.
+    #[serde(default = "default_analytics_alpha")]
+    pub alpha: f64,
+    /// Monte Carlo sign-randomization runs for the empirical p-value.
+    /// Default: 10_000.
+    #[serde(default = "default_analytics_monte_carlo_runs")]
+    pub monte_carlo_runs: u32,
+    /// Minimum trade count before an edge verdict is issued; below this the
+    /// classification is `InsufficientData`. Default: 30.
+    #[serde(default = "default_analytics_min_trades")]
+    pub min_trades_for_verdict: u32,
+}
+
+fn default_analytics_alpha() -> f64 {
+    0.05
+}
+fn default_analytics_monte_carlo_runs() -> u32 {
+    10_000
+}
+fn default_analytics_min_trades() -> u32 {
+    30
+}
+
+impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self {
+            alpha: default_analytics_alpha(),
+            monte_carlo_runs: default_analytics_monte_carlo_runs(),
+            min_trades_for_verdict: default_analytics_min_trades(),
+        }
+    }
+}
+
+/// v7.3 portfolio risk limits — the concentration / exposure / correlation
+/// caps the PME Exposure layer enforces. Previously hardcoded constants in
+/// `exposure_layer.rs`; now operator-tunable and rendered by the PME
+/// Exposure tab so the displayed limit is always the enforced one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RiskLimitsConfig {
+    /// Max single-pair concentration as a fraction of equity (0.2 = 20%).
+    #[serde(default = "default_risk_limit_single_pair")]
+    pub max_single_pair_exposure_pct: f64,
+    /// Max portfolio exposure as a fraction of equity (0.5 = 50%).
+    #[serde(default = "default_risk_limit_portfolio")]
+    pub max_portfolio_exposure_pct: f64,
+    /// Max allowed pairwise correlation between holdings (0.8).
+    #[serde(default = "default_risk_limit_correlation")]
+    pub max_correlation: f64,
+}
+
+fn default_risk_limit_single_pair() -> f64 {
+    20.0
+}
+fn default_risk_limit_portfolio() -> f64 {
+    50.0
+}
+fn default_risk_limit_correlation() -> f64 {
+    0.8
+}
+
+impl Default for RiskLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_single_pair_exposure_pct: default_risk_limit_single_pair(),
+            max_portfolio_exposure_pct: default_risk_limit_portfolio(),
+            max_correlation: default_risk_limit_correlation(),
+        }
+    }
+}
+
 // ─── TAE: Lifecycle State ─────────────────────────────────────────
 
 /// Per-instance lifecycle state. Four live values per

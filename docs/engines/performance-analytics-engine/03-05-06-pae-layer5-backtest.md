@@ -10,6 +10,8 @@
 
 ---
 
+> **v7.3 — configurable significance treatment + persistence UX.** The α level, Monte Carlo run count and the min-trade verdict floor are no longer constants: they come from `[workspace.analytics]` (`alpha`, `monte_carlo_runs`, `min_trades_for_verdict`) and flow through `strategy_analytics::AnalyticsParams` into both live strategy analytics and backtest verdicts. New endpoints serve the History and data-coverage surfaces: `GET /api/backtest/list?limit=N` (recent persisted runs, newest first) and `GET /api/backtest/coverage` (recorded-snapshot counts + time window per symbol × timeframe, so the operator can see whether a requested window is coverable before running).
+
 ## 1. Design principle: record today, replay tomorrow
 
 Every completed candle snapshot already embeds the **full MTF-synthesized decision** (opportunity profiles with entry/SL/TP zones, decision context, analysis bias, advisory). Since the v7 migration, these matrices are **persisted** to `market_snapshots` (`opportunity_json`, `decision_context_json`, `analysis_json`, `advisory_json`, `market_regime`) by the WAL snapshot logger.

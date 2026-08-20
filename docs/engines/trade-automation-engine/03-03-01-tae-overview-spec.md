@@ -61,6 +61,9 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
 | ⑥ | Telemetry & Persistence | [Paper Trading / Simulation Backend](03-03-05-tae-paper-trading-spec.md) |
 | ⑦ | Surface (API + dashboard) | §8 below |
 
+
+**Dashboard tabs ↔ layers (v7.3).** Overview (① + ② + ③ aggregate; observe = Setup Radar, paper = Paper Lab, live = Live Cockpit) · Orders (④ execution order board) · Activity (⑥ telemetry log) · Trade History (⑥ closed trades). Observe mode collapses to Overview + Activity (see [07-07 §3](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
+
 ---
 
 ## 3. Terminology (trader-perspective definitions)

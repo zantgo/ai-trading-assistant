@@ -491,6 +491,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::analytics::serve_backtest_run),
         )
         .route(
+            "/api/backtest/list",
+            get(handlers::analytics::serve_backtest_list),
+        )
+        .route(
+            "/api/backtest/coverage",
+            get(handlers::analytics::serve_backtest_coverage),
+        )
+        .route(
             "/api/backtest/:id",
             get(handlers::analytics::serve_backtest_get),
         )
@@ -512,6 +520,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/system/clock",
             get(handlers::clock::serve_clock_status),
+        )
+        .route(
+            "/api/system/platform-config",
+            get(handlers::system::serve_platform_config),
+        )
+        .route(
+            "/api/system/pipelines",
+            get(handlers::system::serve_system_pipelines),
+        )
+        .route(
+            "/api/system/distribution",
+            get(handlers::system::serve_system_distribution),
         )
         .route(
             "/api/exchange-status",

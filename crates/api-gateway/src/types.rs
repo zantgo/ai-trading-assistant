@@ -145,6 +145,40 @@ pub struct ConfigResponse {
     pub slow_timeframe: Option<config_models::SlowTimeframeConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub macro_timeframe: Option<config_models::SlowTimeframeConfig>,
+    /// v7.3: workspace liquidity config (retentions, feed toggles) —
+    /// surfaced so DIE Settings can render the true retention values and
+    /// the PME can derive data-retention facts from one source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidity: Option<config_models::LiquidityConfig>,
+    /// v7.3: v7 setup-executor config — PME "Risk per trade" and TAE
+    /// surfaces render the real sizing knob instead of a hardcoded 1%.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimal_tae: Option<config_models::MinimalTaeConfig>,
+    /// v7.3: PAE significance treatment (α, Monte Carlo runs, min trades).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<config_models::AnalyticsConfig>,
+    /// v7.3: portfolio risk limits — concentration / exposure / correlation
+    /// caps the PME Exposure tab renders and the backend enforces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_limits: Option<config_models::RiskLimitsConfig>,
+    /// v7.3: safety ladder thresholds — the PME Safety ladder and the engine
+    /// Settings tabs render the real values (previously the PME read
+    /// `cfg.safety` which this response never carried, silently falling
+    /// back to hardcoded defaults).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety: Option<config_models::SafetyConfig>,
+    /// v7.3: fee schedule (maker/taker/funding) — TAE/PME Settings tabs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fees: Option<config_models::FeesConfig>,
+    /// v7.3: cross leverage — TAE/PME Settings tabs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leverage: Option<config_models::LeverageConfig>,
+    /// v7.3: execution layer config (slippage ceiling) — TAE Settings tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<config_models::ExecutionConfig>,
+    /// v7.3: allocation scoring thresholds — TAE Settings tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring: Option<config_models::ScoringConfig>,
 }
 
 #[derive(Debug, Deserialize)]

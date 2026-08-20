@@ -10,6 +10,8 @@
 
 ---
 
+> **v7.3 — config-driven limits.** The concentration caps (`max_single_pair_exposure_pct = 20`, `max_portfolio_exposure_pct = 50`, `max_correlation = 0.8`) are no longer hardcoded constants: they come from `[workspace.risk_limits]` in config.toml (`exposure_layer::ConcentrationLimits::from_config`). The PME Exposure tab renders the same numbers the backend enforces, including a BREACH warning when a pair crosses its cap. The `GET /api/instances/:id/exposure` and `GET /api/instances/:id/portfolio` responses carry a `limits` block with the enforced values.
+
 ## 1. Purpose
 
 The Exposure Layer prevents **concentration risk** — the danger of excessive capital allocation to a single asset, correlated group, or directional vector. It consumes the active Position Matrix from Layer 1 and aggregates positions into sector-level, asset-level, and directional exposure metrics.

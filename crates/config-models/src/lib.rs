@@ -228,6 +228,16 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub minimal_tae: MinimalTaeConfig,
 
+    /// v7.3 PAE significance-treatment configuration (α, Monte Carlo runs,
+    /// min-trades for the edge verdict).
+    #[serde(default)]
+    pub analytics: AnalyticsConfig,
+
+    /// v7.3 portfolio risk limits — concentration / exposure / correlation
+    /// caps the PME Exposure layer enforces and the dashboard renders.
+    #[serde(default)]
+    pub risk_limits: RiskLimitsConfig,
+
     /// Execution-layer configuration (slippage ceiling, etc.).
     #[serde(default)]
     pub execution: ExecutionConfig,
@@ -261,6 +271,8 @@ impl Default for WorkspaceConfig {
             defaults: DefaultsConfig::default(),
             instances: Vec::new(),
             minimal_tae: MinimalTaeConfig::default(),
+            analytics: AnalyticsConfig::default(),
+            risk_limits: RiskLimitsConfig::default(),
             execution: ExecutionConfig::default(),
         }
     }
@@ -500,6 +512,48 @@ pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
 /// configured custom TF would be silently dropped. Explicit rejection is
 /// the honest behaviour until the wiring lands.
 fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
+    // v7.3 (M8-style numeric guards): the significance treatment and the
+    // risk limits are real numerics that flow into division/ranking logic —
+    // reject nonsense at boot instead of silently mis-verdicting trades.
+    if !(ws.analytics.alpha.is_finite() && ws.analytics.alpha > 0.0 && ws.analytics.alpha <= 1.0) {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!("[workspace.analytics].alpha = {} (must be in (0, 1])", ws.analytics.alpha),
+        });
+    }
+    if ws.analytics.monte_carlo_runs < 1000 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.analytics].monte_carlo_runs = {} (must be >= 1000)",
+                ws.analytics.monte_carlo_runs
+            ),
+        });
+    }
+    if ws.analytics.min_trades_for_verdict < 10 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.analytics].min_trades_for_verdict = {} (must be >= 10)",
+                ws.analytics.min_trades_for_verdict
+            ),
+        });
+    }
+    for (name, v) in [
+        ("max_single_pair_exposure_pct", ws.risk_limits.max_single_pair_exposure_pct),
+        ("max_portfolio_exposure_pct", ws.risk_limits.max_portfolio_exposure_pct),
+    ] {
+        if !v.is_finite() || !(0.0 < v) || !(v <= 100.0) {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!("[workspace.risk_limits].{name} = {v} (must be in (0, 100])"),
+            });
+        }
+    }
+    if !(0.0 < ws.risk_limits.max_correlation) || ws.risk_limits.max_correlation > 1.0 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.risk_limits].max_correlation = {} (must be in (0, 1])",
+                ws.risk_limits.max_correlation
+            ),
+        });
+    }
     for inst in &ws.instances {
         if !inst.custom_pipelines.is_empty() {
             let mut keys: Vec<String> = inst

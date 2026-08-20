@@ -16,8 +16,9 @@ pub use logger::{run_telemetry_logger, TelemetryMsg};
 pub use queries::analytics::{
     insert_backtest_run, insert_optimization_report, insert_performance_matrix_snapshot,
     insert_performance_summary, insert_risk_analytics, insert_strategy_analytics,
-    query_backtest_run, query_optimization_reports, query_performance_matrix_latest,
-    query_risk_analytics_latest, query_strategy_analytics_history,
+    query_backtest_run, query_backtest_runs_list, query_optimization_reports,
+    query_performance_matrix_latest, query_risk_analytics_latest,
+    query_strategy_analytics_history, BacktestRunRow,
 };
 pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,
@@ -30,8 +31,9 @@ pub use queries::profiles::{
     risk_profile_update, risk_profiles_list, DecisionProfile, ProfileIndicator, RiskProfile,
 };
 pub use queries::snapshots::{
-    insert_snapshot_internal, query_backtest_snapshots, query_closest_close_price,
-    query_latest_snapshot, query_recent_candles, RecordedSnapshot,
+    insert_snapshot_internal, query_backtest_coverage, query_backtest_snapshots,
+    query_closest_close_price, query_latest_snapshot, query_recent_candles,
+    BacktestCoverageRow, RecordedSnapshot,
 };
 pub use queries::stats::{
     dash_trade_detail, dash_trade_timestamps, get_daily_pnl, query_all_closed_trades,

@@ -116,6 +116,7 @@ pub async fn run_backtest(
     tae_cfg: &MinimalTaeConfig,
     fees: &FeesConfig,
     cross_leverage: u32,
+    analytics: crate::strategy_analytics::AnalyticsParams,
 ) -> BacktestResult {
     let records = database_storage::queries::snapshots::query_backtest_snapshots(
         pool,
@@ -267,7 +268,11 @@ pub async fn run_backtest(
             flat_trade: false,
         })
         .collect();
-    let stats = compute_setup_analytics("BACKTEST", &records.iter().collect::<Vec<_>>());
+    let stats = compute_setup_analytics(
+        "BACKTEST",
+        &records.iter().collect::<Vec<_>>(),
+        analytics,
+    );
 
     BacktestResult {
         params: params.clone(),
@@ -473,7 +478,10 @@ mod tests {
             to_ms: 10_000,
             initial_capital: 1000.0,
         };
-        let result = run_backtest(&pool, &params, &tae_cfg(), &FeesConfig::default(), 20).await;
+        let result = run_backtest(
+            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
+            crate::strategy_analytics::AnalyticsParams::default(),
+        ).await;
 
         assert_eq!(result.total_trades, 1, "one simulated close expected");
         assert_eq!(result.win_count, 1);
@@ -510,7 +518,10 @@ mod tests {
             to_ms: 10_000,
             initial_capital: 1000.0,
         };
-        let result = run_backtest(&pool, &params, &tae_cfg(), &FeesConfig::default(), 20).await;
+        let result = run_backtest(
+            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
+            crate::strategy_analytics::AnalyticsParams::default(),
+        ).await;
         assert_eq!(result.total_trades, 0);
         assert_eq!(result.equity_curve.len(), 1);
         assert_eq!(

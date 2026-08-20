@@ -32,6 +32,8 @@
         type EngineKey,
         type ExecutionMode,
     } from './lib/engineTabs';
+    import { isExecutionMode } from './lib/modePresentation';
+    import { MODE_LABEL } from './lib/modePresentation';
 
     const app = useAppStore();
     
@@ -63,13 +65,15 @@
         panelDeleteErrorTimer = setTimeout(() => { panelDeleteError = null; }, 6000);
     }
 
+    // v7.3: MME workspace sub-views ordered by layer (L1 → L6) — Analysis
+    // (L3) now precedes Opportunities (L4), matching the pipeline order.
     const SUB_TABS: { view: CurrentView; label: string }[] = [
         { view: 'terminal',    label: 'Charts' },
         { view: 'monitor',     label: 'Metrics' },
         { view: 'alignment',   label: 'Alignment' },
+        { view: 'analysis',    label: 'Analysis' },
         { view: 'opportunity', label: 'Opportunities' },
         { view: 'risk',        label: 'Risks' },
-        { view: 'analysis',    label: 'Analysis' },
         { view: 'recommendation', label: 'Recommendation' },
     ];
 
@@ -139,12 +143,18 @@
     // share the session-default mode; derive the tab mode from the
     // workspace-selected instance (fallback: any known instance). The
     // Performance engine is system-wide and uses the launch session mode.
+    //
+    // v7.3: TAE/PME fall back to the session mode when no instance is
+    // selected or known — with no instance active (or before the instance
+    // list resolves) the navbar is still deterministic from the first
+    // render instead of showing the full (non-collapsed) tab set.
     const activeMode = $derived<ExecutionMode | undefined>(
         app.currentEngine === 'performance'
-            ? (app.sessionMode as ExecutionMode)
+            ? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined)
             : (app.selectedInstance
                 ? app.instancesMap[app.selectedInstance]?.mode
-                : Object.values(app.instancesMap)[0]?.mode),
+                : (Object.values(app.instancesMap)[0]?.mode
+                    ?? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined))),
     );
     const engineTabs = $derived(tabsForMode(app.currentEngine as EngineKey, activeMode));
 
@@ -484,6 +494,13 @@
                 </span>
             </div>
             <div class="{styles.cell} {styles.cellMono} {styles.cellNavbar}" style="justify-content: flex-start;">
+                {#if activeMode}
+                    <span class="{styles.modeNavChip} {activeMode === 'observe'
+                        ? styles.modeNavObserve
+                        : activeMode === 'paper'
+                          ? styles.modeNavPaper
+                          : styles.modeNavLive}">{MODE_LABEL[activeMode]}</span>
+                {/if}
                 <span class={styles.exchangeChip}>{app.sessionExchange} · {app.sessionCurrency}</span>
             </div>
             <div class="{styles.cell} {styles.cellNavbar}"></div>

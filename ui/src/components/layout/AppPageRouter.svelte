@@ -2,7 +2,9 @@
     import type { CurrentView } from '../../types';
     import type { InstanceState } from '../../types';
     import type { WsState } from '../../lib/websocket.svelte';
-    import { resolveEngineTab, type EngineKey } from '../../lib/engineTabs';
+    import { useAppStore } from '../../state.svelte';
+    import { isExecutionMode, type ExecutionMode } from '../../lib/modePresentation';
+    import { resolveEngineTabForMode, type EngineKey } from '../../lib/engineTabs';
     import styles from '../../styles/brutalist-grid.module.css';
 
     import LiveTerminal from '../LiveTerminal.svelte';
@@ -37,6 +39,8 @@
 
     let { currentEngine, middleTab, selectedInstance, activePair, activeTab, wssMap, onrequestConfirm, errorMessage }: Props = $props();
 
+    const app = useAppStore();
+
     // Diagnostic: uncomment to confirm props remain reactive after the fix
     // $inspect('router.middleTab', middleTab);
     // $inspect('router.selectedInstance', selectedInstance);
@@ -51,7 +55,22 @@
     // Section for the section-driven engine dashboards. Stale or legacy
     // middleTab values (e.g. `#/engine/data_infra/overview`) resolve to
     // the engine's default tab so the navbar always has an active item.
-    const section = $derived(resolveEngineTab(currentEngine as EngineKey, middleTab));
+    // v7.3: resolution is mode-aware with the SAME precedence App.svelte
+    // uses for the navbar (selected instance → first instance → session
+    // mode), so a stale URL pointing at a tab the current mode does not
+    // render (e.g. `orders` in observe) lands on the engine default — the
+    // navbar and the rendered section always agree.
+    const activeMode = $derived<ExecutionMode | undefined>(
+        currentEngine === 'performance'
+            ? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined)
+            : (selectedInstance
+                ? app.instancesMap[selectedInstance]?.mode
+                : (Object.values(app.instancesMap)[0]?.mode
+                    ?? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined))),
+    );
+    const section = $derived(
+        resolveEngineTabForMode(currentEngine as EngineKey, middleTab, activeMode),
+    );
 </script>
 
 <main class={styles.contentArea}>

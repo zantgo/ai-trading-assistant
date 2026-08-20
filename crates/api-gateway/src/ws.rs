@@ -37,6 +37,11 @@ impl Drop for WsConnectionGuard {
     }
 }
 
+/// Live count of accepted WebSocket clients (DIE L4 Distribution tab).
+pub fn connected_client_count() -> usize {
+    ACTIVE_WS_CONNECTIONS.load(Ordering::Relaxed)
+}
+
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(query): Query<WsQuery>,

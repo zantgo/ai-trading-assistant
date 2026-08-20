@@ -156,6 +156,16 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         }
 
         if (specific && targetState) {
+            // v7.3: propagate the per-instance execution mode from the
+            // canonical config source (`/api/config` returns
+            // `instances[].mode`) synchronously at mount. Previously `mode`
+            // was only backfilled by the async `/api/instances` sync, which
+            // left the navbar's `activeMode` undefined long enough to show
+            // the full (non-collapsed) tab set in observe mode.
+            const instMode = (specific as { mode?: 'observe' | 'paper' | 'live' }).mode;
+            if (instMode === 'observe' || instMode === 'paper' || instMode === 'live') {
+                targetState.mode = instMode;
+            }
             if (specific.micro_term) {
                 targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
                 Object.assign(targetState.microTerm, {

@@ -151,3 +151,6 @@ The MME computes **52 technical indicators** across 8 functional groups, with **
 - [Systemic Data Flow — Sequence A](../../conceptual-foundations/01-03-systemic-data-flow.md)
 - [Ontology](../../conceptual-foundations/01-01-ontology.md)
 - All seven layer specs and the matrix contracts linked in §1.
+
+**Dashboard tabs ↔ layers (v7.3).** The MME workspace sub-tabs follow the layer order (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)): Charts · Metrics (L1) · Alignment (L2) · Analysis (L3) · Opportunities (L4) · Risks (L5) · Recommendation (L6); the Overview tab is the L7 aggregate landing.
+

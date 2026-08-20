@@ -42,7 +42,7 @@ describe('ExchangeStatusPanel', () => {
     it('renders_loading_state_initially', () => {
         vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
         render(ExchangeStatusPanel);
-        expect(screen.getByText('Loading...')).toBeTruthy();
+        expect(screen.getByText('Loading…')).toBeTruthy();
     });
 
     it('renders_exchanges_after_fetch', async () => {
@@ -52,11 +52,12 @@ describe('ExchangeStatusPanel', () => {
         // (defaults to 'Hyperliquid' from app.session.sessionExchange), so
         // only the Hyperliquid card is rendered even when the API report
         // contains multiple exchanges.
-        expect(await screen.findByText('Hyperliquid')).toBeTruthy();
+        expect((await screen.findAllByText('Hyperliquid')).length).toBeGreaterThan(0);
         expect(screen.queryByText('Bitget')).toBeNull();
-        expect(screen.getAllByText('● Connected').length).toBe(1);
-        expect(screen.getByText('3')).toBeTruthy();
-        expect(screen.getByText('1')).toBeTruthy();
+        // The state label renders in both the KPI strip and the card badge.
+        expect(screen.getAllByText('● CONNECTED').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('3').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('1').length).toBeGreaterThan(0);
     });
 
     it('renders_disconnected_state', async () => {
@@ -74,7 +75,7 @@ describe('ExchangeStatusPanel', () => {
         };
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse(down)));
         render(ExchangeStatusPanel);
-        expect(await screen.findByText('● Disconnected')).toBeTruthy();
+        expect((await screen.findAllByText('● DISCONNECTED')).length).toBeGreaterThan(0);
     });
 
     it('renders_error_state_on_fetch_failure', async () => {
@@ -100,7 +101,7 @@ describe('ExchangeStatusPanel', () => {
         };
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse(disabled)));
         render(ExchangeStatusPanel);
-        expect(await screen.findByText('✕ Disabled')).toBeTruthy();
+        expect((await screen.findAllByText('✕ DISABLED')).length).toBeGreaterThan(0);
         expect(screen.getByText('6')).toBeTruthy();
     });
 });

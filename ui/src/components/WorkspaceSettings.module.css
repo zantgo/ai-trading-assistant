@@ -5,280 +5,8 @@
     color: rgba(255, 255, 255, 0.8);
     width: 100%;
     box-sizing: border-box;
+    overflow: hidden;
 }
-.settings-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-}
-@media (max-width: 1000px) {
-    .settings-grid { grid-template-columns: 1fr; }
-}
-.settings-col {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-}
-.card-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: #fff;
-    margin-top: 0;
-    margin-bottom: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding-bottom: 8px;
-}
-.setting-group-box {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.selectors-label {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
-}
-.toggle-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 6px;
-}
-.selector-btn {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.4);
-    font-size: 9px;
-    font-weight: 800;
-    padding: 6px 0;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-transform: uppercase;
-    text-align: center;
-}
-.selector-btn:hover { border-color: rgba(255, 255, 255, 0.2); color: rgba(255, 255, 255, 0.7); }
-.selector-btn.active {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.3);
-    color: #fff;
-}
-.parameter-inputs-scroll {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 280px;
-    overflow-y: auto;
-}
-.input-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.input-row label { font-size: 10px; color: rgba(255, 255, 255, 0.5); font-weight: 600; }
-.input-row input {
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 5px 8px;
-    border-radius: 5px;
-    width: 80px;
-    text-align: right;
-    outline: none;
-    transition: border-color 0.15s ease;
-}
-.input-row input:focus { border-color: rgba(255, 255, 255, 0.3); }
-.section-divider { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.06); margin: 6px 0; }
-.tf-split-group { display: flex; gap: 4px; width: 140px; }
-.tf-number-input { width: 50px !important; }
-.tf-unit-select {
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    font-size: 10px;
-    font-weight: bold;
-    padding: 4px 6px;
-    border-radius: 5px;
-    flex: 1;
-    outline: none;
-    cursor: pointer;
-}
-.apply-workspace-btn {
-    padding: 8px 20px;
-    background: #fff;
-    color: #000;
-    border: none;
-    border-radius: 7px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    cursor: pointer;
-    transition: opacity 0.15s ease;
-    width: auto;
-    display: inline-block;
-}
-
-.apply-workspace-btn:hover:not(:disabled) {
-    opacity: 0.85;
-}
-
-.apply-workspace-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-.identity-error {
-    margin: 0;
-    color: #ff453a;
-    font-size: 0.78rem;
-    font-weight: 600;
-}
-
-.applyRow {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 8px;
-    max-width: 620px;
-}
-.key-input-row { display: flex; gap: 6px; }
-.key-field {
-    flex: 1;
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 6px 8px;
-    border-radius: 5px;
-    outline: none;
-}
-.key-save-btn {
-    background: #fff;
-    border: none;
-    color: #000;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 6px 12px;
-    border-radius: 5px;
-    cursor: pointer;
-    text-transform: uppercase;
-}
-.status-msg { font-size: 10px; padding: 4px 0; }
-.success-msg { color: #30d158; }
-.rules-editor {
-    width: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    font-family: var(--mono);
-    font-size: 10px;
-    line-height: 1.5;
-    padding: 8px;
-    border-radius: 5px;
-    resize: vertical;
-    outline: none;
-}
-.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.toggle-label { font-size: 10px; font-weight: 600; color: rgba(255, 255, 255, 0.5); }
-.live-counter { font-family: var(--mono); font-weight: 700; }
-.paper-reset-btn {
-    width: 100%;
-    padding: 8px;
-    background: rgba(255, 69, 58, 0.06);
-    border: 1px solid rgba(255, 69, 58, 0.2);
-    color: #ff453a;
-    font-size: 10px;
-    font-weight: 700;
-    border-radius: 6px;
-    cursor: pointer;
-    text-transform: uppercase;
-}
-.paper-reset-btn:hover { background: rgba(255, 69, 58, 0.14); }
-
-/* ─── Timeframe Configuration Cards ────────────────────────────── */
-.tf-cards-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-top: 12px;
-}
-@media (max-width: 1200px) { .tf-cards-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 700px) { .tf-cards-grid { grid-template-columns: 1fr; } }
-.tf-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 620px;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-}
-.tf-card-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: #fff;
-    margin: 0 0 12px 0;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    padding-bottom: 6px;
-    text-align: left;
-}
-.tf-row { margin-bottom: 8px; }
-.tf-select {
-    width: 100%;
-    padding: 6px 8px;
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 5px;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-    outline: none;
-}
-.tf-select:focus { border-color: rgba(255, 255, 255, 0.3); }
-.tf-input-scroll {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 400px;
-    overflow-y: auto;
-    flex: 1;
-}
-.tf-input-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
-.tf-input-row label { font-size: 9px; color: rgba(255, 255, 255, 0.35); font-weight: 600; text-transform: uppercase; white-space: nowrap; }
-.tf-input-row input {
-    background: rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 4px 6px;
-    border-radius: 4px;
-    width: 64px;
-    text-align: right;
-    outline: none;
-    transition: border-color 0.15s ease;
-}
-.tf-input-row input:focus { border-color: rgba(255, 255, 255, 0.3); }
 
 /* ─── v7.0-prod: Workspace Settings layout — left rail picks the
    timeframe, right pane shows the editor (Duration selector + indicator
@@ -294,17 +22,7 @@
     background: transparent;
     border-radius: 0;
     gap: 0;
-}
-
-.tf-shell-rail-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.4);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin: 0 0 20px 0;
-    padding: 0 20px;
-    font-family: var(--sans);
+    overflow-y: auto;
 }
 
 .tf-shell-rail-item {
@@ -353,28 +71,72 @@
 
 .tf-shell-body {
     flex: 1;
-    padding: 32px 40px;
+    padding: 24px;
     overflow-y: auto;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
 }
 
-.tf-card-hint {
-    margin: 0 0 12px 0;
-    font-size: 10px;
-    line-height: 1.5;
-    color: rgba(255, 255, 255, 0.5);
+/* ─── Duration row ─────────────────────────────────────────────────── */
+.tf-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
 }
 
-.tf-card-hint code {
-    font-family: var(--mono, monospace);
-    font-size: 9.5px;
-    background: rgba(34, 211, 238, 0.10);
-    color: #22d3ee;
-    padding: 1px 5px;
-    border-radius: 3px;
+.tf-row select {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ─── Dense indicator input scroll area ────────────────────────────── */
+.tf-input-scroll {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 6px;
+}
+
+.tf-input-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.tf-label {
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+.tf-input-row input {
+    width: 76px;
+    text-align: right;
+}
+
+.tf-section-divider {
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    margin: 6px 0;
+    width: 100%;
+}
+
+/* ─── Save & alerts ────────────────────────────────────────────────── */
+.apply-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
 @media (max-width: 900px) {

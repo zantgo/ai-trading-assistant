@@ -91,6 +91,8 @@ function mockFetchImpl() {
 beforeEach(() => {
     cleanup();
     mockFetchImpl();
+    // v7.3: no symbol fallback — the backtest form needs a real instance.
+    useAppStore().initInstance('BTC');
 });
 
 afterEach(() => {
@@ -134,18 +136,31 @@ describe('PerformanceDashboard backtest tab (v7 live)', () => {
     });
 });
 
-describe('PerformanceDashboard mode-aware framing (v7.2)', () => {
-    it('observe mode collapses to backtesting with the edge-validation strip', async () => {
+describe('PerformanceDashboard mode-aware framing (v7.3)', () => {
+    it('observe mode keeps the edge-validator overview + data-bearing tabs', async () => {
         const app = useAppStore();
         app.session.sessionMode = 'observe';
         render(PerformanceDashboard, { props: { section: 'overview' } });
 
-        // Collapsed: any section renders the backtesting tab.
+        // Observe keeps a real Overview: the edge-validation strip plus
+        // data coverage / latest verdict / significance summary.
         await waitFor(() => expect(screen.getByText('OBSERVE')).toBeTruthy());
-        expect(screen.getByText('Edge Validation')).toBeTruthy();
-        await waitFor(() => expect(screen.getByText('Run Backtest')).toBeTruthy());
-        // The overview / drift surfaces are not reachable in observe.
+        await waitFor(() => expect(screen.getByText('Edge Validation')).toBeTruthy());
+        expect(screen.getByText('Data Coverage — Recorded Decisions')).toBeTruthy();
+        expect(screen.getByText('Significance Summary')).toBeTruthy();
+        // The drift / recorded-trade surfaces are not reachable in observe.
         expect(screen.queryByText('Forward Test')).toBeNull();
+        expect(screen.queryByText('Trade Analytics')).toBeNull();
+    });
+
+    it('observe mode renders the backtesting tab with the run form', async () => {
+        const app = useAppStore();
+        app.session.sessionMode = 'observe';
+        render(PerformanceDashboard, { props: { section: 'backtesting' } });
+
+        await waitFor(() => expect(screen.getByText('OBSERVE')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('Run Backtest')).toBeTruthy());
+        expect(document.querySelector('#bt-symbol')).toBeTruthy();
     });
 
     it('paper mode shows the forward-test drift card and full tabs', async () => {
@@ -160,3 +175,31 @@ describe('PerformanceDashboard mode-aware framing (v7.2)', () => {
         expect(screen.getAllByText('Performance Overview').length).toBeGreaterThan(0);
     });
 });
+
+describe('PerformanceDashboard no-instance state (v7.3)', () => {
+    it('renders the SVG empty state (no symbol fallback) when no instance is active', async () => {
+        const app = useAppStore();
+        for (const k of Object.keys(app.instancesMap)) app.removeInstance(k);
+        cleanup();
+        mockFetchImpl();
+        app.session.sessionMode = 'observe';
+        render(PerformanceDashboard, { props: { section: 'backtesting' } });
+
+        await waitFor(() => expect(screen.getByText('No active instance')).toBeTruthy());
+        expect(screen.getByText(/Performance analytics evaluate recorded decisions/)).toBeTruthy();
+        // The backtest form must NOT render with a fallback symbol.
+        expect(document.querySelector('#bt-symbol')).toBeNull();
+    });
+
+    it('keeps the Settings tab rendered without an instance', async () => {
+        const app = useAppStore();
+        for (const k of Object.keys(app.instancesMap)) app.removeInstance(k);
+        cleanup();
+        mockFetchImpl();
+        render(PerformanceDashboard, { props: { section: 'settings' } });
+
+        await waitFor(() => expect(screen.getByText('Significance Treatment')).toBeTruthy());
+        expect(screen.queryByText('No active instance')).toBeNull();
+    });
+});
+

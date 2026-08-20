@@ -211,3 +211,50 @@ describe('PortfolioDashboard observe readiness board (v7.2)', () => {
         await waitFor(() => expect(screen.getByText('Safety Blueprint')).toBeTruthy());
     });
 });
+
+describe('PortfolioDashboard no-instance state (v7.3)', () => {
+    it('renders the SVG empty state instead of an infinite loading message', async () => {
+        cleanup();
+        const fetchMock = vi.fn((url: string) => {
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [] }));
+            }
+            if (url === '/api/config') {
+                return Promise.resolve(jsonResponse({ safety: {} }));
+            }
+            return Promise.resolve(jsonResponse({}));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        render(PortfolioDashboard);
+
+        await waitFor(() => expect(screen.getByText('No active instance')).toBeTruthy());
+        expect(screen.getByText(/Portfolio management runs per instance/)).toBeTruthy();
+        expect(screen.queryByText('Loading portfolio state…')).toBeNull();
+        expect(screen.getByText('NO INSTANCE')).toBeTruthy();
+    });
+
+    it('keeps the Settings tab rendered without an instance', async () => {
+        cleanup();
+        const fetchMock = vi.fn((url: string) => {
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [] }));
+            }
+            if (url === '/api/config') {
+                return Promise.resolve(jsonResponse({
+                    safety: { consecutive_loss_caution: 3, drawdown_limit_pct: 30 },
+                    risk_limits: { max_single_pair_exposure_pct: 20 },
+                }));
+            }
+            return Promise.resolve(jsonResponse({}));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        render(PortfolioDashboard, { props: { section: 'settings' } });
+
+        await waitFor(() => expect(screen.getByText('Safety Ladder')).toBeTruthy());
+        expect(screen.getByText('Risk Limits')).toBeTruthy();
+        expect(screen.queryByText('No active instance')).toBeNull();
+    });
+});
+

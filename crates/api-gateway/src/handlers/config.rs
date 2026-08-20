@@ -16,6 +16,15 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
         api_failover: current_config.api_failover,
         slow_timeframe: Some(current_config.slow_timeframe.clone()),
         macro_timeframe: Some(current_config.macro_timeframe.clone()),
+        liquidity: Some(current_config.liquidity.clone()),
+        minimal_tae: Some(current_config.minimal_tae.clone()),
+        analytics: Some(current_config.analytics.clone()),
+        risk_limits: Some(current_config.risk_limits.clone()),
+        safety: Some(current_config.safety.clone()),
+        fees: Some(current_config.fees.clone()),
+        leverage: Some(current_config.leverage.clone()),
+        execution: Some(current_config.execution.clone()),
+        scoring: Some(current_config.scoring.clone()),
     };
     let json = axum::Json(response_body);
     let mut response = json.into_response();
