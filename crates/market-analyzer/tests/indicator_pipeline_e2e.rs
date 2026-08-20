@@ -19,8 +19,8 @@
 //!   2. No two keys collide in the `values` submap (catches `Object.entries`
 //!      dups in `IndicatorsView.svelte:398`).
 //!   3. Lifecycle transitions correctly:
-//!        `Loading(N/bars_required)` at `N = bars_required - 1`,
-//!        `Live` at `N >= bars_required`.
+//!      - `Loading(N/bars_required)` at `N = bars_required - 1`,
+//!      - `Live` at `N >= bars_required`.
 //!   4. After the calculator reaches its warm-up gate, the entry exists in
 //!      the indicators map with a non-empty `state_label`.
 //!
@@ -291,8 +291,8 @@ pub fn assert_no_duplicate_signal_keys(name: &str, snap: &IndicatorSnapshot) {
         if !seen.insert(key.clone()) {
             let first_i = first_seen_at.get(&key).copied().unwrap_or(0);
             panic!(
-                "[{name}] DUPLICATE (label, kind) signal pair detected:\n  pair: {}\n  first emitted at signal index {first_i}, re-pushed at index {i}\n  → would trigger `each_key_duplicate` in any frontend {{#each}} block using `(sig.label + sig.kind)` as the key",
-                format!("{}|{:?}", sig.label, sig.kind),
+                "[{name}] DUPLICATE (label, kind) signal pair detected:\n  pair: {}-{:?}\n  first emitted at signal index {first_i}, re-pushed at index {i}\n  → would trigger `each_key_duplicate` in any frontend {{#each}} block using `(sig.label + sig.kind)` as the key",
+                sig.label, sig.kind,
             );
         }
         first_seen_at.insert(key, i);
@@ -737,7 +737,7 @@ fn build_williams_r_inputs(
         price: cl,
         ..Default::default()
     };
-    let wr = ((cl - 100.0) * -1.0).clamp(-100.0, 0.0);
+    let wr = (-(cl - 100.0)).clamp(-100.0, 0.0);
     let inputs = IndicatorInputs {
         williams_r: Some(wr),
         rsi: Some(50.0 + wr * -0.3),
@@ -745,7 +745,7 @@ fn build_williams_r_inputs(
         stoch_d: Some(50.0 + wr * -0.3),
         chandemo: Some(wr * -0.4),
         mfi: Some(50.0 + wr * -0.3),
-        cci: Some(wr * -1.0),
+        cci: Some(-wr),
         linreg_slope: Some(0.1),
         zscore: Some(0.5),
         atr_14: Some((h - l).max(0.01)),

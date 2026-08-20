@@ -66,16 +66,16 @@ impl AlignmentDimension {
         } else {
             AlignState::Mixed
         };
-        let confidence = (score / 100.0).max(0.0).min(1.0) * 100.0;
+        let confidence = (score / 100.0).clamp(0.0, 1.0) * 100.0;
         Self {
-            score: score.max(0.0).min(100.0),
+            score: score.clamp(0.0, 100.0),
             state,
             confidence,
         }
     }
 
     fn from_signed(mean: f64) -> Self {
-        let score = ((mean + 1.0) / 2.0 * 100.0).max(0.0).min(100.0);
+        let score = ((mean + 1.0) / 2.0 * 100.0).clamp(0.0, 100.0);
         let state = if mean > 0.6 {
             AlignState::StrongBullish
         } else if mean > 0.3 {
@@ -305,20 +305,21 @@ impl AlignmentMatrix {
 /// Build the Alignment Matrix by aggregating indicator maps from multiple
 /// timeframes for a single symbol.
 ///
+/// One timeframe's alignment inputs: name, duration, score, indicator map,
+/// and the synthesized market context.
+pub type TimeframeAlignmentInput<'a> = (
+    &'a str,
+    u64,
+    f64,
+    &'a HashMap<String, NormalizedIndicatorValue>,
+    &'a MarketContext,
+);
+
 /// The caller is expected to synthesize a [`MarketContext`] per timeframe
 /// (via `market_analyzer::market_context_synth::synthesize_market_context`)
 /// and supply it alongside the indicator map. This split keeps
 /// `core-domain` free of any registry / indicator dependency.
-pub fn compute_alignment(
-    symbol: &str,
-    tf_data: &[(
-        &str,
-        u64,
-        f64,
-        &HashMap<String, NormalizedIndicatorValue>,
-        &MarketContext,
-    )],
-) -> AlignmentMatrix {
+pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) -> AlignmentMatrix {
     if tf_data.is_empty() {
         return AlignmentMatrix::empty(symbol);
     }
@@ -355,7 +356,7 @@ pub fn compute_alignment(
         }
         per_tf_signal_sets.push(tf_signal_set);
 
-        let weight = (secs as f64 / divisor).max(0.2).min(1.0);
+        let weight = (secs as f64 / divisor).clamp(0.2, 1.0);
         total_weight += weight;
 
         trend_sum += ctx.trend.score * weight;
@@ -386,22 +387,22 @@ pub fn compute_alignment(
     }
 
     let mtf_trend_alignment = if total_weight > 0.0 {
-        (trend_sum / total_weight).max(-1.0).min(1.0)
+        (trend_sum / total_weight).clamp(-1.0, 1.0)
     } else {
         0.0
     };
     let mtf_momentum_alignment = if total_weight > 0.0 {
-        (momentum_sum / total_weight).max(-1.0).min(1.0)
+        (momentum_sum / total_weight).clamp(-1.0, 1.0)
     } else {
         0.0
     };
     let mtf_volume_alignment = if total_weight > 0.0 {
-        (volume_sum / total_weight).max(-1.0).min(1.0)
+        (volume_sum / total_weight).clamp(-1.0, 1.0)
     } else {
         0.0
     };
     let mtf_volatility_alignment = if total_weight > 0.0 {
-        (volatility_sum / total_weight).max(-1.0).min(1.0)
+        (volatility_sum / total_weight).clamp(-1.0, 1.0)
     } else {
         0.0
     };
@@ -435,13 +436,11 @@ pub fn compute_alignment(
         + mtf_momentum_alignment * wm
         + mtf_volume_alignment * wvol
         + mtf_volatility_alignment * wvola;
-    let mtf_overall_score = (mtf_blend * 100.0).max(-100.0).min(100.0);
+    let mtf_overall_score = (mtf_blend * 100.0).clamp(-100.0, 100.0);
 
     let total_tf = tf_data.len() as f64;
     let agreement = if total_tf > 0.0 {
-        (positive_tf_count.max(negative_tf_count) as f64 / total_tf * 100.0)
-            .max(0.0)
-            .min(100.0)
+        (positive_tf_count.max(negative_tf_count) as f64 / total_tf * 100.0).clamp(0.0, 100.0)
     } else {
         0.0
     };
@@ -509,7 +508,7 @@ pub fn compute_alignment(
 
 #[allow(dead_code)]
 fn clamp01f(x: f64) -> f64 {
-    x.max(0.0).min(1.0)
+    x.clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

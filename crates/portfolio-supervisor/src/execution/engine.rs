@@ -994,6 +994,12 @@ mod live_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
+    type RecordingHandles = (
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+        Arc<tokio::sync::RwLock<Vec<Fill>>>,
+    );
+
     /// Records venue calls; fills are injected by the test.
     struct RecordingBackend {
         submits: Arc<AtomicUsize>,
@@ -1002,12 +1008,7 @@ mod live_tests {
     }
 
     impl RecordingBackend {
-        fn new() -> (
-            Self,
-            Arc<AtomicUsize>,
-            Arc<AtomicUsize>,
-            Arc<tokio::sync::RwLock<Vec<Fill>>>,
-        ) {
+        fn new() -> (Self, RecordingHandles) {
             let submits = Arc::new(AtomicUsize::new(0));
             let cancels = Arc::new(AtomicUsize::new(0));
             let fills = Arc::new(tokio::sync::RwLock::new(Vec::new()));
@@ -1016,7 +1017,7 @@ mod live_tests {
                 cancels: cancels.clone(),
                 fills: fills.clone(),
             };
-            (b, submits, cancels, fills)
+            (b, (submits, cancels, fills))
         }
     }
 
@@ -1052,7 +1053,7 @@ mod live_tests {
 
     #[tokio::test]
     async fn live_submit_routes_to_backend() {
-        let (backend, submits, _cancels, _fills) = RecordingBackend::new();
+        let (backend, (submits, _cancels, _fills)) = RecordingBackend::new();
         let e = engine();
         e.set_live_backend(Box::new(backend)).await;
 
@@ -1082,7 +1083,7 @@ mod live_tests {
 
     #[tokio::test]
     async fn apply_external_fills_opens_position() {
-        let (backend, _submits, _cancels, fills) = RecordingBackend::new();
+        let (backend, (_submits, _cancels, fills)) = RecordingBackend::new();
         let e = engine();
         e.set_live_backend(Box::new(backend)).await;
         e.submit_order(
@@ -1121,7 +1122,7 @@ mod live_tests {
 
     #[tokio::test]
     async fn live_cancel_delegates_to_venue() {
-        let (backend, _submits, cancels, _fills) = RecordingBackend::new();
+        let (backend, (_submits, cancels, _fills)) = RecordingBackend::new();
         let e = engine();
         e.set_live_backend(Box::new(backend)).await;
         e.submit_order(
@@ -1150,7 +1151,7 @@ mod live_tests {
 
     #[tokio::test]
     async fn set_paper_backend_restores_simulation() {
-        let (backend, _submits, _cancels, _fills) = RecordingBackend::new();
+        let (backend, (_submits, _cancels, _fills)) = RecordingBackend::new();
         let e = engine();
         e.set_live_backend(Box::new(backend)).await;
         assert_eq!(e.mode().await, ExecutionMode::Live);

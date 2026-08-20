@@ -114,7 +114,7 @@ fn build_params<'a>(
             obv: DivergenceState::None,
             squeeze: DivergenceState::None,
         },
-        macd: &macd,
+        macd,
         sqz: None,
         adx: None,
         bb: None,

@@ -388,7 +388,8 @@ pub async fn backup_keys(
             .into_response();
     }
 
-    let rows: Vec<(i64, String, String, String, String, i32, Option<i64>)> = match sqlx::query_as(
+    type KeyRow = (i64, String, String, String, String, i32, Option<i64>);
+    let rows: Vec<KeyRow> = match sqlx::query_as(
         "SELECT id, exchange, account_name, api_key, api_secret, is_active, last_sync_timestamp FROM exchange_keys ORDER BY id",
     )
     .fetch_all(&state.pool)

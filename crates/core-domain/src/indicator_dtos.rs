@@ -259,18 +259,13 @@ pub enum IndicatorLifecycleState {
 /// `WaitingFeed` and `Silent` are deliberately distinct so the operator can
 /// tell at a glance whether the issue is a missing wire feed (WaitingFeed)
 /// or a true zero reading (Silent).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum FeedState {
+    #[default]
     Live,
     WaitingFeed,
     Silent,
     Stale,
-}
-
-impl Default for FeedState {
-    fn default() -> Self {
-        FeedState::Live
-    }
 }
 
 /// Per-indicator operational lifecycle metadata published on every

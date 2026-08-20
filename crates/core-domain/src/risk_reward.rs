@@ -112,6 +112,7 @@ pub const RR_MEANINGFUL_FLOOR: f64 = 0.1;
 ///   valid for the active side. `ratio = |reward| / |risk|`.
 /// - `NoValue(reason)` for degenerate brackets (see `NoValueReason`).
 /// - `Error(msg)` for unexpected input (NaN, Inf, division by zero).
+///
 /// v6.10.19 (P5): the net R:R cost model — a gross geometric R:R of
 /// exactly 1:1 is rarely tradeable once entry/exit fees, slippage and
 /// hold-time funding are deducted (round-trip baseline: 2× taker fee +

@@ -8,8 +8,8 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
         .session
         .active
         .load(std::sync::atomic::Ordering::Relaxed);
-    let currency = state.session.base_currency.read().await.clone();
-    let exchange = state.session.exchange.read().await.clone();
+    let currency = *state.session.base_currency.read().await;
+    let exchange = *state.session.exchange.read().await;
     let instance_count = state.instance_count().await;
     let mode = state.session.session_mode().await;
     let capital = state.session.session_capital().await;

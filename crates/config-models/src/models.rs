@@ -1155,8 +1155,9 @@ fn default_fast_seconds() -> u64 {
 /// Configurable activation: per-indicator, per-signal, and per-SignalKind
 /// v6.10 (Phase 5 / E3): the three liquidity sub-toggles are now
 /// `Option<bool>` so an instance config can:
-///   * omit the field entirely → inherit the global default
-///   * set `liquidation_feed = false` → override the global to false
+/// - omit the field entirely → inherit the global default
+/// - set `liquidation_feed = false` → override the global to false
+///
 /// Previously the field was `bool` with serde `default = true`, so an
 /// instance could not opt out of the global. With `Option<bool>`,
 /// `None` means "fall through to global" and `Some(false)` means
@@ -1513,7 +1514,7 @@ pub struct HeatmapConfig {
     #[serde(default = "default_heatmap_retention_secs")]
     pub retention_secs: u64,
     /// Whether the frontend should render the layered real-bucket
-    /// + estimated-cluster view. Independent of `enabled`: with
+    /// and estimated-cluster view. Independent of `enabled`: with
     /// `render_real = false`, the buckets are still aggregated but
     /// the chart shows only the estimated clusters. Useful for
     /// isolating the two signal sources for diagnosis.
@@ -1811,18 +1812,14 @@ pub type FastTimeframeConfig = SlowTimeframeConfig;
 /// `lifecycle_` prefix to make the axis explicit in persisted TOML/JSON.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum LifecycleState {
     Running,
     #[serde(rename = "lifecycle_paused")]
     LifecyclePaused,
     Stopping,
+    #[default]
     Stopped,
-}
-
-impl Default for LifecycleState {
-    fn default() -> Self {
-        LifecycleState::Stopped
-    }
 }
 
 impl LifecycleState {

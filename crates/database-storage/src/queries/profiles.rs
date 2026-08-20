@@ -226,6 +226,7 @@ pub async fn risk_profile_by_id(pool: &SqlitePool, id: i64) -> Option<RiskProfil
     .flatten()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn risk_profile_insert(
     pool: &SqlitePool,
     profile_name: &str,
@@ -248,6 +249,7 @@ pub async fn risk_profile_insert(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn risk_profile_update(
     pool: &SqlitePool,
     id: i64,

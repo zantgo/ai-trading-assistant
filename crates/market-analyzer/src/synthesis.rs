@@ -93,7 +93,7 @@ fn compute_candidate_score(
     let s_sig = {
         let mut total_strength = 0.0;
         let mut count = 0;
-        for (_, v) in signals {
+        for v in signals.values() {
             for s in &v.signals {
                 total_strength += s.strength.min(1.0);
                 count += 1;
@@ -1085,15 +1085,9 @@ fn compute_opportunity(
     // asymmetry that caused `OpportunityType::TrendContinuation` to
     // never fire on a perfectly balanced trend (signed = 0, mapped
     // = 50, but legacy 50 is "Neutral" not "Weak Bull").
-    let trend_dim = ((alignment.mtf_trend_alignment + 1.0) / 2.0 * 100.0)
-        .max(0.0)
-        .min(100.0);
-    let momentum_dim = ((alignment.mtf_momentum_alignment + 1.0) / 2.0 * 100.0)
-        .max(0.0)
-        .min(100.0);
-    let vol_dim = ((alignment.mtf_volatility_alignment + 1.0) / 2.0 * 100.0)
-        .max(0.0)
-        .min(100.0);
+    let trend_dim = ((alignment.mtf_trend_alignment + 1.0) / 2.0 * 100.0).clamp(0.0, 100.0);
+    let momentum_dim = ((alignment.mtf_momentum_alignment + 1.0) / 2.0 * 100.0).clamp(0.0, 100.0);
+    let vol_dim = ((alignment.mtf_volatility_alignment + 1.0) / 2.0 * 100.0).clamp(0.0, 100.0);
     let struct_dim = alignment.dimensions.get(4).map(|d| d.score).unwrap_or(50.0);
 
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
@@ -1166,7 +1160,8 @@ fn compute_opportunity(
         && regime_is_expansion_or_transition
     {
         OpportunityType::LiquiditySqueeze
-    } else if bbwp >= 70.0 && bbwp < 95.0 && struct_dim >= 70.0 && bias_directional && is_trending {
+    } else if (70.0..95.0).contains(&bbwp) && struct_dim >= 70.0 && bias_directional && is_trending
+    {
         OpportunityType::Scalp
     } else if trend_dim >= 75.0 && bias_directional && momentum_not_exhausted {
         OpportunityType::TrendContinuation
@@ -1211,8 +1206,8 @@ fn compute_opportunity(
     // bracket when `primary_score >= 70.0`, so the value must be in hand
     // before `derive_side_zones` is called. We collect everything we need
     // for the second pass into a Vec.
-    let mut scored: Vec<(OpportunityType, f64, String, f64, f64, f64, u32, u32)> =
-        Vec::with_capacity(candidates.len());
+    type ScoredCandidate = (OpportunityType, f64, String, f64, f64, f64, u32, u32);
+    let mut scored: Vec<ScoredCandidate> = Vec::with_capacity(candidates.len());
     for ot in &candidates {
         let (met, total) = match ot {
             OpportunityType::LiquiditySqueeze => (
@@ -1227,8 +1222,7 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::Scalp => (
-                if bbwp >= 70.0
-                    && bbwp < 95.0
+                if (70.0..95.0).contains(&bbwp)
                     && struct_dim >= 70.0
                     && bias_directional
                     && is_trending
@@ -1671,8 +1665,10 @@ fn compute_opportunity(
     // semantics (a structural level below close is a LONG entry / SHORT
     // target — it lands in different role vectors, never twice in one).
     let confluent_entry = {
-        let mut merged: Vec<ConfluentLevel> =
-            long_conf_entry.into_iter().chain(short_conf_entry).collect();
+        let mut merged: Vec<ConfluentLevel> = long_conf_entry
+            .into_iter()
+            .chain(short_conf_entry)
+            .collect();
         merged.sort_by(|a, b| {
             b.strength
                 .partial_cmp(&a.strength)
@@ -1681,8 +1677,10 @@ fn compute_opportunity(
         merged
     };
     let confluent_target = {
-        let mut merged: Vec<ConfluentLevel> =
-            long_conf_target.into_iter().chain(short_conf_target).collect();
+        let mut merged: Vec<ConfluentLevel> = long_conf_target
+            .into_iter()
+            .chain(short_conf_target)
+            .collect();
         merged.sort_by(|a, b| {
             b.strength
                 .partial_cmp(&a.strength)
@@ -1691,8 +1689,10 @@ fn compute_opportunity(
         merged
     };
     let confluent_inval = {
-        let mut merged: Vec<ConfluentLevel> =
-            long_conf_inval.into_iter().chain(short_conf_inval).collect();
+        let mut merged: Vec<ConfluentLevel> = long_conf_inval
+            .into_iter()
+            .chain(short_conf_inval)
+            .collect();
         merged.sort_by(|a, b| {
             b.strength
                 .partial_cmp(&a.strength)
@@ -1819,13 +1819,21 @@ pub fn synthesize_cross_tf(
     // filter_map closure and coerced to `&'static str` via `Box::leak` — one
     // leaked allocation per timeframe per candle close, unbounded over the
     // daemon lifetime (10+ MB/day on 1 s TFs). No allocation escapes here.
-    let tf_data_owned: Vec<(
+    type TfLabelInput<'a> = (
         String,
         u64,
         f64,
-        &HashMap<String, NormalizedIndicatorValue>,
-        &MarketContext,
-    )> = tf_snapshots
+        &'a HashMap<String, NormalizedIndicatorValue>,
+        &'a MarketContext,
+    );
+    type TimeframeInput<'a> = (
+        &'a str,
+        u64,
+        f64,
+        &'a HashMap<String, NormalizedIndicatorValue>,
+        &'a MarketContext,
+    );
+    let tf_data_owned: Vec<TfLabelInput<'_>> = tf_snapshots
         .iter()
         .filter_map(|(secs, snap)| {
             let ctx = snap.context.as_ref()?;
@@ -1833,13 +1841,7 @@ pub fn synthesize_cross_tf(
             Some((slot_label(snap), *secs, price, &snap.indicators, ctx))
         })
         .collect();
-    let tf_data: Vec<(
-        &str,
-        u64,
-        f64,
-        &HashMap<String, NormalizedIndicatorValue>,
-        &MarketContext,
-    )> = tf_data_owned
+    let tf_data: Vec<TimeframeInput<'_>> = tf_data_owned
         .iter()
         .map(|(label, secs, price, map, ctx)| (label.as_str(), *secs, *price, *map, *ctx))
         .collect();
@@ -2081,10 +2083,10 @@ mod tests {
         }
     }
 
-    fn find_profile<'a>(
-        opp: &'a OpportunityMatrix,
+    fn find_profile(
+        opp: &OpportunityMatrix,
         ot: core_domain::analysis::OpportunityType,
-    ) -> &'a core_domain::analysis::OpportunityProfile {
+    ) -> &core_domain::analysis::OpportunityProfile {
         opp.profiles
             .iter()
             .find(|p| p.opportunity_type == ot)

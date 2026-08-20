@@ -10,6 +10,12 @@ pub struct CandleBuilder {
     pub volume: Decimal,
 }
 
+impl Default for CandleBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CandleBuilder {
     pub fn new() -> Self {
         Self {

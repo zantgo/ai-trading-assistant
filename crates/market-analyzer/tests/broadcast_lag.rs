@@ -72,15 +72,10 @@ async fn slow_subscriber_never_blocks_producer_or_peers() {
     // The fast consumer keeps receiving (possibly with lag skips) while the
     // slow subscriber exists.
     let mut seen = 0u32;
-    loop {
-        match fast_rx.recv().await {
-            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {
-                seen += 1;
-                if seen >= 4 {
-                    break;
-                }
-            }
-            Err(broadcast::error::RecvError::Closed) => break,
+    while let Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) = fast_rx.recv().await {
+        seen += 1;
+        if seen >= 4 {
+            break;
         }
     }
     producer.await.unwrap();

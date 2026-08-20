@@ -854,7 +854,7 @@ async fn stale_mid_guard_falls_back_to_last_trade_close() {
     cancel.cancel();
 
     assert!(
-        snaps.len() >= 1,
+        !snaps.is_empty(),
         "expected at least one completed snapshot, got {}",
         snaps.len()
     );
@@ -984,11 +984,11 @@ async fn force_closed_sub_minute_frames_carry_matrix_payload() {
     let force_matrix = snaps.iter().find(|s| {
         has_all_matrices(s)
             && s.close == Some(dec!(110))
-            && s.quality_envelope
+            && !s
+                .quality_envelope
                 .as_ref()
                 .map(|q| q.is_gap_filled)
                 .unwrap_or(true)
-                == false
     });
     assert!(
         force_matrix.is_some(),

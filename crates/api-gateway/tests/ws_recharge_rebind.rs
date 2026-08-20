@@ -39,7 +39,6 @@ use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::SymbolMapper;
-use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -106,15 +105,14 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
 /// Build an `ActivePair` wired to a fresh set of broadcast channels.
 /// Returns the pair and the four `broadcast::Sender`s so the test can
 /// publish snapshots on any slot.
-fn build_active_pair_with_channels(
-    pair_key: &str,
-) -> (
+type PairWithSenders = (
     Arc<ActivePair>,
     broadcast::Sender<MarketSnapshot>,
     broadcast::Sender<MarketSnapshot>,
     broadcast::Sender<MarketSnapshot>,
     broadcast::Sender<MarketSnapshot>,
-) {
+);
+fn build_active_pair_with_channels(pair_key: &str) -> PairWithSenders {
     let (micro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (fast_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (slow_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
@@ -249,8 +247,7 @@ async fn setup_app_with_pair() -> (
     workspace.insert(PAIR_KEY.to_string(), instance).await;
 
     {
-        let mut cfg: WorkspaceConfig = WorkspaceConfig::default();
-        cfg.instances = Vec::new();
+        let cfg: WorkspaceConfig = WorkspaceConfig::default();
         workspace.set_config(cfg).await;
     }
 

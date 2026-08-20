@@ -4,7 +4,7 @@
 # codebase's idioms.
 
 # Allow build script / proc-macro crates without MSRV clamping.
-msrv = "1.75"
+msrv = "1.80"
 
 # Don't break the public API when suggesting fixes (we still allow
 # refactor lints that don't change signatures).

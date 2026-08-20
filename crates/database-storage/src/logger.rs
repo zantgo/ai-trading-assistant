@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 
 #[derive(Debug)]
 pub enum TelemetryMsg {
-    InsertSnapshot(MarketSnapshot),
+    InsertSnapshot(Box<MarketSnapshot>),
     InsertIndividualLog {
         master_record_id: i64,
         indicator_name: String,
@@ -205,6 +205,7 @@ pub async fn run_telemetry_logger(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_journaling_task(
     pool: &SqlitePool,
     symbol: &str,

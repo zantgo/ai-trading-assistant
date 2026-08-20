@@ -5,7 +5,7 @@ use aes_gcm::{
 use base64::Engine;
 use rand::Rng;
 use sha2::{Digest, Sha256};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 static MASTER_KEY: Mutex<Option<[u8; 32]>> = Mutex::new(None);
 

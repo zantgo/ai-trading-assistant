@@ -35,12 +35,14 @@ async fn build_state() -> (Arc<AppState>, Arc<Instance>, Arc<ExecutionEngine>) {
         portfolio_supervisor::instance::TimeframeBuffers::new(),
     ));
     // A live mid for mark-to-market + fills.
-    let mut snap = core_domain::models::MarketSnapshot::default();
-    snap.symbol = "BTC-USDT".to_string();
-    snap.mid_price = dec!(110);
-    snap.bid_price = dec!(110);
-    snap.ask_price = dec!(110);
-    snap.close = Some(dec!(110));
+    let snap = core_domain::models::MarketSnapshot {
+        symbol: "BTC-USDT".to_string(),
+        mid_price: dec!(110),
+        bid_price: dec!(110),
+        ask_price: dec!(110),
+        close: Some(dec!(110)),
+        ..core_domain::models::MarketSnapshot::default()
+    };
     *instance.micro.latest.write().await = Some(snap);
 
     let workspace = portfolio_supervisor::workspace_state::WorkspaceState::empty();

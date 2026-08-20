@@ -337,15 +337,12 @@ pub fn build_indicator_map(
         avwap_weekly: p
             .anchored_vwap
             .as_ref()
-            .and_then(|a| a.vwap_weekly.map(|v| d2f(v))),
+            .and_then(|a| a.vwap_weekly.map(d2f)),
         avwap_monthly: p
             .anchored_vwap
             .as_ref()
-            .and_then(|a| a.vwap_monthly.map(|v| d2f(v))),
-        avwap_swing: p
-            .anchored_vwap
-            .as_ref()
-            .and_then(|a| a.vwap_swing.map(|v| d2f(v))),
+            .and_then(|a| a.vwap_monthly.map(d2f)),
+        avwap_swing: p.anchored_vwap.as_ref().and_then(|a| a.vwap_swing.map(d2f)),
         fib_gp_low: p.fib.and_then(|f| od2f(f.golden_pocket_low)),
         fib_gp_high: p.fib.and_then(|f| od2f(f.golden_pocket_high)),
         fib_ext_1618: p.fib.and_then(|f| od2f(f.ext_1618)),

@@ -986,7 +986,7 @@ mod tests {
         // risk — an environment where 100% of assets sit in "moderate"
         // (mean 37.5) must read MODERATE, never LOW_RISK (the old high_pct-
         // only rule said LOW_RISK for any environment with <25% high assets).
-        let advs: Vec<AdvisoryMatrix> = vec!["BTC-USD", "SOL-USD"]
+        let advs: Vec<AdvisoryMatrix> = ["BTC-USD", "SOL-USD"]
             .iter()
             .map(|s| AdvisoryMatrix {
                 symbol: s.to_string(),

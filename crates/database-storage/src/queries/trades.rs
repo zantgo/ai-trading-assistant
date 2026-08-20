@@ -75,6 +75,7 @@ pub struct TradeTelemetryRecord {
     pub trigger_source: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn trade_telemetry_insert(
     pool: &SqlitePool,
     exchange: &str,

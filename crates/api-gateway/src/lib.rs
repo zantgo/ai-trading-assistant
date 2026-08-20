@@ -164,8 +164,8 @@ impl AppState {
             ));
         }
 
-        *self.session.base_currency.write().await = Some(currency.clone());
-        *self.session.exchange.write().await = Some(exchange.clone());
+        *self.session.base_currency.write().await = Some(currency);
+        *self.session.exchange.write().await = Some(exchange);
         self.session
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -568,7 +568,7 @@ pub const ALLOWED_ORIGINS: [&str; 4] = [
 ];
 
 fn origin_allowed(origin: &str) -> bool {
-    ALLOWED_ORIGINS.iter().any(|o| *o == origin)
+    ALLOWED_ORIGINS.contains(&origin)
 }
 
 /// K1 (production audit): the API is unauthenticated and binds loopback

@@ -31,7 +31,11 @@ fn series() -> Vec<((f64, f64, f64, f64), f64)> {
         let h = o.max(c) + 0.5;
         let l = o.min(c) - 0.5;
         price = c;
-        let vol = if i >= 10 && i <= 14 { 2_500.0 } else { 1_000.0 };
+        let vol = if (10..=14).contains(&i) {
+            2_500.0
+        } else {
+            1_000.0
+        };
         out.push(((o, h, l, c), vol));
     }
     out

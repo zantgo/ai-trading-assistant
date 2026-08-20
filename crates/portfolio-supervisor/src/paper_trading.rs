@@ -54,11 +54,12 @@ pub fn build_mock_snapshot(
     symbol: &str,
     mid_price: Decimal,
 ) -> core_domain::models::MarketSnapshot {
-    let mut snapshot = core_domain::models::MarketSnapshot::default();
-    snapshot.symbol = symbol.to_string();
-    snapshot.mid_price = mid_price;
-    snapshot.bid_price = mid_price;
-    snapshot.ask_price = mid_price;
-    snapshot.close = Some(mid_price);
-    snapshot
+    core_domain::models::MarketSnapshot {
+        symbol: symbol.to_string(),
+        mid_price,
+        bid_price: mid_price,
+        ask_price: mid_price,
+        close: Some(mid_price),
+        ..core_domain::models::MarketSnapshot::default()
+    }
 }

@@ -629,7 +629,7 @@ mod tests {
         let t1 = make_trade(200.0, "P1");
         let t2 = make_trade(-150.0, "P1");
         let t3 = make_trade(50.0, "P1");
-        let trades = vec![t1, t2, t3];
+        let trades = [t1, t2, t3];
         let refs: Vec<&TradeAnalyticsRecord> = trades.iter().collect();
         let dd = compute_policy_drawdown(&refs);
         assert!(dd > 0.0);
@@ -657,7 +657,7 @@ mod tests {
     fn test_policy_daily_returns() {
         let t1 = make_trade(100.0, "P1");
         let t2 = make_trade(-50.0, "P1");
-        let trades = vec![t1, t2];
+        let trades = [t1, t2];
         let refs: Vec<_> = trades.iter().collect();
         let returns = compute_policy_daily_returns(&refs);
         assert!(!returns.is_empty());

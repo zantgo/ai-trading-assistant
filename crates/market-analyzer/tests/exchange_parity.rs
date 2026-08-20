@@ -29,13 +29,14 @@ use std::collections::HashSet;
 /// path: a parity regression that swapped one adapter out for a
 /// divergent one would still produce the same test result, which is
 /// the whole point of the parity contract.
-fn synthetic_derivative_snapshot() -> (
-    Option<f64>, // oi
-    Option<f64>, // funding
-    Option<f64>, // mark_px
-    Option<f64>, // oi_delta
-    Option<f64>, // spread_pct
-) {
+type DerivativeSnapshot = (
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+);
+fn synthetic_derivative_snapshot() -> DerivativeSnapshot {
     (
         Some(65_000_000.0), // OI in USD notional
         Some(0.0001),       // 1 bp funding

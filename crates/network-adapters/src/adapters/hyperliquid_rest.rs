@@ -203,7 +203,7 @@ fn parse_ctx_decimal(v: &Option<serde_json::Value>) -> Option<Decimal> {
     match v {
         None => None,
         Some(serde_json::Value::String(s)) => s.parse::<Decimal>().ok(),
-        Some(serde_json::Value::Number(n)) => n.as_f64().and_then(|f| Decimal::from_f64_retain(f)),
+        Some(serde_json::Value::Number(n)) => n.as_f64().and_then(Decimal::from_f64_retain),
         _ => None,
     }
 }

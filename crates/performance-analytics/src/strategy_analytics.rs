@@ -200,15 +200,15 @@ fn one_tailed_t_pvalue(t: f64, df: u32) -> f64 {
 
 /// Incomplete beta function via continued fraction.
 fn beta_incomplete(a: f64, b: f64, x: f64) -> f64 {
-    if x < 0.0 || x > 1.0 {
+    if !(0.0..=1.0).contains(&x) {
         return 0.0;
     }
     if x == 0.0 || x == 1.0 {
         return x;
     }
     let bt = x.powf(a) * (1.0 - x).powf(b) / a;
-    let front = bt * beta_cf(a, b, x) / a;
-    front
+
+    bt * beta_cf(a, b, x) / a
 }
 
 fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
@@ -339,7 +339,7 @@ mod tests {
             exit_price: 100.0 + net_pnl,
             size: 1.0,
             gross_pnl: net_pnl,
-            net_pnl: net_pnl,
+            net_pnl,
             roi_pct,
             execution_slippage: 0.0,
             mfe: net_pnl.max(0.0),
@@ -486,12 +486,12 @@ mod tests {
     fn test_monte_carlo_p_mc_range() {
         let pnls = vec![10.0, 8.0, 12.0, 5.0, 9.0, 7.0, 11.0, 6.0, 13.0, 4.0];
         let p = monte_carlo_sign_randomization(&pnls, 10000, 42);
-        assert!(p >= 0.0 && p <= 1.0);
+        assert!((0.0..=1.0).contains(&p));
     }
 
     #[test]
     fn test_t_statistic_zero_variance() {
-        let pnls = vec![5.0, 5.0, 5.0];
+        let pnls = [5.0, 5.0, 5.0];
         let n = pnls.len() as f64;
         let mean = pnls.iter().sum::<f64>() / n;
         let std_dev = 0.0;

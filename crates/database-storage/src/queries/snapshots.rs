@@ -275,19 +275,21 @@ pub async fn query_recent_candles(
             .unwrap_or(Decimal::ZERO)
     };
 
+    type CandleRow = (
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+
     let mut candles: Vec<NormalizedCandle> = rows
         .into_iter()
         .map(
-            |(exchange_str, ts, open, high, low, close, volume, reconstructed): (
-                String,
-                i64,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-            )| {
+            |(exchange_str, ts, open, high, low, close, volume, reconstructed): CandleRow| {
                 let exchange = match exchange_str.as_str() {
                     "Bitget" => Exchange::Bitget,
                     _ => Exchange::Hyperliquid,

@@ -14,7 +14,6 @@ use config_models::FibonacciConfig;
 use config_models::WorkspaceConfig;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, SymbolMapper};
-use database_storage;
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
 use market_analyzer::indicators::DivergenceDetector;
 use market_analyzer::sr_engine::SrRoleTracker;
@@ -153,8 +152,7 @@ async fn build_router_with_snapshots(
     workspace.insert(PAIR_KEY.to_string(), instance).await;
 
     {
-        let mut cfg: WorkspaceConfig = WorkspaceConfig::default();
-        cfg.instances = Vec::new();
+        let cfg: WorkspaceConfig = WorkspaceConfig::default();
         workspace.set_config(cfg).await;
     }
 
@@ -281,7 +279,7 @@ async fn history_endpoint_returns_candles_for_sub_minute_timeframe() {
             .and_then(|v| v.as_array())
             .expect("candles array");
         assert!(
-            candles.len() >= 1,
+            !candles.is_empty(),
             "expected >= 1 candles for sub-minute history, got {candles:?}"
         );
 

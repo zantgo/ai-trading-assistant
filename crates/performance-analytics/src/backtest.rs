@@ -78,15 +78,17 @@ pub const BACKTEST_MAX_SNAPSHOTS: u32 = 50_000;
 
 fn snap_to_market(symbol: &str, rec: &RecordedSnapshot) -> core_domain::models::MarketSnapshot {
     let mid = Decimal::from_f64_retain(rec.mid_price).unwrap_or_default();
-    let mut snap = core_domain::models::MarketSnapshot::default();
-    snap.symbol = symbol.to_string();
-    snap.timeframe_secs = rec.timeframe_secs as u64;
-    snap.timestamp = rec.timestamp as u64;
-    snap.is_completed = Some(true);
-    snap.mid_price = mid;
-    snap.bid_price = mid;
-    snap.ask_price = mid;
-    snap.close = rec.close.and_then(|c| Decimal::from_f64_retain(c));
+    let mut snap = core_domain::models::MarketSnapshot {
+        symbol: symbol.to_string(),
+        timeframe_secs: rec.timeframe_secs as u64,
+        timestamp: rec.timestamp as u64,
+        is_completed: Some(true),
+        mid_price: mid,
+        bid_price: mid,
+        ask_price: mid,
+        close: rec.close.and_then(Decimal::from_f64_retain),
+        ..core_domain::models::MarketSnapshot::default()
+    };
     snap.opportunity = rec
         .opportunity_json
         .as_deref()
@@ -487,15 +489,17 @@ mod tests {
     async fn no_setups_yields_empty_result() {
         let pool = seed_pool().await;
         // Snapshots without any decision matrix → nothing to trade.
-        let mut snap = MarketSnapshot::default();
-        snap.symbol = "BTC-USDC".to_string();
-        snap.timeframe_secs = 60;
-        snap.timestamp = 1000;
-        snap.is_completed = Some(true);
-        snap.mid_price = dec!(100);
-        snap.bid_price = dec!(100);
-        snap.ask_price = dec!(100);
-        snap.close = Some(dec!(100));
+        let snap = MarketSnapshot {
+            symbol: "BTC-USDC".to_string(),
+            timeframe_secs: 60,
+            timestamp: 1000,
+            is_completed: Some(true),
+            mid_price: dec!(100),
+            bid_price: dec!(100),
+            ask_price: dec!(100),
+            close: Some(dec!(100)),
+            ..MarketSnapshot::default()
+        };
         database_storage::insert_snapshot_internal(&pool, &snap).await;
 
         let params = BacktestParams {

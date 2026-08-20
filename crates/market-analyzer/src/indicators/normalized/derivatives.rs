@@ -324,7 +324,7 @@ pub fn normalize_depth_bias(depth_imbalance_ratio: f64) -> NormalizedIndicatorVa
     } else {
         "BALANCED_DEPTH"
     };
-    let has_signal = depth_imbalance_ratio > 2.0 || depth_imbalance_ratio < 0.5;
+    let has_signal = !(0.5..=2.0).contains(&depth_imbalance_ratio);
     NormalizedIndicatorValue {
         raw_value: depth_imbalance_ratio,
         normalized: norm,

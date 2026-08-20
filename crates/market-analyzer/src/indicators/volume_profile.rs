@@ -183,7 +183,7 @@ impl VolumeProfile {
                 .ceil() as isize;
             let low_bin = low_bin.max(0).min(self.num_bins as isize - 1) as usize;
             let high_bin = high_bin.max(0).min(self.num_bins as isize - 1) as usize;
-            for idx in low_bin..=high_bin {
+            for (idx, bin) in bins.iter_mut().enumerate().take(high_bin + 1).skip(low_bin) {
                 let bin_low = price_min + Decimal::from(idx) * bin_height;
                 let bin_high = bin_low + bin_height;
                 let overlap_low = b.low.max(bin_low);
@@ -194,7 +194,7 @@ impl VolumeProfile {
                     // Approximation: we keep one bin vector with total volume.
                     // Buy/sell split is exposed separately via compute_bins()
                     // below for chart rendering.
-                    bins[idx] += share;
+                    *bin += share;
                     let _ = (buy_frac, sell_frac); // used in compute_bins()
                 }
             }
@@ -220,18 +220,12 @@ impl VolumeProfile {
         let mut hi = poc_idx;
         let mut va_vol = bins[poc_idx];
         while va_vol < target_vol && (lo > 0 || hi < self.num_bins - 1) {
-            if lo == 0 {
+            if lo == 0 || (hi < self.num_bins - 1 && bins[lo - 1] < bins[hi + 1]) {
                 hi += 1;
                 va_vol += bins[hi];
-            } else if hi == self.num_bins - 1 {
-                lo -= 1;
-                va_vol += bins[lo];
-            } else if bins[lo - 1] >= bins[hi + 1] {
-                lo -= 1;
-                va_vol += bins[lo];
             } else {
-                hi += 1;
-                va_vol += bins[hi];
+                lo -= 1;
+                va_vol += bins[lo];
             }
         }
         let vah = bin_center(hi);
@@ -328,7 +322,7 @@ impl VolumeProfile {
                 .ceil() as isize;
             let low_bin = low_bin.max(0).min(self.num_bins as isize - 1) as usize;
             let high_bin = high_bin.max(0).min(self.num_bins as isize - 1) as usize;
-            for idx in low_bin..=high_bin {
+            for (idx, bin) in bins.iter_mut().enumerate().take(high_bin + 1).skip(low_bin) {
                 let bin_low = price_min + Decimal::from(idx) * bin_height;
                 let bin_high = bin_low + bin_height;
                 let overlap_low = b.low.max(bin_low);
@@ -336,9 +330,9 @@ impl VolumeProfile {
                 if overlap_high > overlap_low {
                     let fraction = (overlap_high - overlap_low) / candle_range;
                     let share = b.volume * fraction;
-                    bins[idx].total += share;
-                    bins[idx].buy += share * buy_frac;
-                    bins[idx].sell += share * sell_frac;
+                    bin.total += share;
+                    bin.buy += share * buy_frac;
+                    bin.sell += share * sell_frac;
                 }
             }
         }
@@ -361,18 +355,12 @@ impl VolumeProfile {
         let mut hi = poc_idx;
         let mut va_vol = bins[poc_idx].total;
         while va_vol < target_vol && (lo > 0 || hi < self.num_bins - 1) {
-            if lo == 0 {
+            if lo == 0 || (hi < self.num_bins - 1 && bins[lo - 1].total < bins[hi + 1].total) {
                 hi += 1;
                 va_vol += bins[hi].total;
-            } else if hi == self.num_bins - 1 {
-                lo -= 1;
-                va_vol += bins[lo].total;
-            } else if bins[lo - 1].total >= bins[hi + 1].total {
-                lo -= 1;
-                va_vol += bins[lo].total;
             } else {
-                hi += 1;
-                va_vol += bins[hi].total;
+                lo -= 1;
+                va_vol += bins[lo].total;
             }
         }
         for (i, b) in bins.iter_mut().enumerate() {
@@ -445,7 +433,7 @@ mod tests {
         // POC should be near 100 where the most volume is.
         let poc_f: f64 = out.poc.to_f64().unwrap();
         assert!(
-            poc_f >= 95.0 && poc_f <= 105.0,
+            (95.0..=105.0).contains(&poc_f),
             "POC should be near 100, got {}",
             poc_f
         );

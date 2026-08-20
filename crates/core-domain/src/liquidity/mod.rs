@@ -513,7 +513,7 @@ impl LiquidityEventAccumulator {
         let _ = count;
         // >= cascade_sustained_events in the last 50 events = Sustained;
         // 1 to sustained-1 = Detected.
-        let sustained_threshold = self.cascade_sustained_events.max(1) as u32;
+        let sustained_threshold = self.cascade_sustained_events.max(1);
         if significant_events >= sustained_threshold {
             CascadeState::Sustained
         } else if significant_events >= 1 {
@@ -1005,11 +1005,11 @@ fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct:
     // buckets (index 4..6). 5% of mass moved at full tilt.
     let shift = 0.05 * tilt;
     let len = weights.len();
-    for i in 0..2.min(len) {
-        weights[i] = (weights[i] - shift / 2.0).max(0.0);
+    for w in weights.iter_mut().take(2.min(len)) {
+        *w = (*w - shift / 2.0).max(0.0);
     }
-    for i in len.saturating_sub(2)..len {
-        weights[i] = (weights[i] + shift / 2.0).min(1.0);
+    for w in weights.iter_mut().skip(len.saturating_sub(2)) {
+        *w = (*w + shift / 2.0).min(1.0);
     }
     // Renormalize.
     let total: f64 = weights.iter().sum();
@@ -1385,9 +1385,11 @@ mod cluster_tests {
 
     #[test]
     fn empty_input_returns_empty_matrix() {
-        let mut input = ClusterEstimateInput::default();
-        input.mid_price = 0.0;
-        input.total_oi_usd = 0.0;
+        let input = ClusterEstimateInput {
+            mid_price: 0.0,
+            total_oi_usd: 0.0,
+            ..ClusterEstimateInput::default()
+        };
         let m = estimate_clusters(&input);
         assert!(m.short_clusters.is_empty());
         assert!(m.long_clusters.is_empty());

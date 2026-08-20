@@ -295,7 +295,7 @@ impl ActivePair {
         timeframe_secs: u64,
     ) -> Vec<MarketSnapshot> {
         if let Some(resolved) = slot
-            .map(|s| core_domain::models::TimeframeSlot::parse(s))
+            .map(core_domain::models::TimeframeSlot::parse)
             .and_then(|s| self.pipeline_for_slot(s))
         {
             let hist = resolved.snapshot_history.read().await;
@@ -1660,7 +1660,9 @@ pub async fn run_single(
                             // `reconstructed` column keeps the provenance.
                             send_telemetry(
                                 &telemetry_tx,
-                                database_storage::TelemetryMsg::InsertSnapshot(doji_snap.clone()),
+                                database_storage::TelemetryMsg::InsertSnapshot(Box::new(
+                                    doji_snap.clone(),
+                                )),
                             );
                             // AUDIT-V8-004 (history continuity): synthetic
                             // dojis are pushed to the in-memory snapshot
@@ -1830,9 +1832,9 @@ pub async fn run_single(
                                 // the doji-fill path — restart continuity).
                                 send_telemetry(
                                     &telemetry_tx,
-                                    database_storage::TelemetryMsg::InsertSnapshot(
+                                    database_storage::TelemetryMsg::InsertSnapshot(Box::new(
                                         idle_snap.clone(),
-                                    ),
+                                    )),
                                 );
                                 {
                                     let mut snap_hist = snapshot_history.write().await;
@@ -2197,9 +2199,9 @@ pub async fn run_single(
                                 // them the same way.
                                 send_telemetry(
                                     &telemetry_tx,
-                                    database_storage::TelemetryMsg::InsertSnapshot(
+                                    database_storage::TelemetryMsg::InsertSnapshot(Box::new(
                                         gap_snap.clone(),
-                                    ),
+                                    )),
                                 );
                                 // AUDIT-V8-004: keep the in-memory snapshot
                                 // history continuous across reconnect gaps.
@@ -2911,7 +2913,7 @@ async fn synthesize_completed_candle(
         completed.trades_count
     );
     send_telemetry(
-        &telemetry_tx,
+        telemetry_tx,
         database_storage::TelemetryMsg::ConsoleLog(log_line),
     );
 
@@ -3392,11 +3394,11 @@ async fn synthesize_completed_candle(
         } else {
             None
         },
-        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
-        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
-        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
-        mark_price: latest_mark_px.read().await.clone(),
-        index_price: latest_index_px.read().await.clone(),
+        funding_rate: fund_f.and_then(Decimal::from_f64_retain),
+        open_interest: oi_f.and_then(Decimal::from_f64_retain),
+        oi_delta_1h: oi_delta_f.and_then(Decimal::from_f64_retain),
+        mark_price: *latest_mark_px.read().await,
+        index_price: *latest_index_px.read().await,
         mark_index_spread_pct: spread_pct,
         prev_day_px: shadow_prev_day_px,
         open: Some(completed.open),
@@ -3609,7 +3611,7 @@ async fn synthesize_completed_candle(
         };
 
     let synthesis = crate::synthesis::synthesize_cross_tf(
-        &symbol,
+        symbol,
         &cross_refs,
         Some(&liquidity_flow),
         cluster_guard.as_ref(),
@@ -3623,7 +3625,7 @@ async fn synthesize_completed_candle(
     *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
     *prev_regime = Some(synthesis.analysis.market_regime);
     *prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
-    *prev_bias = Some(synthesis.analysis.bias.clone());
+    *prev_bias = Some(synthesis.analysis.bias);
 
     let confluence_score = {
         // v6.10 (Phase 6 / F1): Unsigned 3-factor quality
@@ -3730,11 +3732,11 @@ async fn synthesize_completed_candle(
         } else {
             None
         },
-        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
-        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
-        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
-        mark_price: latest_mark_px.read().await.clone(),
-        index_price: latest_index_px.read().await.clone(),
+        funding_rate: fund_f.and_then(Decimal::from_f64_retain),
+        open_interest: oi_f.and_then(Decimal::from_f64_retain),
+        oi_delta_1h: oi_delta_f.and_then(Decimal::from_f64_retain),
+        mark_price: *latest_mark_px.read().await,
+        index_price: *latest_index_px.read().await,
         mark_index_spread_pct: spread_pct,
         prev_day_px: shadow_prev_day_px,
         open: Some(completed.open),
@@ -3785,8 +3787,8 @@ async fn synthesize_completed_candle(
     // M2 (production audit): the awaited send froze the whole pipeline
     // when the SQLite logger stalled — drop instead of blocking.
     send_telemetry(
-        &telemetry_tx,
-        database_storage::TelemetryMsg::InsertSnapshot(completed_snapshot.clone()),
+        telemetry_tx,
+        database_storage::TelemetryMsg::InsertSnapshot(Box::new(completed_snapshot.clone())),
     );
 
     latency_tracker.record_observation_latency(
@@ -4203,18 +4205,12 @@ pub(super) fn build_volume_profile_snapshot(
     let mut va_vol = out_bins[poc_idx].volume;
     let n = out_bins.len();
     while va_vol < target_vol && (lo > 0 || hi + 1 < n) {
-        if lo == 0 {
+        if lo == 0 || (hi + 1 < n && out_bins[lo - 1].volume < out_bins[hi + 1].volume) {
             hi += 1;
             va_vol += out_bins[hi].volume;
-        } else if hi + 1 == n {
-            lo -= 1;
-            va_vol += out_bins[lo].volume;
-        } else if out_bins[lo - 1].volume >= out_bins[hi + 1].volume {
-            lo -= 1;
-            va_vol += out_bins[lo].volume;
         } else {
-            hi += 1;
-            va_vol += out_bins[hi].volume;
+            lo -= 1;
+            va_vol += out_bins[lo].volume;
         }
     }
     for b in &mut out_bins[lo..=hi] {
@@ -4674,7 +4670,7 @@ pub(super) fn build_completed_snapshot_from_readings(
             }),
             pivot_levels: readings.pivot_levels,
             pivot_proximity_pct: 0.0015,
-            candlestick: Some(readings.candlestick_reading.clone()),
+            candlestick: Some(readings.candlestick_reading),
             // AUDIT-AIU-073: config default (helper path carries no config).
             candlestick_min_confidence: 0.3,
             ichimoku: readings.ichimoku_reading,
@@ -5101,7 +5097,7 @@ fn broadcast_live_snapshot(
             // completed-candle reading via its per-key merge.
             price_trend_sharpe: None,
         },
-        bar_count as u32,
+        bar_count,
         true,
         active_set,
     );

@@ -318,11 +318,11 @@ pub async fn build_pipelines(
         &active_pair,
         state,
         warmed_states,
-        ctx.exchange_choice.clone(),
-        ctx.quote.clone(),
+        ctx.exchange_choice,
+        ctx.quote,
         ctx.liquidity_config.clone(),
         ctx.heatmap_config.clone(),
-        ctx.api_failover.clone(),
+        ctx.api_failover,
         &micro_cluster_matrix,
         &fast_cluster_matrix,
         &slow_cluster_matrix,
@@ -363,7 +363,7 @@ pub async fn build_pipelines(
     let instance = Arc::new(Instance::new(
         format!("inst_{}", uuid_v4_simple()),
         (ctx.base.clone(), ctx.quote.as_str().to_string()),
-        ctx.exchange_choice.clone(),
+        ctx.exchange_choice,
         active_pair.clone(),
         state.pool.clone(),
         state.workspace.clone(),
@@ -829,7 +829,7 @@ async fn spawn_tasks(
     } else {
         state.ws_url.clone()
     };
-    let exchange_for_spawn = exchange_choice.clone();
+    let exchange_for_spawn = exchange_choice;
     let exchange_label = exchange_for_spawn.as_str().to_string();
     let es_tracker = state.exchange_status.clone();
     {
@@ -1166,12 +1166,13 @@ async fn spawn_tasks(
     // `cluster` field stays absent from the snapshot (CA-06 semantics).
     if liquidity_config.enabled && cluster_estimation {
         let pair_str = pair_key.to_string();
-        let mut per_tf_handles: Vec<(
+        type ClusterRefreshHandle<'a> = (
             TimeframeSlot,
-            &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
-            &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+            &'a Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+            &'a Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
             u64,
-        )> = vec![
+        );
+        let mut per_tf_handles: Vec<ClusterRefreshHandle<'_>> = vec![
             (
                 TimeframeSlot::Micro,
                 micro_cluster_matrix,
@@ -1226,7 +1227,7 @@ async fn spawn_tasks(
                     &slot.as_str(),
                 );
                 write_cluster_status(
-                    &status_handle,
+                    status_handle,
                     ClusterRefreshStatus::Skipped,
                     Some("per-TF leverage.enabled=false".to_string()),
                     None,

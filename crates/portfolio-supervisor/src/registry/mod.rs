@@ -45,20 +45,9 @@ pub async fn add_instance(
     // Resolve the active exchange and its settlement/quote currency from the
     // session. The quote is forced to the session currency so that frontend and
     // backend pair keys / native symbols always agree.
-    let exchange_choice = state
-        .session
-        .exchange
-        .read()
-        .await
-        .clone()
-        .unwrap_or(ExchangeChoice::Hyperliquid);
-    let quote = state
-        .session
-        .base_currency
-        .read()
-        .await
-        .clone()
-        .unwrap_or(Currency::USDC);
+    let exchange_choice =
+        (*state.session.exchange.read().await).unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = (*state.session.base_currency.read().await).unwrap_or(Currency::USDC);
 
     if !exchange_choice.supports_currency(&quote) {
         return Err(format!(
@@ -229,9 +218,9 @@ pub async fn add_instance(
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         internal_symbol: normalized.clone(),
-        quote: quote.clone(),
+        quote,
         rest_url,
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         pool: state.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
@@ -256,9 +245,9 @@ pub async fn add_instance(
         base: base.clone(),
         internal_symbol: normalized.clone(),
         custom_pipelines: std::collections::HashMap::new(),
-        quote: quote.clone(),
+        quote,
         pair_key: pair_key.clone(),
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -333,18 +322,22 @@ pub async fn add_instance(
         .insert(pair_key.clone(), Arc::clone(&artifacts.instance))
         .await;
 
+    let initial_capital;
     {
         let mut config = state.workspace.config().await;
         if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == pair_key) {
             // Re-adding an existing pair (rare). Refresh the UUID in case the
             // disk copy is stale and accept the live configs in memory.
             slot.id = artifacts.instance.id.clone();
+            initial_capital = slot.initial_capital_usd;
         } else {
+            let capital = state.session.session_capital().await.unwrap_or(1000.0);
+            initial_capital = capital;
             let entry = config_models::InstanceEntry {
                 id: artifacts.instance.id.clone(),
                 symbol: pair_key.clone(),
                 quote: quote.as_str().to_string(),
-                initial_capital_usd: state.session.session_capital().await.unwrap_or(1000.0),
+                initial_capital_usd: capital,
                 status: config_models::InstanceStatus::Running,
                 micro_term: micro_cfg.clone(),
                 fast_term: fast_cfg.clone(),
@@ -365,6 +358,17 @@ pub async fn add_instance(
         }
         state.workspace.set_config(config).await;
     }
+
+    // Seed the live trading/safety state with the same capital the
+    // persisted InstanceEntry carries (config-declared for boot-restored
+    // instances, session default for new ones). Without this,
+    // trading.initial_capital / safety.initial_capital /
+    // starting_session_equity stay 0, so /portfolio and /safety report
+    // initial_capital 0 and daily_pnl = full equity instead of 0.
+    artifacts
+        .instance
+        .set_initial_capital(initial_capital)
+        .await;
 
     sync_exchange_status_active_pairs(state).await;
 
@@ -616,20 +620,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let fib_config = config_guard.fibonacci.clone();
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
-    let exchange_choice = state
-        .session
-        .exchange
-        .read()
-        .await
-        .clone()
-        .unwrap_or(ExchangeChoice::Hyperliquid);
-    let quote = state
-        .session
-        .base_currency
-        .read()
-        .await
-        .clone()
-        .unwrap_or(Currency::USDC);
+    let exchange_choice =
+        (*state.session.exchange.read().await).unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = (*state.session.base_currency.read().await).unwrap_or(Currency::USDC);
     let rest_url = match exchange_choice {
         ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
         _ => state.platform.read().await.hyperliquid.rest_url(),
@@ -674,9 +667,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         internal_symbol: pair_key.to_string(),
-        quote: quote.clone(),
+        quote,
         rest_url,
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         pool: state.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
@@ -702,9 +695,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         base: base.clone(),
         internal_symbol: pair_key.to_string(),
         custom_pipelines: std::collections::HashMap::new(),
-        quote: quote.clone(),
+        quote,
         pair_key: pair_key.to_string(),
-        exchange_choice: exchange_choice.clone(),
+        exchange_choice,
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -771,7 +764,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
         pair: old_instance.pair.clone(),
-        exchange: old_instance.exchange.clone(),
+        exchange: old_instance.exchange,
         cancel: cancel.clone(),
         trading: {
             let old_trading = old_instance.trading.read().await;

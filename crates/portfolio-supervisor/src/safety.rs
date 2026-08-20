@@ -350,7 +350,7 @@ impl SafetyManager {
                 )
             }
             SafetyState::DrawdownStop => {
-                format!("HALTED: Capital drawdown limit exceeded. New entries blocked.")
+                "HALTED: Capital drawdown limit exceeded. New entries blocked.".to_string()
             }
         }
     }

@@ -15,9 +15,7 @@ use core_domain::decision_context::DecisionContext;
 use core_domain::models::MarketSnapshot;
 use core_domain::opportunity::OpportunityMatrix;
 use core_domain::risk::{RiskDimension, RiskLevel, RiskState};
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
@@ -240,7 +238,7 @@ async fn backtest_run_and_get_round_trip() {
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["backtest_id"], id);
     assert_eq!(json["summary"]["total_trades"], 1);
-    assert_eq!(json["stats"]["p_value"].as_f64().is_some(), true);
+    assert!(json["stats"]["p_value"].as_f64().is_some());
 }
 
 #[tokio::test]

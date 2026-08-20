@@ -3,7 +3,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub struct AutomationConditions {
     pub start_at_price_above: Option<f64>,
     pub start_at_price_below: Option<f64>,
@@ -15,23 +15,6 @@ pub struct AutomationConditions {
     pub stop_at_price_above: Option<f64>,
     pub stop_at_price_below: Option<f64>,
     pub stop_after_duration_secs: Option<u64>,
-}
-
-impl Default for AutomationConditions {
-    fn default() -> Self {
-        Self {
-            start_at_price_above: None,
-            start_at_price_below: None,
-            start_at_time: None,
-            pause_at_price_below: None,
-            pause_at_price_above: None,
-            pause_at_time: None,
-            pause_after_duration_secs: None,
-            stop_at_price_above: None,
-            stop_at_price_below: None,
-            stop_after_duration_secs: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -277,28 +260,26 @@ impl LifecycleManager {
         };
 
         match self.state {
-            LifecycleState::Stopped => {
-                if !auto.start_fired {
-                    if let Some(price) = current_price {
-                        if let Some(above) = auto.conditions.start_at_price_above {
-                            if price >= above {
+            LifecycleState::Stopped if !auto.start_fired => {
+                if let Some(price) = current_price {
+                    if let Some(above) = auto.conditions.start_at_price_above {
+                        if price >= above {
+                            auto.start_fired = true;
+                            actions.push(AutomationAction::Start);
+                        }
+                    }
+                    if !auto.start_fired {
+                        if let Some(below) = auto.conditions.start_at_price_below {
+                            if price <= below {
                                 auto.start_fired = true;
                                 actions.push(AutomationAction::Start);
                             }
                         }
-                        if !auto.start_fired {
-                            if let Some(below) = auto.conditions.start_at_price_below {
-                                if price <= below {
-                                    auto.start_fired = true;
-                                    actions.push(AutomationAction::Start);
-                                }
-                            }
-                        }
                     }
-                    if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
-                        auto.start_fired = true;
-                        actions.push(AutomationAction::Start);
-                    }
+                }
+                if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
+                    auto.start_fired = true;
+                    actions.push(AutomationAction::Start);
                 }
             }
             LifecycleState::Running => {
@@ -369,20 +350,18 @@ impl LifecycleManager {
                     actions.push(AutomationAction::Pause);
                 }
             }
-            LifecycleState::LifecyclePaused => {
-                if !auto.start_fired {
-                    if let Some(price) = current_price {
-                        if let Some(above) = auto.conditions.start_at_price_above {
-                            if price >= above {
-                                auto.start_fired = true;
-                                actions.push(AutomationAction::Start);
-                            }
+            LifecycleState::LifecyclePaused if !auto.start_fired => {
+                if let Some(price) = current_price {
+                    if let Some(above) = auto.conditions.start_at_price_above {
+                        if price >= above {
+                            auto.start_fired = true;
+                            actions.push(AutomationAction::Start);
                         }
                     }
-                    if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
-                        auto.start_fired = true;
-                        actions.push(AutomationAction::Start);
-                    }
+                }
+                if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
+                    auto.start_fired = true;
+                    actions.push(AutomationAction::Start);
                 }
             }
             _ => {}

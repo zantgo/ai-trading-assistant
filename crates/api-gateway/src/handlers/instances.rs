@@ -541,9 +541,9 @@ pub async fn serve_get_portfolio(
             let trading = inst.trading.read().await;
             let safety_state = *inst.safety.safety_state.read().await;
             let losses_map = inst.safety.consecutive_losses.read().await.clone();
-            let peak_eq = inst.safety.peak_equity.read().await.clone();
-            let daily_pnl = inst.safety.daily_pnl.read().await.clone();
-            let session_eq = inst.safety.starting_session_equity.read().await.clone();
+            let peak_eq = *inst.safety.peak_equity.read().await;
+            let daily_pnl = *inst.safety.daily_pnl.read().await;
+            let session_eq = *inst.safety.starting_session_equity.read().await;
             let context = inst.safety.get_safety_context().await;
 
             let symbol = inst.symbol();
@@ -750,7 +750,6 @@ pub async fn serve_get_capital(
     };
     let symbol = inst.symbol();
     let engine = &state.execution_engine;
-    let equity = engine.get_equity_decimal().await;
     let trading = inst.trading.read().await;
 
     let position = engine.get_position(&symbol).await;
@@ -903,14 +902,12 @@ pub async fn serve_get_automation(
     };
     let safety_blocked = matches!(safety_state.as_str(), "DRAWDOWN_STOP" | "SUSPENDED");
 
-    let invalidation = if let Some(es) = &exec_state {
-        if es.phase == portfolio_supervisor::setup_executor::ExecutorPhase::PositionOpen {
-            "none".to_string()
-        } else {
-            "none".to_string()
-        }
-    } else {
-        "none".to_string()
+    let invalidation = match exec_state.as_ref().map(|s| s.phase) {
+        // A pending entry can still be invalidated (LEVEL price-cross or
+        // SIGNAL direction flip); an open position is managed by its
+        // TP/SL bracket instead.
+        Some(portfolio_supervisor::setup_executor::ExecutorPhase::PendingEntry) => "pending",
+        _ => "none",
     };
 
     let open_positions_count = {

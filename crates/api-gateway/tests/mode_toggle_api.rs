@@ -31,8 +31,10 @@ async fn build_state() -> (Arc<AppState>, Arc<Instance>) {
         .await;
     // Seed the workspace config so the mode toggle has an entry to persist.
     {
-        let mut cfg = config_models::WorkspaceConfig::default();
-        cfg.default_exchange = "Hyperliquid".to_string();
+        let mut cfg = config_models::WorkspaceConfig {
+            default_exchange: "Hyperliquid".to_string(),
+            ..config_models::WorkspaceConfig::default()
+        };
         cfg.instances.push(config_models::InstanceEntry {
             id: "inst_test".to_string(),
             symbol: "BTC-USDT".to_string(),
@@ -159,8 +161,10 @@ async fn mode_live_requires_key() {
         .await;
     // Seed the workspace config so the mode toggle has an entry to persist.
     {
-        let mut cfg = config_models::WorkspaceConfig::default();
-        cfg.default_exchange = "Hyperliquid".to_string();
+        let mut cfg = config_models::WorkspaceConfig {
+            default_exchange: "Hyperliquid".to_string(),
+            ..config_models::WorkspaceConfig::default()
+        };
         cfg.instances.push(config_models::InstanceEntry {
             id: "inst_test".to_string(),
             symbol: "BTC-USDT".to_string(),

@@ -90,8 +90,8 @@ pub enum CandlePipelineState {
     Stale,
     /// Bootstrap elected cold-fail, OR parent `ConnectionStatus = Failed` for
     /// > `FailedThreshold`, OR a non-self-recoverable calculator panic
-    /// propagated to the pipeline. `reload_timeframe` is the only recovery
-    /// path (DCP-14).
+    /// > propagated to the pipeline. `reload_timeframe` is the only recovery
+    /// > path (DCP-14).
     Failed,
 }
 

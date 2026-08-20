@@ -242,7 +242,7 @@ fn prompt_timeframe_secs(label: &str, default_secs: u64) -> u64 {
     loop {
         let raw = prompt(label, &default_secs.to_string());
         match raw.parse::<u64>() {
-            Ok(n) if n >= TIMEFRAME_FLOOR_SECS && n <= TIMEFRAME_CEIL_SECS => return n,
+            Ok(n) if (TIMEFRAME_FLOOR_SECS..=TIMEFRAME_CEIL_SECS).contains(&n) => return n,
             Ok(n) => {
                 eprintln!(
                     "  ⚠️  {}s is outside the allowed range [{}, {}].",
@@ -1121,15 +1121,21 @@ async fn main() {
                                     let mut lc = inst.lifecycle.write().await;
                                     match action {
                                         portfolio_supervisor::lifecycle::AutomationAction::Start => {
-                                            let _ = lc.start("automation", Some("Auto start condition".into()));
+                                            let _ = lc
+                                                .start("automation", Some("Auto start condition".into()))
+                                                .await;
                                             eprintln!("🤖 LIFECYCLE: Auto-started instance {}", inst.id);
                                         }
                                         portfolio_supervisor::lifecycle::AutomationAction::Pause => {
-                                            let _ = lc.pause("automation", Some("Auto pause condition".into()));
+                                            let _ = lc
+                                                .pause("automation", Some("Auto pause condition".into()))
+                                                .await;
                                             eprintln!("🤖 LIFECYCLE: Auto-paused instance {}", inst.id);
                                         }
                                         portfolio_supervisor::lifecycle::AutomationAction::Stop => {
-                                            let _ = lc.stop("automation", Some("Auto stop condition".into()));
+                                            let _ = lc
+                                                .stop("automation", Some("Auto stop condition".into()))
+                                                .await;
                                             eprintln!("🤖 LIFECYCLE: Auto-stopped instance {}", inst.id);
                                         }
                                     }

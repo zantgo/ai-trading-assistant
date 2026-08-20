@@ -114,7 +114,7 @@ impl RiskDimension {
         };
         let confidence = (state_confidence * 100.0).clamp(0.0, 100.0);
         Self {
-            score: score.max(0.0).min(100.0),
+            score: score.clamp(0.0, 100.0),
             level,
             state: RiskState::Stable,
             confidence,
@@ -229,7 +229,7 @@ fn level_from(score: f64) -> RiskLevel {
 
 /// Score from magnitude: maps raw values to 0-100 risk score.
 fn score_mag(value: f64, max: f64) -> f64 {
-    (value / max * 100.0).max(0.0).min(100.0)
+    (value / max * 100.0).clamp(0.0, 100.0)
 }
 
 /// Assess market risk: general uncertainty from conflicting signals, weak structure.
@@ -266,7 +266,7 @@ fn assess_market_risk(
     if analysis.state_confidence > 0.7 {
         score -= 10.0;
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
 }
 
@@ -362,7 +362,7 @@ fn assess_volatility_risk(
             score = (score + rel_atr) / 2.0;
         }
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
 }
 
@@ -392,7 +392,7 @@ fn assess_execution_liquidity_risk(
         score -= 10.0;
         evidence.push("Tight spread".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
 }
 
@@ -426,7 +426,7 @@ fn assess_structure_risk(
         score += 15.0;
         evidence.push("S/R level flip".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
 }
 
@@ -453,7 +453,7 @@ fn assess_momentum_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         }
         _ => {}
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
 }
 
@@ -477,7 +477,7 @@ fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         score += 15.0;
         evidence.push("Low analysis confidence".into());
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
 }
 
@@ -548,7 +548,7 @@ fn assess_execution_risk(
             evidence.push(format!("Favorable volatility-to-spread ({:.1})", ratio));
         }
     }
-    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence)
+    RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
         .with_volatility_to_spread_ratio(volatility_to_spread_ratio)
 }
@@ -639,6 +639,7 @@ fn assess_cascade_risk(
 /// `RiskState` (v6.10.9). It is normalized to the 0-100 unipolar risk
 /// scale before the delta comparison; `None` (first synthesis) yields
 /// `Stable` for the trend arm.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_risk(
     symbol: &str,
     analysis: &AnalysisMatrix,
@@ -690,8 +691,7 @@ pub fn compute_risk(
         + signal.score * 0.10
         + execution.score * 0.10
         + cascade.score * 0.14)
-        .max(0.0)
-        .min(100.0);
+        .clamp(0.0, 100.0);
     // v6.10.9: functional risk state. The overall state derives from the
     // level + the previous-synthesis delta; each dimension escalates by its
     // own level (≥60 Elevated, ≥80 Critical) and otherwise inherits the
@@ -743,7 +743,7 @@ pub fn compute_risk(
 
 #[allow(dead_code)]
 fn clamp01(x: f64) -> f64 {
-    x.max(0.0).min(100.0)
+    x.clamp(0.0, 100.0)
 }
 
 #[cfg(test)]

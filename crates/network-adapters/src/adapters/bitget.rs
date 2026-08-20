@@ -239,9 +239,8 @@ pub async fn run_for_symbol(
                 if let Some(s) = silent_secs(last) {
                     if s >= 60 {
                         let msg = if s == i64::MAX {
-                            format!(
-                                "never seen a frame (channel missing or unreachable since boot/connect)"
-                            )
+                            "never seen a frame (channel missing or unreachable since boot/connect)"
+                                .to_string()
                         } else {
                             format!("silent for {}s (no events since boot/connect)", s)
                         };

@@ -152,6 +152,7 @@ impl BitgetLiveClient {
     }
 
     /// Place a limit/market order. Returns the exchange order id.
+    #[allow(clippy::too_many_arguments)]
     pub async fn place_order(
         &self,
         symbol: &str,

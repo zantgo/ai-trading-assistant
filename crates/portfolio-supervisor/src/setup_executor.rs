@@ -840,69 +840,69 @@ mod tests {
         ts: u64,
         mid: f64,
     ) -> MarketSnapshot {
-        let mut snap = MarketSnapshot::default();
-        snap.symbol = "BTC-USDC".to_string();
-        snap.timeframe_secs = tf_secs;
-        snap.timestamp = ts;
-        snap.is_completed = Some(true);
-        snap.mid_price = Decimal::from_f64_retain(mid).unwrap();
-        snap.bid_price = Decimal::from_f64_retain(mid).unwrap();
-        snap.ask_price = Decimal::from_f64_retain(mid).unwrap();
-        snap.close = Some(Decimal::from_f64_retain(mid).unwrap());
-        snap.analysis = Some(analysis(bias));
-        snap.decision_context = Some(decision(rr, "READY"));
-        snap.opportunity = Some(OpportunityMatrix {
+        MarketSnapshot {
             symbol: "BTC-USDC".to_string(),
-            primary_opportunity: OpportunityType::TrendContinuation,
-            opportunity_score: 60.0,
-            setup_quality: SetupQuality::Strong,
-            profiles,
-            forecast_confidence: 0.7,
-            contributing_signals: vec![],
-            invalidation_note: String::new(),
-            entry_zone: PriceRange {
-                low: 90.0,
-                high: 100.0,
-            },
-            target_zone: PriceRange {
-                low: 120.0,
-                high: 130.0,
-            },
-            time_horizon: "SWING".to_string(),
-            long_entry_zone: PriceRange {
-                low: 90.0,
-                high: 100.0,
-            },
-            long_target_zone: PriceRange {
-                low: 120.0,
-                high: 130.0,
-            },
-            long_invalidation_level: 85.0,
-            short_entry_zone: PriceRange {
-                low: 0.0,
-                high: 0.0,
-            },
-            short_target_zone: PriceRange {
-                low: 0.0,
-                high: 0.0,
-            },
-            short_invalidation_level: 0.0,
-            long_expected_rr_internal: 2.0,
-            short_expected_rr_internal: 0.0,
-            long_gross_rr_internal: 2.0,
-            short_gross_rr_internal: 0.0,
-            invalidation_level: 85.0,
-            direction_family: None,
-            long_geometry_consistent: true,
-            short_geometry_consistent: false,
-            neutral_reference_bracket: None,
-            confluent_entry_levels: vec![],
-            confluent_target_levels: vec![],
-            confluent_invalidation_levels: vec![],
-        });
-        snap
+            timeframe_secs: tf_secs,
+            timestamp: ts,
+            is_completed: Some(true),
+            mid_price: Decimal::from_f64_retain(mid).unwrap(),
+            bid_price: Decimal::from_f64_retain(mid).unwrap(),
+            ask_price: Decimal::from_f64_retain(mid).unwrap(),
+            close: Some(Decimal::from_f64_retain(mid).unwrap()),
+            analysis: Some(analysis(bias)),
+            decision_context: Some(decision(rr, "READY")),
+            opportunity: Some(OpportunityMatrix {
+                symbol: "BTC-USDC".to_string(),
+                primary_opportunity: OpportunityType::TrendContinuation,
+                opportunity_score: 60.0,
+                setup_quality: SetupQuality::Strong,
+                profiles,
+                forecast_confidence: 0.7,
+                contributing_signals: vec![],
+                invalidation_note: String::new(),
+                entry_zone: PriceRange {
+                    low: 90.0,
+                    high: 100.0,
+                },
+                target_zone: PriceRange {
+                    low: 120.0,
+                    high: 130.0,
+                },
+                time_horizon: "SWING".to_string(),
+                long_entry_zone: PriceRange {
+                    low: 90.0,
+                    high: 100.0,
+                },
+                long_target_zone: PriceRange {
+                    low: 120.0,
+                    high: 130.0,
+                },
+                long_invalidation_level: 85.0,
+                short_entry_zone: PriceRange {
+                    low: 0.0,
+                    high: 0.0,
+                },
+                short_target_zone: PriceRange {
+                    low: 0.0,
+                    high: 0.0,
+                },
+                short_invalidation_level: 0.0,
+                long_expected_rr_internal: 2.0,
+                short_expected_rr_internal: 0.0,
+                long_gross_rr_internal: 2.0,
+                short_gross_rr_internal: 0.0,
+                invalidation_level: 85.0,
+                direction_family: None,
+                long_geometry_consistent: true,
+                short_geometry_consistent: false,
+                neutral_reference_bracket: None,
+                confluent_entry_levels: vec![],
+                confluent_target_levels: vec![],
+                confluent_invalidation_levels: vec![],
+            }),
+            ..MarketSnapshot::default()
+        }
     }
-
     fn executor_with(min_rr: f64, max_pos: u32) -> (Arc<ExecutionEngine>, SetupExecutor) {
         let engine = Arc::new(ExecutionEngine::new(
             crate::paper_trading::FeesConfig::default(),
@@ -929,17 +929,8 @@ mod tests {
         }
     }
 
-    fn ctx_blocked(ts: u64) -> TickContext {
-        TickContext {
-            safety_allows_entry: false,
-            lifecycle_running: true,
-            candle_ts: ts,
-            safety: None,
-        }
-    }
-
     fn snap_refs<'a>(v: &'a [&'a MarketSnapshot]) -> Vec<&'a MarketSnapshot> {
-        v.iter().copied().collect()
+        v.to_vec()
     }
 
     // ── extract_top_setup ──────────────────────────────────────────────
@@ -1351,7 +1342,7 @@ mod tests {
 
     #[tokio::test]
     async fn safety_gate_blocks_new_entries() {
-        let (engine, ex) = executor_with(1.0, 1);
+        let (_engine, ex) = executor_with(1.0, 1);
         let micro = snapshot(
             60,
             MarketBias::Bullish,
@@ -1422,7 +1413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_reenTry_on_same_candle() {
+    async fn no_reen_try_on_same_candle() {
         let (engine, ex) = executor_with(1.0, 1);
         let micro = snapshot(
             60,
@@ -1581,24 +1572,25 @@ mod safety_ladder_tests {
     fn opp_profiles(
         profiles: Vec<OpportunityProfile>,
     ) -> core_domain::opportunity::OpportunityMatrix {
-        let mut o = core_domain::opportunity::OpportunityMatrix::default();
-        o.symbol = "BTC-USDC".to_string();
-        o.primary_opportunity = OpportunityType::TrendContinuation;
-        o.opportunity_score = 60.0;
-        o.setup_quality = SetupQuality::Strong;
-        o.profiles = profiles;
-        o.time_horizon = "SWING".to_string();
-        o.long_entry_zone = core_domain::analysis::PriceRange {
-            low: 90.0,
-            high: 100.0,
-        };
-        o.long_target_zone = core_domain::analysis::PriceRange {
-            low: 120.0,
-            high: 130.0,
-        };
-        o.long_invalidation_level = 85.0;
-        o.long_expected_rr_internal = 2.0;
-        o
+        core_domain::opportunity::OpportunityMatrix {
+            symbol: "BTC-USDC".to_string(),
+            primary_opportunity: OpportunityType::TrendContinuation,
+            opportunity_score: 60.0,
+            setup_quality: SetupQuality::Strong,
+            profiles,
+            time_horizon: "SWING".to_string(),
+            long_entry_zone: core_domain::analysis::PriceRange {
+                low: 90.0,
+                high: 100.0,
+            },
+            long_target_zone: core_domain::analysis::PriceRange {
+                low: 120.0,
+                high: 130.0,
+            },
+            long_invalidation_level: 85.0,
+            long_expected_rr_internal: 2.0,
+            ..core_domain::opportunity::OpportunityMatrix::default()
+        }
     }
 
     #[tokio::test]

@@ -170,22 +170,9 @@ enum ViabilityLabel {
     NoClear,
 }
 
-impl ViabilityLabel {
-    fn as_str(self) -> &'static str {
-        match self {
-            ViabilityLabel::Actionable => "Actionable",
-            ViabilityLabel::Qualifying => "Qualifying",
-            ViabilityLabel::DirectionalNeutral => "DirectionalNeutral",
-            ViabilityLabel::GeometryInverted => "GeometryInverted",
-            ViabilityLabel::NoClear => "NoClear",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 struct SetupSummary {
     symbol: String,
-    opportunity_type: OpportunityType,
     score: f64,
     direction: &'static str,
     viability: ViabilityLabel,
@@ -399,7 +386,6 @@ fn collect_active_setups(instances: &[PanelInstance]) -> Vec<SetupSummary> {
             }
             out.push(SetupSummary {
                 symbol: inst.symbol.clone(),
-                opportunity_type: p.opportunity_type,
                 score: p.score,
                 direction,
                 viability,
@@ -804,12 +790,13 @@ mod tests {
     use rust_decimal::Decimal;
 
     fn base_snapshot(symbol: &str, price: f64) -> MarketSnapshot {
-        let mut snap = MarketSnapshot::default();
-        snap.symbol = symbol.to_string();
-        snap.mid_price = Decimal::from_f64_retain(price).unwrap_or_default();
-        snap.close = Decimal::from_f64_retain(price);
-        snap.timestamp = 1_700_000_000;
-        snap
+        MarketSnapshot {
+            symbol: symbol.to_string(),
+            mid_price: Decimal::from_f64_retain(price).unwrap_or_default(),
+            close: Decimal::from_f64_retain(price),
+            timestamp: 1_700_000_000,
+            ..MarketSnapshot::default()
+        }
     }
 
     fn profile(
@@ -885,10 +872,11 @@ mod tests {
     }
 
     fn opp_with_profile(symbol: &str, p: OpportunityProfile) -> OpportunityMatrix {
-        let mut opp = OpportunityMatrix::default();
-        opp.symbol = symbol.to_string();
-        opp.profiles = vec![p];
-        opp
+        OpportunityMatrix {
+            symbol: symbol.to_string(),
+            profiles: vec![p],
+            ..OpportunityMatrix::default()
+        }
     }
 
     #[test]
@@ -1019,7 +1007,7 @@ mod tests {
     fn missing_advisory_counts_as_neutral_and_weak() {
         // GUI contract: an instance without an advisory contributes a
         // neutral direction and a weak signal bucket (tradeAggregates.ts).
-        let mut snap = base_snapshot("BTC", 100.0);
+        let snap = base_snapshot("BTC", 100.0);
         let panel = build_overview_panel(
             &[PanelInstance {
                 symbol: "BTC".to_string(),

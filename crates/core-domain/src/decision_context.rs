@@ -209,13 +209,7 @@ impl DecisionContext {
             (false, false) // AvoidDirectionalExposure — no directional lean
         } else {
             match analysis.bias {
-                crate::analysis::MarketBias::StrongBullish => {
-                    if risk.overall_risk.score < 50.0 {
-                        (true, false) // StrongLong
-                    } else {
-                        (true, false) // Long
-                    }
-                }
+                crate::analysis::MarketBias::StrongBullish => (true, false), // StrongLong (risk gate bypassed: identical outcome)
                 crate::analysis::MarketBias::Bullish => {
                     if lifted || risk.overall_risk.score < 40.0 {
                         (true, false) // Long (lifted reads bypass the risk gate)
@@ -223,13 +217,7 @@ impl DecisionContext {
                         (false, false) // Neutral
                     }
                 }
-                crate::analysis::MarketBias::StrongBearish => {
-                    if risk.overall_risk.score < 50.0 {
-                        (false, true) // StrongShort
-                    } else {
-                        (false, true) // Short
-                    }
-                }
+                crate::analysis::MarketBias::StrongBearish => (false, true), // StrongShort (risk gate bypassed: identical outcome)
                 crate::analysis::MarketBias::Bearish => {
                     if lifted || risk.overall_risk.score < 40.0 {
                         (false, true) // Short (lifted reads bypass the risk gate)

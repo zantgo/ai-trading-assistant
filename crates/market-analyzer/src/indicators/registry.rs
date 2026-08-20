@@ -64,8 +64,9 @@ pub enum IndicatorClass {
 ///      first WS depth tick. This split mirrors the inherent asymmetry
 ///      that perpetual futures are persisted on every snapshot but raw
 ///      orderbook depth is not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub enum IndicatorDataSource {
+    #[default]
     CandleBased,
     OrderBook,
     DerivativesWs,
@@ -77,12 +78,6 @@ pub enum IndicatorDataSource {
     /// indicator is absent from the snapshot's indicator map until the
     /// first event arrives.
     EventDriven,
-}
-
-impl Default for IndicatorDataSource {
-    fn default() -> Self {
-        Self::CandleBased
-    }
 }
 
 /// Where the indicator renders in the frontend.
@@ -107,9 +102,10 @@ pub enum RenderKind {
 /// references, and standard directional indicators expose the real
 /// `[-1.0, 1.0]` score. This is the single source of truth consumed by the
 /// frontend's `IndicatorMeta.normalization_mode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub enum IndicatorNormalizationMode {
     /// Standard directional indicator — emits a real `[-1, 1]` score.
+    #[default]
     Directional,
     /// Non-directional context gate — `normalized` is always 0.0 by contract;
     /// the directional accumulator ignores it. UI shows `N/A` in the Norm
@@ -121,12 +117,6 @@ pub enum IndicatorNormalizationMode {
     /// via `state_label` and discrete signals — it is consumed by event-
     /// driven TAE policies, not by the directional confluence.
     EventOnly,
-}
-
-impl Default for IndicatorNormalizationMode {
-    fn default() -> Self {
-        Self::Directional
-    }
 }
 
 /// Static metadata describing one indicator end-to-end.
@@ -1706,7 +1696,7 @@ mod tests {
         // canonical [candle_buffer] size (300) so the indicator goes Live
         // exactly when the pipeline buffer fills.
         let sharpe = get("price_trend_sharpe").expect("price_trend_sharpe registered");
-        assert_eq!(sharpe.bars_required as u32, INDICATORS_MAX_BARS_REQUIRED);
+        assert_eq!(sharpe.bars_required, INDICATORS_MAX_BARS_REQUIRED);
     }
 
     #[test]

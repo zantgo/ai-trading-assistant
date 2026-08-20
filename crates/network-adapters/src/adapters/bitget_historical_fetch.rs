@@ -100,6 +100,7 @@ impl BitgetHistoricalFetch {
 
     /// Dispatch a single page-fetch through the configured page fetcher
     /// (test override or production real one).
+    #[allow(clippy::too_many_arguments)]
     async fn fetch_page(
         &self,
         symbol: &str,
@@ -259,7 +260,7 @@ impl HistoricalFetchPolicy for BitgetHistoricalFetch {
         }
 
         // Sort newest-first (HFP-09 convention) and trim to target.
-        collected.sort_by(|a, b| b.start_time_ms.cmp(&a.start_time_ms));
+        collected.sort_by_key(|c| std::cmp::Reverse(c.start_time_ms));
         collected.truncate(request.target_count);
 
         // HFP-08: tag every candle as ExchangeHistorical (idempotent — the

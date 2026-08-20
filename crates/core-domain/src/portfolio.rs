@@ -6,32 +6,24 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum PositionState {
+    #[default]
     Opening,
     Managing,
     Closing,
 }
 
-impl Default for PositionState {
-    fn default() -> Self {
-        PositionState::Opening
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum SafetyState {
+    #[default]
     Normal,
     Warn,
     Cautious,
     Suspended,
     DrawdownStop,
-}
-
-impl Default for SafetyState {
-    fn default() -> Self {
-        SafetyState::Normal
-    }
 }
 
 impl SafetyState {

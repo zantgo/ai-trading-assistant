@@ -4,7 +4,7 @@ use std::collections::HashMap;
 ///
 /// Tracks marked horizontal S/R levels and automatically flips their roles
 /// when a 5-minute candle closes decisively beyond the level.
-
+///
 /// AUDIT-AIU-006: levels are keyed on **4 significant digits** (scale-aware)
 /// instead of `(price × 100.0) as i64`, which collapsed every level below
 /// $0.01 to key 0 (one level for sub-cent assets like SHIB) and truncated-

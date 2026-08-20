@@ -582,12 +582,12 @@ pub fn derive_analysis(
         .filter(|_| {
             previous_score.is_some_and(|ps| {
                 (ps > BIAS_GRACE_HOLD_BAND_MIN && ps <= BIAS_GRACE_BAND_MAX)
-                    || (ps < -BIAS_GRACE_HOLD_BAND_MIN && ps >= -BIAS_GRACE_BAND_MAX)
+                    || (-BIAS_GRACE_BAND_MAX..-BIAS_GRACE_HOLD_BAND_MIN).contains(&ps)
             })
         })
         .and_then(|pb| {
             let in_band = (score > BIAS_GRACE_HOLD_BAND_MIN && score <= BIAS_GRACE_BAND_MAX)
-                || (score < -BIAS_GRACE_HOLD_BAND_MIN && score >= -BIAS_GRACE_BAND_MAX);
+                || (-BIAS_GRACE_BAND_MAX..-BIAS_GRACE_HOLD_BAND_MIN).contains(&score);
             if !in_band || alignment.trend_agreement_pct < BIAS_GRACE_AGREEMENT_MIN {
                 return None;
             }
@@ -636,16 +636,14 @@ pub fn derive_analysis(
         // because the raw math did not confirm the read.
         graced = true;
         MarketBias::Bullish
-    } else if score < -BIAS_GRACE_BAND_MIN
-        && score >= -BIAS_GRACE_BAND_MAX
+    } else if (-BIAS_GRACE_BAND_MAX..-BIAS_GRACE_BAND_MIN).contains(&score)
         && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
         && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
         && matches!(directional_vote_lean(alignment), Some(MarketBias::Bearish))
     {
         graced = true;
         MarketBias::Bearish
-    } else if score >= -BIAS_LEAN_COMPOSITE_TOLERANCE
-        && score <= BIAS_GRACE_BAND_MIN
+    } else if (-BIAS_LEAN_COMPOSITE_TOLERANCE..=BIAS_GRACE_BAND_MIN).contains(&score)
         && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
         && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
         && matches!(directional_vote_lean(alignment), Some(MarketBias::Bullish))
@@ -659,8 +657,7 @@ pub fn derive_analysis(
         // heavier ×0.8 confidence haircut.
         leaned = true;
         MarketBias::Bullish
-    } else if score <= BIAS_LEAN_COMPOSITE_TOLERANCE
-        && score >= -BIAS_GRACE_BAND_MIN
+    } else if (-BIAS_GRACE_BAND_MIN..=BIAS_LEAN_COMPOSITE_TOLERANCE).contains(&score)
         && alignment.trend_agreement_pct >= BIAS_GRACE_AGREEMENT_MIN
         && alignment.signal_cross_tf_count >= BIAS_GRACE_SIGNALS_MIN
         && matches!(directional_vote_lean(alignment), Some(MarketBias::Bearish))
@@ -673,7 +670,7 @@ pub fn derive_analysis(
         MarketBias::Neutral
     };
 
-    let base_state_confidence = (score.abs() / 100.0).max(0.0).min(1.0);
+    let base_state_confidence = (score.abs() / 100.0).clamp(0.0, 1.0);
     let mut state_confidence = base_state_confidence;
     if alignment.trend_agreement_pct >= 75.0 {
         state_confidence = (state_confidence + 0.15).min(1.0);
@@ -729,9 +726,7 @@ pub fn derive_analysis(
     // `mtf_trend_alignment` field directly and scale to 0-100 via
     // `((mtf_trend_alignment + 1) / 2) * 100` so the rest of the L3
     // derivation operates on the canonical 0-100 scale.
-    let trend_dim = ((alignment.mtf_trend_alignment + 1.0) / 2.0 * 100.0)
-        .max(0.0)
-        .min(100.0);
+    let trend_dim = ((alignment.mtf_trend_alignment + 1.0) / 2.0 * 100.0).clamp(0.0, 100.0);
     let trend_assessment = if trend_dim >= 90.0 {
         TrendAssessment::Strong
     } else if trend_dim >= 75.0 {
@@ -953,15 +948,12 @@ pub fn derive_analysis(
             "{} ({}): score {:+}, {} regime, {} signals",
             tf.timeframe, dir, tf.overall_score, tf.regime, tf.active_signals
         );
-        if (bias == MarketBias::Bullish || bias == MarketBias::StrongBullish)
-            && tf.overall_score > 0
-        {
-            supporting.push(label);
-        } else if (bias == MarketBias::Bearish || bias == MarketBias::StrongBearish)
-            && tf.overall_score < 0
-        {
-            supporting.push(label);
-        } else if bias == MarketBias::Neutral && tf.overall_score.abs() < 10 {
+        let supports = ((bias == MarketBias::Bullish || bias == MarketBias::StrongBullish)
+            && tf.overall_score > 0)
+            || ((bias == MarketBias::Bearish || bias == MarketBias::StrongBearish)
+                && tf.overall_score < 0)
+            || (bias == MarketBias::Neutral && tf.overall_score.abs() < 10);
+        if supports {
             supporting.push(label);
         } else {
             contradicting.push(label);

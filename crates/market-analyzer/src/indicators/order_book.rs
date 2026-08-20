@@ -151,7 +151,7 @@ impl OrderBookAnalysis {
     pub fn depth_imbalance_ratio(&self, depth_pct: f64) -> Option<f64> {
         let total_bid = self.total_bid_depth?;
         let total_ask = self.total_ask_depth?;
-        let ratio = depth_pct.max(0.0).min(1.0);
+        let ratio = depth_pct.clamp(0.0, 1.0);
         let bid_at_depth = total_bid * ratio;
         let ask_at_depth = total_ask * ratio;
         if ask_at_depth > 0.0 {
@@ -234,7 +234,8 @@ fn detect_wall(
 mod tests {
     use super::*;
 
-    fn sample_book() -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+    type PriceLevel = (f64, f64);
+    fn sample_book() -> (Vec<PriceLevel>, Vec<PriceLevel>) {
         let bids = vec![
             (100.0, 1.0),
             (99.5, 2.0),

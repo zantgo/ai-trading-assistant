@@ -53,6 +53,18 @@ name = "My Portfolio"
 default_currency = "USDC"
 default_exchange = "Hyperliquid"
 
+# ── TAE v7 setup executor (master switch) ──
+# enabled = true keeps the 1s setup-executor loop running: fills, setup
+# evaluation, equity sync, PME safety updates, STOP flatten, funding.
+[workspace.minimal_tae]
+enabled = true           # setup executor master switch
+risk_per_trade_pct = 1.0
+min_net_rr = 1.0
+max_position_size_usd = 200.0
+max_open_positions = 1
+entry_mode = "zone_midpoint"
+invalidate_on = "direction_flip"
+
 # ── Market-monitor defaults (per-instance inheritance) ──
 
 [workspace.candles]

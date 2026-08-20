@@ -414,7 +414,7 @@ mod tests {
             r: false,
             t: 1,
         };
-        let digest = sign_order_hash(&[order.clone()], true, 421614);
+        let digest = sign_order_hash(std::slice::from_ref(&order), true, 421614);
         let (r_hex, s_hex, v) = sign_digest(key, &digest).expect("sign");
 
         // Verify with the public key derived from the same secret.

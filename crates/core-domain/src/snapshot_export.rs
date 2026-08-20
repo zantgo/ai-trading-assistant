@@ -70,11 +70,11 @@ fn default_output_path() -> String {
     "./snapshots".to_string()
 }
 
-/// Top-level envelope wrapping every snapshot JSON file. The
-/// `payload` field is the per-tab matrix as serialised by serde;
-/// `snapshot_metadata` carries the wall-clock timestamp + tab id
-/// + source-instance + source-timeframe so downstream data-science
-/// pipelines don't have to mine directory names.
+/// Top-level envelope wrapping every snapshot JSON file. The `payload`
+/// field is the per-tab matrix as serialised by serde; `snapshot_metadata`
+/// carries the wall-clock timestamp, tab id, source instance and source
+/// timeframe so downstream data-science pipelines don't have to mine
+/// directory names.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotEnvelope<T> {
     pub snapshot_metadata: SnapshotMetadata,

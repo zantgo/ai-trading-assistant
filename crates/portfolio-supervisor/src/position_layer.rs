@@ -165,15 +165,11 @@ pub fn apply_dynamic_stop(
 
         if let Some(current_stop) = position.stop_loss_price {
             match position.direction.as_str() {
-                "LONG" | "Long" => {
-                    if candidate_stop > current_stop {
-                        updated.stop_loss_price = Some(candidate_stop);
-                    }
+                "LONG" | "Long" if candidate_stop > current_stop => {
+                    updated.stop_loss_price = Some(candidate_stop);
                 }
-                "SHORT" | "Short" => {
-                    if candidate_stop < current_stop {
-                        updated.stop_loss_price = Some(candidate_stop);
-                    }
+                "SHORT" | "Short" if candidate_stop < current_stop => {
+                    updated.stop_loss_price = Some(candidate_stop);
                 }
                 _ => {}
             }

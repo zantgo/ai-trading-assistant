@@ -23,7 +23,7 @@ pub async fn reconstruct_trades(pool: &SqlitePool) -> Vec<TradeAnalyticsRecord> 
         }
     }
 
-    records.sort_by(|a, b| a.exit_timestamp.cmp(&b.exit_timestamp));
+    records.sort_by_key(|a| a.exit_timestamp);
     records
 }
 

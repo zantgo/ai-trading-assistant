@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use core_domain::overview::OverviewMatrix;
-use core_domain::overview_panel::{HeroVerdict, OverviewHero, OverviewRow};
+use core_domain::overview_panel::HeroVerdict;
 use portfolio_supervisor::instance::Instance;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -59,10 +59,8 @@ pub async fn render_frame(
 
 fn render_headline(out: &mut String, om: &OverviewMatrix) {
     out.push_str(&format!(
-        "  Market Bias      : {:<14}  Health : {:<8}  Sync  : {}\n",
-        om.global_market_bias,
-        format!("{:?}", om.market_health),
-        format!("{:?}", om.market_synchronization)
+        "  Market Bias      : {:<14}  Health : {:<8?}  Sync  : {:?}\n",
+        om.global_market_bias, om.market_health, om.market_synchronization
     ));
     out.push_str(&format!(
         "  Breadth          : {:>+6.1}% ({:<14})  Systemic Risk : {:>5.1}   Cascade: {} ({:.0}, conf {:.0}%)\n",
@@ -418,7 +416,7 @@ mod tests {
     use core_domain::overview::OverviewMatrix;
     use core_domain::overview_panel::{
         build_overview_panel, DirectionDistribution, HeroVerdict, MarketHealthDims, OverviewHero,
-        OverviewRow, PanelInstance, SignalQuality,
+        OverviewRow, SignalQuality,
     };
 
     fn fixture_overview() -> OverviewMatrix {

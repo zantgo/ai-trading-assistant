@@ -63,9 +63,11 @@ fn cluster_kind_serializes_as_screaming_snake_case() {
 
 #[test]
 fn empty_input_returns_empty_matrix() {
-    let mut input = ClusterEstimateInput::default();
-    input.mid_price = 0.0;
-    input.total_oi_usd = 0.0;
+    let input = ClusterEstimateInput {
+        mid_price: 0.0,
+        total_oi_usd: 0.0,
+        ..ClusterEstimateInput::default()
+    };
     let m = estimate_clusters(&input);
     assert_eq!(m.short_clusters.len(), 0);
     assert_eq!(m.long_clusters.len(), 0);

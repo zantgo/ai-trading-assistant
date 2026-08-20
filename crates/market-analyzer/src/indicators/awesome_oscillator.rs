@@ -16,6 +16,12 @@ pub struct AoOutput {
     pub rising: bool,
 }
 
+impl Default for AwesomeOscillator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AwesomeOscillator {
     pub fn new() -> Self {
         Self {

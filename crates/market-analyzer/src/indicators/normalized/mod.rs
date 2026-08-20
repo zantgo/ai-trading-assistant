@@ -363,8 +363,10 @@ mod meta_tests {
 
     #[test]
     fn derive_signals_boosts_confidence() {
-        let mut inputs = IndicatorInputs::default();
-        inputs.rsi = Some(15.0); // deep oversold → strong normalized + OB/OS threshold signal
+        let inputs = IndicatorInputs {
+            rsi: Some(15.0), // deep oversold → strong normalized + OB/OS threshold signal
+            ..IndicatorInputs::default()
+        };
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx, false);
         let rsi = map.get("rsi").expect("rsi present");

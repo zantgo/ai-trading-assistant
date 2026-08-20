@@ -2,8 +2,6 @@ use database_storage;
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
-use core_domain::performance::OptimizationReport;
-
 pub struct OptimizerConfig {
     pub pool: SqlitePool,
     pub cancel: CancellationToken,

@@ -6,7 +6,6 @@
 
 use api_gateway::{self, AppState};
 use core_domain::normalized::SymbolMapper;
-use database_storage;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use rust_decimal::Decimal;

@@ -7,7 +7,6 @@
 //! answers from exchange state.
 
 use config_models::{ExecutionMode, OrderPacket, OrderSide, OrderType};
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
 use super::state_machine::OrderLifecycle;

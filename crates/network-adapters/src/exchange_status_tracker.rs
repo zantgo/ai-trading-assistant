@@ -39,6 +39,12 @@ pub struct ExchangeStatusTracker {
     state: Arc<RwLock<HashMap<String, ExchangeStatus>>>,
 }
 
+impl Default for ExchangeStatusTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExchangeStatusTracker {
     pub fn new() -> Self {
         Self {

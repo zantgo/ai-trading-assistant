@@ -28,6 +28,7 @@ fn parse_decimal(s: &str) -> Result<Decimal, String> {
 /// - `start_time_ms` / `end_time_ms` are 13-digit millisecond timestamps.
 /// - `limit` is the per-page cap (HFP-06). Bitget accepts any value but
 ///   empirically caps responses around 200.
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_historical_candles_page(
     symbol: &str,
     internal_symbol: &str,

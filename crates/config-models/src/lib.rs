@@ -110,7 +110,7 @@ impl OnDiskConfig {
 /// Platform-level configuration. Read once at startup by `execution-daemon`.
 /// Contains the things that are NOT per-workspace / per-instance: the
 /// exchange endpoints the binary connects to and the NTP clock monitor.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PlatformConfig {
     #[serde(default)]
     pub hyperliquid: HyperliquidConfig,
@@ -140,34 +140,16 @@ pub struct PlatformConfig {
     pub snapshot_export: SnapshotExportConfig,
 }
 
-impl Default for PlatformConfig {
-    fn default() -> Self {
-        Self {
-            hyperliquid: HyperliquidConfig::default(),
-            bitget: BitgetConfig::default(),
-            clock_monitor: None,
-            quality: None,
-            reconnect: ReconnectConfig::default(),
-            candle_buffer: CandleBufferConfig::default(),
-            snapshot_export: SnapshotExportConfig::default(),
-        }
-    }
-}
-
 /// Status of a single trading-pair instance. Persisted in the workspace file
 /// so the dashboard can render the row correctly after a restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum InstanceStatus {
+    #[default]
     Running,
     Paused,
     Stopped,
-}
-
-impl Default for InstanceStatus {
-    fn default() -> Self {
-        InstanceStatus::Running
-    }
 }
 
 /// One workspace = one portfolio + analytics + strategies + market-monitor
@@ -366,17 +348,13 @@ fn default_initial_capital() -> f64 {
 /// identical in `Paper` and `Live`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ExecutionMode {
     /// Market/signal monitoring only — no orders are ever dispatched.
     Observe,
+    #[default]
     Paper,
     Live,
-}
-
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        ExecutionMode::Paper
-    }
 }
 
 /// v7 TAE — the minimal setup-executor configuration. Replaces the erased
@@ -712,7 +690,6 @@ indicators = { rsi_period = 14 }
     }
 
     #[test]
-    #[test]
     fn tf_ladder_defaults_match_registry_fallback() {
         // v7.2 parity gate: the ladder the CLI/GUI derive their instance
         // defaults from must equal the registry's fallback (micro 60,
@@ -900,8 +877,10 @@ candles = { duration_seconds = 180 }
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         };
-        let mut ws = WorkspaceConfig::default();
-        ws.instances = vec![bad_duration];
+        let mut ws = WorkspaceConfig {
+            instances: vec![bad_duration],
+            ..WorkspaceConfig::default()
+        };
         assert!(matches!(
             validate_workspace(&ws),
             Err(ConfigError::InvalidNumeric { .. })
@@ -933,11 +912,13 @@ candles = { duration_seconds = 180 }
         ));
 
         // Platform side: median window 0 rejected.
-        let mut platform = PlatformConfig::default();
-        platform.quality = Some(QualityConfig {
-            median_window_size: 0,
-            ..QualityConfig::default()
-        });
+        let platform = PlatformConfig {
+            quality: Some(QualityConfig {
+                median_window_size: 0,
+                ..QualityConfig::default()
+            }),
+            ..PlatformConfig::default()
+        };
         assert!(matches!(
             validate_platform(&platform),
             Err(ConfigError::InvalidNumeric { .. })
