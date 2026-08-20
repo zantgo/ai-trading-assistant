@@ -124,7 +124,7 @@ For any sequence of ticks, running the executor against `PaperSimulation` produc
 | Reduce-only | `r` flag in the order action | `reduceOnly` param |
 | Rate limits | generous; one request per order | ~20 req/s per key (client throttles to 10/s) |
 
-**Live credential flow:** set `EXCHANGE_SECRET_KEY` → add the key via `POST /api/keys` (or the Settings UI) → set `mode = "live"` on an instance (config.toml or `POST /api/instances/:id/mode`) → the daemon decrypts the key at boot/dispatch and the engine routes orders to the venue. The engine is **globally paper or globally live** (one workspace, one account per exchange); PME/PAE read the shared ledgers regardless of mode.
+**Live credential flow:** set `EXCHANGE_SECRET_KEY` → add the key via `POST /api/keys` (or the Settings UI) → launch the session in **Execute** mode (wizard) or set `mode = "live"` on an instance in `config.toml` and restart → the daemon decrypts the key at boot/dispatch and the engine routes orders to the venue. The mode is fixed at launch — there is **no** `POST /api/instances/:id/mode` endpoint (removed v7.2). The engine is **globally paper or globally live** (one workspace, one account per exchange); PME/PAE read the shared ledgers regardless of mode. Observe instances run the executor with `dispatch: false` (ghost evaluation): setups are evaluated and surfaced on the radar, but no order is ever submitted.
 
 ## 5c. Mode-Neutrality Guarantee (extended)
 

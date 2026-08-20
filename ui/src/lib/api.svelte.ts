@@ -382,11 +382,12 @@ export async function syncInstanceIdsFromList(app: AppStore): Promise<void> {
         const res = await fetch('/api/instances');
         if (!res.ok) return;
         const data = await res.json();
-        const instances: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
+        const instances: Array<{ id?: string; pair?: string; mode?: 'observe' | 'paper' | 'live' }> = data?.instances ?? [];
         for (const inst of instances) {
             if (!inst?.id || !inst?.pair) continue;
             const entry = app.instancesMap[inst.pair];
             if (entry && !entry.instanceId) entry.instanceId = inst.id;
+            if (entry) entry.mode = inst.mode;
         }
     } catch (_) {}
 }

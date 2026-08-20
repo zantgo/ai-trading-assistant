@@ -224,65 +224,79 @@ describe('TradeAutomationDashboard (v7 live)', () => {
     });
 });
 
-describe('TradeAutomationDashboard mode toggle (v7.1)', () => {
-    it('switches paper→live via the API and refreshes', async () => {
+describe('TradeAutomationDashboard mode badge (v7.2)', () => {
+    it('renders the fixed mode from the automation payload without any toggle', async () => {
         const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
         fetchMock.mockClear();
-        // First POST to /mode succeeds; then refresh re-fetches.
-        fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
-            if (typeof url === 'string' && url.includes('/mode')) {
-                return Promise.resolve(jsonResponse({ success: true, mode: 'live' }));
-            }
+        fetchMock.mockImplementation((url: string) => {
             if (url === '/api/instances') {
                 return Promise.resolve(jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }));
             }
             if (typeof url === 'string' && url.includes('/automation')) {
-                return Promise.resolve(jsonResponse(automationPayload));
+                return Promise.resolve(jsonResponse({ ...automationPayload, mode: 'live' }));
             }
             return Promise.resolve(jsonResponse([]));
         });
 
         render(TradeAutomationDashboard);
         await waitFor(() => expect(screen.getByText('AUTOMATION ON')).toBeTruthy());
-        await waitFor(() => expect(screen.getByText('Switch to LIVE')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Switch to LIVE'));
-
-        await waitFor(() => {
-            const calls = fetchMock.mock.calls;
-            expect(calls.some((c: unknown[]) => String(c[0]).includes('/mode'))).toBe(true);
-        });
-        const modeCall = fetchMock.mock.calls.find((c: unknown[]) => String(c[0]).includes('/mode'));
-        expect(JSON.parse(String((modeCall?.[1] as RequestInit)?.body ?? '{}'))).toMatchObject({ mode: 'live' });
+        // Mode is displayed as a read-only badge — no switch affordance.
+        await waitFor(() => expect(screen.getByText('LIVE')).toBeTruthy());
+        expect(screen.queryByText(/Switch to/i)).toBeNull();
+        const calls = fetchMock.mock.calls;
+        expect(calls.some((c: unknown[]) => String(c[0]).includes('/mode'))).toBe(false);
     });
 
-    it('shows an error when the mode switch fails', async () => {
+    it('observe mode renders the ghost radar with no order/close affordances', async () => {
         const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
         fetchMock.mockClear();
-        fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
-            if (typeof url === 'string' && url.includes('/mode')) {
-                return Promise.resolve(
-                    new Response(JSON.stringify({ error: 'No active Hyperliquid API key — add one first' }), {
-                        status: 400,
-                        headers: { 'content-type': 'application/json' },
-                    }),
-                );
-            }
+        fetchMock.mockImplementation((url: string) => {
             if (url === '/api/instances') {
                 return Promise.resolve(jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }));
             }
             if (typeof url === 'string' && url.includes('/automation')) {
-                return Promise.resolve(jsonResponse(automationPayload));
+                return Promise.resolve(jsonResponse({ ...automationPayload, mode: 'observe', ghost: true, entry_order: null, bracket: { tp_order: null, sl_order: null }, position: null }));
             }
             return Promise.resolve(jsonResponse([]));
         });
 
         render(TradeAutomationDashboard);
-        await waitFor(() => expect(screen.getByText('AUTOMATION ON')).toBeTruthy());
-        await waitFor(() => expect(screen.getByText('Switch to LIVE')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Switch to LIVE'));
+        await waitFor(() => expect(screen.getByText('OBSERVE')).toBeTruthy());
+        // Ghost radar vocabulary.
+        await waitFor(() => expect(screen.getByText('GHOST / NO ACTION')).toBeTruthy());
+        expect(screen.getByText('Qualification Diagnostics')).toBeTruthy();
+        expect(screen.getByText(/monitoring only/i)).toBeTruthy();
+        // No dispatch affordances in observe.
+        expect(screen.queryByText('Close now')).toBeNull();
+        expect(screen.queryByText(/Switch to/i)).toBeNull();
+    });
 
-        await waitFor(() =>
-            expect(screen.getByText(/No active Hyperliquid API key/)).toBeTruthy(),
-        );
+    it('live mode renders the reconciliation strip with venue order ids', async () => {
+        const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+        fetchMock.mockClear();
+        fetchMock.mockImplementation((url: string) => {
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }));
+            }
+            if (typeof url === 'string' && url.includes('/automation')) {
+                return Promise.resolve(jsonResponse({
+                    ...automationPayload,
+                    mode: 'live',
+                    ghost: false,
+                    entry_order: { ...automationPayload.entry_order, id: 'hl_0xdeadbeef', status: 'Open' },
+                    bracket: {
+                        tp_order: { ...automationPayload.bracket.tp_order, id: 'hl_tp_123' },
+                        sl_order: { ...automationPayload.bracket.sl_order, id: 'hl_sl_456' },
+                    },
+                }));
+            }
+            return Promise.resolve(jsonResponse([]));
+        });
+
+        render(TradeAutomationDashboard);
+        await waitFor(() => expect(screen.getByText('Engine ↔ Venue Reconciliation')).toBeTruthy());
+        expect(screen.getByText('hl_0xdeadbeef')).toBeTruthy();
+        expect(screen.getAllByText('REDUCE-ONLY').length).toBeGreaterThan(0);
+        expect(screen.queryByText('GHOST / NO ACTION')).toBeNull();
     });
 });

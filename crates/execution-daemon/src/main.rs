@@ -1179,9 +1179,10 @@ async fn main() {
                             }
 
                             // v7.1+: Observe instances are market-monitoring
-                            // only — no fills processing and no setup
-                            // evaluation. The setup executor never dispatches
-                            // orders for them.
+                            // only — no fills processing. The setup executor
+                            // still evaluates in ghost mode (`dispatch: false`)
+                            // so the radar can show would-be setups, but it
+                            // never dispatches orders for them.
                             let is_observe = inst.execution_mode().await
                                 == config_models::ExecutionMode::Observe;
 
@@ -1198,21 +1199,22 @@ async fn main() {
                                 } else {
                                     tae_engine.evaluate_order_fills(mid).await;
                                 }
-                                executor
-                                    .tick(
-                                        &inst.id,
-                                        &symbol,
-                                        snaps,
-                                        mid,
-                                        portfolio_supervisor::setup_executor::TickContext {
-                                            safety_allows_entry: safety_allows,
-                                            lifecycle_running,
-                                            candle_ts,
-                                            safety: Some(inst.safety.clone()),
-                                        },
-                                    )
-                                    .await;
                             }
+                            executor
+                                .tick(
+                                    &inst.id,
+                                    &symbol,
+                                    snaps,
+                                    mid,
+                                    portfolio_supervisor::setup_executor::TickContext {
+                                        safety_allows_entry: safety_allows,
+                                        lifecycle_running,
+                                        candle_ts,
+                                        safety: Some(inst.safety.clone()),
+                                        dispatch: !is_observe,
+                                    },
+                                )
+                                .await;
 
                             // Equity sync + PME informational safety update
                             // (peak equity, daily PnL, WARN / DRAWDOWN_STOP).

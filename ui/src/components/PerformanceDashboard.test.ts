@@ -8,6 +8,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PerformanceDashboard from './PerformanceDashboard.svelte';
+import { useAppStore } from '../state.svelte';
 
 function jsonResponse(body: unknown): Response {
     return new Response(JSON.stringify(body), {
@@ -130,5 +131,32 @@ describe('PerformanceDashboard backtest tab (v7 live)', () => {
         expect(body.symbol).toBeTruthy();
         expect(body.timeframe_secs).toBeTruthy();
         expect(body.initial_capital).toBeTruthy();
+    });
+});
+
+describe('PerformanceDashboard mode-aware framing (v7.2)', () => {
+    it('observe mode collapses to backtesting with the edge-validation strip', async () => {
+        const app = useAppStore();
+        app.session.sessionMode = 'observe';
+        render(PerformanceDashboard, { props: { section: 'overview' } });
+
+        // Collapsed: any section renders the backtesting tab.
+        await waitFor(() => expect(screen.getByText('OBSERVE')).toBeTruthy());
+        expect(screen.getByText('Edge Validation')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('Run Backtest')).toBeTruthy());
+        // The overview / drift surfaces are not reachable in observe.
+        expect(screen.queryByText('Forward Test')).toBeNull();
+    });
+
+    it('paper mode shows the forward-test drift card and full tabs', async () => {
+        const app = useAppStore();
+        app.session.sessionMode = 'paper';
+        render(PerformanceDashboard, { props: { section: 'overview' } });
+
+        await waitFor(() => expect(screen.getByText('PAPER')).toBeTruthy());
+        await waitFor(() =>
+            expect(screen.getByText(/Forward Test/)).toBeTruthy(),
+        );
+        expect(screen.getAllByText('Performance Overview').length).toBeGreaterThan(0);
     });
 });

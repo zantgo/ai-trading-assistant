@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-// v7 PortfolioDashboard — live-data regression lock.
+// v7.2 PortfolioDashboard — live-data regression lock.
 //
 // The dashboard is fully API-driven (no placeholder arrays): it lists
 // instances, polls `/api/instances/:id/portfolio` + `/api/instances/:id/safety`,
-// and renders the five panels (Overview / Positions / Exposure / Capital /
-// Safety) with informational resets only.
+// and renders mode-aware panels — readiness board (observe) vs full
+// accounting (paper/live). Mode is fixed at launch and displayed as a
+// read-only chip; there is no toggle.
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +21,7 @@ function jsonResponse(body: unknown): Response {
 const portfolioPayload = {
     instance_id: 'inst_btc',
     symbol: 'BTC-USDC',
+    mode: 'paper',
     initial_capital: 1000,
     current_equity: '1012.40',
     peak_equity: '1015.00',
@@ -78,15 +80,28 @@ const safetyPayload = {
     margin_usage_ratio: '0.015',
 };
 
-function mockFetchImpl() {
+function mockFetchImpl(portfolioOverride: Partial<typeof portfolioPayload> = {}) {
     const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
         if (url === '/api/instances') {
             return Promise.resolve(
                 jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }),
             );
         }
+        if (url === '/api/config') {
+            return Promise.resolve(
+                jsonResponse({
+                    safety: {
+                        consecutive_loss_caution: 3,
+                        consecutive_loss_dropout: 5,
+                        dropout_duration_hours: 8,
+                        drawdown_limit_pct: 30,
+                        max_daily_drawdown_pct: 5,
+                    },
+                }),
+            );
+        }
         if (url.includes('/portfolio')) {
-            return Promise.resolve(jsonResponse(portfolioPayload));
+            return Promise.resolve(jsonResponse({ ...portfolioPayload, ...portfolioOverride }));
         }
         if (url.includes('/safety/session-reset')) {
             return Promise.resolve(jsonResponse({ success: true }));
@@ -110,25 +125,24 @@ afterEach(() => {
     cleanup();
 });
 
-describe('PortfolioDashboard (v7 live)', () => {
+describe('PortfolioDashboard (v7.2 paper)', () => {
     it('renders the overview stats from the API', async () => {
         render(PortfolioDashboard);
 
-        await waitFor(() => expect(screen.getByText('PORTFOLIO')).toBeTruthy());
-        await waitFor(() => expect(screen.getByText('Account Overview')).toBeTruthy());
-        expect(screen.getByText('NORMAL')).toBeTruthy();
-        expect(screen.getByText('Peak Equity')).toBeTruthy();
-        expect(screen.getByText('Daily PnL')).toBeTruthy();
-        expect(screen.getByText('Systemic Risk')).toBeTruthy();
+        await waitFor(() => expect(screen.getAllByText('Peak Equity').length).toBeGreaterThan(0));
+        expect(screen.getAllByText('Account Overview').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('PAPER').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('NORMAL').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Daily PnL').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Open Positions').length).toBeGreaterThan(0);
     });
 
     it('renders the positions panel', async () => {
         render(PortfolioDashboard, { props: { section: 'positions' } });
 
-        await waitFor(() => expect(screen.getByText('Positions')).toBeTruthy());
-
-        expect(screen.getByText('BTC-USDC')).toBeTruthy();
-        expect(screen.getByText('LONG')).toBeTruthy();
+        await waitFor(() => expect(screen.getAllByText('LONG').length).toBeGreaterThan(0));
+        expect(screen.getAllByText('Positions').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('BTC-USDC').length).toBeGreaterThan(0);
     });
 
     it('renders the exposure panel with concentration', async () => {
@@ -151,7 +165,7 @@ describe('PortfolioDashboard (v7 live)', () => {
         await waitFor(() => expect(screen.getByText('Normal risk mode.')).toBeTruthy());
         expect(screen.getByText('Consecutive Losses')).toBeTruthy();
 
-        await fireEvent.click(screen.getByText(/Reset session/));
+        await fireEvent.click(screen.getAllByText(/Reset session/)[0]);
         const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
         const resetCall = calls.find((c: unknown[]) =>
             String(c[0]).includes('/safety/session-reset'),
@@ -166,5 +180,34 @@ describe('PortfolioDashboard (v7 live)', () => {
         await waitFor(() =>
             expect(screen.getByText(/It never executes/)).toBeTruthy(),
         );
+    });
+});
+
+describe('PortfolioDashboard observe readiness board (v7.2)', () => {
+    it('renders the safety + capital blueprints and hides money surfaces', async () => {
+        cleanup();
+        mockFetchImpl({ mode: 'observe', positions: [], position_count: 0 });
+        render(PortfolioDashboard);
+
+        await waitFor(() => expect(screen.getByText('Safety Blueprint')).toBeTruthy());
+        expect(screen.getAllByText('OBSERVE').length).toBeGreaterThan(0);
+        expect(screen.getByText('Capital Blueprint')).toBeTruthy();
+        expect(screen.getByText(/Readiness Board/i)).toBeTruthy();
+        // Money surfaces are hidden in observe — no equity accounting.
+        expect(screen.queryByText('Realized PnL')).toBeNull();
+        expect(screen.queryByText('Reset session')).toBeNull();
+    });
+
+    it('collapses to the safety tab in observe and shows the unarmed ladder', async () => {
+        cleanup();
+        mockFetchImpl({ mode: 'observe', positions: [], position_count: 0 });
+        render(PortfolioDashboard, { props: { section: 'safety' } });
+
+        await waitFor(() => expect(screen.getAllByText('Consecutive Losses').length).toBeGreaterThan(0));
+        expect(screen.getAllByText(/unarmed/i).length).toBeGreaterThan(0);
+        // Positions/Exposure/Capital tabs are unreachable in observe — a
+        // stale section falls back to the readiness overview.
+        render(PortfolioDashboard, { props: { section: 'capital' } });
+        await waitFor(() => expect(screen.getByText('Safety Blueprint')).toBeTruthy());
     });
 });

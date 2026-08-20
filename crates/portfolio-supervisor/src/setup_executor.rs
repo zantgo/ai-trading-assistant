@@ -113,6 +113,11 @@ pub struct TickContext {
     /// the executor feeds `record_trade_outcome` on position close so the
     /// CAUTIOUS / SUSPENDED ladder stays accurate.
     pub safety: Option<Arc<crate::safety::SafetyManager>>,
+    /// When `false` the executor evaluates setups and populates
+    /// `tracked_setup` / `projection` (the would-be preview) but never
+    /// submits, cancels, or closes orders. The daemon sets this to `false`
+    /// for observe instances — the "ghost" radar.
+    pub dispatch: bool,
 }
 
 /// Extract the top setup from the latest completed snapshots of the 4 TFs.
@@ -366,33 +371,63 @@ impl SetupExecutor {
             metadata,
         };
 
-        match self.engine.submit_order(packet, mid).await {
-            Ok(order_id) => {
-                entry.phase = ExecutorPhase::PendingEntry;
-                entry.fingerprint = plan.fingerprint.clone();
-                entry.tracked_setup = Some(plan.clone());
-                entry.projection = Some(projection);
-                entry.entry_order_id = Some(order_id);
-                self.log(
-                    instance_id,
-                    symbol,
-                    "setup_accepted",
-                    &format!(
-                        "{} {} entry={} sl={} tp={} rr={:.2} score={:.0} tf={}",
-                        plan.direction,
-                        plan.setup_type,
-                        plan.entry_mid,
-                        plan.sl,
-                        plan.tp,
-                        plan.net_rr,
-                        plan.score,
-                        plan.source_tf
-                    ),
-                )
-                .await;
-            }
-            Err(e) => {
-                self.log(instance_id, symbol, "entry_rejected", &e).await;
+        if !ctx.dispatch {
+            // Ghost (observe) evaluation: record the would-be setup and
+            // projection without dispatching any order. No entry_order_id
+            // is stored, so tick_pending never sees a fill; the LEVEL /
+            // SIGNAL / REPLACED invalidation logic keeps re-evaluating the
+            // candidate until it dies or is replaced.
+            entry.phase = ExecutorPhase::PendingEntry;
+            entry.fingerprint = plan.fingerprint.clone();
+            entry.tracked_setup = Some(plan.clone());
+            entry.projection = Some(projection);
+            self.log(
+                instance_id,
+                symbol,
+                "setup_accepted",
+                &format!(
+                    "GHOST {} {} entry={} sl={} tp={} rr={:.2} score={:.0} tf={}",
+                    plan.direction,
+                    plan.setup_type,
+                    plan.entry_mid,
+                    plan.sl,
+                    plan.tp,
+                    plan.net_rr,
+                    plan.score,
+                    plan.source_tf
+                ),
+            )
+            .await;
+        } else {
+            match self.engine.submit_order(packet, mid).await {
+                Ok(order_id) => {
+                    entry.phase = ExecutorPhase::PendingEntry;
+                    entry.fingerprint = plan.fingerprint.clone();
+                    entry.tracked_setup = Some(plan.clone());
+                    entry.projection = Some(projection);
+                    entry.entry_order_id = Some(order_id);
+                    self.log(
+                        instance_id,
+                        symbol,
+                        "setup_accepted",
+                        &format!(
+                            "{} {} entry={} sl={} tp={} rr={:.2} score={:.0} tf={}",
+
+                            plan.direction,
+                            plan.setup_type,
+                            plan.entry_mid,
+                            plan.sl,
+                            plan.tp,
+                            plan.net_rr,
+                            plan.score,
+                            plan.source_tf
+                        ),
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    self.log(instance_id, symbol, "entry_rejected", &e).await;
+                }
             }
         }
     }
@@ -926,6 +961,7 @@ mod tests {
             lifecycle_running: true,
             candle_ts: ts,
             safety: None,
+            dispatch: true,
         }
     }
 
@@ -1040,6 +1076,57 @@ mod tests {
         assert_eq!(order.packet.order_type, OrderType::Limit);
         assert_eq!(order.packet.price, Some(dec!(95)));
         assert_eq!(order.status, OrderStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn ghost_dispatch_false_populates_preview_but_never_dispatches() {
+        let (engine, ex) = executor_with(1.0, 1);
+        let micro = snapshot(
+            60,
+            MarketBias::Bullish,
+            vec![long_profile(80.0, 2.0, TradeViability::Actionable)],
+            2.0,
+            1000,
+            105.0,
+        );
+
+        let mut ghost_ctx = ctx(1000);
+        ghost_ctx.dispatch = false;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ghost_ctx.clone(),
+        )
+        .await;
+
+        // Ghost state: pending entry with the would-be setup + projection,
+        // but no order was ever submitted.
+        let st = ex.state("BTC-USDC").await;
+        assert_eq!(st.phase, ExecutorPhase::PendingEntry);
+        assert!(st.tracked_setup.is_some());
+        assert!(st.projection.is_some());
+        assert_eq!(st.entry_order_id, None);
+        assert!(engine.orders.read().await.is_empty());
+
+        // No fills can open a position — there is no order to fill.
+        engine.evaluate_order_fills(dec!(94)).await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(94),
+            ghost_ctx.clone(),
+        )
+        .await;
+        assert!(engine.get_position("BTC-USDC").await.is_none());
+        assert_eq!(ex.state("BTC-USDC").await.entry_order_id, None);
+
+        // LEVEL invalidation still resets the ghost candidate.
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(80), ghost_ctx)
+            .await;
+        assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::Idle);
     }
 
     #[tokio::test]
@@ -1356,6 +1443,7 @@ mod tests {
             lifecycle_running: true,
             candle_ts: 1000,
             safety: None,
+            dispatch: true,
         };
         ex.tick(
             "i1",
@@ -1623,6 +1711,7 @@ mod safety_ladder_tests {
                 lifecycle_running: true,
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
+                dispatch: true,
             },
         )
         .await;
@@ -1637,6 +1726,7 @@ mod safety_ladder_tests {
                 lifecycle_running: true,
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
+                dispatch: true,
             },
         )
         .await;
@@ -1654,6 +1744,7 @@ mod safety_ladder_tests {
                 lifecycle_running: true,
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
+                dispatch: true,
             },
         )
         .await;
@@ -1694,6 +1785,7 @@ mod safety_ladder_tests {
                     lifecycle_running: true,
                     candle_ts: 1000 + i,
                     safety: Some(safety.clone()),
+                dispatch: true,
                 },
             )
             .await;
@@ -1708,6 +1800,7 @@ mod safety_ladder_tests {
                     lifecycle_running: true,
                     candle_ts: 1000 + i,
                     safety: Some(safety.clone()),
+                dispatch: true,
                 },
             )
             .await;
@@ -1722,6 +1815,7 @@ mod safety_ladder_tests {
                     lifecycle_running: true,
                     candle_ts: 1000 + i,
                     safety: Some(safety.clone()),
+                dispatch: true,
                 },
             )
             .await;
@@ -1744,6 +1838,7 @@ mod safety_ladder_tests {
                 lifecycle_running: true,
                 candle_ts: 2000,
                 safety: Some(safety.clone()),
+                dispatch: true,
             },
         )
         .await;

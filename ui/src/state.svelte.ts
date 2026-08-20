@@ -426,20 +426,6 @@ export class AppStore {
             return { ok: false, error: 'Backup failed' };
         }
     }
-    async setInstanceMode(instanceId: string, mode: 'observe' | 'paper' | 'live'): Promise<{ ok: boolean; error?: string }> {
-        try {
-            const res = await fetch(`/api/instances/${instanceId}/mode`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ mode }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) return { ok: true };
-            return { ok: false, error: data?.error ?? data?.message ?? 'Mode switch failed' };
-        } catch {
-            return { ok: false, error: 'Mode switch failed' };
-        }
-    }
 
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');
@@ -462,7 +448,7 @@ export class AppStore {
         };
 
         this._delegate(this.session, [
-            'sessionActive', 'sessionCurrency', 'sessionExchange',
+            'sessionActive', 'sessionMode', 'sessionCurrency', 'sessionExchange',
             'sessionCapital', 'sessionInstanceCount',
             'sessionLoading', 'sessionChecked', 'sessionError',
         ]);

@@ -911,6 +911,10 @@ export interface InstanceState {
     /// parameter for `/api/instances/{instance_id}/...` endpoints.
     /// Populated lazily from `GET /api/instances` or `POST /api/instances`.
     instanceId?: string;
+    /// Per-instance execution mode (observe | paper | live), fixed at
+    /// launch. Populated from `GET /api/instances` via
+    /// `syncInstanceIdsFromList`. Drives mode-aware tabs + banners.
+    mode?: 'observe' | 'paper' | 'live';
     microTerm: TimeframeTelemetry;
     fastTerm: TimeframeTelemetry;
     slowTerm: TimeframeTelemetry;

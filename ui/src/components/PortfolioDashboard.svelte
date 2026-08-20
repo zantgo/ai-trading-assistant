@@ -1,18 +1,33 @@
 <script lang="ts">
+    // PortfolioDashboard — v7.2 mode-aware rewrite on the shared MME
+    // design vocabulary. Personality by fixed-at-launch mode:
+    //   observe → "Readiness Board" (safety + capital blueprints, unarmed)
+    //   paper   → "Paper Accounting" (full labeled money surfaces)
+    //   live    → "Account Monitor"  (real capital, critical-zone margin)
     import { onMount } from 'svelte';
-    import styles from './PortfolioDashboard.module.css';
+    import { useAppStore } from '../state.svelte';
+    import DashboardHeader from './DashboardHeader.svelte';
+    import ModeChip from './ModeChip.svelte';
+    import ModeBanner from './ModeBanner.svelte';
+    import KpiStrip from './KpiStrip.svelte';
+    import styles from '../styles/engine-dashboard.module.css';
+    import local from './PortfolioDashboard.module.css';
+    import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
 
-    // ── Live data (v7, informational) ──────────────────────────────────
+    const app = useAppStore();
+
     interface InstanceSummary {
         id: string;
         pair: string;
         status: string;
+        mode?: string;
     }
 
     interface PortfolioState {
         instance_id: string;
         symbol: string;
-        initial_capital: string;
+        mode?: string;
+        initial_capital: number;
         current_equity: string;
         peak_equity: string;
         max_drawdown_pct: string;
@@ -77,6 +92,31 @@
     let loading = $state(true);
     let error = $state('');
     let resetting = $state(false);
+    let releasing = $state(false);
+    let lastOkTs = $state(0);
+    let pollFailed = $state(false);
+    let safetyCfg = $state<{ daily: number; caution: number; dropout: number; hours: number; drawdown: number } | null>(null);
+
+    const mode = $derived.by<ExecutionMode | undefined>(() => {
+        const pMode = portfolio?.mode;
+        if (pMode && isExecutionMode(pMode)) return pMode;
+        const sel = instances.find((i) => i.id === selectedId)?.mode;
+        if (sel && isExecutionMode(sel)) return sel;
+        return undefined;
+    });
+    const ghost = $derived(mode === 'observe');
+
+    // Observe collapses to the data-bearing tabs.
+    const safeSection = $derived(
+        ghost && section !== 'overview' && section !== 'safety' ? 'overview' : section,
+    );
+
+    const status = $derived<'live' | 'stale' | 'error' | 'loading'>(
+        loading ? 'loading'
+            : pollFailed ? 'error'
+            : Date.now() - lastOkTs <= 6000 ? 'live'
+            : 'stale',
+    );
 
     async function loadInstances() {
         try {
@@ -91,6 +131,26 @@
         }
     }
 
+    async function loadConfig() {
+        try {
+            const res = await fetch('/api/config');
+            if (!res.ok) return;
+            const cfg = await res.json();
+            const s = cfg?.safety as Record<string, unknown> | undefined;
+            if (s) {
+                safetyCfg = {
+                    daily: Number(s.max_daily_drawdown_pct) || 5,
+                    caution: Number(s.consecutive_loss_caution) || 3,
+                    dropout: Number(s.consecutive_loss_dropout) || 5,
+                    hours: Number(s.dropout_duration_hours) || 8,
+                    drawdown: Number(s.drawdown_limit_pct) || 30,
+                };
+            }
+        } catch {
+            // Blueprint falls back to shipped defaults.
+        }
+    }
+
     async function refresh() {
         if (!selectedId) return;
         try {
@@ -101,8 +161,11 @@
             if (pRes.ok) portfolio = (await pRes.json()) as PortfolioState;
             if (sRes.ok) safety = (await sRes.json()) as SafetyState;
             error = '';
+            pollFailed = false;
+            lastOkTs = Date.now();
         } catch (e) {
             error = String(e);
+            pollFailed = true;
         } finally {
             loading = false;
         }
@@ -119,9 +182,21 @@
         }
     }
 
+    async function releaseVeto() {
+        if (!selectedId || releasing) return;
+        releasing = true;
+        try {
+            await fetch(`/api/instances/${selectedId}/safety/release-veto`, { method: 'POST' });
+            await refresh();
+        } finally {
+            releasing = false;
+        }
+    }
+
     onMount(() => {
         const boot = async () => {
             await loadInstances();
+            await loadConfig();
             await refresh();
         };
         boot();
@@ -158,167 +233,316 @@
 
     function safetyBadge(s: string | undefined): string {
         const m: Record<string, string> = {
-            NORMAL: styles.badgeNormal,
-            WARN: styles.badgeWarn,
-            CAUTIOUS: styles.badgeCautious,
-            SUSPENDED: styles.badgeSuspended,
-            DRAWDOWN_STOP: styles.badgeDrawdown,
+            NORMAL: styles.badgeLong,
+            WARN: styles.badgeNeutral,
+            CAUTIOUS: styles.badgeNeutral,
+            SUSPENDED: styles.badgeError,
+            DRAWDOWN_STOP: styles.badgeError,
         };
-        return m[s ?? ''] ?? styles.badgeNormal;
+        return m[s ?? ''] ?? styles.badgeEmpty;
     }
 
     function alertBadge(a: string | null): string {
         if (!a) return '';
-        if (a === 'EMERGENCY') return styles.badgeDrawdown;
-        if (a === 'CLOSE_ONLY') return styles.badgeSuspended;
-        return styles.badgeWarn;
+        if (a === 'EMERGENCY') return styles.alertError;
+        if (a === 'CLOSE_ONLY') return styles.alertError;
+        return styles.alertWarn;
     }
+
+    function headerTitle(s: string): string {
+        const m: Record<string, string> = {
+            overview: ghost ? 'Readiness Board' : 'Account Overview',
+            positions: 'Positions',
+            exposure: 'Exposure',
+            capital: 'Capital',
+            safety: 'Safety',
+        };
+        return m[s] ?? 'Portfolio';
+    }
+
+    function tabLabel(s: string): string {
+        const m: Record<string, string> = {
+            overview: 'Overview',
+            positions: 'Positions',
+            exposure: 'Exposure',
+            capital: 'Capital',
+            safety: 'Safety',
+        };
+        return m[s] ?? 'Overview';
+    }
+
+    // ── KPI sets ───────────────────────────────────────────────────────
+    const readinessKpis = $derived([
+        { label: 'Mode', value: mode?.toUpperCase() ?? '—', sub: 'fixed at launch' },
+        { label: 'Capital', value: '—', sub: 'not engaged' },
+        { label: 'Safety', value: portfolio?.safety_state ?? '—', sub: 'system health', color: safetyBadge(portfolio?.safety_state) ? undefined : undefined },
+        { label: 'Lifecycle', value: portfolio?.lifecycle ?? '—', sub: 'instance state' },
+        { label: 'Positions', value: '—', sub: 'none in observe' },
+        { label: 'Would-be Capital', value: fmtUsd(portfolio?.initial_capital), sub: 'if capital engaged' },
+    ]);
+
+    const accountingKpis = $derived([
+        { label: 'Equity', value: `$${fmtUsd(portfolio?.current_equity)}`, sub: 'cash + realized PnL', color: undefined },
+        { label: 'Initial Capital', value: `$${fmtUsd(portfolio?.initial_capital)}`, sub: 'per instance' },
+        { label: 'Peak Equity', value: `$${fmtUsd(portfolio?.peak_equity)}`, sub: 'high-water mark' },
+        { label: 'Max Drawdown', value: fmtPct(portfolio?.max_drawdown_pct), sub: 'from peak', color: styles.neg },
+        { label: 'Realized PnL', value: signedUsd(portfolio?.realized_pnl), sub: 'net of fees', color: pnlClass(portfolio?.realized_pnl) || undefined },
+        { label: 'Unrealized PnL', value: signedUsd(portfolio?.unrealized_pnl), sub: 'mark-to-market', color: pnlClass(portfolio?.unrealized_pnl) || undefined },
+        { label: 'Daily PnL', value: signedUsd(portfolio?.daily_pnl), sub: 'vs session start', color: pnlClass(portfolio?.daily_pnl) || undefined },
+        { label: 'Open Positions', value: String(portfolio?.position_count ?? 0), sub: 'across this instance' },
+    ]);
+
+    const kpis = $derived(ghost ? readinessKpis : accountingKpis);
+
+    // ── Safety ladder (readiness blueprint + live rung) ────────────────
+    const ladder = $derived.by(() => {
+        const state = portfolio?.safety_state ?? 'NORMAL';
+        const c = safetyCfg;
+        return [
+            { name: 'NORMAL', desc: 'baseline — all entries allowed', lit: state === 'NORMAL', cls: styles.badgeLong },
+            { name: 'WARN', desc: c ? `daily drawdown > ${c.daily}% or ${c.caution} consecutive losses` : 'daily drawdown or loss streak', lit: state === 'WARN', cls: styles.badgeNeutral },
+            { name: 'CAUTIOUS', desc: c ? `risk elevated — ${c.caution}+ consecutive losses` : 'elevated risk', lit: state === 'CAUTIOUS', cls: styles.badgeNeutral },
+            { name: 'SUSPENDED', desc: c ? `entries blocked — ${c.dropout} losses (cooldown ${c.hours}h)` : 'entries blocked', lit: state === 'SUSPENDED', cls: styles.badgeError },
+            { name: 'DRAWDOWN_STOP', desc: c ? `equity drawdown ≥ ${c.drawdown}% from peak` : 'drawdown limit hit', lit: state === 'DRAWDOWN_STOP', cls: styles.badgeError },
+        ];
+    });
+
+    // Critical-zone margin (live monitor).
+    const marginPct = $derived(Number(portfolio?.capital?.margin_usage_ratio ?? 0) * 100);
+    const marginZone = $derived<'ok' | 'warn' | 'danger'>(
+        marginPct >= 95 ? 'danger' : marginPct >= 80 ? 'warn' : 'ok',
+    );
 </script>
 
 <div class={styles.dashboard}>
-    <header class={styles.header}>
-        <div class={styles.headerLeft}>
-            <h2 class={styles.title}>PORTFOLIO</h2>
-            <span class="{styles.badge} {safetyBadge(portfolio?.safety_state)}">
-                {portfolio?.safety_state ?? '—'}
-            </span>
-            <span class="{styles.badge} {styles.badgeLifecycle}">{portfolio?.lifecycle ?? '—'}</span>
-        </div>
-        <div class={styles.headerRight}>
-            <select class={styles.instanceSelect} bind:value={selectedId} onchange={refresh}>
-                {#each instances as inst (inst.id)}
-                    <option value={inst.id}>{inst.pair} ({inst.id})</option>
-                {/each}
-            </select>
-        </div>
-    </header>
-
     <div class={styles.content}>
+        <DashboardHeader
+            title={headerTitle(safeSection)}
+            tabLabel={tabLabel(safeSection)}
+            {status}
+        >
+            {#snippet trailing()}
+                {#if mode}
+                    <ModeChip {mode} />
+                {/if}
+                <select class={styles.select} bind:value={selectedId} onchange={refresh}>
+                    {#each instances as inst (inst.id)}
+                        <option value={inst.id}>{inst.pair}</option>
+                    {/each}
+                </select>
+                <span class="{styles.badge} {safetyBadge(portfolio?.safety_state)}">
+                    {portfolio?.safety_state ?? '—'}
+                </span>
+                <span class="{styles.badge} {styles.badgeNeutral}">{portfolio?.lifecycle ?? '—'}</span>
+            {/snippet}
+        </DashboardHeader>
+
+        <ModeBanner engine="portfolio" {mode} />
+
         {#if loading}
             <div class={styles.empty}>Loading portfolio state…</div>
         {:else if error && !portfolio}
             <div class={styles.empty}>{error}</div>
         {:else if !portfolio}
             <div class={styles.empty}>No portfolio state available (is the daemon running?).</div>
-        {:else if section === 'overview'}
-                <h3 class={styles.sectionTitle}>Account Overview</h3>
-                <p class={styles.infoLine}>PME reports current portfolio state. It never executes: the automation executor is the only thing that trades, and it blocks new entries in DRAWDOWN_STOP / SUSPENDED.</p>
-                <div class={styles.statsGrid}>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Equity</div><div class={styles.statValue}>${fmtUsd(portfolio.current_equity)}</div><div class={styles.statSub}>cash + realized PnL</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Initial Capital</div><div class={styles.statValue}>${fmtUsd(portfolio.initial_capital)}</div><div class={styles.statSub}>per instance</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Peak Equity</div><div class={styles.statValue}>${fmtUsd(portfolio.peak_equity)}</div><div class={styles.statSub}>high-water mark</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Max Drawdown</div><div class={styles.statValue} style="color:#ef5350">{fmtPct(portfolio.max_drawdown_pct)}</div><div class={styles.statSub}>from peak</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Realized PnL</div><div class="{styles.statValue} {pnlClass(portfolio.realized_pnl)}">{signedUsd(portfolio.realized_pnl)}</div><div class={styles.statSub}>net of fees</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Unrealized PnL</div><div class="{styles.statValue} {pnlClass(portfolio.unrealized_pnl)}">{signedUsd(portfolio.unrealized_pnl)}</div><div class={styles.statSub}>mark-to-market</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Daily PnL</div><div class="{styles.statValue} {pnlClass(portfolio.daily_pnl)}">{signedUsd(portfolio.daily_pnl)}</div><div class={styles.statSub}>vs session start</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Open Positions</div><div class={styles.statValue}>{portfolio.position_count}</div><div class={styles.statSub}>across this instance</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Systemic Risk</div><div class={styles.statValue}>{fmtNum(portfolio.systemic_risk_score)}</div><div class={styles.statSub}>MME L7 (display)</div></div>
-                </div>
-                <div class={styles.sessionBar}>
-                    <span class={styles.sessionLabel}>Session: started at ${fmtUsd(portfolio.starting_session_equity)}</span>
-                    <button class={styles.resetBtn} onclick={sessionReset} disabled={resetting}>
-                        {resetting ? 'Resetting…' : 'Reset session'}
-                    </button>
-                </div>
+        {:else}
+            <KpiStrip items={kpis} />
 
-            {:else if section === 'positions'}
-                <h3 class={styles.sectionTitle}>Positions</h3>
-                {#if portfolio.positions.length === 0}
-                    <div class={styles.empty}>No open positions.</div>
-                {:else}
-                    <table class={styles.table}>
-                        <thead><tr><th>Symbol</th><th>Side</th><th class={styles.tdRight}>Size</th><th class={styles.tdRight}>Entry</th><th class={styles.tdRight}>Mark</th><th class={styles.tdRight}>uPnL</th><th class={styles.tdRight}>ROI</th><th class={styles.tdRight}>SL</th><th class={styles.tdRight}>TP</th></tr></thead>
-                        <tbody>
-                            {#each portfolio.positions as p (p.symbol)}
-                                <tr>
-                                    <td class={styles.tdMono}>{p.symbol}</td>
-                                    <td class={p.direction === 'LONG' ? styles.pos : styles.neg}>{p.direction}</td>
-                                    <td class={styles.tdRight}>{Number(p.size).toFixed(4)}</td>
-                                    <td class={styles.tdRight}>${fmtUsd(p.entry_price)}</td>
-                                    <td class={styles.tdRight}>${fmtUsd(p.mark_price)}</td>
-                                    <td class="{styles.tdRight} {pnlClass(p.unrealized_pnl)}">{signedUsd(p.unrealized_pnl)}</td>
-                                    <td class="{styles.tdRight} {pnlClass(p.roi_pct)}">{fmtPct(p.roi_pct)}</td>
-                                    <td class={styles.tdRight}>${fmtUsd(p.stop_loss_price)}</td>
-                                    <td class={styles.tdRight}>${fmtUsd(p.take_profit_price)}</td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                {/if}
-
-            {:else if section === 'exposure'}
-                <h3 class={styles.sectionTitle}>Exposure</h3>
-                <div class={styles.statsGrid}>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Gross Exposure</div><div class={styles.statValue}>${fmtUsd(portfolio.exposure.gross_exposure)}</div><div class={styles.statSub}>total notional</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Net Exposure</div><div class={styles.statValue}>${fmtUsd(portfolio.exposure.net_exposure)}</div><div class={styles.statSub}>{fmtPct(portfolio.exposure.net_exposure_pct)} of equity</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Long</div><div class={styles.statValue} style="color:#58d68d">${fmtUsd(portfolio.exposure.long_exposure)}</div><div class={styles.statSub}>long notional</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Short</div><div class={styles.statValue} style="color:#ff7b7b">${fmtUsd(portfolio.exposure.short_exposure)}</div><div class={styles.statSub}>short notional</div></div>
-                </div>
-                <h4 class={styles.subTitle}>Symbol Concentration</h4>
-                {#if Object.keys(portfolio.exposure.symbol_concentration).length === 0}
-                    <div class={styles.empty}>No exposure.</div>
-                {:else}
-                    <div class={styles.concList}>
-                        {#each Object.entries(portfolio.exposure.symbol_concentration) as [sym, pct] (sym)}
-                            <div class={styles.concRow}>
-                                <span class={styles.tdMono}>{sym}</span>
-                                <div class={styles.concTrack}>
-                                    <div class={styles.concFill} style="width:{Math.min(Number(pct) * 100, 100)}%"></div>
+            {#if safeSection === 'overview'}
+                {#if ghost}
+                    <!-- ── Observe: Readiness Board ── -->
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Safety Blueprint</h3>
+                        <p class={styles.infoLine}>The protection ladder the PME arms when capital is engaged. Observe mode never arms it — nothing can lose money.</p>
+                        <div class={local.ladder}>
+                            {#each ladder as rung (rung.name)}
+                                <div class="{local.rung} {rung.lit ? local.rungLit : ''}">
+                                    <span class="{styles.badge} {rung.cls}">{rung.name}</span>
+                                    <span class={local.rungDesc}>{rung.desc}</span>
+                                    <span class={local.rungState}>{rung.lit ? 'CURRENT' : 'ARMED ON ACTIVATION'}</span>
                                 </div>
-                                <span class={styles.concPct}>{fmtPct(Number(pct) * 100)}</span>
-                                <span class={styles.concLimit}>limit 20%</span>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Capital Blueprint</h3>
+                        <p class={styles.infoLine}>The money rules that WILL apply when you launch in paper/live mode.</p>
+                        <div class={local.blueprintGrid}>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Would-be capital</div>
+                                <div class={local.blueprintValue}>${fmtUsd(portfolio.initial_capital)}</div>
+                                <div class={local.blueprintSub}>per instance</div>
                             </div>
-                        {/each}
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Risk per trade</div>
+                                <div class={local.blueprintValue}>{app.sessionMode === 'live' ? '1%' : '1%'}</div>
+                                <div class={local.blueprintSub}>minimal_tae sizing</div>
+                            </div>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Drawdown stop</div>
+                                <div class={local.blueprintValue}>{safetyCfg?.drawdown ?? 30}%</div>
+                                <div class={local.blueprintSub}>equity from peak</div>
+                            </div>
+                            <div class={local.blueprintItem}>
+                                <div class={local.blueprintLabel}>Daily loss cap</div>
+                                <div class={local.blueprintValue}>{safetyCfg?.daily ?? 5}%</div>
+                                <div class={local.blueprintSub}>per session</div>
+                            </div>
+                        </div>
                     </div>
-                {/if}
 
-            {:else if section === 'capital'}
-                <h3 class={styles.sectionTitle}>Capital</h3>
-                <div class={styles.statsGrid}>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Available Margin</div><div class={styles.statValue}>${fmtUsd(portfolio.capital.available_margin)}</div><div class={styles.statSub}>free for new entries</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Committed Margin</div><div class={styles.statValue}>${fmtUsd(portfolio.capital.committed_margin)}</div><div class={styles.statSub}>on open positions</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Margin Usage</div><div class={styles.statValue}>{fmtPct(Number(portfolio.capital.margin_usage_ratio) * 100)}</div><div class={styles.statSub}>80% warn · 95% close-only · 100% emergency</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Leverage</div><div class={styles.statValue}>{Number(portfolio.capital.leverage_ratio).toFixed(2)}×</div><div class={styles.statSub}>effective</div></div>
-                </div>
-                {#if portfolio.capital.margin_alert}
-                    <div class="{styles.alertBanner} {alertBadge(portfolio.capital.margin_alert)}">
-                        MARGIN ALERT: {portfolio.capital.margin_alert}
+                    <div class={styles.empty}>
+                        No capital engaged — account metrics (equity, margin, exposure, P&L) appear when this instance runs in paper or live mode.
                     </div>
-                {/if}
-
-            {:else if section === 'safety'}
-                <h3 class={styles.sectionTitle}>Safety</h3>
-                <div class={styles.safetyCard}>
-                    <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">{portfolio.safety_state}</span>
-                    <p class={styles.safetyContext}>{portfolio.safety_context}</p>
-                    <p class={styles.infoLine}>
-                        Safety state is informational. The automation executor refuses new entries in DRAWDOWN_STOP / SUSPENDED;
-                        open positions are always managed (TP/SL/invalidation remain armed).
-                    </p>
-                </div>
-                <div class={styles.statsGrid}>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Peak Equity</div><div class={styles.statValue}>${fmtUsd(safety?.peak_equity ?? portfolio.peak_equity)}</div><div class={styles.statSub}>high-water mark</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Max Drawdown</div><div class={styles.statValue} style="color:#ef5350">{fmtPct(safety?.max_drawdown_pct ?? portfolio.max_drawdown_pct)}</div><div class={styles.statSub}>from peak</div></div>
-                    <div class={styles.statCard}><div class={styles.statLabel}>Daily PnL</div><div class="{styles.statValue} {pnlClass(safety?.daily_pnl ?? portfolio.daily_pnl)}">{signedUsd(safety?.daily_pnl ?? portfolio.daily_pnl)}</div><div class={styles.statSub}>session</div></div>
-                </div>
-                <h4 class={styles.subTitle}>Consecutive Losses</h4>
-                {#if Object.keys(portfolio.consecutive_losses).length === 0}
-                    <div class={styles.empty}>No losses recorded.</div>
                 {:else}
-                    <div class={styles.concList}>
-                        {#each Object.entries(portfolio.consecutive_losses) as [sym, count] (sym)}
-                            <div class={styles.concRow}>
-                                <span class={styles.tdMono}>{sym}</span>
-                                <span class="{styles.concPct} {count >= 5 ? styles.neg : count >= 3 ? styles.warn : ''}">{count} consecutive</span>
-                            </div>
-                        {/each}
+                    <!-- ── Paper / Live: Account Overview ── -->
+                    <div class={styles.card}>
+                        <h3 class={styles.cardTitle}>Account Overview</h3>
+                        <p class={styles.infoLine}>
+                            PME reports current portfolio state. It never executes: the automation executor is the only thing that trades, and it blocks new entries in DRAWDOWN_STOP / SUSPENDED.
+                        </p>
+                        <div class={styles.grid2}>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Session</span><span class={local.overviewValue}>${fmtUsd(portfolio.starting_session_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class={local.overviewValue}>{fmtNum(portfolio.systemic_risk_score)}</span></div>
+                        </div>
+                        <div class={local.sessionBar}>
+                            <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting || ghost}>
+                                {resetting ? 'Resetting…' : 'Reset session'}
+                            </button>
+                        </div>
                     </div>
                 {/if}
-                <div class={styles.sessionBar}>
-                    <button class={styles.resetBtn} onclick={sessionReset} disabled={resetting}>
-                        {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
-                    </button>
+
+            {:else if safeSection === 'positions'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Positions</h3>
+                    {#if portfolio.positions.length === 0}
+                        <div class={styles.empty}>No open positions.</div>
+                    {:else}
+                        <table class={styles.table}>
+                            <thead><tr><th>Symbol</th><th>Side</th><th class={styles.tdRight}>Size</th><th class={styles.tdRight}>Entry</th><th class={styles.tdRight}>Mark</th><th class={styles.tdRight}>uPnL</th><th class={styles.tdRight}>ROI</th><th class={styles.tdRight}>SL</th><th class={styles.tdRight}>TP</th></tr></thead>
+                            <tbody>
+                                {#each portfolio.positions as p (p.symbol)}
+                                    <tr>
+                                        <td class={styles.tdMono}>{p.symbol}</td>
+                                        <td class={p.direction === 'LONG' ? styles.pos : styles.neg}>{p.direction}</td>
+                                        <td class={styles.tdRight}>{Number(p.size).toFixed(4)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.entry_price)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.mark_price)}</td>
+                                        <td class="{styles.tdRight} {pnlClass(p.unrealized_pnl)}">{signedUsd(p.unrealized_pnl)}</td>
+                                        <td class="{styles.tdRight} {pnlClass(p.roi_pct)}">{fmtPct(p.roi_pct)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.stop_loss_price)}</td>
+                                        <td class={styles.tdRight}>${fmtUsd(p.take_profit_price)}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    {/if}
+                </div>
+
+            {:else if safeSection === 'exposure'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Exposure</h3>
+                    <div class={styles.kpiStrip}>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Gross Exposure</div><div class={styles.kpiValue}>${fmtUsd(portfolio.exposure.gross_exposure)}</div><div class={styles.kpiSub}>total notional</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Net Exposure</div><div class={styles.kpiValue}>${fmtUsd(portfolio.exposure.net_exposure)}</div><div class={styles.kpiSub}>{fmtPct(portfolio.exposure.net_exposure_pct)} of equity</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Long</div><div class={styles.kpiValue} style="color:#22c55e">${fmtUsd(portfolio.exposure.long_exposure)}</div><div class={styles.kpiSub}>long notional</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Short</div><div class={styles.kpiValue} style="color:#ef4444">${fmtUsd(portfolio.exposure.short_exposure)}</div><div class={styles.kpiSub}>short notional</div></div>
+                    </div>
+                    <h4 class={styles.cardTitle} style="margin-top:12px">Symbol Concentration</h4>
+                    {#if Object.keys(portfolio.exposure.symbol_concentration).length === 0}
+                        <div class={styles.empty}>No exposure.</div>
+                    {:else}
+                        <div class={local.concList}>
+                            {#each Object.entries(portfolio.exposure.symbol_concentration) as [sym, pct] (sym)}
+                                <div class={local.concRow}>
+                                    <span class={styles.tdMono}>{sym}</span>
+                                    <div class={local.concTrack}>
+                                        <div class={local.concFill} style="width:{Math.min(Number(pct) * 100, 100)}%"></div>
+                                    </div>
+                                    <span class={local.concPct}>{fmtPct(Number(pct) * 100)}</span>
+                                    <span class={local.concLimit}>limit 20%</span>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
+
+            {:else if safeSection === 'capital'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Capital</h3>
+                    {#if mode === 'live'}
+                        <div class="{local.marginZone} {marginZone === 'danger' ? local.marginDanger : marginZone === 'warn' ? local.marginWarn : ''}">
+                            <div class={local.marginZoneLabel}>MARGIN CRITICAL ZONE</div>
+                            <div class={local.marginZoneValue}>{fmtPct(marginPct)} used</div>
+                            <div class={local.marginZoneSub}>≥ 80% warn · ≥ 95% close-only · 100% emergency — real liquidation risk</div>
+                        </div>
+                    {/if}
+                    <div class={styles.kpiStrip}>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Available Margin</div><div class={styles.kpiValue}>${fmtUsd(portfolio.capital.available_margin)}</div><div class={styles.kpiSub}>free for new entries</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Committed Margin</div><div class={styles.kpiValue}>${fmtUsd(portfolio.capital.committed_margin)}</div><div class={styles.kpiSub}>on open positions</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Margin Usage</div><div class={styles.kpiValue}>{fmtPct(marginPct)}</div><div class={styles.kpiSub}>80% warn · 95% close-only · 100% emergency</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Leverage</div><div class={styles.kpiValue}>{Number(portfolio.capital.leverage_ratio).toFixed(2)}×</div><div class={styles.kpiSub}>effective</div></div>
+                    </div>
+                    {#if portfolio.capital.margin_alert}
+                        <div class="{styles.alertBanner} {alertBadge(portfolio.capital.margin_alert)}">
+                            MARGIN ALERT: {portfolio.capital.margin_alert}
+                        </div>
+                    {/if}
+                </div>
+
+            {:else if safeSection === 'safety'}
+                <div class={styles.card}>
+                    <h3 class={styles.cardTitle}>Safety</h3>
+                    <div class={local.safetyCard}>
+                        <span class="{styles.badge} {safetyBadge(portfolio.safety_state)}">{portfolio.safety_state}</span>
+                        <p class={local.safetyContext}>{portfolio.safety_context}</p>
+                        {#if ghost}
+                            <p class={styles.infoLine}>
+                                Readiness view — the ladder is shown but unarmed. Nothing can trigger it while no capital is engaged.
+                            </p>
+                        {:else}
+                            <p class={styles.infoLine}>
+                                Safety state is informational. The automation executor refuses new entries in DRAWDOWN_STOP / SUSPENDED;
+                                open positions are always managed (TP/SL/invalidation remain armed).
+                            </p>
+                        {/if}
+                        {#if !ghost && (portfolio.safety_state === 'SUSPENDED' || portfolio.safety_state === 'DRAWDOWN_STOP')}
+                            <div>
+                                <button class="{styles.btn} {styles.btnGhost}" onclick={releaseVeto} disabled={releasing}>
+                                    {releasing ? 'Releasing…' : 'Release veto'}
+                                </button>
+                            </div>
+                        {/if}
+                    </div>
+                    <div class={styles.kpiStrip}>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Peak Equity</div><div class={styles.kpiValue}>${fmtUsd(safety?.peak_equity ?? portfolio.peak_equity)}</div><div class={styles.kpiSub}>high-water mark</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Max Drawdown</div><div class="{styles.kpiValue} {styles.neg}">{fmtPct(safety?.max_drawdown_pct ?? portfolio.max_drawdown_pct)}</div><div class={styles.kpiSub}>from peak</div></div>
+                        <div class={styles.kpi}><div class={styles.kpiLabel}>Daily PnL</div><div class="{styles.kpiValue} {pnlClass(safety?.daily_pnl ?? portfolio.daily_pnl)}">{signedUsd(safety?.daily_pnl ?? portfolio.daily_pnl)}</div><div class={styles.kpiSub}>session</div></div>
+                    </div>
+                    <h4 class={styles.cardTitle} style="margin-top:12px">Consecutive Losses</h4>
+                    {#if Object.keys(portfolio.consecutive_losses).length === 0}
+                        <div class={styles.empty}>No losses recorded.</div>
+                    {:else}
+                        <div class={local.concList}>
+                            {#each Object.entries(portfolio.consecutive_losses) as [sym, count] (sym)}
+                                <div class={local.concRow}>
+                                    <span class={styles.tdMono}>{sym}</span>
+                                    <span class="{local.concPct} {count >= 5 ? styles.neg : count >= 3 ? styles.warn : ''}">{count} consecutive</span>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
+                    {#if !ghost}
+                        <div class={local.sessionBar}>
+                            <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting}>
+                                {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
+                            </button>
+                        </div>
+                    {/if}
                 </div>
             {/if}
-        </div>
+        {/if}
+    </div>
 </div>

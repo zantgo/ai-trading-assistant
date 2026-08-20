@@ -84,9 +84,12 @@ The Launch Setup wizard (and the CLI launch prompt) offer three execution modes:
 | **Execute** | `live` | Real orders via `LiveBroker` / `BitgetLiveBroker`; requires an active encrypted exchange key. |
 
 The mode is persisted per instance (`InstanceEntry.mode`) and mirrored at runtime on
-`Instance::execution_mode` (the TAE loop gate in `execution-daemon/src/main.rs` skips fills +
-setup evaluation for `observe`). The session default (`POST /api/session/init` + `set_session_defaults`)
-applies to newly created instances; `POST /api/instances/:id/mode` toggles per instance.
+`Instance::execution_mode`. **The mode is fixed at launch** — the TAE loop gate in
+`execution-daemon/src/main.rs` skips fills for `observe` and ticks the executor with
+`dispatch: false` (ghost evaluation: setups/projections surface on the radar but no order
+is ever submitted; there is **no** `POST /api/instances/:id/mode` endpoint since v7.2).
+The session default (`POST /api/session/init` + `set_session_defaults`) applies to newly
+created instances; changing mode requires editing `config.toml` and restarting.
 
 ### CLI ↔ GUI parity (observe mode)
 

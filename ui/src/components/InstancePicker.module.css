@@ -326,6 +326,37 @@
     background: rgba(255, 255, 255, 0.06);
 }
 
+/* ─── Mode chip (fixed at launch) ──────────────────────────────────────── */
+.modeChip {
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.modeObserve {
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.modePaper {
+    color: #7dd3fc;
+    background: rgba(56, 189, 248, 0.08);
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+.modeLive {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
 /* ─── Delete button ────────────────────────────────────────────────────── */
 .deleteBtn {
     display: flex;

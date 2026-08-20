@@ -433,10 +433,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::instances::serve_reload_timeframe),
         )
         .route(
-            "/api/instances/:instance_id/mode",
-            post(handlers::instances::serve_set_mode),
-        )
-        .route(
             "/api/risk-profiles",
             get(handlers::profiles::serve_risk_profiles_list)
                 .post(handlers::profiles::serve_risk_profile_create),

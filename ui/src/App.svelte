@@ -28,7 +28,9 @@
     import {
         ENGINE_TABS,
         ENGINE_DEFAULT_TAB,
+        tabsForMode,
         type EngineKey,
+        type ExecutionMode,
     } from './lib/engineTabs';
 
     const app = useAppStore();
@@ -132,6 +134,19 @@
     // $inspect('resilientActivePair', resilientActivePair);
     const isHome = $derived(app.currentEngine === 'profile');
     const topLabel = $derived(isHome ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
+
+    // v7.2: mode-aware tab collapse. All instances created in one launch
+    // share the session-default mode; derive the tab mode from the
+    // workspace-selected instance (fallback: any known instance). The
+    // Performance engine is system-wide and uses the launch session mode.
+    const activeMode = $derived<ExecutionMode | undefined>(
+        app.currentEngine === 'performance'
+            ? (app.sessionMode as ExecutionMode)
+            : (app.selectedInstance
+                ? app.instancesMap[app.selectedInstance]?.mode
+                : Object.values(app.instancesMap)[0]?.mode),
+    );
+    const engineTabs = $derived(tabsForMode(app.currentEngine as EngineKey, activeMode));
 
     const livePrice = $derived.by(() => {
         if (!resilientActivePair) return '--';
@@ -491,9 +506,9 @@
         </header>
 
         <!-- Middle tabs (engine navbar rows) -->
-        {#if ENGINE_TABS[app.currentEngine]}
+        {#if engineTabs}
             <nav class="{styles.row} {styles.rowTabs}">
-                {#each ENGINE_TABS[app.currentEngine] as tab (tab.key)}
+                {#each engineTabs as tab (tab.key)}
                     <a href={buildEngineHash(app.currentEngine, tab.key)} class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}" onclick={(e) => { handleNavClick(e); app.middleTab = tab.key; }}>
                         {tab.label}
                     </a>
@@ -524,8 +539,10 @@
             errorMessage={panelDeleteError}
         />
 
-        <!-- Bottom Console (Positions / Orders / History / Plan) -->
-        {#if app.activeConsoleOpen}
+        <!-- Bottom Console (Positions / Orders / History / Plan) — hidden
+             in observe mode: the console is simulated-execution data that
+             would mislead an observing operator. -->
+        {#if app.activeConsoleOpen && activeMode !== 'observe'}
             <section class="{styles.row} {styles.rowConsole}">
                 <BottomConsole
                     bind:activeConsoleTab={app.activeConsoleTab}

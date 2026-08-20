@@ -22,6 +22,10 @@ pub struct InstanceSummary {
     pub current_equity: f64,
     pub consecutive_losses: u32,
     pub safety_state: String,
+    /// Per-instance execution mode (observe | paper | live). Set at launch
+    /// from the session default and fixed for the instance's lifetime —
+    /// there is no runtime mode toggle.
+    pub mode: config_models::ExecutionMode,
 }
 
 /// Add a new instance to the state, starting all pipeline tasks.
@@ -821,6 +825,7 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             current_equity: inst.trading.read().await.current_equity,
             consecutive_losses: inst.safety.consecutive_losses.read().await.values().sum(),
             safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
+            mode: inst.execution_mode().await,
         });
     }
     summaries

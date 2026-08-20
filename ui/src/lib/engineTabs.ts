@@ -74,6 +74,37 @@ export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
     performance: 'overview',
 };
 
+/// v7.2: observe-mode tab collapse. An observe instance has no orders,
+/// no capital, and no recorded trades — surfaces whose data source does
+/// not exist are hidden so the operator only sees tabs that can answer
+/// a real question. Paper and live keep the full tab set.
+const OBSERVE_TABS: Partial<Record<EngineKey, EngineTab[]>> = {
+    trade_automation: [
+        { key: 'overview', label: 'Overview' },
+        { key: 'activity', label: 'Activity' },
+    ],
+    portfolio: [
+        { key: 'overview', label: 'Overview' },
+        { key: 'safety', label: 'Safety' },
+    ],
+    performance: [
+        { key: 'backtesting', label: 'Backtesting' },
+    ],
+};
+
+export type ExecutionMode = 'observe' | 'paper' | 'live';
+
+/** Resolves the tab list for an engine given the instance's execution
+ *  mode. Observe collapses to the data-bearing tabs; paper/live return
+ *  the full set. */
+export function tabsForMode(engine: EngineKey, mode: ExecutionMode | string | undefined): EngineTab[] {
+    if (mode === 'observe') {
+        const collapsed = OBSERVE_TABS[engine];
+        if (collapsed) return collapsed;
+    }
+    return ENGINE_TABS[engine];
+}
+
 /** Resolves an arbitrary `middleTab` value to a known tab of the engine,
  *  falling back to the engine's default tab. Used by the router so stale
  *  or legacy hash segments (e.g. `#/engine/data_infra/overview`) never

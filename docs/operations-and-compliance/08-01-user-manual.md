@@ -109,8 +109,7 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 4. **Review** — a summary table (mode, exchange, currency, capital/credential status,
    instance list) → **Launch** lands you directly in the first instance's workspace.
 
-Observe mode requires no capital and no credentials. The per-instance **mode toggle** on the
-Automation dashboard now cycles Observe → Paper → Live.
+Observe mode requires no capital and no credentials. The execution mode is chosen **once at launch** (wizard step 1) and fixed for the instance's lifetime — there is no runtime mode toggle. Observe instances run the setup executor in **ghost mode**: the Automation dashboard shows what the executor *would* do (tracked setup, sizing, projection) but no order is ever dispatched. To change mode, edit `mode` in `config.toml` and restart.
 
 **Going Live (v7.1, step by step).**
 
@@ -119,10 +118,10 @@ Automation dashboard now cycles Observe → Paper → Live.
    - **Hyperliquid:** `api_key` = your wallet address (`0x…`), `api_secret` = the wallet private key hex. No passphrase.
    - **Bitget:** `api_key`, `api_secret`, and the API `passphrase` (all three required; the passphrase is set when you create the API key on Bitget).
    Secrets are stored AES-256-GCM encrypted and are never echoed back.
-3. **Switch the engine to live** — set `mode = "live"` on an instance in `config.toml` and restart, or click **Switch to LIVE** in the Automation dashboard (the engine is **globally** paper or live — one workspace, one account per exchange). If no key exists, the switch fails with a clear message.
+3. **Launch in Execute mode** — select **Execute** in the Launch Setup wizard (or set `mode = "live"` on an instance in `config.toml` and restart). The engine is **globally** paper or live — one workspace, one account per exchange. If no key exists, the launch fails with a clear message.
 4. **Start small.** Begin with a fraction of the capital you intend to deploy; watch the Automation page (PAPER/LIVE badge, orders, fills) and the Portfolio page (equity, safety state).
 5. **Monitoring:** fills are REST-polled (~1s); equity is fetched from the venue; the safety state and the executor's soft gate behave exactly as in paper mode.
-6. **Going back to paper:** set `mode = "paper"` (config + restart, or the toggle). The ledger/positions continue on the same accounting.
+6. **Going back to paper:** edit `mode = "paper"` in `config.toml` and restart (the mode is fixed at launch — relaunch the session for a new mode). The ledger/positions continue on the same accounting.
 
 **Key rotation & backup.** `POST /api/keys/rotate` (or the Settings panel) re-encrypts every stored secret under a new master key without restarting. `GET /api/keys/backup?passphrase=…` (or the Settings panel) exports a passphrase-keyed encrypted backup — store it offline; restore by re-adding the keys.
 

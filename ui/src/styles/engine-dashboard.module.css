@@ -1,0 +1,457 @@
+/* engine-dashboard — shared dashboard vocabulary for TAE / PME / PAE.
+ *
+ * v7.2: the three engine dashboards adopt the Market Monitor design
+ * language verbatim (LayerHeader + GeneralDashboard + HeaderKpiStrip
+ * tokens). One token set, one component vocabulary, one look.
+ */
+
+/* ── Root ── */
+
+.dashboard {
+    height: 100%;
+    display: flex;
+    background: rgba(255, 255, 255, 0.02);
+    color: #e2e8f0;
+    overflow: hidden;
+}
+
+.content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* ── Unified header (same chrome as the MME unified header) ── */
+
+.unifiedHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 16px 12px;
+    background: rgba(10, 10, 10, 0.5);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.headerTop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.titleGroup {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.headerRight {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.tabLabel {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    text-transform: uppercase;
+}
+
+/* ── Status indicator (live / stale / error / loading) ── */
+
+.statusIndicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: var(--mono, 'SF Mono', monospace);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+}
+
+.statusDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.statusLive {
+    background: #22d3ee;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25);
+}
+
+.statusStale {
+    background: #f59e0b;
+}
+
+.statusError {
+    background: rgba(255, 255, 255, 0.35);
+    box-shadow: none;
+}
+
+.statusLoading {
+    background: rgba(255, 255, 255, 0.25);
+    animation: statusPulse 2s infinite;
+}
+
+@keyframes statusPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ── Mode identity: chip + banner ── */
+
+.modeChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1.5px solid;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+    letter-spacing: 0.06em;
+    line-height: 1;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.modeChipObserve {
+    border-color: #f59e0b;
+    color: #f59e0b;
+    background-color: rgba(245, 158, 11, 0.08);
+}
+
+.modeChipPaper {
+    border-color: #38bdf8;
+    color: #7dd3fc;
+    background-color: rgba(56, 189, 248, 0.08);
+}
+
+.modeChipLive {
+    border-color: #ef4444;
+    color: #f87171;
+    background-color: rgba(239, 68, 68, 0.08);
+}
+
+.modeBanner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid;
+    border-left-width: 3px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.modeBannerObserve {
+    background: rgba(245, 158, 11, 0.06);
+    border-color: rgba(245, 158, 11, 0.25);
+    border-left-color: #f59e0b;
+    color: rgba(251, 191, 36, 0.9);
+}
+
+.modeBannerPaper {
+    background: rgba(56, 189, 248, 0.06);
+    border-color: rgba(56, 189, 248, 0.25);
+    border-left-color: #38bdf8;
+    color: rgba(125, 211, 252, 0.9);
+}
+
+.modeBannerLive {
+    background: rgba(239, 68, 68, 0.07);
+    border-color: rgba(239, 68, 68, 0.3);
+    border-left-color: #ef4444;
+    color: rgba(248, 113, 113, 0.95);
+}
+
+/* ── KPI strip (HeaderKpiStrip vocabulary) ── */
+
+.kpiStrip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.kpi {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.kpiLabel {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+}
+
+.kpiValue {
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    font-feature-settings: "tnum" 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kpiSub {
+    font-size: 10px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.4);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Cards ── */
+
+.card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 14px 16px;
+}
+
+.cardTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    margin: 0 0 10px;
+}
+
+.cardGhost {
+    border-style: dashed;
+    background: rgba(255, 255, 255, 0.015);
+}
+
+/* ── Badges (LayerHeader vocabulary) ── */
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1.5px solid;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+    letter-spacing: 0.02em;
+    line-height: 1;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.badgeLong { border-color: #22c55e; color: #22c55e; background-color: rgba(34, 197, 94, 0.08); }
+.badgeShort { border-color: #ef4444; color: #ef4444; background-color: rgba(239, 68, 68, 0.08); }
+.badgeNeutral { border-color: #f59e0b; color: #f59e0b; background-color: rgba(245, 158, 11, 0.08); }
+.badgeEmpty { border-color: rgba(255, 255, 255, 0.3); color: rgba(255, 255, 255, 0.4); border-style: dashed; background-color: transparent; }
+.badgeError { border-color: #ef4444; color: #f87171; background-color: rgba(239, 68, 68, 0.08); }
+
+/* ── Meta chips ── */
+
+.metaList {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.metaChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--mono, 'SF Mono', monospace);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    white-space: nowrap;
+}
+
+.metaChipLabel {
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 500;
+}
+
+.metaChipValue {
+    font-weight: 600;
+}
+
+/* ── Tables ── */
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.table th {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.75);
+    font-variant-numeric: tabular-nums;
+}
+
+.table tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.tdRight { text-align: right; }
+.tdMono { font-family: var(--mono, 'SF Mono', monospace); font-size: 11px; }
+
+/* ── Semantic colours ── */
+
+.pos { color: #22c55e; }
+.neg { color: #ef4444; }
+.warn { color: #f59e0b; }
+.muted { color: rgba(255, 255, 255, 0.35); }
+
+/* ── Alerts ── */
+
+.alertBanner {
+    margin-top: 4px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+}
+
+.alertWarn { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.35); color: #fbbf24; }
+.alertError { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.4); color: #f87171; }
+
+/* ── Controls ── */
+
+.select {
+    background: #0f0f0f;
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: var(--mono, 'SF Mono', monospace);
+}
+
+.btn {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--mono, 'SF Mono', monospace);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    border: 1px solid;
+    transition: opacity 0.15s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btnPrimary {
+    background: rgba(255, 255, 255, 0.9);
+    color: #000;
+    border-color: rgba(255, 255, 255, 0.9);
+}
+
+.btnDanger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+.btnDanger:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.btnGhost {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Misc ── */
+
+.empty {
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 28px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+@media (max-width: 1100px) {
+    .grid2 { grid-template-columns: 1fr; }
+    .kpiStrip { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 800px) {
+    .kpiStrip { grid-template-columns: repeat(2, 1fr); }
+    .kpiValue { font-size: 18px; }
+    .headerTop {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .headerRight {
+        margin-left: 0;
+        flex-wrap: wrap;
+    }
+}

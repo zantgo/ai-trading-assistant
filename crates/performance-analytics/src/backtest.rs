@@ -191,6 +191,7 @@ pub async fn run_backtest(
                     lifecycle_running: true,
                     candle_ts: rec.timestamp as u64,
                     safety: None,
+                    dispatch: true,
                 },
             )
             .await;
