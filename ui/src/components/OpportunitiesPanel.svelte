@@ -776,28 +776,6 @@
             {/if}
         </div>
 
-        <div class={styles.section}>
-            <div class={styles.sectionTitle}>Market Position</div>
-            <div class={styles.zoneGrid}>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Bias</span>
-                    <span class={styles.zoneValue}>{analysis?.bias ?? '—'}</span>
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Regime</span>
-                    <span class={styles.zoneValue}>{analysis?.market_regime ?? '—'}</span>
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Trend</span>
-                    <span class={styles.zoneValue}>{analysis?.trend_assessment ?? '—'}</span>
-                </div>
-                <div class={styles.zoneCard}>
-                    <span class={styles.zoneLabel}>Quality</span>
-                    <span class={styles.zoneValue}>{analysis?.market_quality ?? '—'}</span>
-                </div>
-            </div>
-        </div>
-
         <!-- ── Evaluated profiles — dynamically ranked by score desc (like
              the Trade Setup cards), ties broken by precondition ratio. ── -->
         <div class={styles.section}>

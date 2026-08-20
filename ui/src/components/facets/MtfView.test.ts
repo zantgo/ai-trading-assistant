@@ -632,3 +632,85 @@ describe('MtfView — v6.14 levels show actual level chips with S/R split totals
         expect(container.querySelector('[data-dir="bear"][data-lit="true"]')).toBeTruthy();
     });
 });
+
+// ── Section collapse — one caret per title, hides the whole section ─────
+// The four section headings (Indicators / Signals / Divergences / Levels)
+// each carry a caret button at the left of the title. Clicking it hides
+// that section's body (summary bar, group containers, or stacked table)
+// while keeping the heading row visible; clicking again restores it.
+
+describe('MtfView — per-title section collapse', () => {
+    it('renders a caret button (expanded) on each of the four headings by default', () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
+                        signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
+                        confidence: 0.9,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const carets = Array.from(container.querySelectorAll('button[aria-label^="Toggle"]'));
+        expect(carets).toHaveLength(4);
+        expect(carets.map((b) => b.getAttribute('aria-label'))).toEqual([
+            'Toggle Indicators section',
+            'Toggle Signals section',
+            'Toggle Divergences section',
+            'Toggle Levels section',
+        ]);
+        for (const b of carets) {
+            expect(b.getAttribute('aria-expanded')).toBe('true');
+        }
+    });
+
+    it('collapsing Signals hides the table body but keeps the heading', async () => {
+        const pair = makePair({
+            micro: {
+                indicators: {
+                    rsi: {
+                        raw_value: 70, normalized: 0.7, state_label: 'POSITIVE', values: null,
+                        signals: [makeSignal('Crossover', 'RSI bullish crossover', 'Active', 0.9)],
+                        confidence: 0.9,
+                    },
+                },
+            },
+        });
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const caret = Array.from(container.querySelectorAll('button[aria-label="Toggle Signals section"]'))[0] as HTMLButtonElement;
+        caret.click();
+        await Promise.resolve();
+        // Heading stays visible; the table body (KIND header + rows) is gone.
+        expect(container.textContent ?? '').toContain('Signals');
+        expect(container.textContent ?? '').toContain('1 signal');
+        expect(container.querySelector('[class*="tblSignals"]')).toBeNull();
+        // Other sections remain expanded.
+        expect(container.textContent ?? '').toContain('Indicators');
+        expect(container.querySelector('[class*="summary"]')).toBeTruthy();
+        expect(caret.getAttribute('aria-expanded')).toBe('false');
+        // Click again restores the table.
+        caret.click();
+        await Promise.resolve();
+        expect(container.querySelector('[class*="tblSignals"]')).toBeTruthy();
+        expect(caret.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('collapsing Indicators hides the TF summary bar and group containers', async () => {
+        const pair = makePair();
+        const { container } = render(MtfView, { props: { pair, registry: makeRegistry() } });
+        const caret = Array.from(container.querySelectorAll('button[aria-label="Toggle Indicators section"]'))[0] as HTMLButtonElement;
+        caret.click();
+        await Promise.resolve();
+        const text = container.textContent ?? '';
+        expect(text).toContain('Indicators');
+        expect(text).toContain('3 indicators');
+        // The standalone TF summary bar (exact `.summary` class, not the
+        // per-table `summarySlot` cells) is gone.
+        expect(container.querySelector('[class^="_summary_"]')).toBeNull();
+        // Group containers are gone (their section titles no longer render).
+        expect(text).not.toContain('Momentum');
+        expect(caret.getAttribute('aria-expanded')).toBe('false');
+    });
+});

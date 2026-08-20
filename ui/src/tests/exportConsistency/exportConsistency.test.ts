@@ -312,9 +312,11 @@ describe('export consistency — Opportunities tab', () => {
     expectInDomAndJson(c, 'PIVOT POINTS');
     expect(p.confluent_target_levels).toHaveLength(2);
 
-    // Market position + environment.
+    // Market position: the export keeps the raw L3 mirror (bias / regime /
+    // quality). The on-screen Market Position section was removed (v7.4 —
+    // the L3 facts live on the Analysis tab), so this is JSON-only.
     expect(p.market_position.bias).toBe('Bullish');
-    expectInDomAndJson(c, 'Bullish');
+    expect(c.jsonText).toContain('Bullish');
     expect(p.market_position.regime).toBe('TrendingBull');
     expect(p.environment.timeframes_considered_display).toBe('4 Timeframes considered');
     // The environment pills moved into the L4 header chip rail — the chip
@@ -461,12 +463,14 @@ describe('export consistency — Analysis tab', () => {
     expect(p.qualitative_assessment.volume_score_display).toBe('79%');
     expectInDomAndJson(c, '79%');
 
-    // Per-timeframe alignment 2×2 grid.
+    // Per-timeframe alignment — the on-screen gauge grid moved to the
+    // Alignment tab (v7.4); the export keeps the raw per-TF payload, so
+    // these are JSON-only assertions now.
     expect(p.per_timeframe_alignment).toHaveLength(4);
     const microTf = p.per_timeframe_alignment[0];
     expect(microTf.active).toBe(true);
     expect(microTf.trend_display).toBe('+0.45');
-    expectInDomAndJson(c, '+0.45');
+    expect(c.jsonText).toContain('+0.45');
     expect(microTf.overall_display).toBe('+1.0');
     expect(microTf.regime).toBe('TRENDING');
     expect(p.per_timeframe_alignment[3].regime).toBe('RANGE');
@@ -477,7 +481,9 @@ describe('export consistency — Analysis tab', () => {
     // evidence is the structured grid below the interpretation; the full
     // rationale sentence still ships in the JSON export.
     expect(c.jsonText).toContain('The market is in a healthy uptrend');
-    expect(c.dom).toContain('31 / 100');
+    // v7.4: the Overall Score renders as a signed integer (+31), never a
+    // misleading "31 / 100" percentage.
+    expect(c.dom).toContain('+31');
     expect(c.dom).toContain('(Bullish)');
     expect(c.dom).toContain('4 timeframes aligned');
     expectJsonNumberRenderedAsDom(c, '83.3%', 83.3);

@@ -185,23 +185,6 @@ pub fn compute_setup_analytics(
     }
 }
 
-fn classify_performance(
-    profit_factor: Option<f64>,
-    win_rate: f64,
-    p_value: f64,
-    p_mc: f64,
-    total_trades: u32,
-) -> PerformanceClassification {
-    classify_performance_with_params(
-        profit_factor,
-        win_rate,
-        p_value,
-        p_mc,
-        total_trades,
-        AnalyticsParams::default(),
-    )
-}
-
 /// Verdict classification with tunable significance treatment (v7.3). The
 /// min-trade floor and the α bar come from `[workspace.analytics]`.
 fn classify_performance_with_params(

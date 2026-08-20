@@ -314,7 +314,7 @@ describe('AnalysisPanel — signal lean (AN-1/2/3)', () => {
 // the alignment matrix (score / agreement / signals) and the analysis
 // matrix's pinned representative inputs (BBWP / ADX).
 describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
-    it('v7.3: renders the grid inside the KEY METRICS card above the Signal Lean hero', () => {
+    it('v7.4: renders the grid inside the KEY METRICS card BELOW Qualitative Assessment', () => {
         seed(makeAnalysis({ bias: 'Bullish', representative_bbwp: 9.2, representative_adx: 36.5 }));
         const app = useAppStore();
         app.instancesMap['BTC-USDT'].alignment = makeAlignment();
@@ -322,11 +322,16 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         const card = screen.getByLabelText('KEY METRICS');
         expect(card).toBeTruthy();
         expect(card.querySelector('[class*="rationaleGrid"]')).toBeTruthy();
-        // The prose keeps its own SUMMARY card, above KEY METRICS.
+        // The prose keeps its own SUMMARY card, ABOVE KEY METRICS.
         const prose = screen.getByLabelText('SUMMARY');
         expect(prose.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // v7.4: the card moved below the Qualitative Assessment section —
+        // it must no longer precede the Signal Lean hero.
         const hero = document.querySelector('[class*="signalLeanHero"]')!;
-        expect(card.compareDocumentPosition(hero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(hero.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        const qual = Array.from(document.querySelectorAll('[class*="sectionTitle"]'))
+            .find((el) => el.textContent === 'Qualitative Assessment')!;
+        expect(qual.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('renders the unified card with all 5 rationale columns', () => {
@@ -343,7 +348,7 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         expect(screen.getByText('Volatility Percentile')).toBeTruthy();
         expect(screen.getByText('Trend Strength')).toBeTruthy();
         expect(screen.getByText('Total Signals')).toBeTruthy();
-        expect(screen.getByText('25 / 100')).toBeTruthy();
+        expect(screen.getByText('+25')).toBeTruthy();
         expect(screen.getByText('(Bullish)')).toBeTruthy();
         expect(screen.getByText('100%')).toBeTruthy();
         expect(screen.getByText('4 timeframes aligned')).toBeTruthy();
@@ -365,8 +370,45 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         const app = useAppStore();
         app.instancesMap['BTC-USDT'].alignment = makeAlignment({ mtf_overall_score: -30 });
         render(AnalysisPanel, { props: {} });
-        expect(screen.getByText('-30 / 100')).toBeTruthy();
+        expect(screen.getByText('-30')).toBeTruthy();
         expect(screen.getByText('(Bearish)').getAttribute('style')).toContain('rgb(248, 113, 113)');
+    });
+
+    it('renders the signed score in sign colour and its strength label (bearish)', () => {
+        seed(makeAnalysis({ bias: 'Bearish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment({
+            mtf_overall_score: -30,
+            mtf_overall_label: 'WEAK_BEAR_MTF',
+        });
+        render(AnalysisPanel, { props: {} });
+        const value = screen.getByText('-30');
+        // Negative score renders red (rgb(239, 68, 68)).
+        expect(value.getAttribute('style')).toContain('rgb(239, 68, 68)');
+        // Strength label from the shared mLabel() vocabulary.
+        expect(screen.getByText('WEAK BEAR')).toBeTruthy();
+    });
+
+    it('renders a positive score green with its strength label', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment({
+            mtf_overall_score: 55,
+            mtf_overall_label: 'STRONG_BULL_MTF',
+        });
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText('+55').getAttribute('style')).toContain('rgb(34, 197, 94)');
+        expect(screen.getByText('STRONG BULL')).toBeTruthy();
+    });
+
+    it('renders the footnote explaining what the overall score means', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment();
+        render(AnalysisPanel, { props: {} });
+        expect(screen.getByText(/Blended multi-timeframe bias score/)).toBeTruthy();
+        expect(screen.getByText(/100·\(0\.5·Trend/)).toBeTruthy();
+        expect(screen.getByText(/positive = net bullish/)).toBeTruthy();
     });
 
     it('does not render the raw backend rationale line (v6.15 cleanup)', () => {
@@ -385,7 +427,7 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         const app = useAppStore();
         app.instancesMap['BTC-USDT'].alignment = makeAlignment({ mtf_overall_score: 12 });
         render(AnalysisPanel, { props: {} });
-        const value = screen.getByText('12 / 100');
+        const value = screen.getByText('+12');
         expect(value.parentElement?.getAttribute('title')).toContain('Bias lifted');
     });
 
@@ -394,15 +436,25 @@ describe('AnalysisPanel — interpretation & rationale grid (v6.15)', () => {
         const app = useAppStore();
         app.instancesMap['BTC-USDT'].alignment = makeAlignment({ mtf_overall_score: 55 });
         render(AnalysisPanel, { props: {} });
-        expect(screen.getByText('55 / 100').parentElement?.getAttribute('title')).toBeNull();
+        expect(screen.getByText('+55').parentElement?.getAttribute('title')).toBeNull();
     });
 
     it('falls back to em-dashes when alignment and representative fields are absent', () => {
         seed(makeAnalysis({ bias: 'Bullish' }));
         render(AnalysisPanel, { props: {} });
-        expect(screen.queryByText('25 / 100')).toBeNull();
+        expect(screen.queryByText('+25')).toBeNull();
         expect(screen.queryByText('4 timeframes aligned')).toBeNull();
         expect(screen.queryByText('34 Signals')).toBeNull();
         expect(screen.getByText((content) => content.includes('market.'))).toBeTruthy();
+    });
+
+    it('v7.4: does not render the Per-Timeframe Alignment grid (moved to the Alignment tab)', () => {
+        seed(makeAnalysis({ bias: 'Bullish' }));
+        const app = useAppStore();
+        app.instancesMap['BTC-USDT'].alignment = makeAlignment();
+        render(AnalysisPanel, { props: {} });
+        expect(screen.queryByText('Per-Timeframe Alignment')).toBeNull();
+        // The gauge grid lives only on the Alignment tab now.
+        expect(screen.queryByText(/OFFLINE/)).toBeNull();
     });
 });

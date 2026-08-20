@@ -245,3 +245,41 @@ describe('AlignmentPanel — SUMMARY head card (v7.0)', () => {
     expect(screen.queryByText(/Composition weights:/)).toBeNull();
   });
 });
+
+describe('AlignmentPanel — Per-Timeframe gauge grid (v7.4, moved from the Analysis tab)', () => {
+  it('renders the ring-gauge 2×2 grid in MICRO/FAST/SLOW/MACRO order', () => {
+    seed(makeAlignment({
+      timeframe_alignments: [
+        { timeframe: 'MACRO', timeframe_secs: 900, trend_score: 0.4, momentum_score: 0.3, overall_score: 0.5, regime: 'RANGE', active_signals: 2, price: 63390 },
+        { timeframe: 'MICRO', timeframe_secs: 60, trend_score: 0.7, momentum_score: 0.6, overall_score: 1.0, regime: 'TRENDING', active_signals: 5, price: 63390 },
+      ],
+    }));
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    const cards = Array.from(document.querySelectorAll(`.${styles.tfSquare}`));
+    // All four ladder slots render (inactive ones show placeholders).
+    expect(cards.length).toBe(4);
+    expect(cards.map((c) => c.textContent?.match(/MICRO|FAST|SLOW|MACRO/)?.[0])).toEqual([
+      'MICRO', 'FAST', 'SLOW', 'MACRO',
+    ]);
+    // Active cards carry the ring gauge, the stat rows, and the regime badge.
+    expect(cards[0].querySelector(`.${styles.tfGaugeProgress}`)).toBeTruthy();
+    expect(cards[0].textContent).toContain('Trend');
+    expect(cards[0].textContent).toContain('Overall');
+    expect(cards[0].textContent).toContain('+0.70');
+    expect(cards[0].textContent).toContain('+1.0');
+    expect(cards[0].textContent).toContain('TRENDING');
+    // The legacy active-signals chip is preserved per TF.
+    expect(cards[0].textContent).toContain('5 signals');
+    // Inactive slots render the offline placeholder, not fabricated data.
+    expect(cards[1].textContent).toContain('OFFLINE');
+    expect(cards[3].textContent).toContain('MACRO');
+    expect(cards[3].textContent).toContain('+0.40');
+  });
+
+  it('renders the awaiting note when no timeframe alignments exist', () => {
+    seed(makeSentinelAlignment());
+    render(AlignmentPanel, { props: { pairKey: 'BTC-USDT' } });
+    expect(screen.getByText(/Per-timeframe readings will appear/)).toBeTruthy();
+    expect(document.querySelectorAll(`.${styles.tfSquare}`).length).toBe(0);
+  });
+});

@@ -15,10 +15,6 @@
 .marginal { background: rgba(248,113,113,0.12); color: #f87171; }
 .none { background: rgba(148,163,184,0.10); color: #94a3b8; }
 .zoneCard { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; }
-.zoneLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
-.zoneValue { font-size: 12px; font-weight: 600; color: #e2e8f0; font-variant-numeric: tabular-nums; }
-.zoneGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-@media (max-width: 720px) { .zoneGrid { grid-template-columns: 1fr; } }
 /* v7.0: the Expected Reward-to-Risk section spans the FULL content width
    (the old 2-col zoneGrid capped each side card at ~50%). One row per
    side, aligned with the EVALUATED SETUPS card below it. */

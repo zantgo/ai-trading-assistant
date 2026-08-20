@@ -26,6 +26,48 @@
     margin-top: 0;
 }
 
+/* ── Section collapse caret (per title — hides the whole section) ── */
+
+.caretBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.caretBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
+}
+
+.chevron {
+    display: inline-flex;
+    font-size: 8px;
+    line-height: 1;
+    transform: rotate(0deg);
+    transform-origin: center;
+    transition: transform 0.15s ease;
+}
+
+.rotated {
+    transform: rotate(90deg);
+}
+
 .headingTitle {
     margin: 0;
     font-size: 11px;

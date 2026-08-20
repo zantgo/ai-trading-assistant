@@ -1135,8 +1135,10 @@ describe('OpportunitiesPanel — top badge cluster, confluent R:R, section layou
         expect(idx('Trade Setups')).toBeGreaterThan(-1);
         expect(idx('Confluent Levels')).toBeGreaterThan(idx('Trade Setups'));
         expect(idx('Expected Reward-to-Risk Ratio')).toBeGreaterThan(idx('Confluent Levels'));
-        expect(idx('Expected Reward-to-Risk Ratio')).toBeLessThan(idx('Market Position'));
-        expect(idx('Market Position')).toBeLessThan(idx('Evaluated Setups'));
+        expect(idx('Evaluated Setups')).toBeGreaterThan(idx('Expected Reward-to-Risk Ratio'));
+        // v7.4: the L3-leak Market Position section was removed — the L4
+        // panel now ends with Evaluated Setups.
+        expect(idx('Market Position')).toBe(-1);
     });
 
     it('dynamically ranks Evaluated Setups by score desc regardless of wire order', () => {

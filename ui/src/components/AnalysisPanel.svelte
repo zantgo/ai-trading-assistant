@@ -8,6 +8,7 @@
     import LayerHeader from './LayerHeader.svelte';
     import SummaryCard from './SummaryCard.svelte';
     import { buildL3AnalysisHeader, type LayerHeaderSpec } from '../lib/layerHeader';
+    import { mLabel } from '../lib/layerHeader';
     import { computeAnalysisLean } from '../lib/analysisLean';
     import { biasColor } from '../lib/dashboardColors';
     import styles from './AnalysisPanel.module.css';
@@ -40,9 +41,10 @@
         const bbwp = analysis?.representative_bbwp ?? null;
         const adx = analysis?.representative_adx ?? null;
         const signals = aln?.signal_cross_tf_count ?? null;
+        const label = aln?.mtf_overall_label != null ? mLabel(aln.mtf_overall_label) : null;
         const lifted =
             bias != null && bias !== 'Neutral' && score != null && Math.abs(score) <= 20;
-        return { score, bias, agreement, tfs, bbwp, adx, signals, lifted };
+        return { score, bias, agreement, tfs, bbwp, adx, signals, label, lifted };
     });
     const microTerm = $derived<TimeframeTelemetry | undefined>(instance?.microTerm);
     const microSnap = $derived(microTerm?.latestSnapshot as Record<string, unknown> | undefined);
@@ -191,33 +193,10 @@
     // (Logic lives in `lib/prettifyPhase.ts::highlightKeywords` so the
     //  export builder can reuse the exact same regex.)
 
-    // Dynamic extraction of timeframe alignments in exact micro -> fast -> slow -> macro order
-    const timeframeSlots = $derived.by(() => {
-        const order = ['MICRO', 'FAST', 'SLOW', 'MACRO'];
-        const alignments = alignment?.timeframe_alignments ?? [];
-        return order.map(slot => {
-            const found = alignments.find(a => a.timeframe.toUpperCase() === slot);
-            return {
-                name: slot,
-                active: !!found,
-                trend: found?.trend_score ?? 0,
-                momentum: found?.momentum_score ?? 0,
-                overall: found?.overall_score ?? 0,
-                regime: found?.regime ?? 'AWAITING'
-            };
-        });
-    });
-
     function scoreColor(val: number): string {
         if (val > 0) return '#22c55e'; // Green
         if (val < 0) return '#ef4444'; // Red
         return '#64748b'; // Neutral Gray
-    }
-
-    function tfGaugeColor(score: number): string {
-        if (score > 5) return '#22c55e';
-        if (score < -5) return '#ef4444';
-        return '#64748b';
     }
 
     function tfRegimeCls(r: string): string {
@@ -360,38 +339,6 @@
          both summaries now follow the title-above-container rhythm. -->
     <SummaryCard label="SUMMARY">
         <div class={styles.interpretText}>{@html highlightKeywords(analysis?.market_interpretation || '')}</div>
-    </SummaryCard>
-    <SummaryCard label="KEY METRICS">
-        <div class={styles.rationaleGrid}>
-            <div class={styles.rationaleCell} title={rationaleGrid.lifted ? 'Bias lifted by TF-vote margin (grace/lean band)' : undefined}>
-                <span class={styles.rationaleLabel}>Overall Score</span>
-                <span class={styles.rationaleValue}>{rationaleGrid.score != null ? `${Math.round(rationaleGrid.score)} / 100` : '—'}</span>
-                <span class={styles.rationaleSub} style={rationaleGrid.bias ? `color: ${biasColor(rationaleGrid.bias)}` : ''}>
-                    {rationaleGrid.bias ? `(${rationaleGrid.bias})` : '—'}
-                </span>
-            </div>
-            <div class={styles.rationaleCell}>
-                <span class={styles.rationaleLabel}>Timeframe Agreement</span>
-                <span class={styles.rationaleValue}>{rationaleGrid.agreement != null ? `${Math.round(rationaleGrid.agreement)}%` : '—'}</span>
-                <span class={styles.rationaleSub}>
-                    {rationaleGrid.agreement != null && rationaleGrid.tfs != null
-                        ? `${rationaleGrid.tfs} timeframes aligned`
-                        : '—'}
-                </span>
-            </div>
-            <div class={styles.rationaleCell} title="Bollinger Band Width Percentile">
-                <span class={styles.rationaleLabel}>Volatility Percentile</span>
-                <span class={styles.rationaleValue}>{rationaleGrid.bbwp != null ? `${rationaleGrid.bbwp.toFixed(1)}%` : '—'}</span>
-            </div>
-            <div class={styles.rationaleCell} title="Average Directional Index">
-                <span class={styles.rationaleLabel}>Trend Strength</span>
-                <span class={styles.rationaleValue}>{rationaleGrid.adx != null ? rationaleGrid.adx.toFixed(1) : '—'}</span>
-            </div>
-            <div class={styles.rationaleCell}>
-                <span class={styles.rationaleLabel}>Total Signals</span>
-                <span class={styles.rationaleValue}>{rationaleGrid.signals != null ? `${rationaleGrid.signals} Signals` : '—'}</span>
-            </div>
-        </div>
     </SummaryCard>
 
     <!-- ── Signal Lean Hero (now lives below the canonical header — the
@@ -552,60 +499,50 @@
         </div>
     </div>
 
-    <!-- ── Ordered Timeframe Grid Squares (2x2) ── -->
-    <div class={styles.section}>
-        <div class={styles.sectionTitle}>Per-Timeframe Alignment</div>
-        <div class={styles.timeframeGrid}>
-            {#each timeframeSlots as tf (tf.name)}
-                <div class={styles.tfSquare}>
-                    <div class={styles.tfHeader}>
-                        <span class={styles.tfName}>{tf.name}</span>
-                        {#if tf.active}
-                            <div class={styles.tfGauge}>
-                                <svg viewBox="0 0 24 24" class={styles.tfGaugeSvg}>
-                                    <circle cx="12" cy="12" r="10" class={styles.tfGaugeTrack} />
-                                    <circle
-                                        cx="12"
-                                        cy="12"
-                                        r="10"
-                                        class={styles.tfGaugeProgress}
-                                        stroke={tfGaugeColor(tf.overall)}
-                                        stroke-dasharray="62.8"
-                                        stroke-dashoffset={62.8 * (1 - Math.min(Math.max((tf.overall + 100) / 200, 0), 1))}
-                                        transform="rotate(-90 12 12)"
-                                    />
-                                </svg>
-                            </div>
-                        {/if}
-                    </div>
-                    <div class={styles.tfGridBody}>
-                        <div class={styles.tfStatRow}>
-                            <span class={styles.tfStatLabel}>Trend</span>
-                            <span class={styles.tfStatValue} style="color: {scoreColor(tf.trend)}">
-                                {tf.active ? (tf.trend >= 0 ? '+' : '') + tf.trend.toFixed(2) : '—'}
-                            </span>
-                        </div>
-                        <div class={styles.tfStatRow}>
-                            <span class={styles.tfStatLabel}>Momentum</span>
-                            <span class={styles.tfStatValue} style="color: {scoreColor(tf.momentum)}">
-                                {tf.active ? (tf.momentum >= 0 ? '+' : '') + tf.momentum.toFixed(2) : '—'}
-                            </span>
-                        </div>
-                        <div class={styles.tfStatRow}>
-                            <span class={styles.tfStatLabel}>Overall</span>
-                            <span class={styles.tfStatValue} style="color: {tfGaugeColor(tf.overall)}">
-                                {tf.active ? (tf.overall >= 0 ? '+' : '') + tf.overall.toFixed(1) : '—'}
-                            </span>
-                        </div>
-                        <div class={styles.tfStatRow}>
-                            <span class={styles.tfStatLabel}>Regime</span>
-                            <span class="{styles.tfRegimeBadge} {tfRegimeCls(tf.regime)}">
-                                {tf.active ? tf.regime : 'OFFLINE'}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            {/each}
+    <!-- ── KEY METRICS (v7.3+): the quantitative evidence grid. Moved
+         below Qualitative Assessment so the panel reads interpretation
+         first, then the numbers that back it. The Overall Score is the
+         blended multi-timeframe bias score on [-100, +100] (signed) —
+         NOT a 0-100 percentage — so it renders signed with its strength
+         label and the formula footnote below. -->
+    <SummaryCard label="KEY METRICS">
+        <div class={styles.rationaleGrid}>
+            <div class={styles.rationaleCell} title={rationaleGrid.lifted ? 'Bias lifted by TF-vote margin (grace/lean band)' : undefined}>
+                <span class={styles.rationaleLabel}>Overall Score</span>
+                <span class={styles.rationaleValue} style="color: {scoreColor(rationaleGrid.score ?? 0)}">
+                    {rationaleGrid.score != null ? (rationaleGrid.score >= 0 ? '+' : '') + Math.round(rationaleGrid.score) : '—'}
+                </span>
+                <span class={styles.rationaleSub}>
+                    {rationaleGrid.label != null ? rationaleGrid.label : '—'}
+                    {#if rationaleGrid.bias}
+                        <span style="color: {biasColor(rationaleGrid.bias)}">({rationaleGrid.bias})</span>
+                    {/if}
+                </span>
+            </div>
+            <div class={styles.rationaleCell}>
+                <span class={styles.rationaleLabel}>Timeframe Agreement</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.agreement != null ? `${Math.round(rationaleGrid.agreement)}%` : '—'}</span>
+                <span class={styles.rationaleSub}>
+                    {rationaleGrid.agreement != null && rationaleGrid.tfs != null
+                        ? `${rationaleGrid.tfs} timeframes aligned`
+                        : '—'}
+                </span>
+            </div>
+            <div class={styles.rationaleCell} title="Bollinger Band Width Percentile">
+                <span class={styles.rationaleLabel}>Volatility Percentile</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.bbwp != null ? `${rationaleGrid.bbwp.toFixed(1)}%` : '—'}</span>
+            </div>
+            <div class={styles.rationaleCell} title="Average Directional Index">
+                <span class={styles.rationaleLabel}>Trend Strength</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.adx != null ? rationaleGrid.adx.toFixed(1) : '—'}</span>
+            </div>
+            <div class={styles.rationaleCell}>
+                <span class={styles.rationaleLabel}>Total Signals</span>
+                <span class={styles.rationaleValue}>{rationaleGrid.signals != null ? `${rationaleGrid.signals} Signals` : '—'}</span>
+            </div>
         </div>
-    </div>
+        <div class={styles.rationaleFootnote}>
+            Blended multi-timeframe bias score · −100 to +100 · 100·(0.5·Trend + 0.3·Momentum + 0.1·Volatility + 0.1·Volume) · positive = net bullish
+        </div>
+    </SummaryCard>
 </div>

@@ -482,6 +482,13 @@
         return lines.length > 0 ? lines.join('\n') : 'no active level tests of this kind';
     }
 
+    let collapsed = $state<Record<string, boolean>>({});
+
+    function toggleSection(key: string) {
+        collapsed[key] = !(collapsed[key] ?? false);
+        collapsed = { ...collapsed };
+    }
+
     const MAX_CHIPS_PER_CELL = 3;
 
     function fmtTimeframe(secs: number): string {
@@ -525,25 +532,35 @@
     {#if rows.length === 0}
         <div class={styles.placeholder}>No indicators in the registry yet. Awaiting indicator registry…</div>
     {:else}
-        <!-- ── TF summary bar (Micro / Fast / Slow / Macro) — sits above
-             the Indicators heading so the column header is the first thing
-             a reader sees, then the grid below it. -->
-        <div class={styles.summary}>
-            <div class={styles.summarySpacer}></div>
-            {#each SLOTS as slot (slot.label)}
-                <div class={styles.summarySlot}>
-                    <div class={styles.summaryLabel}>{slot.label}</div>
-                    <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
-                </div>
-            {/each}
-            <div class={styles.summarySpacer}></div>
-            <div class={styles.summarySpacer}></div>
-        </div>
+        {#if !(collapsed['indicators'] ?? false)}
+            <!-- ── TF summary bar (Micro / Fast / Slow / Macro) — sits above
+                 the Indicators heading so the column header is the first thing
+                 a reader sees, then the grid below it. -->
+            <div class={styles.summary}>
+                <div class={styles.summarySpacer}></div>
+                {#each SLOTS as slot (slot.label)}
+                    <div class={styles.summarySlot}>
+                        <div class={styles.summaryLabel}>{slot.label}</div>
+                        <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
+                    </div>
+                {/each}
+                <div class={styles.summarySpacer}></div>
+                <div class={styles.summarySpacer}></div>
+            </div>
+        {/if}
 
         <!-- ── INDICATORS heading (outside the containers) — unified
              chrome: title + gray count badge + colored agreement badges
              (BULL / BEAR / MIXED) with the dominant category lit. ── -->
         <div class={styles.headingRow}>
+            <button
+                class={styles.caretBtn}
+                aria-expanded={!(collapsed['indicators'] ?? false)}
+                aria-label="Toggle Indicators section"
+                onclick={() => toggleSection('indicators')}
+            >
+                <span class="{styles.chevron} {!(collapsed['indicators'] ?? false) ? styles.rotated : ''}">▶</span>
+            </button>
             <h3 class={styles.headingTitle}>Indicators</h3>
             <span class={styles.headingCount}>
                 {rows.length} indicator{rows.length === 1 ? '' : 's'}
@@ -569,48 +586,50 @@
             <span class={styles.headingHint}>normalized value per indicator, per timeframe · agreement split</span>
         </div>
 
-        {#each groups as g (g.group)}
-            {@const meta = GROUP_META[g.group as keyof typeof GROUP_META]}
-            <section class={styles.section} style="--accent: {meta.accent}">
-                <header class={styles.sectionHeader}>
-                    <span class={styles.sectionTitle}>{meta.label}</span>
-                    <span class={styles.sectionCount}>{g.items.length}</span>
-                </header>
-                <div class={styles.body}>
-                    {#each g.items as r (r.meta.key)}
-                        {@const hasAny = r.active.some(Boolean)}
-                        <div class={styles.row}>
-                            <span class={styles.indicatorName}>
-                                {#if !r.meta.directional}<span class={styles.gateMarker}>◐</span>{/if}
-                                {r.meta.display_name}
-                            </span>
-                            {#each r.values as v, i (i)}
-                                {@const warm = r.warming[i]}
-                                {@const gate = r.gated[i]}
-                                {@const isVal = r.active[i]}
-                                <span
-                                    class="{styles.normCell} {isVal ? '' : styles.normEmpty} {warm ? styles.normWarming : ''}"
-                                    style="color: {isVal ? normColor(v) : 'rgba(255,255,255,0.2)'}; font-weight: 700;"
-                                    title={warm
-                                        ? 'Warming up — calculator needs more bars'
-                                        : gate
-                                            ? 'Non-directional gate — see raw value / state'
-                                            : undefined}
-                                >
-                                    {isVal ? (v >= 0 ? '+' : '') + v.toFixed(2) : (warm ? '--' : gate ? 'N/A' : '·')}
+        {#if !(collapsed['indicators'] ?? false)}
+            {#each groups as g (g.group)}
+                {@const meta = GROUP_META[g.group as keyof typeof GROUP_META]}
+                <section class={styles.section} style="--accent: {meta.accent}">
+                    <header class={styles.sectionHeader}>
+                        <span class={styles.sectionTitle}>{meta.label}</span>
+                        <span class={styles.sectionCount}>{g.items.length}</span>
+                    </header>
+                    <div class={styles.body}>
+                        {#each g.items as r (r.meta.key)}
+                            {@const hasAny = r.active.some(Boolean)}
+                            <div class={styles.row}>
+                                <span class={styles.indicatorName}>
+                                    {#if !r.meta.directional}<span class={styles.gateMarker}>◐</span>{/if}
+                                    {r.meta.display_name}
                                 </span>
-                            {/each}
-                            <span class="{styles.agreement} {agClass(r.agreementLabel)}">
-                                {hasAny ? r.agreementLabel : '·'}
-                            </span>
-                            <span class={styles.agreementNum}>
-                                {hasAny ? (r.agreement >= 0 ? '+' : '') + r.agreement.toFixed(2) : '·'}
-                            </span>
-                        </div>
-                    {/each}
-                </div>
-            </section>
-        {/each}
+                                {#each r.values as v, i (i)}
+                                    {@const warm = r.warming[i]}
+                                    {@const gate = r.gated[i]}
+                                    {@const isVal = r.active[i]}
+                                    <span
+                                        class="{styles.normCell} {isVal ? '' : styles.normEmpty} {warm ? styles.normWarming : ''}"
+                                        style="color: {isVal ? normColor(v) : 'rgba(255,255,255,0.2)'}; font-weight: 700;"
+                                        title={warm
+                                            ? 'Warming up — calculator needs more bars'
+                                            : gate
+                                                ? 'Non-directional gate — see raw value / state'
+                                                : undefined}
+                                    >
+                                        {isVal ? (v >= 0 ? '+' : '') + v.toFixed(2) : (warm ? '--' : gate ? 'N/A' : '·')}
+                                    </span>
+                                {/each}
+                                <span class="{styles.agreement} {agClass(r.agreementLabel)}">
+                                    {hasAny ? r.agreementLabel : '·'}
+                                </span>
+                                <span class={styles.agreementNum}>
+                                    {hasAny ? (r.agreement >= 0 ? '+' : '') + r.agreement.toFixed(2) : '·'}
+                                </span>
+                            </div>
+                        {/each}
+                    </div>
+                </section>
+            {/each}
+        {/if}
 
         <!-- ── Stacked cross-timeframe tables (v6.13 / v6.14) ───────────
              Signals / Divergences / Levels each rendered as a 4-TF-column
@@ -633,6 +652,14 @@
 
         <!-- ── Signals: kind × TF per-direction badges ── -->
         <div class={styles.headingRow}>
+            <button
+                class={styles.caretBtn}
+                aria-expanded={!(collapsed['signals'] ?? false)}
+                aria-label="Toggle Signals section"
+                onclick={() => toggleSection('signals')}
+            >
+                <span class="{styles.chevron} {!(collapsed['signals'] ?? false) ? styles.rotated : ''}">▶</span>
+            </button>
             <h3 class={styles.headingTitle}>Signals</h3>
             <span class={styles.headingCount}>
                 {totalSignalCount} signal{totalSignalCount === 1 ? '' : 's'}
@@ -654,60 +681,70 @@
             {/if}
             <span class={styles.headingHint}>active signals per kind, per timeframe · direction split</span>
         </div>
-        <section class="{styles.tblSection} {styles.tblSignals}">
-            {@render tfHeaderRow('KIND')}
-            {#if totalSignalCount === 0}
-                <div class={styles.tblEmpty}>
-                    No signals active. Signals are published on each completed candle.
-                </div>
-            {:else}
-                <div class={styles.tblBody}>
-                    {#each SIGNAL_KIND_ORDER as kind (kind)}
-                        {@const cells = signalCells[kind]}
-                        {@const totals = signalTotalsByKind[kind]}
-                        {@const lit = litSide(totals.bull, totals.bear)}
-                        <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
-                            <span class={styles.tblKind}>
-                                <span class={styles.tblKindName}>{kind}</span>
-                                <span class={styles.tblKindAbbr}>{SIGNAL_ABBR[kind]}</span>
-                            </span>
-                            {#each cells as cell, i (i)}
-                                <span class={styles.dirBadges} title={signalCellTooltip(cell)}>
-                                    {#if cell.bull > 0}
-                                        <span class="{styles.dirBadge} {styles.dirBadgeBull}">▲ {cell.bull}</span>
-                                    {/if}
-                                    {#if cell.bear > 0}
-                                        <span class="{styles.dirBadge} {styles.dirBadgeBear}">▼ {cell.bear}</span>
-                                    {/if}
-                                    {#if cell.neutral > 0}
-                                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {cell.neutral}</span>
-                                    {/if}
-                                    {#if cell.bull + cell.bear + cell.neutral === 0}
-                                        <span class={styles.tblCellEmpty}>·</span>
+        {#if !(collapsed['signals'] ?? false)}
+            <section class="{styles.tblSection} {styles.tblSignals}">
+                {@render tfHeaderRow('KIND')}
+                {#if totalSignalCount === 0}
+                    <div class={styles.tblEmpty}>
+                        No signals active. Signals are published on each completed candle.
+                    </div>
+                {:else}
+                    <div class={styles.tblBody}>
+                        {#each SIGNAL_KIND_ORDER as kind (kind)}
+                            {@const cells = signalCells[kind]}
+                            {@const totals = signalTotalsByKind[kind]}
+                            {@const lit = litSide(totals.bull, totals.bear)}
+                            <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
+                                <span class={styles.tblKind}>
+                                    <span class={styles.tblKindName}>{kind}</span>
+                                    <span class={styles.tblKindAbbr}>{SIGNAL_ABBR[kind]}</span>
+                                </span>
+                                {#each cells as cell, i (i)}
+                                    <span class={styles.dirBadges} title={signalCellTooltip(cell)}>
+                                        {#if cell.bull > 0}
+                                            <span class="{styles.dirBadge} {styles.dirBadgeBull}">▲ {cell.bull}</span>
+                                        {/if}
+                                        {#if cell.bear > 0}
+                                            <span class="{styles.dirBadge} {styles.dirBadgeBear}">▼ {cell.bear}</span>
+                                        {/if}
+                                        {#if cell.neutral > 0}
+                                            <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {cell.neutral}</span>
+                                        {/if}
+                                        {#if cell.bull + cell.bear + cell.neutral === 0}
+                                            <span class={styles.tblCellEmpty}>·</span>
+                                        {/if}
+                                    </span>
+                                {/each}
+                                <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all 4 timeframes`}>
+                                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
+                                          data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
+                                        ▲ {totals.bull}
+                                    </span>
+                                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
+                                          data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
+                                        ▼ {totals.bear}
+                                    </span>
+                                    {#if totals.neutral > 0}
+                                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {totals.neutral}</span>
                                     {/if}
                                 </span>
-                            {/each}
-                            <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Neutral ${totals.neutral} — summed across all 4 timeframes`}>
-                                <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
-                                      data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
-                                    ▲ {totals.bull}
-                                </span>
-                                <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
-                                      data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
-                                    ▼ {totals.bear}
-                                </span>
-                                {#if totals.neutral > 0}
-                                    <span class="{styles.dirBadge} {styles.dirBadgeNeutral}">— {totals.neutral}</span>
-                                {/if}
-                            </span>
-                        </div>
-                    {/each}
-                </div>
-            {/if}
-        </section>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+            </section>
+        {/if}
 
         <!-- ── Divergences: capable indicators × strongest sub-type per TF ── -->
         <div class={styles.headingRow}>
+            <button
+                class={styles.caretBtn}
+                aria-expanded={!(collapsed['divergences'] ?? false)}
+                aria-label="Toggle Divergences section"
+                onclick={() => toggleSection('divergences')}
+            >
+                <span class="{styles.chevron} {!(collapsed['divergences'] ?? false) ? styles.rotated : ''}">▶</span>
+            </button>
             <h3 class={styles.headingTitle}>Divergences</h3>
             <span class={styles.headingCount}>
                 {totalDivergenceCount} divergence{totalDivergenceCount === 1 ? '' : 's'}
@@ -732,51 +769,61 @@
             {/if}
             <span class={styles.headingHint}>strongest active divergence per oscillator, per timeframe</span>
         </div>
-        <section class="{styles.tblSection} {styles.tblDivergences}">
-            {@render tfHeaderRow('INDICATOR')}
-            {#if totalDivergenceCount === 0}
-                <div class={styles.tblEmpty}>
-                    No active divergences. Divergence signals appear when an oscillator
-                    disagrees directionally with price over 20-bar pivots.
-                </div>
-            {:else}
-                <div class={styles.tblBody}>
-                    {#each divergenceRows as r (r.meta.key)}
-                        <div class="{styles.tblRow} {styles[`tblRowTint_${r.directionLabel.toLowerCase()}`] ?? ''}">
-                            <span class={styles.tblKindName}>{r.meta.display_name}</span>
-                            {#each r.cells as cell, i (i)}
-                                {@const sub = cell.sub}
-                                <span
-                                    class="{styles.tblCountCell} {sub ? '' : styles.tblCellEmpty}"
-                                    style={sub ? `color: ${divergenceAccent(sub)}; font-weight: 700;` : ''}
-                                    title={sub
-                                        ? `${divergenceLabel(sub)} · str ${(cell.strength * 100).toFixed(0)}%`
-                                        : 'no active divergence'}
-                                >
-                                    {sub ? divShort(sub) : '·'}
+        {#if !(collapsed['divergences'] ?? false)}
+            <section class="{styles.tblSection} {styles.tblDivergences}">
+                {@render tfHeaderRow('INDICATOR')}
+                {#if totalDivergenceCount === 0}
+                    <div class={styles.tblEmpty}>
+                        No active divergences. Divergence signals appear when an oscillator
+                        disagrees directionally with price over 20-bar pivots.
+                    </div>
+                {:else}
+                    <div class={styles.tblBody}>
+                        {#each divergenceRows as r (r.meta.key)}
+                            <div class="{styles.tblRow} {styles[`tblRowTint_${r.directionLabel.toLowerCase()}`] ?? ''}">
+                                <span class={styles.tblKindName}>{r.meta.display_name}</span>
+                                {#each r.cells as cell, i (i)}
+                                    {@const sub = cell.sub}
+                                    <span
+                                        class="{styles.tblCountCell} {sub ? '' : styles.tblCellEmpty}"
+                                        style={sub ? `color: ${divergenceAccent(sub)}; font-weight: 700;` : ''}
+                                        title={sub
+                                            ? `${divergenceLabel(sub)} · str ${(cell.strength * 100).toFixed(0)}%`
+                                            : 'no active divergence'}
+                                    >
+                                        {sub ? divShort(sub) : '·'}
+                                    </span>
+                                {/each}
+                                <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 4 timeframes`}>
+                                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {r.directionLabel === 'BULL' ? styles.dirBadgeLit : ''}"
+                                          data-dir="bull" data-lit={r.directionLabel === 'BULL' ? 'true' : 'false'}>
+                                        ▲ {r.bullCount}
+                                    </span>
+                                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {r.directionLabel === 'BEAR' ? styles.dirBadgeLit : ''}"
+                                          data-dir="bear" data-lit={r.directionLabel === 'BEAR' ? 'true' : 'false'}>
+                                        ▼ {r.bearCount}
+                                    </span>
+                                    {#if r.unknownCount > 0}
+                                        <span class="{styles.dirBadge} {styles.dirBadgeNeutral}" data-dir="unknown">— {r.unknownCount}</span>
+                                    {/if}
                                 </span>
-                            {/each}
-                            <span class={styles.tblTotal} title={`Bullish ${r.bullCount} · Bearish ${r.bearCount} · Unknown ${r.unknownCount} — summed across all 4 timeframes`}>
-                                <span class="{styles.dirBadge} {styles.dirBadgeBull} {r.directionLabel === 'BULL' ? styles.dirBadgeLit : ''}"
-                                      data-dir="bull" data-lit={r.directionLabel === 'BULL' ? 'true' : 'false'}>
-                                    ▲ {r.bullCount}
-                                </span>
-                                <span class="{styles.dirBadge} {styles.dirBadgeBear} {r.directionLabel === 'BEAR' ? styles.dirBadgeLit : ''}"
-                                      data-dir="bear" data-lit={r.directionLabel === 'BEAR' ? 'true' : 'false'}>
-                                    ▼ {r.bearCount}
-                                </span>
-                                {#if r.unknownCount > 0}
-                                    <span class="{styles.dirBadge} {styles.dirBadgeNeutral}" data-dir="unknown">— {r.unknownCount}</span>
-                                {/if}
-                            </span>
-                        </div>
-                    {/each}
-                </div>
-            {/if}
-        </section>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+            </section>
+        {/if}
 
         <!-- ── Levels: level kind × TF chips of the ACTUAL levels tested ── -->
         <div class={styles.headingRow}>
+            <button
+                class={styles.caretBtn}
+                aria-expanded={!(collapsed['levels'] ?? false)}
+                aria-label="Toggle Levels section"
+                onclick={() => toggleSection('levels')}
+            >
+                <span class="{styles.chevron} {!(collapsed['levels'] ?? false) ? styles.rotated : ''}">▶</span>
+            </button>
             <h3 class={styles.headingTitle}>Levels</h3>
             <span class={styles.headingCount}>
                 {totalLevelCount} level test{totalLevelCount === 1 ? '' : 's'}
@@ -800,60 +847,62 @@
             {/if}
             <span class={styles.headingHint}>actual levels tested per kind, per timeframe</span>
         </div>
-        <section class="{styles.tblSection} {styles.tblLevels}">
-            {@render tfHeaderRow('LEVEL KIND')}
-            {#if totalLevelCount === 0}
-                <div class={styles.tblEmpty}>
-                    No active level tests. LevelTest signals fire when price trades
-                    into a structural level's proximity band.
-                </div>
-            {:else}
-                <div class={styles.tblBody}>
-                    {#each LEVEL_KIND_ORDER as kind (kind)}
-                        {@const cells = levelCellsByKind[kind]}
-                        {@const totals = levelTotalsByKind[kind]}
-                        {@const lit = litSide(totals.bull, totals.bear)}
-                        <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
-                            <span class={styles.tblKind}>
-                                <span class={styles.tblKindName}>{LEVEL_KIND_META[kind].label}</span>
-                            </span>
-                            {#each cells as cell, i (i)}
-                                <span class={styles.chipWrap} title={levelCellTooltip(cell)}>
-                                    {#if cell.chips.length > 0}
-                                        {#each cell.chips.slice(0, MAX_CHIPS_PER_CELL) as chip (chip.name + chip.role)}
-                                            <span class="{styles.levelChip} {chipClass(chip.role)}">
-                                                {chipAbbr(chip.name)}{chip.count > 1 ? ` ×${chip.count}` : ''}
-                                                {#if chip.priceText && chip.priceText !== '—'}
-                                                    <span class={styles.chipPrice}>{chip.priceText}</span>
-                                                {/if}
-                                            </span>
-                                        {/each}
-                                        {#if cell.chips.length > MAX_CHIPS_PER_CELL}
-                                            <span class={styles.chipMore}>+{cell.chips.length - MAX_CHIPS_PER_CELL}</span>
+        {#if !(collapsed['levels'] ?? false)}
+            <section class="{styles.tblSection} {styles.tblLevels}">
+                {@render tfHeaderRow('LEVEL KIND')}
+                {#if totalLevelCount === 0}
+                    <div class={styles.tblEmpty}>
+                        No active level tests. LevelTest signals fire when price trades
+                        into a structural level's proximity band.
+                    </div>
+                {:else}
+                    <div class={styles.tblBody}>
+                        {#each LEVEL_KIND_ORDER as kind (kind)}
+                            {@const cells = levelCellsByKind[kind]}
+                            {@const totals = levelTotalsByKind[kind]}
+                            {@const lit = litSide(totals.bull, totals.bear)}
+                            <div class="{styles.tblRow} {lit ? styles[`tblRowTint_${lit}`] ?? '' : ''}">
+                                <span class={styles.tblKind}>
+                                    <span class={styles.tblKindName}>{LEVEL_KIND_META[kind].label}</span>
+                                </span>
+                                {#each cells as cell, i (i)}
+                                    <span class={styles.chipWrap} title={levelCellTooltip(cell)}>
+                                        {#if cell.chips.length > 0}
+                                            {#each cell.chips.slice(0, MAX_CHIPS_PER_CELL) as chip (chip.name + chip.role)}
+                                                <span class="{styles.levelChip} {chipClass(chip.role)}">
+                                                    {chipAbbr(chip.name)}{chip.count > 1 ? ` ×${chip.count}` : ''}
+                                                    {#if chip.priceText && chip.priceText !== '—'}
+                                                        <span class={styles.chipPrice}>{chip.priceText}</span>
+                                                    {/if}
+                                                </span>
+                                            {/each}
+                                            {#if cell.chips.length > MAX_CHIPS_PER_CELL}
+                                                <span class={styles.chipMore}>+{cell.chips.length - MAX_CHIPS_PER_CELL}</span>
+                                            {/if}
+                                        {:else}
+                                            <span class={styles.tblCellEmpty}>·</span>
                                         {/if}
-                                    {:else}
-                                        <span class={styles.tblCellEmpty}>·</span>
-                                    {/if}
+                                    </span>
+                                {/each}
+                                <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Support ${totals.support} · Resistance ${totals.resistance}`}>
+                                    <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
+                                          data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
+                                        ▲ {totals.bull}
+                                    </span>
+                                    <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
+                                          data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
+                                        ▼ {totals.bear}
+                                    </span>
+                                    <span class={styles.roleSplit}>
+                                        <span class="{styles.roleChip} {styles.roleChipSupport}">S {totals.support}</span>
+                                        <span class="{styles.roleChip} {styles.roleChipResistance}">R {totals.resistance}</span>
+                                    </span>
                                 </span>
-                            {/each}
-                            <span class={styles.tblTotal} title={`Bullish ${totals.bull} · Bearish ${totals.bear} · Support ${totals.support} · Resistance ${totals.resistance}`}>
-                                <span class="{styles.dirBadge} {styles.dirBadgeBull} {lit === 'bull' ? styles.dirBadgeLit : ''}"
-                                      data-dir="bull" data-lit={lit === 'bull' ? 'true' : 'false'}>
-                                    ▲ {totals.bull}
-                                </span>
-                                <span class="{styles.dirBadge} {styles.dirBadgeBear} {lit === 'bear' ? styles.dirBadgeLit : ''}"
-                                      data-dir="bear" data-lit={lit === 'bear' ? 'true' : 'false'}>
-                                    ▼ {totals.bear}
-                                </span>
-                                <span class={styles.roleSplit}>
-                                    <span class="{styles.roleChip} {styles.roleChipSupport}">S {totals.support}</span>
-                                    <span class="{styles.roleChip} {styles.roleChipResistance}">R {totals.resistance}</span>
-                                </span>
-                            </span>
-                        </div>
-                    {/each}
-                </div>
-            {/if}
-        </section>
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+            </section>
+        {/if}
     {/if}
 </div>
