@@ -75,6 +75,10 @@ pub async fn upsert_archive_candles(
     for c in candles {
         let exchange = c.exchange.to_string();
         let ts_secs = (c.start_time_ms / 1000) as i64;
+        // v8.2: exchange candle durations carry off-by-one milliseconds
+        // (e.g. Hyperliquid 900s candles are 899_999ms) — round to the
+        // nearest second so rows land on the canonical timeframe key.
+        let tf_secs = ((c.duration_ms + 500) / 1000).max(1) as i64;
         let res = sqlx::query(
             "INSERT INTO candle_archive
                 (exchange, symbol, timeframe_secs, ts_secs, open, high, low, close,
@@ -84,7 +88,7 @@ pub async fn upsert_archive_candles(
         )
         .bind(exchange)
         .bind(&c.symbol)
-        .bind((c.duration_ms / 1000).max(1) as i64)
+        .bind(tf_secs)
         .bind(ts_secs)
         .bind(c.open.to_f64().map(|v| v.to_string()))
         .bind(c.high.to_f64().map(|v| v.to_string()))
@@ -341,7 +345,10 @@ mod tests {
     #[tokio::test]
     async fn upsert_dedup_and_window_query() {
         let pool = seed_pool().await;
-        let batch = vec![candle("BTC-USDC", 1000, 105.0), candle("BTC-USDC", 1001, 106.0)];
+        let batch = vec![
+            candle("BTC-USDC", 1000, 105.0),
+            candle("BTC-USDC", 1001, 106.0),
+        ];
         assert_eq!(upsert_archive_candles(&pool, &batch, "backfill").await, 2);
         // Duplicate upsert stores nothing new.
         assert_eq!(upsert_archive_candles(&pool, &batch, "backfill").await, 0);
@@ -357,7 +364,10 @@ mod tests {
     #[tokio::test]
     async fn coverage_and_earliest_anchor() {
         let pool = seed_pool().await;
-        let batch = vec![candle("BTC-USDC", 1000, 105.0), candle("BTC-USDC", 1002, 106.0)];
+        let batch = vec![
+            candle("BTC-USDC", 1000, 105.0),
+            candle("BTC-USDC", 1002, 106.0),
+        ];
         upsert_archive_candles(&pool, &batch, "live").await;
 
         let cov = query_archive_coverage(&pool).await;

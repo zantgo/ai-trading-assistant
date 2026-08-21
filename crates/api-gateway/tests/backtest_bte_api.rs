@@ -87,8 +87,7 @@ async fn post_json(
     let bytes = axum::body::to_bytes(resp.into_body(), 1_000_000)
         .await
         .unwrap_or_default();
-    let json: serde_json::Value =
-        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
     (status, json)
 }
 
@@ -108,8 +107,7 @@ async fn get_json(state: Arc<AppState>, uri: &str) -> (StatusCode, serde_json::V
     let bytes = axum::body::to_bytes(resp.into_body(), 1_000_000)
         .await
         .unwrap_or_default();
-    let json: serde_json::Value =
-        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
     (status, json)
 }
 
@@ -123,7 +121,11 @@ async fn backfill_validates_depth_bounds() {
             serde_json::json!({ "instance_id": "inst_bte", "depth_days": bad }),
         )
         .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "depth {bad} must be rejected");
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "depth {bad} must be rejected"
+        );
         assert_eq!(json["code"], "invalid_depth");
     }
 }
@@ -190,7 +192,7 @@ async fn backfill_rejects_duplicate_active_job() {
     let (status, json) = post_json(
         state.clone(),
         "/api/backtest/archive/backfill",
-        serde_json::json!({ "instance_id": "inst_bte", "depth_days": 7 }),
+        serde_json::json!({ "instance_id": "inst_bte", "depth_days": 1 }),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -211,14 +213,20 @@ async fn backfill_start_and_progress_contract() {
     let job_id = json["job_id"].as_i64().expect("job id");
 
     // Live progress endpoint answers while the detached job runs.
-    let (pstatus, pjson) = get_json(state.clone(), &format!("/api/backtest/archive/progress/{job_id}"))
-        .await;
+    let (pstatus, pjson) = get_json(
+        state.clone(),
+        &format!("/api/backtest/archive/progress/{job_id}"),
+    )
+    .await;
     assert_eq!(pstatus, StatusCode::OK);
     assert_eq!(pjson["job_id"], job_id);
     assert_eq!(pjson["instance_id"], "inst_bte");
     assert_eq!(pjson["depth_days"], 1);
     assert!(
-        matches!(pjson["status"].as_str(), Some("running") | Some("done") | Some("failed")),
+        matches!(
+            pjson["status"].as_str(),
+            Some("running") | Some("done") | Some("failed")
+        ),
         "unexpected status: {}",
         pjson["status"]
     );
@@ -241,14 +249,21 @@ async fn backfill_start_and_progress_contract() {
 async fn coverage_returns_extended_shape() {
     let state = build_state().await;
 
-    let (status, json) = get_json(state.clone(), "/api/backtest/coverage?instance_id=inst_bte").await;
+    let (status, json) =
+        get_json(state.clone(), "/api/backtest/coverage?instance_id=inst_bte").await;
     assert_eq!(status, StatusCode::OK);
     assert!(json["archive_depth_days"].as_i64().unwrap_or(0) >= 1);
-    assert!(json["snapshots"].is_array(), "recorded-snapshot rows present");
+    assert!(
+        json["snapshots"].is_array(),
+        "recorded-snapshot rows present"
+    );
     assert!(json["archive"].is_array(), "archive rows present");
     assert!(json["backfill_jobs"].is_array(), "job list present");
     // v8.1: the data-prep contract — burn-in + the four-timeframe ladder.
-    assert!(json["burn_in_secs"].as_i64().unwrap_or(0) > 0, "burn_in_secs present");
+    assert!(
+        json["burn_in_secs"].as_i64().unwrap_or(0) > 0,
+        "burn_in_secs present"
+    );
     let ladder = json["ladder"].as_array().expect("ladder present");
     assert_eq!(ladder.len(), 4, "micro/fast/slow/macro ladder");
 }
@@ -257,7 +272,9 @@ async fn coverage_returns_extended_shape() {
 async fn run_is_rejected_while_another_run_holds_the_lock() {
     let state = build_state().await;
 
-    let _guard = state.backtest.run_lock.lock().await;
+    // v8.2: the single-run lock is the registry's running-run status.
+    let tracked = std::sync::Arc::new(backtesting_engine::registry::TrackedRun::new());
+    state.backtest.runs.write().await.insert(1, tracked);
     let (status, json) = post_json(
         state.clone(),
         "/api/backtest/run",
@@ -324,8 +341,21 @@ async fn recorded_run_persists_ds_rows() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{}", json);
-    let id = json["backtest_id"].as_i64().expect("id");
-    assert_eq!(json["mode"], "recorded");
+    // v8.2 async contract: poll progress until completed.
+    let run_id = json["run_id"].as_i64().expect("run_id");
+    assert_eq!(json["status"], "running");
+    let mut backtest_id = None;
+    for _ in 0..200 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (s, p) = get_json(state.clone(), &format!("/api/backtest/progress/{run_id}")).await;
+        assert_eq!(s, StatusCode::OK, "{}", p);
+        if p["status"].as_str() != Some("running") {
+            assert_eq!(p["status"], "completed", "{}", p);
+            backtest_id = p["backtest_id"].as_i64();
+            break;
+        }
+    }
+    let id = backtest_id.expect("persisted id");
 
     // DS read endpoints answer for the run.
     let (s, t) = get_json(state.clone(), &format!("/api/backtest/{id}/trades")).await;
@@ -342,4 +372,242 @@ async fn recorded_run_persists_ds_rows() {
     assert_eq!(s, StatusCode::OK);
     let first = &list[0];
     assert_eq!(first["mode"], "recorded");
+}
+
+// ─── v8.2 standalone runs + progress/cancel ───────────────────────────
+
+async fn seed_archive_row(state: &Arc<AppState>, symbol: &str, tf: u64, ts_secs: u64, close: f64) {
+    let candle = core_domain::normalized::NormalizedCandle {
+        exchange: core_domain::normalized::Exchange::Hyperliquid,
+        symbol: symbol.to_string(),
+        start_time_ms: ts_secs * 1000,
+        duration_ms: tf * 1000,
+        open: rust_decimal::Decimal::from_f64_retain(close - 1.0).unwrap(),
+        high: rust_decimal::Decimal::from_f64_retain(close + 2.0).unwrap(),
+        low: rust_decimal::Decimal::from_f64_retain(close - 2.0).unwrap(),
+        close: rust_decimal::Decimal::from_f64_retain(close).unwrap(),
+        volume: rust_decimal_macros::dec!(100),
+        trades_count: 5,
+        reconstructed: Some(core_domain::normalized::ReconstructionMethod::ExchangeHistorical),
+    };
+    database_storage::queries::archive::upsert_archive_candles(&state.pool, &[candle], "backfill")
+        .await;
+}
+
+#[tokio::test]
+async fn standalone_run_requires_exchange() {
+    let state = build_state().await;
+    let (status, json) = post_json(
+        state.clone(),
+        "/api/backtest/run",
+        serde_json::json!({
+            "symbols": [{ "symbol": "BTC-USDC", "timeframes": [60, 180, 300, 900] }],
+            "from_ms": 1_000_000,
+            "to_ms": 1_010_000,
+            "mode": "historical",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "exchange_required");
+}
+
+#[tokio::test]
+async fn standalone_allocation_sum_violation_returns_400() {
+    let state = build_state().await;
+    let (status, json) = post_json(
+        state.clone(),
+        "/api/backtest/run",
+        serde_json::json!({
+            "exchange": "Hyperliquid",
+            "symbols": [
+                { "symbol": "BTC-USDC", "timeframes": [60, 180, 300, 900], "allocation_pct": 60.0 },
+                { "symbol": "ETH-USDC", "timeframes": [60, 180, 300, 900], "allocation_pct": 60.0 }
+            ],
+            "from_ms": 1_000_000,
+            "to_ms": 1_010_000,
+            "mode": "historical",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "allocation_sum_exceeded");
+}
+
+#[tokio::test]
+async fn standalone_invalid_ladders_rejected() {
+    let state = build_state().await;
+    // Sub-minute slot (archive floor).
+    let (status, json) = post_json(
+        state.clone(),
+        "/api/backtest/run",
+        serde_json::json!({
+            "exchange": "Hyperliquid",
+            "symbols": [{ "symbol": "BTC-USDC", "timeframes": [15, 60, 300, 900] }],
+            "from_ms": 1_000_000,
+            "to_ms": 1_010_000,
+            "mode": "historical",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "invalid_timeframes");
+    // Non-ascending ladder.
+    let (status, json) = post_json(
+        state.clone(),
+        "/api/backtest/run",
+        serde_json::json!({
+            "exchange": "Hyperliquid",
+            "symbols": [{ "symbol": "BTC-USDC", "timeframes": [900, 60, 300, 180] }],
+            "from_ms": 1_000_000,
+            "to_ms": 1_010_000,
+            "mode": "historical",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "invalid_timeframes");
+}
+
+#[tokio::test]
+async fn standalone_hyperliquid_ceiling_validation_400() {
+    let state = build_state().await;
+    // 4 days exceeds the 5,000-candle ceiling for the 60s TF (max ≈ 3.4d).
+    let to_ms = 1_760_000_000_000i64;
+    let from_ms = to_ms - 4 * 86400 * 1000;
+    let (status, json) = post_json(
+        state.clone(),
+        "/api/backtest/run",
+        serde_json::json!({
+            "exchange": "Hyperliquid",
+            "symbols": [{ "symbol": "BTC-USDC", "timeframes": [60, 180, 300, 900] }],
+            "from_ms": from_ms,
+            "to_ms": to_ms,
+            "mode": "historical",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["code"], "depth_exceeds_ceiling");
+    assert!(json["error"].as_str().unwrap().contains("60s"));
+}
+
+#[tokio::test]
+async fn standalone_coverage_reports_max_depth_ceiling() {
+    let state = build_state().await;
+    seed_archive_row(&state, "BTC-USDC", 60, 1_760_000_000, 100.0).await;
+    seed_archive_row(&state, "BTC-USDC", 900, 1_760_000_000, 100.0).await;
+    let (status, json) = get_json(
+        state.clone(),
+        "/api/backtest/coverage?symbol=BTC-USDC&exchange=Hyperliquid",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // Hyperliquid: per-TF ceiling = 5,000 × tf.
+    let rows = json["archive"].as_array().unwrap();
+    let tf60 = rows
+        .iter()
+        .find(|r| r["timeframe_secs"] == 60)
+        .expect("60s coverage row");
+    assert_eq!(tf60["max_depth_secs"].as_i64(), Some(5000 * 60));
+}
+
+#[tokio::test]
+async fn progress_and_cancel_404_for_unknown_runs() {
+    let state = build_state().await;
+    let (status, _) = get_json(state.clone(), "/api/backtest/progress/999999").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = post_json(
+        state.clone(),
+        "/api/backtest/cancel/999999",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn standalone_run_completes_and_persists() {
+    let state = build_state().await;
+    // Small warmup keeps the debug-build replay fast (30 bars × 900s =
+    // ~7.5h burn-in instead of the shipped 300 × 900s ≈ 3.1d).
+    {
+        let mut ws = state.workspace.config().await;
+        ws.backtest.warmup_bars = 30;
+        state.workspace.set_config(ws).await;
+    }
+    // Seed archive rows for ALL FOUR ladder TFs over the burn-in window
+    // (30 bars × 900s ≈ 7.5h) plus a short scored window. The scored
+    // window stays well inside the Hyperliquid 60s ceiling (5,000 × 60s
+    // ≈ 3.47d incl. burn-in), so the scored window is the last 6 hours.
+    let to_secs = 1_760_000_000u64;
+    let burn_span = 86400u64;
+    let mut candles = Vec::new();
+    for tf in [180u64, 300, 900, 1800] {
+        let mut ts = to_secs - burn_span;
+        while ts <= to_secs {
+            let close = 100.0 + (ts as f64 % 1000.0) * 0.001;
+            candles.push(core_domain::normalized::NormalizedCandle {
+                exchange: core_domain::normalized::Exchange::Hyperliquid,
+                symbol: "BTC-USDC".to_string(),
+                start_time_ms: ts * 1000,
+                duration_ms: tf * 1000,
+                open: rust_decimal::Decimal::from_f64_retain(close - 0.5).unwrap(),
+                high: rust_decimal::Decimal::from_f64_retain(close + 0.5).unwrap(),
+                low: rust_decimal::Decimal::from_f64_retain(close - 0.5).unwrap(),
+                close: rust_decimal::Decimal::from_f64_retain(close).unwrap(),
+                volume: rust_decimal_macros::dec!(100),
+                trades_count: 5,
+                reconstructed: Some(
+                    core_domain::normalized::ReconstructionMethod::ExchangeHistorical,
+                ),
+            });
+            ts += tf;
+        }
+    }
+    database_storage::queries::archive::upsert_archive_candles(&state.pool, &candles, "backfill")
+        .await;
+
+    let from_secs = to_secs - 6 * 3600;
+    let from_ms = (from_secs as i64) * 1000;
+    let to_ms = (to_secs as i64) * 1000;
+    let (status, json) = post_json(
+        state.clone(),
+        "/api/backtest/run",
+        serde_json::json!({
+            "exchange": "Hyperliquid",
+            "symbols": [{ "symbol": "BTC-USDC", "timeframes": [180, 300, 900, 1800], "allocation_pct": 10.0 }],
+            "from_ms": from_ms,
+            "to_ms": to_ms,
+            "initial_capital": 1000.0,
+            "mode": "historical",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", json);
+    let run_id = json["run_id"].as_i64().expect("run_id");
+    assert_eq!(json["status"], "running");
+
+    // Poll progress until completion.
+    let mut backtest_id = None;
+    for _ in 0..1200 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let (s, p) = get_json(state.clone(), &format!("/api/backtest/progress/{run_id}")).await;
+        assert_eq!(s, StatusCode::OK, "{}", p);
+        assert!(matches!(
+            p["phase"].as_str().unwrap_or(""),
+            "fetching" | "warming" | "replaying" | "analyzing" | "cancelled"
+        ));
+        if p["status"].as_str() != Some("running") {
+            assert_eq!(p["status"], "completed", "{}", p);
+            backtest_id = p["backtest_id"].as_i64();
+            break;
+        }
+    }
+    let id = backtest_id.expect("run completed with a persisted id");
+    // The persisted run answers the DS read endpoints.
+    let (s, t) = get_json(state.clone(), &format!("/api/backtest/{id}/equity")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(t["equity"].is_array());
+    let _ = &seed_archive_row;
 }

@@ -60,6 +60,8 @@ use portfolio_supervisor::{
 // `snapshot_export` is owned by `lib.rs` so `api-gateway` can re-use
 // its types without the daemon's CLI surface.
 
+mod cli_backtest;
+
 // ─── CLI argument parsing ────────────────────────────────────────────
 
 struct CliArgs {
@@ -71,6 +73,13 @@ struct CliArgs {
     interval_secs: u64,
     /// CLI mode: enable snapshot-export JSON dumps at boot.
     save_snapshots: bool,
+    /// v8.2: run a headless backtest (E2E harness hook).
+    backtest: bool,
+    bt_symbols: Option<String>,
+    bt_tf: Option<String>,
+    bt_depth: Option<u32>,
+    bt_capital: Option<f64>,
+    bt_allocation: Option<f64>,
 }
 
 enum LaunchMode {
@@ -86,6 +95,12 @@ fn parse_args() -> CliArgs {
     let mut config_path = None;
     let mut interval_secs = 5u64;
     let mut save_snapshots = false;
+    let mut backtest = false;
+    let mut bt_symbols = None;
+    let mut bt_tf = None;
+    let mut bt_depth = None;
+    let mut bt_capital = None;
+    let mut bt_allocation = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -136,6 +151,40 @@ fn parse_args() -> CliArgs {
                 }
             }
             "--save" => save_snapshots = true,
+            "--backtest" => {
+                backtest = true;
+                mode = LaunchMode::Cli;
+            }
+            "--symbols" => {
+                i += 1;
+                if i < args.len() {
+                    bt_symbols = Some(args[i].clone());
+                }
+            }
+            "--tf" => {
+                i += 1;
+                if i < args.len() {
+                    bt_tf = Some(args[i].clone());
+                }
+            }
+            "--depth" => {
+                i += 1;
+                if i < args.len() {
+                    bt_depth = args[i].parse::<u32>().ok();
+                }
+            }
+            "--capital" => {
+                i += 1;
+                if i < args.len() {
+                    bt_capital = args[i].parse::<f64>().ok();
+                }
+            }
+            "--allocation" => {
+                i += 1;
+                if i < args.len() {
+                    bt_allocation = args[i].parse::<f64>().ok();
+                }
+            }
             "--web" | "--gui" => {
                 mode = LaunchMode::Web;
             }
@@ -151,6 +200,12 @@ fn parse_args() -> CliArgs {
         config_path,
         interval_secs,
         save_snapshots,
+        backtest,
+        bt_symbols,
+        bt_tf,
+        bt_depth,
+        bt_capital,
+        bt_allocation,
     }
 }
 
@@ -585,6 +640,46 @@ async fn main() {
     let db_pool = init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
+    // ── v8.2: headless CLI backtest (no engine boot, no web server) ──
+    if cli.backtest {
+        let args = cli_backtest::CliBacktestArgs {
+            exchange: cli
+                .exchange
+                .clone()
+                .unwrap_or_else(|| workspace.default_exchange.clone()),
+            symbols: cli
+                .bt_symbols
+                .clone()
+                .map(|s| {
+                    s.split(',')
+                        .map(|p| p.trim().to_uppercase())
+                        .filter(|p| !p.is_empty())
+                        .collect()
+                })
+                .unwrap_or_else(|| vec!["BTC".to_string()]),
+            tf: match cli.bt_tf.as_deref() {
+                Some(raw) => match cli_backtest::parse_tf(raw) {
+                    Ok(tf) => tf,
+                    Err(e) => {
+                        eprintln!("⚠️  {e}");
+                        std::process::exit(1);
+                    }
+                },
+                None => vec![60, 180, 300, 900],
+            },
+            depth_days: cli
+                .bt_depth
+                .unwrap_or(workspace.backtest.archive_depth_days),
+            capital: cli.bt_capital.unwrap_or(1000.0),
+            allocation: cli
+                .bt_allocation
+                .unwrap_or(workspace.minimal_tae.allocation_pct),
+        };
+        let outcome = cli_backtest::run_cli_backtest(&db_pool, &workspace, args).await;
+        let code = cli_backtest::print_outcome(&outcome);
+        std::process::exit(code);
+    }
+
     if let Ok(secret) = std::env::var("EXCHANGE_SECRET_KEY") {
         let secret = secret.trim().to_string();
         if !secret.is_empty() {
@@ -696,7 +791,18 @@ async fn main() {
     // spawning anything — the plan is written into the workspace config so
     // `registry::add_instance` resolves the per-TF durations, then every
     // instance is spawned with the boot retry policy.
+    // v8.2: the prompt offers a Backtest choice — the interactive sibling
+    // of the GUI launcher (runs the simulation, then exits).
     let cli_plan: Option<CliLaunchPlan> = if matches!(cli.mode, LaunchMode::Cli) {
+        let launch_type = prompt(
+            "Launch type — [1] Terminal monitor (observe)  [2] Backtest",
+            "1",
+        );
+        if launch_type.trim() == "2" {
+            let args = cli_backtest::prompt_backtest_args(&workspace);
+            let outcome = cli_backtest::run_cli_backtest(&db_pool, &workspace, args).await;
+            std::process::exit(cli_backtest::print_outcome(&outcome));
+        }
         cli_launch_plan(&cli, &workspace)
     } else {
         None
@@ -783,6 +889,7 @@ async fn main() {
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
                 mode: config_models::ExecutionMode::Observe,
+                allocation_pct: None,
                 weight_overrides: None,
                 position_scaling: None,
                 activation: None,
@@ -911,8 +1018,8 @@ async fn main() {
     let tae_enabled = workspace.minimal_tae.enabled;
     if tae_enabled {
         println!(
-            "⚡ TAE v7: Setup executor enabled (risk_per_trade={}%, min_rr={}, max_positions={})",
-            workspace.minimal_tae.risk_per_trade_pct,
+            "⚡ TAE v8.2: Setup executor enabled (allocation={}%, min_rr={}, max_positions={})",
+            workspace.minimal_tae.allocation_pct,
             workspace.minimal_tae.min_net_rr,
             workspace.minimal_tae.max_open_positions
         );
@@ -1215,6 +1322,13 @@ async fn main() {
                                     candle_ts,
                                     safety: Some(inst.safety.clone()),
                                     dispatch: !is_observe,
+                                    // v8.2: per-instance allocation override
+                                    // (falls back to the global allocation_pct).
+                                    allocation_pct: workspace
+                                        .instances
+                                        .iter()
+                                        .find(|e| e.symbol == symbol)
+                                        .and_then(|e| e.allocation_pct),
                                 },
                                 live_fills,
                                 false,

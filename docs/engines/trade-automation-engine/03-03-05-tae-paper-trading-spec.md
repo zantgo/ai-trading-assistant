@@ -72,7 +72,17 @@ The trader's account and open positions must survive a daemon restart:
 
 ## 6. Deterministic Replay (backtest support)
 
-Feeding a historical sequence of `MarketSnapshot`s through `extract_top_setup` + the executor + the simulation backend reproduces identical trades. This is the engine the PAE backtest (Phase D-lite) replays. The executor logic is pure over (snapshot, state) → effects, so replay has no wall-clock dependencies.
+Feeding a historical sequence of `MarketSnapshot`s through `extract_top_setup` + the executor + the simulation backend reproduces identical trades. This is the engine the Backtesting Engine (BTE) replays. The executor logic is pure over (snapshot, state) → effects, so replay has no wall-clock dependencies.
+
+**v8.2 parity guarantees (paper = backtest by construction).** The historical runner drives the identical `run_tick` session body with these additions so the replay behaves exactly like a paper session:
+
+| Guarantee | Paper behavior | Backtest behavior (v8.2) |
+|---|---|---|
+| Safety ladder | `SafetyManager` per instance fed by live equity; soft gate blocks new entries in `DRAWDOWN_STOP`/`SUSPENDED` | Same: a simulated `SafetyManager` per instance fed by replayed equity |
+| Funding | Settled every 8h of wall-clock on open positions | Settled at simulated 8h boundaries of replay time |
+| End-of-run | N/A (session keeps running) | Open positions force-closed at the final replayed candle close, `exit_reason = "end_of_backtest"` |
+| Sizing | `equity × allocation_pct / 100` | Identical (shared engine ledger) |
+| Tick granularity | 1s executor ticks reading the latest snapshot per TF | One tick per completed candle of each symbol's smallest ladder TF (documented boundary) |
 
 ---
 

@@ -329,7 +329,7 @@ describe('TradeAutomationDashboard no-instance state (v7.3)', () => {
                 return Promise.resolve(jsonResponse({ instances: [] }));
             }
             if (url === '/api/config') {
-                return Promise.resolve(jsonResponse({ minimal_tae: { enabled: false, risk_per_trade_pct: 1.0 } }));
+                return Promise.resolve(jsonResponse({ minimal_tae: { enabled: false, allocation_pct: 10.0 } }));
             }
             return Promise.resolve(jsonResponse({}));
         });

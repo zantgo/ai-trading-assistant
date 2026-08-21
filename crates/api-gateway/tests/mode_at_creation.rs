@@ -95,11 +95,7 @@ async fn launch_wizard_sets_the_session_defaults_that_create_instances() {
     // What the Launch Setup wizard sends via POST /api/session/init:
     // mode + paper capital become the SessionState defaults that
     // `registry::add_instance` reads (observe | paper | live → ExecutionMode).
-    for (mode_str, expect) in [
-        ("observe", "observe"),
-        ("paper", "paper"),
-        ("live", "live"),
-    ] {
+    for (mode_str, expect) in [("observe", "observe"), ("paper", "paper"), ("live", "live")] {
         let (state, _inst) = build_state().await;
         state
             .session

@@ -283,7 +283,7 @@ The platform progressively abstracts raw data into business intelligence:
 7.  **Vulnerability Assessment:** Quantified environmental threat vectors (Risk Matrix).
 8.  **Decision Support:** Actionable tactical guidance and stop/target zones (Decision Matrix).
 9.  **Execution Decisions:** Triggered execution policies (Policy Matrix) and order fills (Execution Matrix).
-10. **Portfolio State:** Active positions, aggregated exposures, and margin tracking (Portfolio Matrix).
+10. **Portfolio State:** Active positions, aggregated exposures, and margin tracking (PortfolioOverviewMatrix).
 11. **Performance Intelligence:** Strategy win rates, drawdowns, and strategy-regime maps (Performance Matrix).
 
 ### 4.3 Engine Communication Model
@@ -309,7 +309,7 @@ The TAE never recalculates technical parameters or alters the MME's risk and opp
 
 ### 4.7 Portfolio Management Engine (PME) Flow
 The PME transforms transactional exchange events and fill confirmations into capital and exposure management states:
-$$\text{Exchange Fills} \longrightarrow \text{Position Matrix} \longrightarrow \text{Exposure Matrix} \longrightarrow \text{Capital Matrix} \longrightarrow \text{Portfolio Matrix}$$
+$$\text{Exchange Fills} \longrightarrow \text{Position Matrix} \longrightarrow \text{Exposure Matrix} \longrightarrow \text{Capital Matrix} \longrightarrow \text{PortfolioOverviewMatrix}$$
 
 This pipeline manages position updates, portfolio exposure limits, and margin safety metrics.
 
@@ -410,7 +410,7 @@ The Trading Platform is conceptually organized as a decentralized ecosystem of f
 *   **Primary Responsibility:** Maintain the real-time financial state of the trading account, supervising active market exposures and enforcing systemic capital safety rules.
 *   **Core Question:** *What is the current financial and exposure state of the trading account, and are capital limits being respected?*
 *   **Input Boundary:** Consumes exchange execution events and order confirmations from the Trade Automation Engine (TAE).
-*   **Output Boundary:** The **Portfolio Matrix**, detailing active positions, gross/net exposures, margin metrics, and available capital reserves.
+*   **Output Boundary:** The **PortfolioOverviewMatrix**, detailing active positions, gross/net exposures, margin metrics, and available capital reserves.
 
 ### 5.5 Performance Analytics Engine (PAE)
 *   **Domain:** Historical Trade Reconstruction, Strategy Performance Diagnostics, Risk-Adjusted Return Attribution, and Behavioral Evaluation.
@@ -558,9 +558,9 @@ The Trade Automation Engine bridges the gap between passive intelligence (MME) a
 
 ### 7.2 Execution Layer (Layer 2)
 *   **Concept:** Transaction implementation.
-*   **Responsibility:** Translate approved policy actions into physical order messages, select routing methods, and manage order execution state. It executes the **Position Sizing Protocol**, dynamically calculating entry position size ($S$) using the formula:
-$$S = \frac{E \times R}{D_{sl} / 100}$$
-	where $E$ represents available margin (from PME Capital Matrix), $R$ represents the risk-per-trade decimal fraction (`risk_per_trade_pct / 100`, e.g. $0.01$ = 1%), and $D_{sl}$ represents the stop-loss distance as a raw percentage float (from MME Decision Matrix, e.g. `1.5` = 1.5%, divided by 100 in the formula).
+*   **Responsibility:** Translate approved policy actions into physical order messages, select routing methods, and manage order execution state. It executes the **Allocation Sizing Protocol**, calculating entry position size using the v8.2 portfolio-share model:
+$$\text{notional} = \frac{\text{equity} \times \text{allocation\_pct}}{100}, \qquad \text{size\_units} = \frac{\text{notional}}{\text{entry\_price}}$$
+	where `allocation_pct` ∈ 1–100 % is the configured portfolio share for the instance (default 10 %; per-instance override; the sum of all instance allocations is validated ≤ 100 %).
 *   **Output (Execution Matrix):** Structured database of outstanding, filled, modified, and cancelled orders.
 *   **Key Components:**
     *   *Order Routing Strategy:* Logic determining whether to deploy `Limit Orders`, `Market Orders`, `Stop Orders`, or `TWAP/VWAP Execution Schemes`.
@@ -607,10 +607,10 @@ The Portfolio Management Engine manages capital safety. It supervises active ris
     *   `Margin Usage Ratio:` Percentage of total equity committed to maintenance/initial margin requirements.
     *   `Effective Leverage:` Ratio of gross exposure to total account equity.
 
-### 8.4 Portfolio Layer (Layer 4)
+### 8.4 Overview Layer (Layer 4)
 *   **Concept:** Unified portfolio state.
-*   **Responsibility:** Synthesize Position, Exposure, and Capital matrices into a single, high-level status vector representing the absolute financial health of the trading system. It possesses **Ontological Priority (Veto Power)**; if safety thresholds or drawdown limits are breached, it overrides active TAE stances, setting them to `Avoid` or `Close Only` to automatically block execution at the transaction boundary.
-*   **Output (Portfolio Matrix):** Unified ledger used for high-level automated safety checks (e.g., portfolio-wide drawdown stops, maximum margin warnings).
+*   **Responsibility:** Synthesize Position, Exposure, and Capital matrices into a single, high-level status vector representing the absolute financial health of the trading system. It maintains the **safety-state ladder** (`NORMAL` / `WARN` / `CAUTIOUS` / `SUSPENDED` / `DRAWDOWN_STOP`) as a read-only status; the TAE setup executor's soft gate blocks *new entries* in `DRAWDOWN_STOP` / `SUSPENDED` — no veto, no stance override, no order cancellation.
+*   **Output (PortfolioOverviewMatrix):** Unified ledger used for high-level automated safety reporting (e.g., portfolio-wide drawdown stops, maximum margin warnings).
 
 ***
 
@@ -1019,7 +1019,7 @@ The platform uses a contract-based, decoupled communication architecture. Engine
     $$\text{Data Infrastructure} \longrightarrow \text{Market Monitoring} \longrightarrow \text{Trade Automation} \longrightarrow \text{Portfolio Management} \longrightarrow \text{Performance Analytics}$$
 *   **Backward Channels (restricted):** The data plane is strictly unidirectional, but four controlled backward channels exist:
     *   **(1) Sizing Feedback:** TAE queries PME Capital Matrix for available margin to size positions.
-    *   **(2) PME→TAE VetoMessage:** PME Portfolio Layer asserts ontological priority to override TAE stance.
+    *   **(2) PME→TAE Safety State:** PME Overview Layer publishes the safety-state ladder consumed by the TAE soft entry gate.
     *   **(3) PME→TAE LiquidateCommand:** PME orders emergency liquidation during Hard Exit.
     *   **(4) PAE→config Analytical Feedback:** PAE provides historical performance analysis to configuration databases for off-line policy optimization.
 
@@ -1077,7 +1077,7 @@ The conceptual model integrates all five engines, their respective layers, and t
 |   1. Position Layer    -> Directs and tracks active target sizes     -> Position Matrix |
 |   2. Exposure Layer    -> Groups exposure boundaries (correlations)  -> Exposure Matrix |
 |   3. Capital Layer     -> Tracks margins, available balances, equity -> Capital Matrix  |
-|   4. Portfolio Layer   -> Consolidates overall financial state       -> Portfolio Matrix|
+|   4. Overview Layer    -> Consolidates overall financial state       -> PortfolioOverviewMatrix|
 +-----------------------------------------------------------------------------------------+
         | (Portfolio/Regime Logs and Closed Trade Archives)
         v

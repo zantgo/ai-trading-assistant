@@ -1,9 +1,9 @@
-//! BTE historical runner — the deep-history simulation.
+//! BTE historical runner — the deep-history multi-symbol simulation.
 //!
 //! Replays the **real** MME pipeline over archived OHLCV candles:
 //!
 //! ```text
-//! candle_archive (per TF windows, burn-in inclusive)
+//! candle_archive (per symbol × per TF windows, burn-in inclusive)
 //!   → warm_indicators_for_timeframe (chunked — the SAME warm path the
 //!     live daemon runs at boot, producing full per-candle snapshots
 //!     with normalized indicator maps + market context)
@@ -12,31 +12,46 @@
 //!   → run_tick (the SAME per-tick session body as paper/live)
 //! ```
 //!
+//! v8.2 — multi-symbol: one run replays all launcher instances
+//! simultaneously against a shared virtual portfolio. The replay tick
+//! clock is each symbol's smallest ladder TF, merged k-way into one
+//! globally timestamp-ordered event stream; the executor + engine state
+//! is keyed by symbol, mirroring the live multi-instance architecture.
+//!
+//! v8.2 parity guarantees (backtest = paper by construction):
+//! - a simulated `SafetyManager` per instance fed by replayed equity
+//!   (the soft gate blocks new entries in DRAWDOWN_STOP / SUSPENDED);
+//! - funding settled at simulated 8h boundaries of replay time;
+//! - end-of-run force-close: open positions are closed at the final
+//!   replayed candle close with `exit_reason = "end_of_backtest"`.
+//!
+//! v8.2 progress + cancel: `RunControls` reports phase progress at
+//! warm-chunk and replay-loop boundaries and checks a cancel flag at the
+//! loop head and between warm tasks.
+//!
 //! Determinism: no wall clock, no randomness in the executor path;
 //! liquidity/cluster inputs are absent (the archive stores no
 //! derivatives) — the synthesized decision is candle-based, exactly as
 //! documented in the parity contract.
-//!
-//! Cost note: the warm path computes the full 52-indicator suite per
-//! candle (~50–60 ms/candle). Per-TF warms run in parallel on the tokio
-//! blocking pool; a 7-day window at the default ladder is roughly a
-//! few minutes of CPU.
 
 use config_models::FibonacciConfig;
 use core_domain::analysis::MarketBias;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::{Exchange, NormalizedCandle};
+use core_domain::portfolio::SafetyState;
 use market_analyzer::active_set::ActiveSet;
 use market_analyzer::analyzer::warm_indicators_for_timeframe;
-use portfolio_supervisor::execution::ExecutionEngine;
 use portfolio_supervisor::execution::session_tick::run_tick;
+use portfolio_supervisor::execution::ExecutionEngine;
 use portfolio_supervisor::paper_trading::FeesConfig;
+use portfolio_supervisor::safety::SafetyManager;
 use portfolio_supervisor::setup_executor::{SetupExecutor, TickContext};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::recorded::{BacktestParams, BacktestResult, BacktestTrade, BACKTEST_MAX_SNAPSHOTS};
@@ -51,16 +66,30 @@ const CHUNK_OVERLAP: usize = 300;
 /// Max candles loaded per TF (bounded memory for deep windows).
 const MAX_CANDLES_PER_TF: u32 = 200_000;
 
+/// v8.2: funding settles every 8h of **simulated** replay time.
+const FUNDING_INTERVAL_SECS: i64 = 8 * 3600;
+
+/// One simulated instance inside a multi-symbol historical run.
+#[derive(Clone)]
+pub struct SymbolSpec {
+    pub symbol: String,
+    /// The full instance ladder (micro/fast/slow/macro durations); the
+    /// replay tick clock for this symbol is the smallest ladder TF.
+    pub ladder: Vec<u64>,
+    /// Indicator configs keyed by timeframe duration.
+    pub tf_configs: HashMap<u64, config_models::TimeframeConfig>,
+    /// v8.2 per-instance allocation override (1..=100 %). `None` = the
+    /// global `[workspace.minimal_tae].allocation_pct`.
+    pub allocation_pct: Option<f64>,
+}
+
 /// Per-TF pipeline configuration for the historical run (indicator
 /// periods, fib config — the same values the live pipeline uses).
 #[derive(Clone)]
 pub struct HistoricalRunConfig {
-    pub symbol: String,
-    /// The full instance ladder (micro/fast/slow/macro durations); the
-    /// entry TF must be one of these.
-    pub ladder: Vec<u64>,
-    /// Indicator configs keyed by timeframe duration.
-    pub tf_configs: HashMap<u64, config_models::TimeframeConfig>,
+    /// v8.2: the simulated instances — one or more symbols, each with its
+    /// own ladder and per-TF configs.
+    pub symbols: Vec<SymbolSpec>,
     pub fib_config: FibonacciConfig,
     pub active_set: ActiveSet,
     pub exchange: Exchange,
@@ -68,11 +97,103 @@ pub struct HistoricalRunConfig {
     pub warmup_bars: u32,
     /// Max equity points persisted (downsampling cap).
     pub max_equity_points: u32,
+    /// v8.2: safety-ladder parameters (mirror `[workspace.safety]`) so the
+    /// simulated SafetyManager behaves exactly like the live one.
+    pub safety: SafetyParams,
+}
+
+/// Safety-ladder parameters for the simulated PME (mirrors
+/// `[workspace.safety]`; see `SafetyManager::new`).
+#[derive(Clone)]
+pub struct SafetyParams {
+    pub caution_threshold: u32,
+    pub dropout_threshold: u32,
+    pub dropout_duration_hours: u64,
+    pub drawdown_limit_pct: f64,
+    pub max_daily_drawdown_pct: f64,
+    pub systemic_risk_threshold: f64,
+}
+
+impl Default for SafetyParams {
+    fn default() -> Self {
+        Self {
+            caution_threshold: 3,
+            dropout_threshold: 5,
+            dropout_duration_hours: 8,
+            drawdown_limit_pct: 30.0,
+            max_daily_drawdown_pct: 5.0,
+            systemic_risk_threshold: 80.0,
+        }
+    }
+}
+
+/// Run-phase progress (the launcher/CLI render these four phases; the
+/// runner itself reports `Warming` and `Replaying`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunPhase {
+    Fetching,
+    Warming,
+    Replaying,
+    Analyzing,
+}
+
+impl RunPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RunPhase::Fetching => "fetching",
+            RunPhase::Warming => "warming",
+            RunPhase::Replaying => "replaying",
+            RunPhase::Analyzing => "analyzing",
+        }
+    }
+}
+
+/// One progress update.
+#[derive(Debug, Clone)]
+pub struct RunProgress {
+    pub phase: RunPhase,
+    /// 0..=100.
+    pub pct: f32,
+    pub message: String,
+}
+
+/// v8.2 run controls: an optional progress callback + a shared cancel
+/// flag. Both are checked/emitted at warm-chunk and replay-loop
+/// boundaries. `None` progress = silent run (tests, legacy callers).
+pub struct RunControls {
+    pub progress: Option<Arc<dyn Fn(RunProgress) + Send + Sync>>,
+    pub cancel: Arc<AtomicBool>,
+}
+
+impl Default for RunControls {
+    fn default() -> Self {
+        Self {
+            progress: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl RunControls {
+    fn emit(&self, phase: RunPhase, pct: f32, message: impl Into<String>) {
+        if let Some(cb) = &self.progress {
+            cb(RunProgress {
+                phase,
+                pct: pct.clamp(0.0, 100.0),
+                message: message.into(),
+            });
+        }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
 }
 
 /// Run the deep-history simulation for the given window. The caller has
 /// already validated archive coverage; this function replays
-/// deterministically and returns the standard `BacktestResult`.
+/// deterministically and returns the standard `BacktestResult`
+/// (`result.cancelled` is true when the run was aborted).
 pub async fn run_historical_backtest(
     pool: &SqlitePool,
     params: &BacktestParams,
@@ -81,50 +202,137 @@ pub async fn run_historical_backtest(
     cross_leverage: u32,
     analytics: performance_analytics::strategy_analytics::AnalyticsParams,
     run_cfg: &HistoricalRunConfig,
+    controls: &RunControls,
 ) -> BacktestResult {
-    // Burn-in: the first `warmup_bars × max_tf` seconds produce no
-    // decisions — they only warm the indicator windows.
-    let max_tf = run_cfg.ladder.iter().copied().max().unwrap_or(900);
-    let burn_in_secs = run_cfg.warmup_bars as i64 * max_tf as i64;
-    let load_from = params.from_secs.saturating_sub(burn_in_secs);
-
-    // ── 1. Load + warm every ladder TF (parallel — the warm path is the
-    // CPU-bound cost; the tokio blocking pool runs each TF on its own
-    // thread). ──
-    let mut warm_futures = Vec::with_capacity(run_cfg.ladder.len());
-    for tf in run_cfg.ladder.iter().copied() {
-        let candles = load_archive(pool, &run_cfg.symbol, tf, load_from, params.to_secs).await;
-        let cfg = run_cfg.clone();
-        warm_futures.push(tokio::task::spawn_blocking(move || warm_tf(&cfg, tf, candles)));
+    let no_specs = || {
+        controls.emit(RunPhase::Replaying, 0.0, "no instances to replay");
+        let mut result = crate::recorded::finalize_result(
+            params,
+            Vec::new(),
+            Vec::new(),
+            run_cfg.max_equity_points,
+            analytics,
+            Vec::new(),
+            Vec::new(),
+        );
+        result.cancelled = true;
+        result
+    };
+    if run_cfg.symbols.is_empty() {
+        return no_specs();
     }
-    let mut per_tf_snapshots: HashMap<u64, Vec<MarketSnapshot>> = HashMap::new();
-    for (tf, fut) in run_cfg.ladder.iter().zip(warm_futures) {
-        match fut.await {
-            Ok(snaps) => {
-                per_tf_snapshots.insert(*tf, snaps);
-            }
-            Err(e) => eprintln!("BTE warm task failed for {tf}s: {e}"),
+
+    // ── 1. Load + warm every symbol × ladder TF (parallel — the warm
+    // path is the CPU-bound cost; the tokio blocking pool runs each
+    // symbol×TF on its own thread). ──
+    let mut warm_jobs: Vec<(String, u64, tokio::task::JoinHandle<Vec<MarketSnapshot>>)> =
+        Vec::new();
+    for spec in &run_cfg.symbols {
+        let max_tf = spec.ladder.iter().copied().max().unwrap_or(900);
+        let burn_in = run_cfg.warmup_bars as i64 * max_tf as i64;
+        let load_from = params.from_secs.saturating_sub(burn_in);
+        for tf in spec.ladder.iter().copied() {
+            let candles = load_archive(pool, &spec.symbol, tf, load_from, params.to_secs).await;
+            let cfg = run_cfg.clone();
+            warm_jobs.push((
+                spec.symbol.clone(),
+                tf,
+                tokio::task::spawn_blocking(move || warm_tf(&cfg, tf, candles)),
+            ));
         }
     }
 
-    // ── 2. Replay the entry TF through the MTF synthesizer + executor ──
+    let total_warms = warm_jobs.len().max(1) as f32;
+    let mut per_tf_snapshots: HashMap<(String, u64), Vec<MarketSnapshot>> = HashMap::new();
+    let mut completed_warms = 0u32;
+    for (symbol, tf, fut) in warm_jobs {
+        if controls.cancelled() {
+            let mut result = crate::recorded::finalize_result(
+                params,
+                Vec::new(),
+                Vec::new(),
+                run_cfg.max_equity_points,
+                analytics,
+                Vec::new(),
+                Vec::new(),
+            );
+            result.cancelled = true;
+            return result;
+        }
+        match fut.await {
+            Ok(snaps) => {
+                per_tf_snapshots.insert((symbol.clone(), tf), snaps);
+            }
+            Err(e) => eprintln!("BTE warm task failed for {symbol}/{tf}s: {e}"),
+        }
+        completed_warms += 1;
+        controls.emit(
+            RunPhase::Warming,
+            completed_warms as f32 / total_warms * 100.0,
+            format!(
+                "warming {symbol} {tf}s ({completed_warms}/{})",
+                total_warms as u32
+            ),
+        );
+    }
+
+    // ── 2. Shared engine + executor (state keyed by symbol — the live
+    // multi-instance architecture) + simulated safety managers. ──
     let engine = Arc::new(ExecutionEngine::new(fees.clone()));
     engine
-        .set_initial_equity(
-            Decimal::from_f64_retain(params.initial_capital).unwrap_or(dec!(1000)),
-        )
+        .set_initial_equity(Decimal::from_f64_retain(params.initial_capital).unwrap_or(dec!(1000)))
         .await;
     engine.set_cross_leverage(cross_leverage).await;
     let executor = SetupExecutor::new(engine.clone(), tae_cfg);
 
-    let entry_tf = params.timeframe_secs;
-    let entry_snapshots: Vec<MarketSnapshot> = per_tf_snapshots
-        .get(&entry_tf)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|s| (s.timestamp as i64) >= params.from_secs && (s.timestamp as i64) <= params.to_secs)
-        .collect();
+    let mut safety_managers: HashMap<String, Arc<SafetyManager>> = HashMap::new();
+    for spec in &run_cfg.symbols {
+        let mgr = Arc::new(SafetyManager::new(
+            run_cfg.safety.caution_threshold,
+            run_cfg.safety.dropout_threshold,
+            run_cfg.safety.dropout_duration_hours,
+            run_cfg.safety.drawdown_limit_pct,
+            run_cfg.safety.max_daily_drawdown_pct,
+            run_cfg.safety.systemic_risk_threshold,
+        ));
+        mgr.set_initial_capital(
+            Decimal::from_f64_retain(params.initial_capital).unwrap_or(dec!(1000)),
+        )
+        .await;
+        safety_managers.insert(spec.symbol.clone(), mgr);
+    }
+
+    // ── 3. Per-symbol entry series (smallest ladder TF, window-filtered)
+    // merged k-way into one timestamp-ordered event stream. ──
+    struct Event {
+        ts: u64,
+        symbol: String,
+        entry_tf: u64,
+        snap: MarketSnapshot,
+    }
+    let mut events: Vec<Event> = Vec::new();
+    for spec in &run_cfg.symbols {
+        let entry_tf = spec.ladder.iter().copied().min().unwrap_or(60);
+        let snaps: Vec<MarketSnapshot> = per_tf_snapshots
+            .get(&(spec.symbol.clone(), entry_tf))
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| {
+                (s.timestamp as i64) >= params.from_secs && (s.timestamp as i64) <= params.to_secs
+            })
+            .collect();
+        events.extend(snaps.into_iter().map(|snap| Event {
+            ts: snap.timestamp,
+            symbol: spec.symbol.clone(),
+            entry_tf,
+            snap,
+        }));
+    }
+    // Deterministic order: ascending timestamp, ties broken by symbol
+    // name (stable, documented in the parity contract).
+    events.sort_by(|a, b| a.ts.cmp(&b.ts).then_with(|| a.symbol.cmp(&b.symbol)));
+    let total_events = events.len().max(1) as f32;
 
     let mut trades: Vec<BacktestTrade> = Vec::new();
     let mut equity_points: Vec<(i64, f64)> = Vec::new();
@@ -132,41 +340,110 @@ pub async fn run_historical_backtest(
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
     let mut peak_equity: f64 = params.initial_capital;
 
-    // MTF synthesis state carried across ticks (mirrors the live loop).
-    let mut prev_score: Option<f64> = None;
-    let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
-    let mut prev_volume_dim: Option<f64> = None;
-    let mut prev_bias: Option<MarketBias> = None;
+    // MTF synthesis state carried per symbol across ticks (mirrors the
+    // live loop — state must not leak across symbols).
+    struct MtfState {
+        prev_score: Option<f64>,
+        prev_regime: Option<core_domain::analysis::MarketRegime>,
+        prev_volume_dim: Option<f64>,
+        prev_bias: Option<MarketBias>,
+    }
+    let mut mtf_states: HashMap<String, MtfState> = run_cfg
+        .symbols
+        .iter()
+        .map(|s| {
+            (
+                s.symbol.clone(),
+                MtfState {
+                    prev_score: None,
+                    prev_regime: None,
+                    prev_volume_dim: None,
+                    prev_bias: None,
+                },
+            )
+        })
+        .collect();
 
-    for mut snap in entry_snapshots {
-        // Gather the latest aligned snapshot per ladder TF (≤ entry ts).
-        let mut tf_refs: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(run_cfg.ladder.len());
-        for tf in &run_cfg.ladder {
-            if let Some(series) = per_tf_snapshots.get(tf) {
-                if let Some(latest) = latest_at_or_before(series, snap.timestamp) {
+    // Simulated 8h funding clock: settle at every multiple of
+    // FUNDING_INTERVAL_SECS crossed by the replay clock.
+    let first_ts = events
+        .first()
+        .map(|e| e.ts as i64)
+        .unwrap_or(params.from_secs);
+    let mut next_funding = first_ts
+        .div_euclid(FUNDING_INTERVAL_SECS)
+        .saturating_mul(FUNDING_INTERVAL_SECS)
+        .saturating_add(FUNDING_INTERVAL_SECS);
+
+    let mut completed_ticks = 0u32;
+    let mut cancelled = false;
+
+    for ev in &events {
+        if controls.cancelled() {
+            cancelled = true;
+            break;
+        }
+        completed_ticks += 1;
+        controls.emit(
+            RunPhase::Replaying,
+            completed_ticks as f32 / total_events * 100.0,
+            format!("replaying {} @ {}", ev.symbol, ev.ts),
+        );
+
+        let spec = run_cfg
+            .symbols
+            .iter()
+            .find(|s| s.symbol == ev.symbol)
+            .expect("event symbol must exist in run config");
+        let safety = safety_managers
+            .get(&ev.symbol)
+            .cloned()
+            .expect("safety manager per symbol");
+
+        // Simulated funding settlement at 8h replay boundaries.
+        while (ev.ts as i64) >= next_funding {
+            engine.settle_funding().await;
+            next_funding = next_funding.saturating_add(FUNDING_INTERVAL_SECS);
+        }
+
+        // Gather the latest aligned snapshot per ladder TF (≤ event ts)
+        // for THIS symbol only — never another symbol's buffers.
+        let mut tf_refs: Vec<(u64, MarketSnapshot)> = Vec::with_capacity(spec.ladder.len());
+        for tf in &spec.ladder {
+            if let Some(series) = per_tf_snapshots.get(&(ev.symbol.clone(), *tf)) {
+                if let Some(latest) = latest_at_or_before(series, ev.ts) {
                     tf_refs.push((*tf, latest.clone()));
                 }
             }
         }
 
+        let mut snap = ev.snap.clone();
+        let mut mtf = mtf_states.remove(&ev.symbol).unwrap_or(MtfState {
+            prev_score: None,
+            prev_regime: None,
+            prev_volume_dim: None,
+            prev_bias: None,
+        });
+
         // ── The SAME pure synthesizer the live L4/L5 assembly calls ──
         let cross: Vec<(u64, &MarketSnapshot)> = tf_refs.iter().map(|(t, s)| (*t, s)).collect();
         let synthesis = market_analyzer::synthesis::synthesize_cross_tf(
-            &run_cfg.symbol,
+            &ev.symbol,
             &cross,
             None,
             None,
             &[],
-            prev_score,
-            prev_regime,
-            prev_volume_dim,
-            prev_bias,
+            mtf.prev_score,
+            mtf.prev_regime,
+            mtf.prev_volume_dim,
+            mtf.prev_bias,
         );
 
-        prev_score = Some(synthesis.alignment.mtf_overall_score);
-        prev_regime = Some(synthesis.analysis.market_regime);
-        prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
-        prev_bias = Some(synthesis.analysis.bias);
+        mtf.prev_score = Some(synthesis.alignment.mtf_overall_score);
+        mtf.prev_regime = Some(synthesis.analysis.market_regime);
+        mtf.prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
+        mtf.prev_bias = Some(synthesis.analysis.bias);
+        mtf_states.insert(ev.symbol.clone(), mtf);
 
         // Confluence score — the same unsigned 3-factor blend as live.
         let confluence_score = {
@@ -204,21 +481,27 @@ pub async fn run_historical_backtest(
         snap.advisory = Some(synthesis.advisory.clone());
         snap.is_completed = Some(true);
 
+        // v8.2 parity: the simulated safety ladder is the soft entry gate.
+        let safety_state = *safety.safety_state.read().await;
+        let safety_allows =
+            safety_state != SafetyState::DrawdownStop && safety_state != SafetyState::Suspended;
+
         let mid = snap.mid_price;
-        let rec_ts = snap.timestamp as u64;
+        let rec_ts = snap.timestamp;
         let outcome = run_tick(
             &engine,
             &executor,
             "backtest-historical",
-            &run_cfg.symbol,
+            &ev.symbol,
             &[&snap],
             mid,
             TickContext {
-                safety_allows_entry: true,
+                safety_allows_entry: safety_allows,
                 lifecycle_running: true,
                 candle_ts: rec_ts,
-                safety: None,
+                safety: Some(safety.clone()),
                 dispatch: true,
+                allocation_pct: spec.allocation_pct,
             },
             None,
             true,
@@ -266,9 +549,13 @@ pub async fn run_historical_backtest(
         let total = engine.get_equity_decimal().await + unrealized;
         equity_points.push((snap.timestamp as i64, total.to_f64().unwrap_or(0.0)));
 
+        // v8.2 parity: the simulated SafetyManager tracks the shared
+        // equity exactly like the live daemon's per-instance update.
+        let _ = safety.update(total).await;
+
         crate::recorded::capture_tick_ds(
             snap.timestamp as i64,
-            entry_tf,
+            ev.entry_tf,
             &snap,
             &engine,
             &mut signals,
@@ -278,7 +565,84 @@ pub async fn run_historical_backtest(
         .await;
     }
 
-    crate::recorded::finalize_result(
+    // ── 4. End-of-run policy: force-close every open position at the
+    // final replayed candle close (exit_reason = "end_of_backtest") so
+    // the ledger and trade statistics are complete. ──
+    if !cancelled {
+        let last_ts = events
+            .last()
+            .map(|e| e.ts)
+            .unwrap_or(params.to_secs.max(0) as u64);
+        loop {
+            // One symbol per iteration — the position map mutates on close.
+            let open_symbols: Vec<String> = {
+                let positions = engine.positions.read().await;
+                positions.keys().cloned().collect()
+            };
+            let Some(symbol) = open_symbols.into_iter().next() else {
+                break;
+            };
+            // The final mark for the symbol: its latest entry-TF close.
+            let final_mid = {
+                let spec = run_cfg.symbols.iter().find(|s| s.symbol == symbol);
+                let entry_tf = spec
+                    .and_then(|s| s.ladder.iter().copied().min())
+                    .unwrap_or(60);
+                per_tf_snapshots
+                    .get(&(symbol.clone(), entry_tf))
+                    .and_then(|series| latest_at_or_before(series, last_ts))
+                    .map(|s| s.mid_price)
+                    .unwrap_or(dec!(0))
+            };
+            if final_mid <= dec!(0) {
+                break;
+            }
+            let (entry, size, direction) = match engine.get_position(&symbol).await {
+                Some(pos) => (
+                    pos.entry_price.to_f64().unwrap_or(0.0),
+                    pos.size.to_f64().unwrap_or(0.0),
+                    Some(pos.direction),
+                ),
+                None => break,
+            };
+            let _ = engine
+                .close_position(&symbol, final_mid, "end_of_backtest")
+                .await;
+            let pnl = engine
+                .take_last_close(&symbol)
+                .await
+                .map(|c| c.pnl.to_f64().unwrap_or(0.0))
+                .unwrap_or(0.0);
+            let exit = if size > 0.0 {
+                match direction {
+                    Some(config_models::Direction::Short) => entry - pnl / size,
+                    _ => entry + pnl / size,
+                }
+            } else {
+                entry
+            };
+            let direction_str = match direction {
+                Some(config_models::Direction::Long) => "LONG",
+                Some(config_models::Direction::Short) => "SHORT",
+                None => "UNKNOWN",
+            };
+            trades.push(BacktestTrade {
+                timestamp: last_ts as i64,
+                direction: direction_str.to_string(),
+                entry_price: entry,
+                exit_price: exit,
+                size,
+                pnl,
+                exit_reason: "end_of_backtest".to_string(),
+            });
+            equity_points.push((
+                last_ts as i64,
+                engine.get_equity_decimal().await.to_f64().unwrap_or(0.0),
+            ));
+        }
+    }
+
+    let mut result = crate::recorded::finalize_result(
         params,
         trades,
         equity_points,
@@ -286,7 +650,10 @@ pub async fn run_historical_backtest(
         analytics,
         signals,
         portfolio,
-    )
+    );
+    result.cancelled = cancelled;
+    controls.emit(RunPhase::Analyzing, 100.0, "analysis complete");
+    result
 }
 
 /// Load the archived candle window for one TF, ascending.
@@ -318,17 +685,42 @@ fn warm_tf(
     tf: u64,
     candles: Vec<NormalizedCandle>,
 ) -> Vec<MarketSnapshot> {
+    // Slot identity: match against any symbol's ladder position so the
+    // warm path labels the timeframe slot the same way the registry does.
+    let ladder = run_cfg
+        .symbols
+        .iter()
+        .find(|s| s.ladder.contains(&tf))
+        .map(|s| s.ladder.clone())
+        .unwrap_or_else(|| vec![tf]);
     let tf_config = run_cfg
-        .tf_configs
-        .get(&tf)
-        .cloned()
-        .unwrap_or_else(|| config_models::TimeframeConfig::new(tf, config_models::IndicatorsConfig::default()));
+        .symbols
+        .iter()
+        .find_map(|s| s.tf_configs.get(&tf).cloned())
+        .or_else(|| {
+            ladder
+                .iter()
+                .find(|t| **t == tf)
+                .map(|_| ())
+                .and(None::<config_models::TimeframeConfig>)
+        })
+        .unwrap_or_else(|| {
+            config_models::TimeframeConfig::new(tf, config_models::IndicatorsConfig::default())
+        });
     let slot = match tf {
-        _ if tf == run_cfg.ladder.first().copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Micro,
-        _ if tf == run_cfg.ladder.get(1).copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Fast,
-        _ if tf == run_cfg.ladder.get(2).copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Slow,
+        _ if tf == ladder.first().copied().unwrap_or(0) => {
+            core_domain::models::TimeframeSlot::Micro
+        }
+        _ if tf == ladder.get(1).copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Fast,
+        _ if tf == ladder.get(2).copied().unwrap_or(0) => core_domain::models::TimeframeSlot::Slow,
         _ => core_domain::models::TimeframeSlot::Macro,
     };
+    let symbol = run_cfg
+        .symbols
+        .iter()
+        .find(|s| s.ladder.contains(&tf))
+        .map(|s| s.symbol.clone())
+        .unwrap_or_else(|| "backtest".to_string());
 
     let mut out: Vec<MarketSnapshot> = Vec::new();
     let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
@@ -345,7 +737,7 @@ fn warm_tf(
             chunk,
             &tf_config,
             &run_cfg.fib_config,
-            &run_cfg.symbol,
+            &symbol,
             tf,
             slot,
             CHUNK_CANDLES,
@@ -421,10 +813,10 @@ mod tests {
     fn tae_cfg() -> config_models::MinimalTaeConfig {
         config_models::MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: 1.0,
             max_position_size_usd: None,
-            max_open_positions: 1,
+            max_open_positions: 10,
             entry_mode: "zone_midpoint".to_string(),
             invalidate_on: "direction_flip".to_string(),
         }
@@ -436,7 +828,8 @@ mod tests {
         let mut out = Vec::new();
         let mut ts = 1_700_000_000u64;
         for i in 0..(bars_per_day * days) {
-            let close = 100.0 + (i as f64 * 0.02)
+            let close = 100.0
+                + (i as f64 * 0.02)
                 + 3.0 * ((i as f64) * 0.35 + phase_deg.to_radians()).sin();
             out.push(candle("BTC-USDC", tf, ts, close));
             ts += tf;
@@ -444,21 +837,57 @@ mod tests {
         out
     }
 
-    fn run_cfg(ladder: Vec<u64>) -> HistoricalRunConfig {
+    fn symbol_spec(symbol: &str, ladder: Vec<u64>) -> SymbolSpec {
         let mut tf_configs = HashMap::new();
         for tf in &ladder {
-            tf_configs.insert(*tf, config_models::TimeframeConfig::new(*tf, config_models::IndicatorsConfig::default()));
+            tf_configs.insert(
+                *tf,
+                config_models::TimeframeConfig::new(
+                    *tf,
+                    config_models::IndicatorsConfig::default(),
+                ),
+            );
         }
-        HistoricalRunConfig {
-            symbol: "BTC-USDC".into(),
+        SymbolSpec {
+            symbol: symbol.into(),
             ladder,
             tf_configs,
+            allocation_pct: None,
+        }
+    }
+
+    fn run_cfg(symbols: Vec<SymbolSpec>) -> HistoricalRunConfig {
+        HistoricalRunConfig {
+            symbols,
             fib_config: FibonacciConfig::default(),
             active_set: ActiveSet::default(),
             exchange: Exchange::Hyperliquid,
             warmup_bars: 60,
             max_equity_points: 2000,
+            safety: SafetyParams::default(),
         }
+    }
+
+    fn controls() -> RunControls {
+        RunControls::default()
+    }
+
+    async fn run(
+        pool: &SqlitePool,
+        params: &BacktestParams,
+        cfg: &HistoricalRunConfig,
+    ) -> BacktestResult {
+        run_historical_backtest(
+            pool,
+            params,
+            &tae_cfg(),
+            &FeesConfig::default(),
+            20,
+            performance_analytics::strategy_analytics::AnalyticsParams::default(),
+            cfg,
+            &controls(),
+        )
+        .await
     }
 
     #[tokio::test]
@@ -466,7 +895,8 @@ mod tests {
         let pool = seed_pool().await;
         let tf = 900u64;
         let candles = synthetic_days(2, tf, 0.0);
-        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill").await;
+        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill")
+            .await;
 
         let from = candles.first().unwrap().start_time_ms / 1000 + 60 * tf;
         let to = candles.last().unwrap().start_time_ms / 1000;
@@ -477,17 +907,12 @@ mod tests {
             to_secs: to as i64,
             initial_capital: 1000.0,
         };
-        let cfg = run_cfg(vec![tf]);
+        let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
 
-        let r1 = run_historical_backtest(
-            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
-            performance_analytics::strategy_analytics::AnalyticsParams::default(), &cfg,
-        ).await;
-        let r2 = run_historical_backtest(
-            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
-            performance_analytics::strategy_analytics::AnalyticsParams::default(), &cfg,
-        ).await;
+        let r1 = run(&pool, &params, &cfg).await;
+        let r2 = run(&pool, &params, &cfg).await;
 
+        assert!(!r1.cancelled && !r2.cancelled);
         assert_eq!(r1.trades.len(), r2.trades.len(), "deterministic trades");
         assert_eq!(r1.equity_curve.len(), r2.equity_curve.len());
         for (a, b) in r1.equity_curve.iter().zip(&r2.equity_curve) {
@@ -506,7 +931,8 @@ mod tests {
         let pool = seed_pool().await;
         let tf = 900u64;
         let candles = synthetic_days(1, tf, 0.0);
-        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill").await;
+        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill")
+            .await;
 
         let from = candles.last().unwrap().start_time_ms / 1000; // last bar only
         let to = from;
@@ -517,11 +943,8 @@ mod tests {
             to_secs: to as i64,
             initial_capital: 1000.0,
         };
-        let cfg = run_cfg(vec![tf]);
-        let r = run_historical_backtest(
-            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
-            performance_analytics::strategy_analytics::AnalyticsParams::default(), &cfg,
-        ).await;
+        let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
+        let r = run(&pool, &params, &cfg).await;
         // A single-bar window can produce at most one trade; the run must
         // complete and carry the standard result shape regardless.
         assert!(r.total_trades <= 1);
@@ -534,12 +957,100 @@ mod tests {
         let tf = 60u64;
         let candles = synthetic_days(2, tf, 90.0);
         let candles = candles.into_iter().take(900).collect::<Vec<_>>();
-        let cfg = run_cfg(vec![tf]);
+        let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
         let snaps = warm_tf(&cfg, tf, candles);
-        assert!(snaps.len() >= 500, "chunked replay emits the bulk of the series");
+        assert!(
+            snaps.len() >= 500,
+            "chunked replay emits the bulk of the series"
+        );
         // Ascending + unique.
         for w in snaps.windows(2) {
             assert!(w[0].timestamp < w[1].timestamp, "ascending ts");
         }
+    }
+
+    #[tokio::test]
+    async fn multi_symbol_run_shares_equity_ledger() {
+        let pool = seed_pool().await;
+        let tf = 900u64;
+        // Two symbols with interleaved timestamps (B offset by half a bar).
+        let mut a = synthetic_days(2, tf, 0.0);
+        for c in &mut a {
+            c.symbol = "BTC-USDC".to_string();
+        }
+        let mut b = synthetic_days(2, tf, 90.0);
+        for (i, c) in b.iter_mut().enumerate() {
+            c.symbol = "ETH-USDC".to_string();
+            c.start_time_ms = a[0].start_time_ms + (i as u64) * tf * 1000 + tf * 500;
+        }
+        database_storage::queries::archive::upsert_archive_candles(&pool, &a, "backfill").await;
+        database_storage::queries::archive::upsert_archive_candles(&pool, &b, "backfill").await;
+
+        let from = a.first().unwrap().start_time_ms / 1000 + 60 * tf;
+        let to = a.last().unwrap().start_time_ms / 1000 + tf;
+        let params = BacktestParams {
+            symbol: "multi".into(),
+            timeframe_secs: tf,
+            from_secs: from as i64,
+            to_secs: to as i64,
+            initial_capital: 1000.0,
+        };
+        let cfg = run_cfg(vec![
+            symbol_spec("BTC-USDC", vec![tf]),
+            symbol_spec("ETH-USDC", vec![tf]),
+        ]);
+        let r = run(&pool, &params, &cfg).await;
+        assert!(!r.cancelled, "multi-symbol run completes");
+        // The final equity point must reflect the shared ledger (capital +
+        // all realized PnL); conservation: equity never negative.
+        if let Some((_, last_equity)) = r.equity_curve.last() {
+            assert!(*last_equity > 0.0, "shared equity stays positive");
+        }
+        // Every trade carries the standard vocabulary.
+        for t in &r.trades {
+            assert!(
+                ["tp", "sl", "invalidated_signal", "end_of_backtest"]
+                    .contains(&t.exit_reason.as_str()),
+                "exit reason vocabulary: {}",
+                t.exit_reason
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_aborts_replay_with_no_partial_results() {
+        let pool = seed_pool().await;
+        let tf = 60u64;
+        let candles = synthetic_days(1, tf, 0.0);
+        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill")
+            .await;
+
+        let from = candles.first().unwrap().start_time_ms / 1000;
+        let to = candles.last().unwrap().start_time_ms / 1000;
+        let params = BacktestParams {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: tf,
+            from_secs: from as i64,
+            to_secs: to as i64,
+            initial_capital: 1000.0,
+        };
+        let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
+        let ctrl = RunControls {
+            progress: None,
+            cancel: Arc::new(AtomicBool::new(true)),
+        };
+        let r = run_historical_backtest(
+            &pool,
+            &params,
+            &tae_cfg(),
+            &FeesConfig::default(),
+            20,
+            performance_analytics::strategy_analytics::AnalyticsParams::default(),
+            &cfg,
+            &ctrl,
+        )
+        .await;
+        assert!(r.cancelled, "pre-cancelled run reports cancelled");
+        assert_eq!(r.trades.len(), 0, "no partial trades persisted");
     }
 }

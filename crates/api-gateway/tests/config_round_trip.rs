@@ -78,6 +78,7 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         automation: config_models::AutomationConfig::default(),
         operational_mode: config_models::OperationalMode::Advisory,
         mode: config_models::ExecutionMode::Paper,
+        allocation_pct: None,
         weight_overrides: None,
         position_scaling: None,
         activation: None,

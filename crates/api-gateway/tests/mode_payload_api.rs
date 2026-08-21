@@ -96,7 +96,11 @@ fn mode_str(mode: ExecutionMode) -> &'static str {
 
 #[tokio::test]
 async fn instance_list_carries_per_instance_mode() {
-    for mode in [ExecutionMode::Observe, ExecutionMode::Paper, ExecutionMode::Live] {
+    for mode in [
+        ExecutionMode::Observe,
+        ExecutionMode::Paper,
+        ExecutionMode::Live,
+    ] {
         let (state, _inst) = build_state(mode).await;
         let json = get_json(state, "/api/instances").await;
         let first = &json["instances"][0];
@@ -107,7 +111,11 @@ async fn instance_list_carries_per_instance_mode() {
 
 #[tokio::test]
 async fn portfolio_payload_carries_mode() {
-    for mode in [ExecutionMode::Observe, ExecutionMode::Paper, ExecutionMode::Live] {
+    for mode in [
+        ExecutionMode::Observe,
+        ExecutionMode::Paper,
+        ExecutionMode::Live,
+    ] {
         let (state, _inst) = build_state(mode).await;
         let json = get_json(state, "/api/instances/inst_test/portfolio").await;
         assert_eq!(json["instance_id"], "inst_test");
@@ -117,7 +125,11 @@ async fn portfolio_payload_carries_mode() {
 
 #[tokio::test]
 async fn automation_payload_reports_instance_mode_and_ghost_flag() {
-    for mode in [ExecutionMode::Observe, ExecutionMode::Paper, ExecutionMode::Live] {
+    for mode in [
+        ExecutionMode::Observe,
+        ExecutionMode::Paper,
+        ExecutionMode::Live,
+    ] {
         let (state, _inst) = build_state(mode).await;
         let json = get_json(state, "/api/instances/inst_test/automation").await;
         assert_eq!(json["mode"], mode_str(mode), "automation mode mismatch");

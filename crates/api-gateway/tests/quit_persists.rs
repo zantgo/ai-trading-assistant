@@ -122,6 +122,7 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         automation: Default::default(),
         operational_mode: Default::default(),
         mode: config_models::ExecutionMode::Paper,
+        allocation_pct: None,
         weight_overrides: None,
         position_scaling: None,
         activation: None,

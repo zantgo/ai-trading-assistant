@@ -95,7 +95,7 @@ The Position Layer reads updated invalidation levels from the MME [Decision Matr
 
 ### 4.3 Thesis Invalidation (invalidation_level breach)
 
-A close at or beyond `invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-portfolio.md)). The liquidation:
+A close at or beyond `invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-overview.md)). The liquidation:
 
 - Bypasses the Position Sizing Protocol (size is copied verbatim from the Position Matrix).
 - Forces `reduce_only = true` and `is_emergency_liquidation = true` (v7: dispatched by the TAE stop-flatten path; there is no stance check anymore).

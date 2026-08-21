@@ -17,7 +17,7 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 ```
 [Position Matrix] ─┐
                    ├──► CAPITAL LAYER (L3) ──► [Capital Matrix] ──► [TAE sizing]
-[Exposure Matrix] ─┘                                               └──► [Portfolio Layer (L4)]
+[Exposure Matrix] ─┘                                               └──► [Overview Layer (L4)]
 ```
 
 ---
@@ -51,7 +51,7 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 |-------|------|-------------|
 | `margin_usage_ratio` | `Decimal` | Fraction of total equity committed to maintenance/initial margin, in `[0, 1]`. Multiply by 100 for human-readable display. |
 | `leverage_ratio` | `Decimal` | `gross_exposure / current_equity` (fraction, `[0, ∞)`). |
-| `max_daily_drawdown_pct` | `Decimal` | **Configuration limit** — the operator-set early-warning threshold (default 0.05 i.e. 5%). Distinguished from the live metric `daily_drawdown_pct` computed at runtime. Triggers `safety_state = WARN` (no stance change) when the live metric crosses the configured limit; see [03-04-05-pme-layer4-portfolio.md §3](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
+| `max_daily_drawdown_pct` | `Decimal` | **Configuration limit** — the operator-set early-warning threshold (default 0.05 i.e. 5%). Distinguished from the live metric `daily_drawdown_pct` computed at runtime. Triggers `safety_state = WARN` (no stance change) when the live metric crosses the configured limit; see [03-04-05-pme-layer4-overview.md §3](../portfolio-management-engine/03-04-05-pme-layer4-overview.md). |
 | `daily_pnl` | `Decimal` | Equity change since session start (the **live metric**; corresponds to the older name `current_daily_pnl`). Used for WARN evaluation as `daily_drawdown_pct = -daily_pnl / starting_session_equity`. |
 | `starting_session_equity` | `Decimal` | Equity recorded at the most recent session-reset boundary (operator-defined `session_reset_cron`, default `00:00 UTC`). On session reset, set to the current `current_equity` value. Persisted across restarts. |
 
@@ -124,7 +124,7 @@ The Capital Layer continuously monitors `margin_usage_ratio` (fraction in `[0, 1
 
 | Threshold | Action |
 |-----------|--------|
-| `margin_usage_ratio ≥ 0.80` | Warning published to Portfolio Layer (L4). |
+| `margin_usage_ratio ≥ 0.80` | Warning published to Overview Layer (L4). |
 | `margin_usage_ratio ≥ 0.95` | Alert: automatic `CLOSE_ONLY` stance for all symbols (see PME Layer 4 §4.1 for trigger-to-stance mapping). |
 | `margin_usage_ratio ≥ 1.00` | Potential liquidation — emergency position reduction (PME Veto triggers `AVOID` stance + Hard Exit path). |
 
@@ -136,7 +136,7 @@ The Capital Layer is the **single source of truth** for the TAE Position Sizing 
 
 1. TAE Execution Layer sends a synchronous request: `query_available_margin(symbol)`.
 2. Capital Layer responds with `available_margin`. The query is **read-only** — no reservation is taken at query time. Margin is committed only when the order passes Gate 3 at dispatch.
-3. TAE computes $S = \frac{E \times R}{D_{sl} / 100}$ and dispatches the order. *(Units: `E` = available margin (Decimal, quote currency); `R = risk_per_trade_pct / 100` (unitless fraction in `[0, 1]`); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
+3. TAE computes $\text{notional} = \text{equity} \times \text{allocation\_pct} / 100$ and dispatches the order. *(Units: `equity` = engine ledger equity (Decimal, quote currency); `allocation_pct` = raw percent in `[1, 100]`; `size_units` = notional ÷ entry price.)*
 4. On fill confirmation, Capital Layer updates `committed_margin` and `available_margin`.
 
 ---
@@ -156,6 +156,6 @@ The Capital Layer is the **single source of truth** for the TAE Position Sizing 
 - [PME Overview](../portfolio-management-engine/03-04-01-pme-overview-spec.md) — Engine boundaries and ledger model.
 - [PME Layer 1 — Position](03-04-02-pme-layer1-position.md) — Upstream valuation source.
 - [PME Layer 2 — Exposure](03-04-03-pme-layer2-exposure.md) — Leverage and exposure aggregation.
-- [PME Layer 4 — Portfolio](03-04-05-pme-layer4-portfolio.md) — Veto and drawdown enforcement.
+- [PME Layer 4 — Overview](03-04-05-pme-layer4-overview.md) — Safety reporting and drawdown ladder.
 - [TAE Layer 2 — Execution](../trade-automation-engine/03-03-03-tae-layer2-execution.md) — Position Sizing Protocol consumer.
 - [Database Schema](../../integration-and-api/06-02-database-schema-spec.md) — `paper_balances`, `portfolio_equity_history`.

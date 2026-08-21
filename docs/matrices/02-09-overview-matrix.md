@@ -40,7 +40,7 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` and `Scalp` since the v2.1 completeness sweep — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). (`u32` because opportunity types are not mutually exclusive — a single asset can simultaneously satisfy the preconditions of multiple setups, so the map is a per-type count rather than a partition.) |
 | `risk_distribution` | `RiskDistribution` | Low/moderate/high risk share + environment label (§4). |
 | `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). |
-| `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty` — the `high_pct` term uses the **TF-decayed** high-share (micro 0.1 / fast 0.2 / slow 0.3 / macro 0.4, P7 §3 note below), and `sync_penalty` is nonzero only under a bearish `global_market_bias` (graded table §3.4). The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-portfolio.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
+| `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty` — the `high_pct` term uses the **TF-decayed** high-share (micro 0.1 / fast 0.2 / slow 0.3 / macro 0.4, P7 §3 note below), and `sync_penalty` is nonzero only under a bearish `global_market_bias` (graded table §3.4). The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-overview.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md)). |
 | `asset_ranking` | `AssetRank[]` | Assets ranked by composite score (§5). |
 | `market_synchronization` | `SyncLevel` | Cross-asset correlation of direction (§3.3). |
 | `market_health` | `HealthLevel` | Overall market health (§3.4). |
@@ -252,11 +252,11 @@ $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penal
 
 > **STRONG_BEARISH coverage (correction).** `GlobalBias` is a 6-state enum that includes both `BEARISH` and `STRONG_BEARISH` as separate bearish-class members (see §3.1). A previous version of this table used `global_market_bias != BEARISH`, which silently excluded `STRONG_BEARISH` — the regime with the worst correlated downside would have bypassed the safety penalty entirely. The corrected condition is `∈ {BEARISH, STRONG_BEARISH}` (member-set inclusion).
 
-The resulting `risk_environment` label gates the PME [Ontological Priority Veto](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+The resulting `risk_environment` label gates the PME [Ontological Priority Veto](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md).
 
 #### 4.0.1 Cross-Reference
 
-The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-portfolio.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). Systemic risk does not alter PME `safety_state`: a breach is enforced by Gate 7 (blocks new entries) and the PME veto loop (AVOID + Hard Exit).
+The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-overview.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). Systemic risk does not alter PME `safety_state`: a breach is enforced by Gate 7 (blocks new entries) and the PME veto loop (AVOID + Hard Exit).
 
 ---
 
@@ -329,5 +329,5 @@ When there are no Decision Matrices and no active instances, `compute_overview` 
 
 - [Decision Matrix](02-04-decision-matrix.md) — Per-asset input.
 - [MME Layer 7 — Overview](../engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) — Producing-layer specification.
-- [PME Layer 4 — Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Consumes the Systemic Risk Score for the veto.
+- [PME Layer 4 — Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) — Consumes the Systemic Risk Score for the veto.
 - [Ontology — Market Overview](../conceptual-foundations/01-01-ontology.md) — Conceptual definition.

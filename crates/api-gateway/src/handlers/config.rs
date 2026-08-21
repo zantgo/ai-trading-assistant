@@ -111,8 +111,8 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
         }
     }
     if let Some(tae) = &payload.minimal_tae {
-        if !f(tae.risk_per_trade_pct, 0.01, 10.0) {
-            return Some("minimal_tae.risk_per_trade_pct must be 0.01–10".into());
+        if !f(tae.allocation_pct, 1.0, 100.0) {
+            return Some("minimal_tae.allocation_pct must be 1–100".into());
         }
         if !f(tae.min_net_rr, 0.0, 20.0) {
             return Some("minimal_tae.min_net_rr must be 0–20".into());
@@ -134,7 +134,9 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
             return Some("safety.consecutive_loss_dropout must be 2–20".into());
         }
         if s.consecutive_loss_dropout <= s.consecutive_loss_caution {
-            return Some("safety.consecutive_loss_dropout must exceed consecutive_loss_caution".into());
+            return Some(
+                "safety.consecutive_loss_dropout must exceed consecutive_loss_caution".into(),
+            );
         }
         if s.dropout_duration_hours < 1 || s.dropout_duration_hours > 168 {
             return Some("safety.dropout_duration_hours must be 1–168".into());
@@ -182,15 +184,14 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
         if bt.max_equity_points < 10 || bt.max_equity_points > 100_000 {
             return Some("backtest.max_equity_points must be 10–100,000".into());
         }
-        for (exchange, limits) in [
-            ("hyperliquid", &bt.hyperliquid),
-            ("bitget", &bt.bitget),
-        ] {
+        for (exchange, limits) in [("hyperliquid", &bt.hyperliquid), ("bitget", &bt.bitget)] {
             if limits.page_cap == 0 || limits.page_cap > 10_000 {
                 return Some(format!("backtest.{exchange}.page_cap must be 1–10,000"));
             }
             if limits.max_pages_per_run == 0 || limits.max_pages_per_run > 100_000 {
-                return Some(format!("backtest.{exchange}.max_pages_per_run must be 1–100,000"));
+                return Some(format!(
+                    "backtest.{exchange}.max_pages_per_run must be 1–100,000"
+                ));
             }
         }
     }
@@ -319,17 +320,15 @@ pub async fn update_config(
             .map(|i| i.symbol.clone())
             .collect();
         for symbol in symbols {
-            if let Err(e) =
-                portfolio_supervisor::registry::recharge_instance(&ctx, &symbol).await
-            {
+            if let Err(e) = portfolio_supervisor::registry::recharge_instance(&ctx, &symbol).await {
                 eprintln!(
                     "Config update: pipeline recharge failed for {}: {}",
                     symbol, e
                 );
             } else {
-                let _ = state.recharge_tx.send(crate::RechargeNotice {
-                    pair_key: symbol,
-                });
+                let _ = state
+                    .recharge_tx
+                    .send(crate::RechargeNotice { pair_key: symbol });
             }
         }
     }

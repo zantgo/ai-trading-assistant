@@ -26,7 +26,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::execution::engine::ExecutionEngine;
-use crate::risk_calculator::{compute_risk, RiskCalculation, RiskCalculationInput};
 
 /// The accepted setup — everything the executor needs to trade it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +117,9 @@ pub struct TickContext {
     /// submits, cancels, or closes orders. The daemon sets this to `false`
     /// for observe instances — the "ghost" radar.
     pub dispatch: bool,
+    /// v8.2 per-instance allocation override (percent of portfolio equity,
+    /// 1..=100). `None` = the global `[workspace.minimal_tae].allocation_pct`.
+    pub allocation_pct: Option<f64>,
 }
 
 /// Extract the top setup from the latest completed snapshots of the 4 TFs.
@@ -254,7 +256,7 @@ fn opportunity_type_str(ot: &OpportunityType) -> String {
 /// symbol. All effects go through the unified `ExecutionEngine`.
 pub struct SetupExecutor {
     pub min_net_rr: f64,
-    pub risk_per_trade_pct: f64,
+    pub default_allocation_pct: f64,
     pub max_position_size_usd: Option<f64>,
     pub max_open_positions: u32,
     pub engine: Arc<ExecutionEngine>,
@@ -265,7 +267,7 @@ impl SetupExecutor {
     pub fn new(engine: Arc<ExecutionEngine>, cfg: &MinimalTaeConfig) -> Self {
         Self {
             min_net_rr: cfg.min_net_rr,
-            risk_per_trade_pct: cfg.risk_per_trade_pct,
+            default_allocation_pct: cfg.allocation_pct,
             max_position_size_usd: cfg.max_position_size_usd,
             max_open_positions: cfg.max_open_positions,
             engine,
@@ -340,9 +342,11 @@ impl SetupExecutor {
             return;
         }
 
-        // Sizing via the canonical risk calculator (same function as
-        // POST /api/risk/calculate — the drawer's engine).
-        let Some(projection) = self.project(plan, mid).await else {
+        // v8.2 allocation sizing: the position notional is the instance's
+        // allocated share of current portfolio equity (per-instance override
+        // wins; global `allocation_pct` is the fallback).
+        let allocation = ctx.allocation_pct.unwrap_or(self.default_allocation_pct);
+        let Some(projection) = self.project(plan, allocation).await else {
             return;
         };
         let size = projection.position_size_units;
@@ -412,7 +416,6 @@ impl SetupExecutor {
                         "setup_accepted",
                         &format!(
                             "{} {} entry={} sl={} tp={} rr={:.2} score={:.0} tf={}",
-
                             plan.direction,
                             plan.setup_type,
                             plan.entry_mid,
@@ -646,63 +649,88 @@ impl SetupExecutor {
         .await;
     }
 
-    /// Canonical sizing + projection via `compute_risk` (risk capital =
-    /// equity × risk_per_trade_pct). Notional clamped to the configured cap.
-    async fn project(&self, plan: &SetupPlan, _mid: Decimal) -> Option<SetupProjection> {
+    /// v8.2 canonical sizing + projection: portfolio-share allocation.
+    ///
+    /// `notional = equity × allocation_pct / 100`, `size = notional /
+    /// entry_mid`. The stop-loss no longer sizes the position — it defines
+    /// the risk budget / invalidation level only. Leverage still applies to
+    /// margin; the notional is clamped to the optional `max_position_size_usd`.
+    /// (`risk_calculator::compute_risk` remains the engine behind
+    /// `POST /api/risk/calculate` — a manual preview only.)
+    async fn project(&self, plan: &SetupPlan, allocation_pct: f64) -> Option<SetupProjection> {
         let equity = self.engine.get_equity_decimal().await;
-        let risk_capital = equity * Decimal::from_f64_retain(self.risk_per_trade_pct / 100.0)?;
+        if equity <= dec!(0) {
+            return None;
+        }
         let leverage = *self.engine.cross_leverage.read().await;
         let taker_pct = self.engine.fee_config.taker_fee_pct;
 
-        let input = RiskCalculationInput {
-            capital: risk_capital,
-            max_risk_pct: dec!(100),
-            leverage: leverage as i32,
-            direction: plan.direction.clone(),
-            entry_price: plan.entry_mid,
-            stop_loss_price: plan.sl,
-            take_profit_price: plan.tp,
-            commission_pct: Decimal::from_f64_retain(taker_pct)?,
-            funding_rate_8h: Decimal::from_f64_retain(self.engine.fee_config.funding_rate_8h)?,
-            spread: Decimal::from_f64_retain(self.engine.fee_config.simulated_spread_pct)?,
-            atr_value: None,
-            atr_multiplier: None,
-            atr_target_rr: None,
-            use_dynamic_atr: false,
-            min_tick_size: None,
-        };
-
-        let calc: RiskCalculation = compute_risk(&input).ok()?;
-        let mut size = calc.position_size_units;
+        let allocation = Decimal::from_f64_retain(allocation_pct / 100.0)?;
+        let notional_uncapped = equity * allocation;
+        let mut size = notional_uncapped / plan.entry_mid;
         if let Some(cap) = self.max_position_size_usd {
-            let notional = size * plan.entry_mid;
-            if notional > Decimal::from_f64_retain(cap)? {
-                size = Decimal::from_f64_retain(cap)? / plan.entry_mid;
+            let cap_d = Decimal::from_f64_retain(cap)?;
+            if size * plan.entry_mid > cap_d {
+                size = cap_d / plan.entry_mid;
             }
         }
+        if size <= dec!(0) {
+            return None;
+        }
         let notional = size * plan.entry_mid;
-        let entry_fee = notional * Decimal::from_f64_retain(taker_pct / 100.0)?;
+
+        let is_long = plan.direction == "LONG";
+        let margin = if leverage > 0 {
+            notional / Decimal::from(leverage)
+        } else {
+            notional
+        };
+        let liquidation_distance = plan.entry_mid / Decimal::from(leverage.max(1));
+        let liquidation_price = if is_long {
+            plan.entry_mid - liquidation_distance
+        } else {
+            plan.entry_mid + liquidation_distance
+        };
+
+        let taker_dec = Decimal::from_f64_retain(taker_pct / 100.0)?;
+        let entry_fee = notional * taker_dec;
         let exit_fee = entry_fee;
-        let net_profit = calc.net_pnl;
-        let margin = calc.margin_required;
+        let total_fees = entry_fee
+            + exit_fee
+            + Decimal::from_f64_retain(self.engine.fee_config.funding_rate_8h / 100.0)? * notional
+            + Decimal::from_f64_retain(self.engine.fee_config.simulated_spread_pct)?;
+
+        let estimated_profit = if is_long {
+            (plan.tp - plan.entry_mid) * size
+        } else {
+            (plan.entry_mid - plan.tp) * size
+        };
+        let net_profit = estimated_profit - total_fees;
         let roi = if margin > dec!(0) {
             net_profit / margin * dec!(100)
         } else {
             dec!(0)
         };
+        // Net R:R = fee-adjusted TP gain relative to the allocated capital.
+        let net_rr = if notional > dec!(0) {
+            Some(net_profit / notional)
+        } else {
+            None
+        };
 
         Some(SetupProjection {
-            risk_capital,
+            // The allocated capital IS the capital at risk now.
+            risk_capital: notional,
             position_size_units: size,
             position_notional: notional,
             margin_required: margin,
-            liquidation_price: calc.liquidation_price,
+            liquidation_price,
             entry_fee_usd: entry_fee,
             exit_fee_usd: exit_fee,
-            total_fees: entry_fee + exit_fee,
+            total_fees,
             net_profit_usd: net_profit,
             roi_pct: roi,
-            net_rr: calc.risk_reward_ratio,
+            net_rr,
         })
     }
 
@@ -944,7 +972,7 @@ mod tests {
         ));
         let cfg = config_models::MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: min_rr,
             max_position_size_usd: None,
             max_open_positions: max_pos,
@@ -962,6 +990,7 @@ mod tests {
             candle_ts: ts,
             safety: None,
             dispatch: true,
+            allocation_pct: None,
         }
     }
 
@@ -1111,7 +1140,7 @@ mod tests {
         assert!(engine.orders.read().await.is_empty());
 
         // No fills can open a position — there is no order to fill.
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick(
             "i1",
             "BTC-USDC",
@@ -1144,7 +1173,7 @@ mod tests {
             .await;
 
         // Price pulls into the zone → fill.
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
             .await;
 
@@ -1180,13 +1209,13 @@ mod tests {
         );
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
             .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
 
         // Price runs to TP.
-        engine.evaluate_order_fills(dec!(126)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(126)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(126), ctx(1000))
             .await;
 
@@ -1311,7 +1340,7 @@ mod tests {
         );
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
             .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
@@ -1352,7 +1381,7 @@ mod tests {
         );
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
             .await;
 
@@ -1387,7 +1416,7 @@ mod tests {
         );
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(80), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(80)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(80)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(80), ctx(1000))
             .await;
 
@@ -1410,13 +1439,13 @@ mod tests {
         );
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
             .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
 
         // Gap: mid opens far below SL (85).
-        engine.evaluate_order_fills(dec!(80)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(80)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(80), ctx(1000))
             .await;
 
@@ -1444,6 +1473,7 @@ mod tests {
             candle_ts: 1000,
             safety: None,
             dispatch: true,
+            allocation_pct: None,
         };
         ex.tick(
             "i1",
@@ -1514,10 +1544,10 @@ mod tests {
         // Close a position first (open+fill+TP close on candle 1000).
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
             .await;
-        engine.evaluate_order_fills(dec!(126)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(126)).await;
         ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(126), ctx(1000))
             .await;
         assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::Idle);
@@ -1690,7 +1720,7 @@ mod safety_ladder_tests {
         safety.set_initial_capital(dec!(1000)).await;
         let cfg = config_models::MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: 1.0,
             max_position_size_usd: None,
             max_open_positions: 1,
@@ -1712,10 +1742,11 @@ mod safety_ladder_tests {
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
                 dispatch: true,
+                allocation_pct: None,
             },
         )
         .await;
-        engine.evaluate_order_fills(dec!(94)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
         ex.tick(
             "i1",
             "BTC-USDC",
@@ -1727,13 +1758,14 @@ mod safety_ladder_tests {
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
                 dispatch: true,
+                allocation_pct: None,
             },
         )
         .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
 
         // Price crashes through SL (85) → stop fills → executor records the loss.
-        engine.evaluate_order_fills(dec!(80)).await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(80)).await;
         ex.tick(
             "i1",
             "BTC-USDC",
@@ -1745,6 +1777,7 @@ mod safety_ladder_tests {
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
                 dispatch: true,
+                allocation_pct: None,
             },
         )
         .await;
@@ -1763,7 +1796,7 @@ mod safety_ladder_tests {
         safety.set_initial_capital(dec!(1000)).await;
         let cfg = config_models::MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: 1.0,
             max_position_size_usd: None,
             max_open_positions: 1,
@@ -1785,11 +1818,12 @@ mod safety_ladder_tests {
                     lifecycle_running: true,
                     candle_ts: 1000 + i,
                     safety: Some(safety.clone()),
-                dispatch: true,
+                    dispatch: true,
+                    allocation_pct: None,
                 },
             )
             .await;
-            engine.evaluate_order_fills(dec!(94)).await;
+            engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
             ex.tick(
                 "i1",
                 "BTC-USDC",
@@ -1800,11 +1834,12 @@ mod safety_ladder_tests {
                     lifecycle_running: true,
                     candle_ts: 1000 + i,
                     safety: Some(safety.clone()),
-                dispatch: true,
+                    dispatch: true,
+                    allocation_pct: None,
                 },
             )
             .await;
-            engine.evaluate_order_fills(dec!(80)).await;
+            engine.evaluate_order_fills("BTC-USDC", dec!(80)).await;
             ex.tick(
                 "i1",
                 "BTC-USDC",
@@ -1815,7 +1850,8 @@ mod safety_ladder_tests {
                     lifecycle_running: true,
                     candle_ts: 1000 + i,
                     safety: Some(safety.clone()),
-                dispatch: true,
+                    dispatch: true,
+                    allocation_pct: None,
                 },
             )
             .await;
@@ -1839,6 +1875,7 @@ mod safety_ladder_tests {
                 candle_ts: 2000,
                 safety: Some(safety.clone()),
                 dispatch: true,
+                allocation_pct: None,
             },
         )
         .await;

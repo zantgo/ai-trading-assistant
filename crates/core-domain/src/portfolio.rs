@@ -108,10 +108,10 @@ pub struct CapitalMatrix {
     pub starting_session_equity: Decimal,
 }
 
-// ─── L4: Portfolio Matrix ──────────────────────────────────────
+// ─── L4: Overview Layer (v8.2 — renamed from "Portfolio Matrix") ────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PortfolioMatrix {
+pub struct PortfolioOverviewMatrix {
     pub current_equity: Decimal,
     pub realized_pnl: Decimal,
     pub unrealized_pnl: Decimal,

@@ -1,0 +1,1 @@
+❌ CLI backtest failed: --depth 180d exceeds Bitget's 60s history (retention ≈ 30 days)

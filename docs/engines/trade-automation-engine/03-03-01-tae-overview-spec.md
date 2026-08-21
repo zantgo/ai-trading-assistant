@@ -32,7 +32,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
                      ② Setup Executor        trade lifecycle state machine
                         │
                         ▼
-                     ③ Sizing & Economics    compute_risk → size + fees + projection
+                     ③ Sizing & Economics    allocation_pct → size + fees + projection
                         │
                         ▼
                      ④ UNIFIED ExecutionEngine ◄── ExecutionBackend trait
@@ -54,7 +54,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
 | Layer | Name | Documented In |
 |-------|------|---------------|
 | ① | Setup Intake | §3 below |
-| ② | Setup Executor (trade lifecycle) | §4 below |
+| ② | Lifecycle & Adoption Layer (trade lifecycle) | §4 below |
 | ③ | Sizing & Economics | §5 below |
 | ④ | Unified ExecutionEngine | [Layer 2 — Execution](03-03-03-tae-layer2-execution.md) |
 | ⑤ | Risk & Invalidation | §6 below |
@@ -107,7 +107,7 @@ MME (unchanged) ──► ① Setup Intake          extract top setup (entry/SL/
 5. **RR filter:** `net_rr >= config.min_net_rr` (default 1.0). Rejected setups logged with reason.
 6. **Aggregation:** among the 4 snapshots' eligible plans, pick highest `score` (ties → faster TF wins).
 
-### 4.2 Layer ② — Setup Executor (state machine)
+### 4.2 Layer ② — Lifecycle & Adoption Layer (state machine)
 
 ```
 Idle ──accept──► PendingEntry ──fill──► PositionOpen ──TP/SL/invalidate──► Closed
@@ -117,7 +117,7 @@ Idle ──accept──► PendingEntry ──fill──► PositionOpen ──T
 
 **Adoption rules (Idle → PendingEntry):**
 - No existing pending entry or open position for the symbol (one position per symbol).
-- Global position cap respected: open positions across all symbols `< max_open_positions` (default 1).
+- Global position cap respected: open positions across all symbols `< max_open_positions` (1–100, default 10).
 - Safety soft gate: instance safety state ∉ {`DRAWDOWN_STOP`, `SUSPENDED`}.
 - Lifecycle gate: instance is `RUNNING`.
 - Entry order = **limit** at `entry_mid` (LONG → `Buy`, SHORT → `Sell`), sized by Layer ③.
@@ -141,13 +141,25 @@ Idle ──accept──► PendingEntry ──fill──► PositionOpen ──T
 
 ---
 
-## 5. Layer ③ — Sizing & Economics
+## 5. Layer ③ — Sizing & Economics (v8.2 allocation model)
 
-**Canonical calculator:** `risk_calculator.rs::compute_risk` — the same function behind `POST /api/risk/calculate` (the RecommendationPanel's "Project Risk and Return" drawer). The executor calls it automatically; the drawer remains a manual preview. One source of truth for screen and execution.
+**Canonical sizing (v8.2):** the position size is the instance's allocated share of current portfolio equity — the stop-loss no longer sizes the position:
+
+```text
+notional             = equity × allocation_pct / 100
+position_size_units  = notional / entry_mid
+```
+
+- `allocation_pct` ∈ 1–100 % (global default 10 %; per-instance override; the **sum of all instance allocations is validated ≤ 100 %** — enforced at config-save, instance-create, and backtest-run).
+- `equity` comes from the shared execution-engine ledger (the platform portfolio — one equity across all instances).
+- `margin_required = notional / leverage`; `liquidation_price = entry_mid ∓ entry_mid / leverage` — leverage still applies to margin, not to the allocation itself.
+- Optional notional clamp `max_position_size_usd` still applies.
+- The old stop-distance sizing (`risk_per_trade_pct`) is **erased**; the `/api/risk/calculate` drawer retains `risk_calculator.rs::compute_risk` as a manual preview only — it no longer sizes execution.
 
 Inputs (from config + live state):
-- `entry = entry_mid`, `stop_loss = sl`, `take_profit = tp`
-- `capital` = **risk capital** = `instance equity × risk_per_trade_pct / 100`
+- `entry = entry_mid`, `stop_loss = sl`, `take_profit = tp` (risk display + bracket levels)
+- `equity` = engine ledger equity
+- `allocation_pct` = instance's portfolio share (1–100 %)
 - `leverage` = instance leverage config
 - fees = instance fee config (maker/taker), slippage bps
 
@@ -199,7 +211,7 @@ Outputs → usage:
 
 1. **Safety soft gate:** no new entries when instance safety state is `DRAWDOWN_STOP` or `SUSPENDED` (informational PME state; the only enforcement point). UI shows: `BLOCKED — safety state SUSPENDED`.
 2. **Lifecycle gate:** entries only while `RUNNING`; pause cancels pending; stop flattens.
-3. **Global position cap:** `max_open_positions` across all symbols (default 1).
+3. **Global position cap:** `max_open_positions` across all symbols (1–100, default 10).
 4. **Fill priority:** if both TP and SL are marketable on the same tick (gap), **SL fills first**.
 5. **Bracket cleanup:** any non-bracket close (SIGNAL flip, manual, stop flatten) cancels the remaining bracket orders first.
 
@@ -244,11 +256,11 @@ The `TradeAutomationDashboard` shows: PAPER/LIVE mode badge, automation toggle, 
 ```toml
 [workspace.minimal_tae]
 enabled = true
-risk_per_trade_pct = 1.0      # % of equity risked per trade
-min_net_rr = 1.0              # fee-adjusted minimum reward:risk
-max_position_size_usd = 200   # optional notional cap
-max_open_positions = 1        # global concurrent-position cap
-entry_mode = "zone_midpoint"  # the only entry mode in v1
+allocation_pct = 10.0        # % of equity allocated per position (1–100; Σ ≤ 100 across instances)
+min_net_rr = 1.0             # fee-adjusted minimum reward:risk
+max_position_size_usd = 200  # optional notional cap
+max_open_positions = 10      # global concurrent-position cap (1–100)
+entry_mode = "zone_midpoint" # the only entry mode in v1
 invalidate_on = "direction_flip"  # strict opposite-flip semantics
 ```
 

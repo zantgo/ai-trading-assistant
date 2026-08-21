@@ -1,10 +1,10 @@
 use core_domain::portfolio::{
-    CapitalMatrix, ExposureMatrix, PortfolioMatrix, PositionMatrix, SafetyState,
+    CapitalMatrix, ExposureMatrix, PortfolioOverviewMatrix, PositionMatrix, SafetyState,
 };
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-pub fn compute_portfolio_matrix(
+pub fn compute_portfolio_overview_matrix(
     positions: &[PositionMatrix],
     exposure: &ExposureMatrix,
     capital: &CapitalMatrix,
@@ -13,11 +13,11 @@ pub fn compute_portfolio_matrix(
     peak_equity: Decimal,
     consecutive_losses: &HashMap<String, u32>,
     drawdown_limit_pct: f64,
-) -> PortfolioMatrix {
+) -> PortfolioOverviewMatrix {
     let unrealized_pnl: rust_decimal::Decimal = positions.iter().map(|p| p.unrealized_pnl).sum();
     let current_equity = capital.current_equity;
 
-    PortfolioMatrix {
+    PortfolioOverviewMatrix {
         current_equity,
         realized_pnl: capital.realized_pnl,
         unrealized_pnl,

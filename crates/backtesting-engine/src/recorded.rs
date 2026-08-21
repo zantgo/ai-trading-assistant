@@ -70,6 +70,10 @@ pub struct BacktestResult {
     pub profit_factor: Option<f64>,
     pub expectancy: f64,
     pub max_drawdown_pct: f64,
+    /// v8.2: true when the run was aborted via the cancel flag (no
+    /// persistence should happen for cancelled runs).
+    #[serde(default)]
+    pub cancelled: bool,
     /// NHST block (t-statistic, p-value, Monte Carlo p, α, significance,
     /// edge classification) over the simulated trades.
     pub stats: StrategyAnalyticsRow,
@@ -178,6 +182,7 @@ pub async fn run_backtest(
                 candle_ts: rec.timestamp as u64,
                 safety: None,
                 dispatch: true,
+                allocation_pct: None,
             },
             None,
             true,
@@ -289,10 +294,7 @@ pub async fn capture_tick_ds(
 
     let (margin_used, unrealized): (Decimal, Decimal) = {
         let positions = engine.positions.read().await;
-        let margin: Decimal = positions
-            .values()
-            .map(|p| p.size * p.entry_price)
-            .sum();
+        let margin: Decimal = positions.values().map(|p| p.size * p.entry_price).sum();
         let unreal: Decimal = positions.values().map(|p| p.unrealized_pnl).sum();
         (margin, unreal)
     };
@@ -400,11 +402,7 @@ pub fn finalize_result(
             flat_trade: false,
         })
         .collect();
-    let stats = compute_setup_analytics(
-        "BACKTEST",
-        &records.iter().collect::<Vec<_>>(),
-        analytics,
-    );
+    let stats = compute_setup_analytics("BACKTEST", &records.iter().collect::<Vec<_>>(), analytics);
 
     BacktestResult {
         params: params.clone(),
@@ -417,6 +415,7 @@ pub fn finalize_result(
         profit_factor,
         expectancy,
         max_drawdown_pct,
+        cancelled: false,
         stats,
         trades,
         equity_curve: equity_points,
@@ -588,7 +587,7 @@ mod tests {
     fn tae_cfg() -> MinimalTaeConfig {
         MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: 1.0,
             max_position_size_usd: None,
             max_open_positions: 1,
@@ -613,9 +612,14 @@ mod tests {
             initial_capital: 1000.0,
         };
         let result = run_backtest(
-            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
+            &pool,
+            &params,
+            &tae_cfg(),
+            &FeesConfig::default(),
+            20,
             performance_analytics::strategy_analytics::AnalyticsParams::default(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(result.total_trades, 1, "one simulated close expected");
         assert_eq!(result.win_count, 1);
@@ -653,9 +657,14 @@ mod tests {
             initial_capital: 1000.0,
         };
         let result = run_backtest(
-            &pool, &params, &tae_cfg(), &FeesConfig::default(), 20,
+            &pool,
+            &params,
+            &tae_cfg(),
+            &FeesConfig::default(),
+            20,
             performance_analytics::strategy_analytics::AnalyticsParams::default(),
-        ).await;
+        )
+        .await;
         assert_eq!(result.total_trades, 0);
         assert_eq!(result.equity_curve.len(), 1);
         assert_eq!(

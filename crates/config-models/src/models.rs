@@ -2172,6 +2172,12 @@ pub struct ExchangeBacktestLimits {
     /// Hard ceiling on pages per backfill run (bounded fetch time).
     #[serde(default = "default_backtest_max_pages_per_run")]
     pub max_pages_per_run: u32,
+    /// v8.2: the endpoint's historical candle window per TF (0 = no cap).
+    /// Hyperliquid's `candleSnapshot` exposes the most recent 5,000 candles;
+    /// the per-TF max depth is `max_candles_per_tf × tf_secs`. Bitget pages
+    /// deep history — cap 0 (the archive depth governs).
+    #[serde(default = "default_backtest_max_candles_per_tf")]
+    pub max_candles_per_tf: u32,
 }
 
 fn default_backtest_archive_depth_days() -> u32 {
@@ -2198,6 +2204,9 @@ fn default_backtest_rate_limit_delay_ms() -> u64 {
 fn default_backtest_max_pages_per_run() -> u32 {
     2000
 }
+fn default_backtest_max_candles_per_tf() -> u32 {
+    0
+}
 
 impl Default for BacktestConfig {
     fn default() -> Self {
@@ -2211,11 +2220,13 @@ impl Default for BacktestConfig {
                 page_cap: 1000,
                 rate_limit_delay_ms: 1000,
                 max_pages_per_run: 2000,
+                max_candles_per_tf: 5000,
             },
             bitget: ExchangeBacktestLimits {
                 page_cap: 200,
                 rate_limit_delay_ms: 100,
                 max_pages_per_run: 6000,
+                max_candles_per_tf: 0,
             },
         }
     }
@@ -2227,6 +2238,7 @@ impl Default for ExchangeBacktestLimits {
             page_cap: default_backtest_page_cap(),
             rate_limit_delay_ms: default_backtest_rate_limit_delay_ms(),
             max_pages_per_run: default_backtest_max_pages_per_run(),
+            max_candles_per_tf: default_backtest_max_candles_per_tf(),
         }
     }
 }

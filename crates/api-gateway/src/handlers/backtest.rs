@@ -13,20 +13,29 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use backtesting_engine::backfill::{
-    run_backfill, BackfillJobConfig, PageFetcher,
-};
+use backtesting_engine::backfill::{run_backfill, BackfillJobConfig, PageFetcher};
 use backtesting_engine::registry::BacktestRegistry;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// POST /api/backtest/archive/backfill — start an on-demand deep-history
-/// backfill for a running instance.
+/// backfill. Two forms:
+/// - Bound: `{ instance_id, depth_days? }` (the instance must be running).
+/// - Standalone (v8.2): `{ exchange, symbol, timeframes[], depth_days? }`
+///   — no running instance required.
 #[derive(serde::Deserialize)]
 pub struct BackfillRequest {
-    pub instance_id: String,
+    #[serde(default)]
+    pub instance_id: Option<String>,
     #[serde(default)]
     pub depth_days: Option<u32>,
+    /// v8.2 standalone form.
+    #[serde(default)]
+    pub exchange: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub timeframes: Option<Vec<u64>>,
 }
 
 pub async fn serve_backfill_start(
@@ -35,7 +44,9 @@ pub async fn serve_backfill_start(
 ) -> impl IntoResponse {
     // Depth contract: 1..=365 (mirrors [workspace.backtest].archive_depth_days).
     let workspace_cfg = state.workspace.config().await;
-    let depth_days = payload.depth_days.unwrap_or(workspace_cfg.backtest.archive_depth_days);
+    let depth_days = payload
+        .depth_days
+        .unwrap_or(workspace_cfg.backtest.archive_depth_days);
     if !(1..=365).contains(&depth_days) {
         return (
             StatusCode::BAD_REQUEST,
@@ -47,53 +58,102 @@ pub async fn serve_backfill_start(
             .into_response();
     }
 
-    // The bound instance must exist and be running.
-    let instance = {
+    let standalone = payload.instance_id.is_none();
+
+    // Resolve exchange facts + symbol + ladder (standalone or bound).
+    let (exchange, symbol, ladder, job_key): (String, String, Vec<u64>, String);
+    if standalone {
+        let Some(exchange_name) = payload
+            .exchange
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "exchange required for the standalone form",
+                    "code": "exchange_required",
+                })),
+            )
+                .into_response();
+        };
+        let Some(sym) = payload
+            .symbol
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "symbol required for the standalone form",
+                    "code": "invalid_symbol",
+                })),
+            )
+                .into_response();
+        };
+        let Some(tfs) = payload.timeframes.as_ref().filter(|t| t.len() == 4) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "timeframes must be the 4-slot ladder",
+                    "code": "invalid_timeframes",
+                })),
+            )
+                .into_response();
+        };
+        if tfs.windows(2).any(|w| w[0] >= w[1]) || tfs.iter().any(|t| *t < 60) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "timeframes must be 4 strictly-ascending values ≥ 60s (the archive floor)",
+                    "code": "invalid_timeframes",
+                })),
+            )
+                .into_response();
+        }
+        if !exchange_name.eq_ignore_ascii_case("Hyperliquid")
+            && !exchange_name.eq_ignore_ascii_case("Bitget")
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "exchange must be 'Hyperliquid' or 'Bitget'",
+                    "code": "invalid_exchange",
+                })),
+            )
+                .into_response();
+        }
+        exchange = exchange_name.to_string();
+        symbol = sym.to_string();
+        ladder = tfs.clone();
+        job_key = format!("{}:{}", exchange.to_lowercase(), symbol);
+    } else {
+        let instance_id = payload.instance_id.as_deref().expect("bound form");
         let instances = state.workspace.list().await;
-        instances.into_iter().find(|i| i.id == payload.instance_id)
-    };
-    let Some(instance) = instance else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("instance '{}' not found", payload.instance_id),
-                "code": "instance_not_found",
-            })),
-        )
-            .into_response();
-    };
-    if instance.status().await != portfolio_supervisor::instance::InstanceStatus::Running {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("instance '{}' is not running", payload.instance_id),
-                "code": "instance_not_running",
-            })),
-        )
-            .into_response();
-    }
-
-    // One backfill per instance at a time.
-    if state.backtest.instance_has_active_backfill(&payload.instance_id).await {
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({
-                "error": format!("instance '{}' already has a running backfill", payload.instance_id),
-                "code": "backfill_busy",
-            })),
-        )
-            .into_response();
-    }
-
-    // Resolve exchange facts + TF ladder from the instance + workspace.
-    let exchange = instance.exchange.as_str().to_string();
-    let symbol = instance.symbol();
-    let quote = match instance.pair.1.as_str() {
-        "USDT" => portfolio_supervisor::session::Currency::USDT,
-        _ => portfolio_supervisor::session::Currency::USDC,
-    };
-    let raw_symbol = instance.exchange.raw_symbol(&instance.pair.0, &quote);
-    let ladder = {
+        let Some(instance) = instances.into_iter().find(|i| i.id == instance_id) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("instance '{instance_id}' not found"),
+                    "code": "instance_not_found",
+                })),
+            )
+                .into_response();
+        };
+        if instance.status().await != portfolio_supervisor::instance::InstanceStatus::Running {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("instance '{instance_id}' is not running"),
+                    "code": "instance_not_running",
+                })),
+            )
+                .into_response();
+        }
+        exchange = instance.exchange.as_str().to_string();
+        symbol = instance.symbol();
         let ws = state.workspace.config().await;
         let entry = ws.instances.iter().find(|e| e.symbol == symbol);
         let micro = entry
@@ -110,10 +170,74 @@ pub async fn serve_backfill_start(
             .and_then(|e| e.macro_term.as_ref())
             .map(|t| t.candles.duration_seconds)
             .unwrap_or(ws.macro_timeframe.duration_seconds);
-        vec![micro, fast, slow, macro_tf]
-    };
+        ladder = vec![micro, fast, slow, macro_tf];
+        job_key = instance_id.to_string();
+    }
 
-    // Production page fetcher wired to the instance's exchange.
+    // v8.2: per-TF depth ceilings — Hyperliquid's 5,000-candle endpoint
+    // window and Bitget's per-granularity retention (measured). Validate
+    // the requested depth and fail loudly naming the limiting TF.
+    for tf in &ladder {
+        let max_depth_secs = backtesting_engine::backfill::exchange_max_depth_secs(
+            &exchange,
+            *tf,
+            &workspace_cfg.backtest,
+        );
+        if max_depth_secs > 0 && (depth_days as i64) * 86400 > max_depth_secs {
+            let limit_desc = if exchange.eq_ignore_ascii_case("Bitget") {
+                format!(
+                    "Bitget's {tf}s history (retention ≈ {} days)",
+                    max_depth_secs / 86400
+                )
+            } else {
+                format!(
+                    "Hyperliquid's {}-candle ceiling (max ≈ {} days)",
+                    workspace_cfg.backtest.hyperliquid.max_candles_per_tf,
+                    max_depth_secs / 86400
+                )
+            };
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("depth {depth_days}d exceeds {limit_desc}"),
+                    "code": "depth_exceeds_ceiling",
+                    "limiting_timeframe_secs": tf,
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    // One backfill per key (instance or exchange:symbol) at a time.
+    if state.backtest.instance_has_active_backfill(&job_key).await {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!("'{job_key}' already has a running backfill"),
+                "code": "backfill_busy",
+            })),
+        )
+            .into_response();
+    }
+
+    // Exchange-native raw symbol for the fetcher closures.
+    let quote = if symbol.ends_with("USDT") {
+        portfolio_supervisor::session::Currency::USDT
+    } else {
+        portfolio_supervisor::session::Currency::USDC
+    };
+    let base = symbol
+        .rsplit_once('-')
+        .map(|(base, _)| base.to_string())
+        .unwrap_or_else(|| symbol.clone());
+    let exchange_native = if exchange.eq_ignore_ascii_case("Bitget") {
+        portfolio_supervisor::session::ExchangeChoice::Bitget
+    } else {
+        portfolio_supervisor::session::ExchangeChoice::Hyperliquid
+    };
+    let raw_symbol = exchange_native.raw_symbol(&base, &quote);
+
+    // Production page fetcher wired to the exchange.
     let fetcher: PageFetcher = match exchange.as_str() {
         "Bitget" => {
             let raw = raw_symbol;
@@ -132,7 +256,10 @@ pub async fn serve_backfill_start(
                 let product_type = product_type.clone();
                 let rest_url = rest_url.clone();
                 Box::pin(async move {
-                    let interval = network_adapters::adapters::bitget_rest::timeframe_secs_to_interval(tf_secs);
+                    let interval =
+                        network_adapters::adapters::bitget_rest::timeframe_secs_to_interval(
+                            tf_secs,
+                        );
                     network_adapters::adapters::bitget_rest::fetch_historical_candles_page(
                         &raw,
                         &internal,
@@ -156,14 +283,12 @@ pub async fn serve_backfill_start(
                 let internal = internal.clone();
                 let rest_url = rest_url.clone();
                 Box::pin(async move {
-                    let interval = network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(tf_secs);
+                    let interval =
+                        network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(
+                            tf_secs,
+                        );
                     network_adapters::adapters::hyperliquid_rest::fetch_historical_candles(
-                        &raw,
-                        &internal,
-                        interval,
-                        start_ms,
-                        end_ms,
-                        &rest_url,
+                        &raw, &internal, interval, start_ms, end_ms, &rest_url,
                     )
                     .await
                 })
@@ -173,7 +298,7 @@ pub async fn serve_backfill_start(
 
     let job_id = database_storage::queries::archive::insert_backfill_job(
         &state.pool,
-        &payload.instance_id,
+        &job_key,
         &symbol,
         &exchange,
         depth_days,
@@ -184,7 +309,7 @@ pub async fn serve_backfill_start(
     let progress = Arc::new(tokio::sync::Mutex::new(
         backtesting_engine::backfill::BackfillProgress::new(
             job_id,
-            payload.instance_id.clone(),
+            job_key.clone(),
             symbol.clone(),
             exchange.clone(),
             depth_days,
@@ -204,7 +329,7 @@ pub async fn serve_backfill_start(
     }
 
     let cfg = BackfillJobConfig {
-        instance_id: payload.instance_id.clone(),
+        instance_id: job_key,
         exchange,
         symbol,
         timeframes: ladder,
@@ -266,6 +391,9 @@ pub async fn serve_backfill_progress(
 #[derive(serde::Deserialize)]
 pub struct CoverageQuery {
     pub instance_id: Option<String>,
+    /// v8.2 standalone form: coverage for one symbol (any exchange).
+    pub symbol: Option<String>,
+    pub exchange: Option<String>,
 }
 
 pub async fn serve_backtest_coverage(
@@ -280,6 +408,13 @@ pub async fn serve_backtest_coverage(
     let snapshot_rows = database_storage::query_backtest_coverage(&state.pool).await;
     let snapshots: Vec<serde_json::Value> = snapshot_rows
         .into_iter()
+        .filter(|r| {
+            query
+                .symbol
+                .as_ref()
+                .map(|s| s == &r.symbol)
+                .unwrap_or(true)
+        })
         .map(|r| {
             serde_json::json!({
                 "symbol": r.symbol,
@@ -292,43 +427,60 @@ pub async fn serve_backtest_coverage(
         .collect();
 
     // Candle-archive coverage (the historical replay source). Resolve the
-    // bound instance's symbols + ladder up-front (the filter iterator
-    // cannot await).
+    // bound symbols + ladder up-front (the filter iterator cannot await).
     let mut bound_symbols: Option<Vec<String>> = None;
     let mut bound_ladder: Option<Vec<u64>> = None;
-    if let Some(id) = &query.instance_id {
-        let ws = state.workspace.config().await;
-        let instances = state.workspace.list().await;
-        let inst = instances.iter().find(|i| i.id == *id);
-        bound_symbols = Some(
-            instances
-                .iter()
-                .filter(|i| i.id == *id)
-                .map(|i| i.symbol())
-                .collect(),
-        );
-        bound_ladder = inst.map(|i| {
-            let symbol = i.symbol();
-            let entry = ws.instances.iter().find(|e| e.symbol == symbol);
-            let micro = entry.map(|e| e.micro_term.candles.duration_seconds).unwrap_or(60);
-            let fast = entry.map(|e| e.fast_term.candles.duration_seconds).unwrap_or(180);
-            let slow = entry
-                .and_then(|e| e.slow_term.as_ref())
-                .map(|t| t.candles.duration_seconds)
-                .unwrap_or(ws.slow_timeframe.duration_seconds);
-            let macro_tf = entry
-                .and_then(|e| e.macro_term.as_ref())
-                .map(|t| t.candles.duration_seconds)
-                .unwrap_or(ws.macro_timeframe.duration_seconds);
-            vec![micro, fast, slow, macro_tf]
-        });
+    let mut exchange_name: Option<String> = None;
+    if query.instance_id.is_some() || query.symbol.is_some() {
+        if let Some(id) = &query.instance_id {
+            let ws_cfg = state.workspace.config().await;
+            let instances = state.workspace.list().await;
+            let inst = instances.iter().find(|i| i.id == *id);
+            bound_symbols = Some(
+                instances
+                    .iter()
+                    .filter(|i| i.id == *id)
+                    .map(|i| i.symbol())
+                    .collect(),
+            );
+            exchange_name = inst.map(|i| i.exchange.as_str().to_string());
+            bound_ladder = inst.map(|i| {
+                let symbol = i.symbol();
+                let entry = ws_cfg.instances.iter().find(|e| e.symbol == symbol);
+                let micro = entry
+                    .map(|e| e.micro_term.candles.duration_seconds)
+                    .unwrap_or(60);
+                let fast = entry
+                    .map(|e| e.fast_term.candles.duration_seconds)
+                    .unwrap_or(180);
+                let slow = entry
+                    .and_then(|e| e.slow_term.as_ref())
+                    .map(|t| t.candles.duration_seconds)
+                    .unwrap_or(ws_cfg.slow_timeframe.duration_seconds);
+                let macro_tf = entry
+                    .and_then(|e| e.macro_term.as_ref())
+                    .map(|t| t.candles.duration_seconds)
+                    .unwrap_or(ws_cfg.macro_timeframe.duration_seconds);
+                vec![micro, fast, slow, macro_tf]
+            });
+        } else if let Some(sym) = &query.symbol {
+            // v8.2 standalone: the launcher's ladder (the 4 preseeded
+            // tiers; coverage for the requested symbol).
+            bound_symbols = Some(vec![sym.clone()]);
+            exchange_name = query.exchange.clone();
+            bound_ladder = Some(vec![60, 180, 300, 900]);
+        }
     }
+    // v8.2: per-TF max depth ceiling (Hyperliquid 5,000-candle endpoint
+    // window; Bitget per-granularity retention).
+    let ceiling_exchange = exchange_name.clone().unwrap_or_else(|| "Hyperliquid".to_string());
     let burn_in_secs = ws.backtest.warmup_bars as i64
         * bound_ladder
             .as_ref()
             .and_then(|l| l.iter().copied().max())
             .unwrap_or(900) as i64;
-    let archive_rows = database_storage::queries::archive::query_archive_coverage(&state.pool).await;
+    let archive_rows =
+        database_storage::queries::archive::query_archive_coverage(&state.pool).await;
     let archive: Vec<serde_json::Value> = archive_rows
         .into_iter()
         .filter(|r| match &bound_symbols {
@@ -337,6 +489,18 @@ pub async fn serve_backtest_coverage(
         })
         .map(|r| {
             let earliest = r.earliest_secs.unwrap_or(0);
+            let max_depth_secs = {
+                let cap = backtesting_engine::backfill::exchange_max_depth_secs(
+                    &ceiling_exchange,
+                    r.timeframe_secs as u64,
+                    &ws.backtest,
+                );
+                if cap > 0 {
+                    cap
+                } else {
+                    depth_secs
+                }
+            };
             serde_json::json!({
                 "symbol": r.symbol,
                 "timeframe_secs": r.timeframe_secs,
@@ -345,6 +509,7 @@ pub async fn serve_backtest_coverage(
                 "latest_secs": r.latest_secs,
                 "covered_span_secs": r.latest_secs.unwrap_or(0) - earliest,
                 "max_lookback_secs": depth_secs,
+                "max_depth_secs": max_depth_secs,
                 "coverage_pct": if depth_secs > 0 {
                     ((r.latest_secs.unwrap_or(0) - earliest) as f64 / depth_secs as f64 * 100.0)
                         .clamp(0.0, 100.0)
@@ -391,6 +556,9 @@ pub async fn serve_backfill_cancel(
 
 /// Helper used by the run endpoint (P8): confirm no backfill is actively
 /// writing for the bound instance (backtests read a stable archive).
-pub async fn instance_backfill_running(registry: &Arc<BacktestRegistry>, instance_id: &str) -> bool {
+pub async fn instance_backfill_running(
+    registry: &Arc<BacktestRegistry>,
+    instance_id: &str,
+) -> bool {
     registry.instance_has_active_backfill(instance_id).await
 }

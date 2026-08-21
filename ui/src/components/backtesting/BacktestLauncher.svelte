@@ -1,0 +1,576 @@
+<script lang="ts">
+    // BacktestLauncher (v8.2) — the installer-style backtest wizard.
+    //
+    // Environment → Instances → Historical Data → Run, with Back/Continue
+    // and a Cancel button on the Run step. The ONLY window control is the
+    // archive depth (1–365 days) — there are no date range pickers. The
+    // launcher is standalone: it works with no running instance (preseeded
+    // from a bound instance when one is selected).
+    import { TIMEFRAME_OPTIONS } from '../../types';
+    import styles from './BacktestLauncher.module.css';
+
+    interface BoundInfo {
+        pair: string;
+        id: string;
+        symbol: string;
+    }
+
+    interface Props {
+        bound: BoundInfo | null;
+        ladder: number[];
+        depthDefault: number;
+        warmupBars: number;
+        onCompleted: (backtestId: number) => void;
+    }
+
+    let { bound, ladder, depthDefault, warmupBars, onCompleted }: Props = $props();
+
+    const MIN_DEPTH = 1;
+    const MAX_DEPTH = 365;
+    const MAX_INSTANCES = 100;
+
+    interface DraftInstance {
+        base: string;
+        micro: number;
+        fast: number;
+        slow: number;
+        macro: number;
+        allocation: number;
+    }
+
+    let step = $state(1);
+    let exchange = $state('Hyperliquid');
+    let currency = $state('USDC');
+    let capital = $state(1000);
+    let instances = $state<DraftInstance[]>([]);
+    let newBase = $state('');
+    let newTfs = $state({ micro: 60, fast: 180, slow: 300, macro: 900 });
+    let newAllocation = $state(10);
+    // IIFE so the prop reference sits inside a closure (runes warning-free
+    // initial capture) while the state itself stays a plain number.
+    let depthDays = $state((() => depthDefault)());
+    let depthInput = $state('');
+    let error = $state('');
+    $effect(() => {
+        if (depthDays !== depthDefault) depthDays = depthDefault;
+    });
+
+    // Run state (step 4).
+    let runState = $state<{
+        status: string;
+        phase: string;
+        pct: number;
+        message: string;
+        backtest_id: number | null;
+    } | null>(null);
+    let running = $state(false);
+    let preparing = $state(false);
+    let preparingMsg = $state('');
+    let lastRunId = $state<number | null>(null);
+
+    const stepTitles = ['Environment', 'Instances', 'Historical Data', 'Run'];
+
+    const supportedCurrencies = $derived(exchange === 'Hyperliquid' ? ['USDC'] : ['USDT']);
+    $effect(() => {
+        if (!supportedCurrencies.includes(currency)) {
+            currency = supportedCurrencies[0];
+        }
+    });
+
+    const allocationTotal = $derived(instances.reduce((acc, i) => acc + i.allocation, 0));
+    const allocationInvalid = $derived(allocationTotal > 100 + 1e-9);
+    const instancesFull = $derived(instances.length >= MAX_INSTANCES);
+
+    const depthInvalid = $derived.by(() => {
+        const v = Number(depthInput);
+        if (!Number.isFinite(v)) return true;
+        if (v < MIN_DEPTH || v > MAX_DEPTH) return true;
+        return Math.floor(v) !== v;
+    });
+    $effect(() => { depthInput = String(depthDays); });
+
+    // Burn-in for the chosen ladder (warmup_bars × macro TF) — the same
+    // formula the server validates coverage with.
+    const macroTf = $derived(
+        instances.length > 0 ? Math.max(...instances.map((i) => i.macro)) : 900,
+    );
+    const burnInSecs = $derived(warmupBars * macroTf);
+    const burnInDays = $derived(Math.ceil(burnInSecs / 86400));
+    const depthTooSmall = $derived(depthDays < burnInDays);
+
+    function tfLabel(secs: number): string {
+        if (secs % 3600 === 0) return `${secs / 3600}h`;
+        if (secs % 60 === 0) return `${secs / 60}m`;
+        return `${secs}s`;
+    }
+
+    function selectedOption(seconds: number): number {
+        return TIMEFRAME_OPTIONS.some((o) => o.seconds === seconds) ? seconds : -1;
+    }
+
+    function symbolOf(base: string): string {
+        const quote = exchange === 'Bitget' ? 'USDT' : 'USDC';
+        return base.includes('-') ? base.toUpperCase() : `${base}-${quote}`;
+    }
+
+    function goNext() {
+        error = '';
+        if (step === 2 && instances.length === 0) {
+            error = 'Add at least one instance to continue.';
+            return;
+        }
+        if (step === 3 && depthInvalid) {
+            error = 'Depth must be a whole number of days (1–365).';
+            return;
+        }
+        if (step < 4) step += 1;
+    }
+
+    function goBack() {
+        error = '';
+        if (step > 1) step -= 1;
+    }
+
+    function addInstance() {
+        const base = newBase.trim().toUpperCase();
+        if (!/^[A-Z0-9]{2,10}$/.test(base)) {
+            error = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
+            return;
+        }
+        if (instances.some((i) => i.base === base)) {
+            error = `${base} is already in the instance list.`;
+            return;
+        }
+        if (instancesFull) {
+            error = `At most ${MAX_INSTANCES} instances per backtest.`;
+            return;
+        }
+        instances = [
+            ...instances,
+            {
+                base,
+                micro: newTfs.micro,
+                fast: newTfs.fast,
+                slow: newTfs.slow,
+                macro: newTfs.macro,
+                allocation: Math.min(100, Math.max(1, newAllocation || 10)),
+            },
+        ];
+        newBase = '';
+        newTfs = { micro: 60, fast: 180, slow: 300, macro: 900 };
+        newAllocation = 10;
+        error = '';
+    }
+
+    function removeInstance(index: number) {
+        instances = instances.filter((_, i) => i !== index);
+    }
+
+    async function readError(res: Response, fallback: string): Promise<string> {
+        try {
+            const ct = res.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+                const data = await res.json();
+                return (data && (data.error || data.message)) || fallback;
+            }
+            return (await res.text()).trim() || fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    // ── Run flow (auto-prepare backfills, then the async run) ──
+    async function ensureArchive(): Promise<boolean> {
+        for (const inst of instances) {
+            const symbol = symbolOf(inst.base);
+            const tfs = [inst.micro, inst.fast, inst.slow, inst.macro];
+            for (const tf of tfs) {
+                preparingMsg = `checking ${symbol} ${tfLabel(tf)} archive coverage…`;
+                try {
+                    const res = await fetch(
+                        `/api/backtest/coverage?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
+                    );
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const rows: any[] = data?.archive ?? [];
+                    const row = rows.find(
+                        (r) => r.symbol === symbol && r.timeframe_secs === tf,
+                    );
+                    const covered = row ? Math.max(0, (row.latest_secs ?? 0) - (row.earliest_secs ?? 0)) : 0;
+                    const required = depthDays * 86400 + burnInSecs;
+                    if (covered >= required) continue;
+                } catch {
+                    continue;
+                }
+                // Missing coverage: backfill this symbol × TF (standalone).
+                preparing = true;
+                preparingMsg = `fetching ${symbol} ${tfLabel(tf)} history (${depthDays}d)…`;
+                try {
+                    const res = await fetch('/api/backtest/archive/backfill', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                            exchange,
+                            symbol,
+                            timeframes: [tf],
+                            depth_days: depthDays,
+                        }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        error = await readError(res, `Backfill failed for ${symbol} ${tfLabel(tf)}`);
+                        preparing = false;
+                        return false;
+                    }
+                    const jobId = data.job_id;
+                    // Poll until the job finishes.
+                    for (let i = 0; i < 3600; i++) {
+                        await new Promise((r) => setTimeout(r, 1000));
+                        const pRes = await fetch(`/api/backtest/archive/progress/${jobId}`);
+                        if (!pRes.ok) break;
+                        const p = await pRes.json();
+                        preparingMsg = `fetching ${symbol} ${tfLabel(tf)} — ${p.pages_fetched ?? 0} pages · ${(p.candles_stored ?? 0).toLocaleString()} candles`;
+                        if (p.status === 'failed') {
+                            error = p.error ?? `Backfill failed for ${symbol} ${tfLabel(tf)}`;
+                            preparing = false;
+                            return false;
+                        }
+                        if (p.status === 'done' || p.status === 'completed') break;
+                    }
+                } catch (e: any) {
+                    error = e?.message ?? 'Backfill failed';
+                    preparing = false;
+                    return false;
+                }
+            }
+        }
+        preparing = false;
+        return true;
+    }
+
+    async function runBacktest() {
+        error = '';
+        if (instances.length === 0) {
+            error = 'Add at least one instance.';
+            return;
+        }
+        if (allocationInvalid) {
+            error = `Σ allocations = ${allocationTotal}% — must be ≤ 100%.`;
+            return;
+        }
+        if (depthTooSmall) {
+            error = `Depth needs ≥ ${burnInDays} day(s) for the warm-up window.`;
+            return;
+        }
+        running = true;
+        runState = null;
+
+        const ok = await ensureArchive();
+        if (!ok) {
+            running = false;
+            return;
+        }
+
+        const toMs = Date.now();
+        const fromMs = toMs - (depthDays * 864e5 - burnInSecs * 1000);
+        const symbols = instances.map((i) => ({
+            symbol: symbolOf(i.base),
+            timeframes: [i.micro, i.fast, i.slow, i.macro],
+            allocation_pct: i.allocation,
+        }));
+
+        try {
+            const res = await fetch('/api/backtest/run', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    exchange,
+                    symbols,
+                    from_ms: Math.floor(fromMs),
+                    to_ms: Math.floor(toMs),
+                    initial_capital: Number(capital),
+                    mode: 'historical',
+                }),
+            });
+            if (!res.ok) {
+                error = await readError(res, `Backtest failed: HTTP ${res.status}`);
+                running = false;
+                return;
+            }
+            const start = await res.json();
+            const runId = start.run_id as number;
+            lastRunId = runId;
+            runState = { status: 'running', phase: 'fetching', pct: 0, message: 'starting…', backtest_id: null };
+
+            // Poll progress until the run completes (or is cancelled).
+            for (let i = 0; i < 3600; i++) {
+                await new Promise((r) => setTimeout(r, 1000));
+                const pRes = await fetch(`/api/backtest/progress/${runId}`);
+                if (!pRes.ok) break;
+                const p = await pRes.json();
+                runState = {
+                    status: p.status ?? 'running',
+                    phase: p.phase ?? '',
+                    pct: p.pct ?? 0,
+                    message: p.message ?? '',
+                    backtest_id: p.backtest_id ?? null,
+                };
+                if (runState.status !== 'running') break;
+            }
+
+            if (runState?.status === 'completed' && runState.backtest_id != null) {
+                onCompleted(runState.backtest_id);
+            } else if (runState?.status === 'cancelled') {
+                error = 'Run cancelled.';
+            } else if (runState?.status === 'failed') {
+                error = runState.message || 'Backtest failed.';
+            } else {
+                error = 'Run did not complete in time — check the History tab.';
+            }
+        } catch (e: any) {
+            error = e?.message ?? 'Backtest failed';
+        } finally {
+            running = false;
+        }
+    }
+
+    async function cancelRun() {
+        if (lastRunId != null) {
+            await fetch(`/api/backtest/cancel/${lastRunId}`, { method: 'POST' });
+            runState = { ...(runState ?? { status: 'cancelled', phase: '', pct: 0, message: '', backtest_id: null }), status: 'cancelled' };
+        }
+    }
+
+    const phaseLabel = $derived.by(() => {
+        const m: Record<string, string> = {
+            fetching: 'Fetching data',
+            warming: 'Warming indicators',
+            replaying: 'Replaying market',
+            analyzing: 'Analyzing results',
+        };
+        return m[runState?.phase ?? ''] ?? 'Preparing…';
+    });
+</script>
+
+<div class={styles.wizard}>
+    <nav class={styles.steps} aria-label="Backtest launcher steps">
+        {#each stepTitles as title, i (title)}
+            <span class="{styles.step} {i + 1 === step ? styles.stepActive : ''} {i + 1 < step ? styles.stepDone : ''}">
+                <span class={styles.stepDot}>{i + 1 < step ? '✓' : i + 1}</span>
+                {title}
+            </span>
+        {/each}
+    </nav>
+
+    {#if bound}
+        <p class={styles.boundNote}>
+            Preseeded from the selected instance <span class={styles.chip}>{bound.pair}</span> —
+            the launcher is standalone; you can change everything below.
+        </p>
+    {/if}
+
+    {#if step === 1}
+        <section class={styles.section}>
+            <h2 class={styles.sectionTitle}>Environment</h2>
+            <div class={styles.field}>
+                <label class={styles.label} for="bl-exchange">Exchange</label>
+                <select id="bl-exchange" class={styles.input} bind:value={exchange}>
+                    <option value="Hyperliquid">Hyperliquid</option>
+                    <option value="Bitget">Bitget</option>
+                </select>
+            </div>
+            <div class={styles.field}>
+                <span class={styles.label}>Settlement Currency</span>
+                <div class={styles.radioGroup}>
+                    {#each ['USDC', 'USDT'] as cur (cur)}
+                        <label class="{styles.radioOption} {supportedCurrencies.includes(cur) ? styles.active : styles.disabled}">
+                            <input
+                                type="radio"
+                                name="bl-currency"
+                                value={cur}
+                                bind:group={currency}
+                                disabled={!supportedCurrencies.includes(cur)}
+                            />
+                            <span>{cur}</span>
+                            <span class={styles.radioBadge}>
+                                {supportedCurrencies.includes(cur) ? 'Available' : 'Not available'}
+                            </span>
+                        </label>
+                    {/each}
+                </div>
+            </div>
+            <div class={styles.field}>
+                <label class={styles.label} for="bl-capital">Starting Capital (USD)</label>
+                <input id="bl-capital" class={styles.input} type="number" min="100" step="100" bind:value={capital} />
+                <p class={styles.hint}>The virtual portfolio the replay trades against.</p>
+            </div>
+        </section>
+    {:else if step === 2}
+        <section class={styles.section}>
+            <h2 class={styles.sectionTitle}>Instances</h2>
+            <p class={styles.hint}>
+                One or more instances, each with its own 4-timeframe ladder and allocation %
+                (1–100). The sum of all allocations must be ≤ 100 % (up to {MAX_INSTANCES} instances).
+            </p>
+            <div class={styles.instanceList}>
+                {#each instances as inst, i (inst.base)}
+                    <div class={styles.instanceRow}>
+                        <span class={styles.instancePair}>{inst.base}</span>
+                        <span class={styles.instanceTfs}>
+                            {tfLabel(inst.micro)} / {tfLabel(inst.fast)} / {tfLabel(inst.slow)} / {tfLabel(inst.macro)}
+                        </span>
+                        <span class={styles.instanceAlloc}>{inst.allocation}%</span>
+                        <button class={styles.removeBtn} aria-label={`Remove ${inst.base}`} onclick={() => removeInstance(i)}>✕</button>
+                    </div>
+                {/each}
+                {#if instances.length === 0}
+                    <p class={styles.emptyHint}>No instances configured yet.</p>
+                {/if}
+            </div>
+            <div class={styles.addGroup}>
+                <div class={styles.addRow}>
+                    <input
+                        class="{styles.input} {styles.baseInput}"
+                        type="text"
+                        maxlength="10"
+                        placeholder="BTC"
+                        bind:value={newBase}
+                        onkeydown={(e) => e.key === 'Enter' && addInstance()}
+                    />
+                    {#each ['micro', 'fast', 'slow', 'macro'] as slot (slot)}
+                        <label class={styles.tfField}>
+                            <span class={styles.tfLabel}>{slot}</span>
+                            <select
+                                class={styles.tfSelect}
+                                value={selectedOption(newTfs[slot as keyof typeof newTfs])}
+                                onchange={(e) => {
+                                    const v = parseInt(e.currentTarget.value);
+                                    if (v > 0) newTfs[slot as keyof typeof newTfs] = v;
+                                }}
+                            >
+                                {#each TIMEFRAME_OPTIONS as opt}
+                                    <option value={opt.seconds}>{opt.label}</option>
+                                {/each}
+                            </select>
+                        </label>
+                    {/each}
+                    <label class={styles.tfField}>
+                        <span class={styles.tfLabel}>alloc %</span>
+                        <input class={styles.allocInput} type="number" min="1" max="100" bind:value={newAllocation} />
+                    </label>
+                    <button class={styles.addBtn} onclick={addInstance}>+ Add</button>
+                </div>
+            </div>
+            <div class={styles.summary}>
+                <span>Instances: {instances.length}/{MAX_INSTANCES}</span>
+                <span class="{styles.allocSum} {allocationInvalid ? styles.allocOver : ''}">
+                    Σ allocations: {allocationTotal}%
+                </span>
+            </div>
+        </section>
+    {:else if step === 3}
+        <section class={styles.section}>
+            <h2 class={styles.sectionTitle}>Historical Data</h2>
+            <p class={styles.hint}>
+                How far back can I look — the archive depth (1–365 days) is the ONLY window
+                control. There are no date pickers: the window is "the last {depthDays} days,
+                minus the warm-up". The first {burnInDays} day(s) warm the pipeline; the rest is
+                the scored window.
+            </p>
+            <div class={styles.depthRow}>
+                <input
+                    type="range"
+                    min={MIN_DEPTH}
+                    max={MAX_DEPTH}
+                    step="1"
+                    value={depthDays}
+                    oninput={(e) => { depthDays = Number((e.currentTarget as HTMLInputElement).value); }}
+                    aria-label="Archive depth days"
+                />
+                <input
+                    class="{styles.input} {styles.depthInput}"
+                    type="number"
+                    min={MIN_DEPTH}
+                    max={MAX_DEPTH}
+                    bind:value={depthInput}
+                    onchange={() => { const v = Number(depthInput); if (Number.isFinite(v) && v >= MIN_DEPTH && v <= MAX_DEPTH) depthDays = Math.floor(v); }}
+                    aria-label="Archive depth days (typed)"
+                />
+                <span class={styles.label}>days</span>
+                {#if depthInvalid}
+                    <span class={styles.errorChip}>must be 1–365</span>
+                {:else if depthTooSmall}
+                    <span class={styles.errorChip}>needs ≥ {burnInDays}d for warmup</span>
+                {/if}
+            </div>
+            {#if instances.length > 0}
+                <p class={styles.hint}>
+                    Fetching data for <strong>{instances.length} instance(s)</strong> × 4 timeframes.
+                    Missing history is fetched automatically when you press Run (with live
+                    progress); re-runs skip already-covered spans.
+                </p>
+                {#if exchange === 'Hyperliquid'}
+                    <p class={styles.ceilingNote}>
+                        Hyperliquid's endpoint exposes the most recent 5,000 candles per timeframe —
+                        the launcher validates the depth against that ceiling per TF and fails
+                        loudly naming the limiting TF.
+                    </p>
+                {/if}
+            {/if}
+        </section>
+    {:else}
+        <section class={styles.section}>
+            <h2 class={styles.sectionTitle}>Run</h2>
+            {#if !runState && !running && !preparing}
+                <p class={styles.hint}>
+                    Ready to simulate <strong>{instances.length} instance(s)</strong> over the last
+                    {depthDays} day(s) with ${capital.toLocaleString()} virtual capital — the whole
+                    platform (DIE → MME → TAE → PME → PAE) nested inside one run.
+                </p>
+            {:else}
+                <div class={styles.progressBlock}>
+                    <div class={styles.progressHeader}>
+                        <span class={styles.phaseLabel}>{preparing ? preparingMsg : phaseLabel}</span>
+                        <span class={styles.phasePct}>{preparing ? '…' : `${runState?.pct ?? 0}%`}</span>
+                    </div>
+                    <progress
+                        class={styles.progressBar}
+                        max="100"
+                        value={preparing ? null : (runState?.pct ?? 0)}
+                    ></progress>
+                    {#if runState?.message && !preparing}
+                        <p class={styles.hint}>{runState.message}</p>
+                    {/if}
+                    {#if preparing}
+                        <p class={styles.hint}>{preparingMsg}</p>
+                    {/if}
+                </div>
+            {/if}
+            {#if runState?.status === 'completed' && runState.backtest_id != null}
+                <p class={styles.doneNote}>
+                    ✓ Run #{runState.backtest_id} completed — the Study Report tab now shows the
+                    full analysis.
+                </p>
+            {/if}
+        </section>
+    {/if}
+
+    {#if error}
+        <div class={styles.error}>{error}</div>
+    {/if}
+
+    <footer class={styles.footer}>
+        {#if step > 1 && !running}
+            <button class={styles.backButton} onclick={goBack}>Back</button>
+        {:else}
+            <span></span>
+        {/if}
+        {#if step < 4}
+            <button class={styles.continueButton} onclick={goNext}>Continue</button>
+        {:else if running || preparing}
+            <button class={styles.cancelButton} onclick={cancelRun} disabled={preparing}>Cancel</button>
+        {:else}
+            <button class={styles.runButton} onclick={runBacktest}>Run Backtest</button>
+        {/if}
+    </footer>
+</div>

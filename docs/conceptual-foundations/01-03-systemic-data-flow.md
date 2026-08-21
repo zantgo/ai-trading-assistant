@@ -123,14 +123,14 @@ This sequence is initiated when the Decision Matrix declares an asset is ready f
   |                     |<=[Order State & Execution Matrix]===========================|
 ```
 
-> **Mixed implementation status.** The dashed **type boundary** above is where the fast analytical hot path (`f64`) meets the precise financial cold path (`Decimal`). The canonical `f64 → Decimal` cast described above is **implemented** today in `crates/portfolio-supervisor/src/execution/order.rs::construct_order` (see [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) for the line-level citation). The cast uses `Decimal::from_f64_retain` for both `stop_loss_distance_pct / 100.0` and `risk_per_trade_pct / 100.0`; all sizing math downstream of the cast is `Decimal`. The earlier `risk_calculator.rs::compute_size` does still report `f64` for backward compatibility with the rest of the engine, but the canonical order-construction path runs in `Decimal`. The DOD target (audit AUDIT-V8-400 … V8-407) will move the indicator hot path to `f64` per-indicator signatures — orthogonal to this Decimal-cast fix.
+> **Mixed implementation status.** The dashed **type boundary** above is where the fast analytical hot path (`f64`) meets the precise financial cold path (`Decimal`). The canonical `f64 → Decimal` cast described above is **implemented** today in `crates/portfolio-supervisor/src/setup_executor.rs::project` (see [03-03-01-tae-overview-spec.md §5](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) for the line-level citation). The cast uses `Decimal::from_f64_retain` for both price levels and `allocation_pct / 100.0`; the sizing math downstream of the cast is `Decimal` (equity × allocation ÷ entry). The DOD target (audit AUDIT-V8-400 … V8-407) will move the indicator hot path to `f64` per-indicator signatures — orthogonal to this Decimal-cast fix.
 
 #### Detailed Operations:
 1. **Policy Evaluation:** The TAE Policy Layer consumes the MME **Decision Matrix**. It maps the values to user configurations. If the stance is `Active` and the decision state satisfies entry triggers, a buy signal is dispatched to the Execution Layer.
-2. **Dynamic Capital Query:** The TAE Execution Layer issues a synchronous request-response query to the PME Capital Layer to retrieve the current account Available Margin ($E$).
-3. **Position Sizing Calculation:** The TAE Execution Layer retrieves the Stop-Loss Distance Percentage ($D_{sl}$, a raw percentage float such as $1.5$) from the MME Decision Matrix and pulls the user-defined Risk-Per-Trade fraction ($R$, e.g., $0.01$ = 1%). At this **type boundary** (target design) it casts the `f64` stop-loss distance to `Decimal` and combines it with the `Decimal` available margin, running the **Position Sizing Protocol** in fixed-point:
-   $$S = \frac{E \times R}{D_{sl} / 100}$$
-   *(Units: `E` = available margin (Decimal, quote currency); `R = risk_per_trade_pct / 100` (unitless fraction in `[0, 1]`); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
+2. **Equity Query:** The TAE Execution Layer reads the current equity from the unified execution engine's ledger.
+3. **Allocation Sizing Calculation:** The TAE Execution Layer looks up the instance's `allocation_pct` (1–100 %, default 10 %; per-instance override; Σ allocations ≤ 100 %). At this **type boundary** it casts the `f64` allocation to `Decimal` and combines it with the `Decimal` equity, running the **Allocation Sizing Protocol** in fixed-point:
+   $$\text{notional} = \frac{\text{equity} \times \text{allocation\_pct}}{100}, \qquad \text{size\_units} = \frac{\text{notional}}{\text{entry\_price}}$$
+   *(Units: `equity` = engine ledger equity (Decimal, quote currency); `allocation_pct` = raw percent in `[1, 100]`; `entry_price` = entry-zone midpoint from the MME Decision Matrix.)*
 4. **Order Transmission:** The TAE signs the calculated order payload and dispatches it to the live exchange API. It logs transaction state transitions to the **Execution Matrix** until receiving confirmation of execution fill.
 
 ---
@@ -170,7 +170,7 @@ This safety loop operates continuously in the background. It intercepts and over
 The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`CLOSE_ONLY`** triggers (margin ceiling, loss streak), steps 2a (Hard Exit dispatch) and 2b (Hard Exit acknowledgement) are **skipped** — no forced liquidation, existing positions are managed by protective stops.
 
 ```
- PME (Portfolio Layer)            TAE (Policy Layer)          MME (Overview Matrix)
+ PME (Overview Layer)            TAE (Setup Executor)       MME (Overview Matrix)
          |                                |                            |
          |==<=====[Systemic Risk Score]==================================|
          |--[Compute Drawdown & Margin]   |                            |
@@ -195,14 +195,14 @@ The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`
 ```
 
 #### Detailed Operations:
-1. **Systemic Health Evaluation:** The PME Portfolio Layer continuously monitors total unrealized losses, aggregate margin usage, and account balance values. Concurrently, it reads the Systemic Risk Score from the MME **Overview Matrix**.
+1. **Systemic Health Evaluation:** The PME Overview Layer continuously monitors total unrealized losses, aggregate margin usage, and account balance values. Concurrently, it reads the Systemic Risk Score from the MME **Overview Matrix**.
 
-2. **Veto Trigger and Stance Mapping** (per [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)):
+2. **Veto Trigger and Stance Mapping** (per [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md)):
    - **(a) Equity drawdown breach** — `current_equity / peak_equity < 1 − drawdown_limit_pct` (default `drawdown_limit_pct = 0.30`) → target stance **`AVOID`**, Hard Exit Path active.
    - **(b) Margin ceiling** — `margin_usage_ratio ≥ 0.95` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) → target stance **`CLOSE_ONLY`**, graceful wind-down (no Hard Exit).
-   - **(b') Margin exhaustion** — `margin_usage_ratio ≥ 1.00` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) → target stance **`AVOID`**, Hard Exit Path active. (v2.1 — added to align with [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).)
+   - **(b') Margin exhaustion** — `margin_usage_ratio ≥ 1.00` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) → target stance **`AVOID`**, Hard Exit Path active. (v2.1 — added to align with [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md).)
    - **(c) Systemic risk** — the MME Overview Matrix `systemic_risk_score ≥ systemic_risk_threshold` (default `80`, on the canonical `[0, 100]` scale — see [02-09-overview-matrix.md §4](../matrices/02-09-overview-matrix.md)) → target stance **`AVOID`**, Hard Exit Path active.
-   - **(d) Loss streak** — `consecutive_losses ≥ dropout_threshold` (default 5) per [PME Layer 4 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) → target stance **`CLOSE_ONLY`** (per-symbol), graceful wind-down.
+   - **(d) Loss streak** — `consecutive_losses ≥ dropout_threshold` (default 5) per [PME Layer 4 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) → target stance **`CLOSE_ONLY`** (per-symbol), graceful wind-down.
 
    The 5 % `max_daily_drawdown_pct` is the *early-warning* threshold (drives `safety_state = WARN` — see Early Warnings table below — but does **not** trigger a veto). The 30 % `drawdown_limit_pct` is the *hard veto* threshold. The two are distinct metrics; see README "Key Conventions".
 
@@ -263,7 +263,7 @@ To maintain operational integrity across sequences, the platform enforces strict
 | :--- | :--- | :--- | :--- | :--- |
 | **Observation Loop** | Raw Data Matrix | Overview Matrix | $< 25 \text{ ms}$ | JSON Schema / Zero-Copy Binary |
 | **Execution Entry** | Decision Matrix | Execution Matrix | $< 15 \text{ ms}$ (Excl. Network) | JSON Schema / Strictly Typed |
-| **Safety Veto** | Portfolio Matrix | Policy Matrix | $< 2 \text{ ms}$ | High-Priority IPC / Memory Map |
+| **Safety Soft Gate** | PortfolioOverviewMatrix | Setup Executor TickContext | $< 2 \text{ ms}$ | High-Priority IPC / Memory Map |
 | **Analytics Loop** | Position Matrix | Performance Matrix | Asynchronous (Batch) | JSON Database Persistence |
 
 The observation-loop latency budget decomposes as: **DIE Raw→Distribution ≤ 10 ms; MME cascade ≤ 15 ms; end-to-end Raw→Overview ≤ 25 ms**.

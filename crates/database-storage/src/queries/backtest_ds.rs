@@ -156,14 +156,12 @@ pub async fn update_backtest_run_meta(
     instance_id: Option<&str>,
     mode: &str,
 ) {
-    let _ = sqlx::query(
-        "UPDATE backtest_runs SET instance_id = ?2, mode = ?3 WHERE id = ?1",
-    )
-    .bind(run_id)
-    .bind(instance_id)
-    .bind(mode)
-    .execute(pool)
-    .await;
+    let _ = sqlx::query("UPDATE backtest_runs SET instance_id = ?2, mode = ?3 WHERE id = ?1")
+        .bind(run_id)
+        .bind(instance_id)
+        .bind(mode)
+        .execute(pool)
+        .await;
 }
 
 /// Fetch the DS trades for a run (paginated).
@@ -208,10 +206,7 @@ pub async fn query_backtest_equity(pool: &SqlitePool, run_id: i64) -> Vec<(i64, 
 }
 
 /// Fetch the DS portfolio samples for a run.
-pub async fn query_backtest_portfolio(
-    pool: &SqlitePool,
-    run_id: i64,
-) -> Vec<DsPortfolioPoint> {
+pub async fn query_backtest_portfolio(pool: &SqlitePool, run_id: i64) -> Vec<DsPortfolioPoint> {
     sqlx::query_as::<_, (i64, f64, f64, f64, f64, f64, i64)>(
         "SELECT ts_secs, equity, cash, margin_used, exposure_pct, drawdown_pct, positions_open
          FROM backtest_portfolio WHERE run_id = ?1 ORDER BY ts_secs ASC",
@@ -221,17 +216,19 @@ pub async fn query_backtest_portfolio(
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|(ts_secs, equity, cash, margin_used, exposure_pct, drawdown_pct, positions_open)| {
-        DsPortfolioPoint {
-            ts_secs,
-            equity,
-            cash,
-            margin_used,
-            exposure_pct,
-            drawdown_pct,
-            positions_open: positions_open.max(0) as u32,
-        }
-    })
+    .map(
+        |(ts_secs, equity, cash, margin_used, exposure_pct, drawdown_pct, positions_open)| {
+            DsPortfolioPoint {
+                ts_secs,
+                equity,
+                cash,
+                margin_used,
+                exposure_pct,
+                drawdown_pct,
+                positions_open: positions_open.max(0) as u32,
+            }
+        },
+    )
     .collect()
 }
 
@@ -323,7 +320,10 @@ mod tests {
                 kind: "bias".into(),
                 value: "Bullish".into(),
             }],
-            &[DsMetric { key: "total_trades".into(), value: "1".into() }],
+            &[DsMetric {
+                key: "total_trades".into(),
+                value: "1".into(),
+            }],
         )
         .await;
 

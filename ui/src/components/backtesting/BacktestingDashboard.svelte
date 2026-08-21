@@ -1,26 +1,21 @@
 <script lang="ts">
-    // BacktestingDashboard — the Backtesting Engine shell (v8).
+    // BacktestingDashboard — the Backtesting Engine shell (v8.2).
     //
-    // Binds to ONE running instance via the shared app-store selection
-    // (right-side Instances panel / Market Monitor Workspace tab — the
-    // same mechanism the other engines use; no new picker).
-    //
-    // Navbar contract: with no running instance selected the navbar
-    // collapses to Overview + History + Settings and re-charges
-    // reactively the moment an instance is selected (safeSection clamps
-    // to a visible tab, mirroring PerformanceDashboard).
+    // The Overview tab always renders the installer-style BacktestLauncher
+    // (standalone — no running instance required; preseeded from the bound
+    // instance when one is selected). Once a run exists, the full tab set
+    // (one tab per simulated engine + Study Report + History + Settings)
+    // is available regardless of instance binding.
     import { onMount } from 'svelte';
     import { useAppStore } from '../../state.svelte';
     import { isExecutionMode, type ExecutionMode } from '../../lib/modePresentation';
     import { BTE_TABS_NO_INSTANCE, ENGINE_TABS, type EngineKey } from '../../lib/engineTabs';
     import { buildEngineExport } from '../../lib/engineExport';
-    import { fmtNum } from '../../lib/format';
     import styles from '../../styles/engine-dashboard.module.css';
     import DashboardHeader from '../DashboardHeader.svelte';
     import ModeChip from '../ModeChip.svelte';
     import ExportDataButton from '../ExportDataButton.svelte';
-    import NoInstanceState from '../NoInstanceState.svelte';
-    import BteRunForm from './BteRunForm.svelte';
+    import BacktestLauncher from './BacktestLauncher.svelte';
     import BteCoverageTab from './BteCoverageTab.svelte';
     import BteStudyTab from './BteStudyTab.svelte';
     import BteExecutionsTab from './BteExecutionsTab.svelte';
@@ -48,6 +43,7 @@
         latest_secs: number | null;
         covered_span_secs: number;
         max_lookback_secs: number;
+        max_depth_secs?: number;
         coverage_pct: number;
     }
     export interface BteResult {
@@ -73,22 +69,14 @@
     let burnInSecs = $state<number>(0);
     let cfg = $state<{ backtest?: any; workspace?: any } | null>(null);
 
-    // ── Backfill state (manual on the DIE tab + automatic on Run) ──
+    // ── Backfill state (manual on the DIE tab; the launcher prepares its
+    // own data with the same endpoints) ──
     let backfillJob = $state<{ job_id: number; status: string; pages_fetched: number; candles_stored: number; cursor_ts_secs: number | null; error: string | null; depth_days: number } | null>(null);
     let backfilling = $state(false);
     let backfillError = $state('');
-    // Auto-prepare: the Run flow fetches missing archives before running.
-    let preparing = $state(false);
 
-    // ── Run form state (lifted for the study + export) ──
-    let btTimeframe = $state(900);
-    let btCapital = $state(1000);
-    let btMode = $state<'recorded' | 'historical'>('historical');
-    let depthDays = $state(180);
-    let btRunning = $state(false);
-    let btError = $state('');
+    // ── Result state (shared by every tab) ──
     let btResult = $state<BteResult | null>(null);
-    // DS payloads for the loaded study (portfolio/signals).
     let dsPortfolio = $state<{ run_id: number; portfolio: any[] } | null>(null);
     let dsSignals = $state<{ run_id: number; count: number; signals: any[] } | null>(null);
 
@@ -97,14 +85,16 @@
         app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined,
     );
 
-    // ── Instance binding (the shared selection, "like always") ──
+    // ── Instance binding (the shared selection; preseed only) ──
     const boundInstance = $derived.by<InstanceRow | null>(() => {
         const sel = app.selectedInstance;
         if (!sel) return null;
         return instances.find((i) => i.pair === sel && i.status === 'running') ?? null;
     });
 
-    const visibleTabs = $derived(boundInstance ? ENGINE_TABS.backtesting : BTE_TABS_NO_INSTANCE);
+    // v8.2: the full tab set appears once a run exists (standalone runs
+    // have no bound instance) or when an instance is bound.
+    const visibleTabs = $derived(boundInstance || btResult ? ENGINE_TABS.backtesting : BTE_TABS_NO_INSTANCE);
     const safeSection = $derived(
         visibleTabs.some((t) => t.key === section) ? section : 'overview',
     );
@@ -126,15 +116,18 @@
             if (res.ok) {
                 const data = await res.json();
                 cfg = data;
-                const ws = data?.workspace;
-                if (data?.backtest?.archive_depth_days) depthDays = data.backtest.archive_depth_days;
-                const slow = ws?.slow_timeframe?.duration_seconds ?? 300;
-                const macro = ws?.macro_timeframe?.duration_seconds ?? 900;
+                if (data?.backtest?.archive_depth_days) coverageDepth = data.backtest.archive_depth_days;
+                if (typeof data?.backtest?.warmup_bars === 'number') {
+                    warmupBars = data.backtest.warmup_bars;
+                }
+                const slow = data?.workspace?.slow_timeframe?.duration_seconds ?? 300;
+                const macro = data?.workspace?.macro_timeframe?.duration_seconds ?? 900;
                 ladder = [60, 180, slow, macro];
-                if (!ladder.includes(btTimeframe)) btTimeframe = macro;
             }
         } catch (_) {}
     }
+
+    let warmupBars = $state(300);
 
     async function fetchCoverage() {
         const inst = boundInstance;
@@ -149,7 +142,6 @@
                 if (typeof data.burn_in_secs === 'number') burnInSecs = data.burn_in_secs;
                 if (Array.isArray(data.ladder) && (data.ladder as number[]).length === 4) {
                     ladder = data.ladder;
-                    if (!ladder.includes(btTimeframe)) btTimeframe = ladder[3];
                 }
                 coverageError = '';
             } else {
@@ -174,7 +166,7 @@
         return () => clearInterval(timer);
     });
 
-    // ── Backfill (manual on the DIE tab; also used by auto-prepare) ──
+    // ── Backfill (manual on the DIE tab) ──
     async function startBackfill() {
         const inst = boundInstance;
         if (!inst) return;
@@ -185,7 +177,7 @@
             const res = await fetch('/api/backtest/archive/backfill', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ instance_id: inst.id, depth_days: depthDays }),
+                body: JSON.stringify({ instance_id: inst.id, depth_days: coverageDepth }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -193,7 +185,7 @@
                 if (data?.hint) msg += ' — ' + data.hint;
                 throw new Error(msg);
             }
-            backfillJob = { job_id: data.job_id, status: 'running', pages_fetched: 0, candles_stored: 0, cursor_ts_secs: null, error: null, depth_days: depthDays };
+            backfillJob = { job_id: data.job_id, status: 'running', pages_fetched: 0, candles_stored: 0, cursor_ts_secs: null, error: null, depth_days: coverageDepth };
             pollBackfill();
         } catch (e: any) {
             backfillError = e?.message ?? 'Backfill failed';
@@ -223,97 +215,10 @@
                     clearInterval(timer);
                     if (data.status === 'failed') backfillError = data.error ?? 'Backfill failed';
                     await fetchCoverage();
-                    // Auto-prepare continuation: when the Run flow started
-                    // the backfill, fire the actual run once coverage is
-                    // sufficient.
-                    if (preparing) {
-                        preparing = false;
-                        if (!backfillError && historicalCoverageReady()) {
-                            await runNow();
-                        } else {
-                            btError = backfillError || 'Data preparation did not produce full four-timeframe coverage.';
-                        }
-                    }
                 }
             } catch (_) {}
         }, 1000);
         void timer;
-    }
-
-    // Per-TF coverage vs the requested depth (all four ladder timeframes).
-    function historicalCoverageReady(): boolean {
-        const required = depthDays * 86400;
-        return ladder.every((tf) => {
-            const row = coverage.find((c) => c.timeframe_secs === tf);
-            return row != null && (row.covered_span_secs ?? 0) >= required;
-        });
-    }
-
-    // ── Run (depth-driven; auto-prepares missing archives) ──
-    async function runBacktest() {
-        const inst = boundInstance;
-        if (!inst) return;
-        if (btMode === 'historical' && !historicalCoverageReady()) {
-            // Auto data preparation: fetch the four timeframe archives,
-            // then run automatically when coverage is sufficient.
-            preparing = true;
-            btError = '';
-            backfillError = '';
-            await startBackfill();
-            if (backfillError) {
-                preparing = false;
-                btError = backfillError;
-            }
-            return;
-        }
-        await runNow();
-    }
-
-    async function runNow() {
-        const inst = boundInstance;
-        if (!inst) return;
-        btRunning = true;
-        btError = '';
-        btResult = null;
-        dsPortfolio = null;
-        dsSignals = null;
-        try {
-            // Depth-driven window: fetch `depthDays` of data; the first
-            // burn-in portion warms the pipeline, the rest is scored.
-            const toMs = Date.now();
-            const fromMs = toMs - (depthDays * 864e5 - burnInSecs * 1000);
-            if (fromMs >= toMs) throw new Error('Depth too small for the warmup window');
-            const res = await fetch('/api/backtest/run', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    symbol: inst.symbol,
-                    timeframe_secs: Number(btTimeframe),
-                    from_ms: fromMs,
-                    to_ms: toMs,
-                    initial_capital: Number(btCapital),
-                    instance_id: inst.id,
-                    mode: btMode,
-                }),
-            });
-            if (!res.ok) {
-                let msg = 'Backtest failed: HTTP ' + res.status;
-                try {
-                    const err = await res.json();
-                    if (err?.error) msg = String(err.error);
-                    if (err?.hint) msg += ' — ' + String(err.hint);
-                    if (err?.code) msg += ` (${err.code})`;
-                } catch (_) {}
-                throw new Error(msg);
-            }
-            const result = await res.json() as BteResult;
-            btResult = result;
-            await loadDsFor(result.backtest_id);
-        } catch (e: any) {
-            btError = e?.message ?? 'Backtest failed';
-        } finally {
-            btRunning = false;
-        }
     }
 
     async function loadDsFor(runId: number) {
@@ -337,9 +242,14 @@
         } catch (_) {}
     }
 
+    // v8.2: the launcher hands over the persisted run id.
+    function handleLauncherCompleted(backtestId: number) {
+        void loadRun({ id: backtestId });
+    }
+
     function headerTitle(s: string): string {
         const m: Record<string, string> = {
-            overview: 'Backtesting Overview',
+            overview: 'Backtest Launcher',
             die: 'DIE · Archived Data',
             mme: 'MME · Simulated Signals',
             tae: 'TAE · Simulated Executions',
@@ -365,9 +275,8 @@
         return buildEngineExport('backtesting', safeSection, mode ?? null, {
             bound_instance: boundInstance ? { id: boundInstance.id, pair: boundInstance.pair, symbol: boundInstance.symbol } : null,
             coverage,
-            depth_days: depthDays,
+            depth_days: coverageDepth,
             burn_in_secs: burnInSecs,
-            preparing,
             backfill: backfillJob,
             result: btResult ?? null,
         });
@@ -395,11 +304,11 @@
                     <ModeChip {mode} />
                 {/if}
                 {#if boundInstance}
-                    <span class="{styles.badge} {styles.badgeNeutral}" title="Bound instance — select another from the right-side Instances panel">
+                    <span class="{styles.badge} {styles.badgeNeutral}" title="Bound instance — the launcher is preseeded from it">
                         {boundInstance.pair} · {boundInstance.id}
                     </span>
                 {:else}
-                    <span class="{styles.badge} {styles.badgeEmpty}">NO INSTANCE</span>
+                    <span class="{styles.badge} {styles.badgeEmpty}">STANDALONE</span>
                 {/if}
                 {#if safeSection !== 'settings'}
                     <ExportDataButton onExport={buildExport} title="Copy the Backtesting Engine data as JSON" />
@@ -409,25 +318,13 @@
 
         {#if safeSection === 'settings'}
             <BacktestSettings />
-        {:else if !boundInstance}
-            <NoInstanceState engine="backtesting" />
         {:else if safeSection === 'overview'}
-            <BteRunForm
-                bound={{ pair: boundInstance.pair, id: boundInstance.id, symbol: boundInstance.symbol }}
+            <BacktestLauncher
+                bound={boundInstance ? { pair: boundInstance.pair, id: boundInstance.id, symbol: boundInstance.symbol } : null}
                 {ladder}
-                bind:btTimeframe
-                bind:btCapital
-                bind:btMode
-                bind:depthDays
-                {burnInSecs}
-                {coverageForTf}
-                {preparing}
-                prepareProgress={backfillJob}
-                {btRunning}
-                {btError}
-                {btResult}
-                {runBacktest}
-                maxDepth={coverageDepth}
+                depthDefault={coverageDepth}
+                {warmupBars}
+                onCompleted={handleLauncherCompleted}
             />
         {:else if safeSection === 'die'}
             <BteCoverageTab {coverage} {ladder} depthDays={coverageDepth} {backfillJob} {backfillError} {startBackfill} {backfilling} />

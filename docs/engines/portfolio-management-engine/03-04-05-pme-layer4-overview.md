@@ -1,22 +1,22 @@
-# PME Layer 4 — Portfolio Layer (v7)
+# PME Layer 4 — Overview Layer (v7)
 
-**Version:** 8.0 (2026-08-20) — v7: the veto/stance machinery is erased; the Portfolio Layer is now **risk reporting** only.
+**Version:** 8.0 (2026-08-20) — v7: the veto/stance machinery is erased; the Overview Layer is now **risk reporting** only. v8.2: renamed from "Portfolio Layer"; the output matrix is renamed `PortfolioOverviewMatrix`.
 **Status:** Specified — v7 implementation in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4
 **Input Contract:** Position Matrix (L1), Exposure Matrix (L2), Capital Matrix (L3), [Overview Matrix](../../matrices/02-09-overview-matrix.md) (MME L7)
-**Output Contract:** Portfolio Matrix (unified account-health report)
-**Purpose:** This document specifies the Portfolio Layer — the consolidation layer that synthesizes Position, Exposure, and Capital matrices into a single account-health vector and **reports** systemic safety conditions. It enforces nothing.
+**Output Contract:** PortfolioOverviewMatrix (unified account-health report)
+**Purpose:** This document specifies the Overview Layer — the consolidation layer that synthesizes Position, Exposure, and Capital matrices into a single account-health vector and **reports** systemic safety conditions. It enforces nothing.
 
 ---
 
 ## 1. Purpose
 
-The Portfolio Layer consolidates Position, Exposure, and Capital matrices into one portfolio report and maintains the account **safety state** (a read-only status ladder). In v7 it is a **reporting layer**: there is no veto, no stance override, no order cancellation. The only behavioral consumer of its output is the TAE setup executor's soft entry gate, which reads `safety_state` before opening new positions (see [TAE Overview §7](../trade-automation-engine/03-03-01-tae-overview-spec.md)).
+The Overview Layer consolidates Position, Exposure, and Capital matrices into one portfolio report and maintains the account **safety state** (a read-only status ladder). In v7 it is a **reporting layer**: there is no veto, no stance override, no order cancellation. The only behavioral consumer of its output is the TAE setup executor's soft entry gate, which reads `safety_state` before opening new positions (see [TAE Overview §7](../trade-automation-engine/03-03-01-tae-overview-spec.md)).
 
 ```
 [Position Matrix ] ─┐
-[Exposure Matrix ] ─┼──► PORTFOLIO LAYER (L4) ──► [Portfolio Matrix] ──► API / Dashboard
+[Exposure Matrix ] ─┼──► OVERVIEW LAYER (L4) ──► [PortfolioOverviewMatrix] ──► API / Dashboard
 [Capital Matrix  ] ─┘                                  │
 [Overview Matrix ] ─┘                                  │
                                                        └── safety_state ──► [TAE soft gate]
@@ -24,7 +24,7 @@ The Portfolio Layer consolidates Position, Exposure, and Capital matrices into o
 
 ---
 
-## 2. Portfolio Matrix Schema
+## 2. PortfolioOverviewMatrix Schema
 
 | Field | Type | Description |
 |-------|------|-------------|

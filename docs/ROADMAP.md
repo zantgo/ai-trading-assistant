@@ -15,7 +15,7 @@
 | **DIE — Data Infrastructure** | `crates/network-adapters`, `crates/database-storage`, L2–L4 in `crates/market-analyzer` | `DataInfraDashboard` (live fetches) | **Yes — implemented** | Implemented |
 | **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | Implemented |
 | **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7: setup executor, unified execution engine + `ExecutionBackend` trait, `PaperSimulation`, `LiveBroker` + `BitgetLiveBroker`, lifecycle manager) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — implemented** (paper default; live dispatch for Hyperliquid + Bitget) | Implemented |
-| **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state reporting, position/exposure/capital/portfolio layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the single safety soft gate) | Implemented (informational) |
+| **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state reporting, position/exposure/capital/overview layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the single safety soft gate) | Implemented (informational) |
 | **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer, **backtest runner**) | `PerformanceDashboard` (fetches real data incl. the **backtest tab**: form, edge verdict, equity curve) | **Yes — implemented** | Implemented |
 | **Cross-cutting** (DTOs, config, API gateway, execution-daemon) | All 4 crates | App shell, store, websocket, settings, watchlist scanner | **Yes — implemented** | Implemented |
 
@@ -175,6 +175,20 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | E6. Timeframe editor (operator-editable timeframe set) | `config-models`, `market-analyzer`, UI | AUDIT-V6-303 closed |
 
 > **Rescinding the "WIP" label.** Each engine's row in §1 transitions from WIP to Implemented **only** when every phase whose first column names that engine has a passing acceptance criterion. Until then, the doc corpus — README, AGENTS.md, every `**Status:**` header, every UI banner, every docs banner — must continue to say **WIP**.
+
+### Phase F — "Backtesting production-ready" ✅ (delivered as v8.2, 2026-08-21)
+
+| Item | Owner | Acceptance criterion |
+|---|---|---|
+| F1. Installer-style Backtest Launcher (Environment → Instances → Historical Data → Run, progress bar + Cancel) | UI, `api-gateway` | Delivered: `BacktestLauncher.svelte` renders standalone (no instance required, preseeded when bound); wizard/allocations/progress/cancel tests green |
+| F2. Standalone multi-symbol historical runs (shared virtual portfolio, tick clock = smallest ladder TF, k-way merge) | `backtesting-engine`, `api-gateway` | Delivered: `POST /api/backtest/run` standalone payload; multi-symbol ordering/tick-clock/isolation + shared-equity tests green |
+| F3. Allocation model (1–100 % per position, Σ ≤ 100 %, ≤ 100 instances) | `config-models`, `portfolio-supervisor` | Delivered: `allocation_pct` replaces the risk sizing everywhere; bounds/Σ/caps + paper↔backtest size parity tests green |
+| F4. Parity fixes (simulated safety ladder, 8h funding settle, end-of-run force-close) | `backtesting-engine` | Delivered: drawdown-blocking, funding-debit and `end_of_backtest` tests green |
+| F5. Async runs + progress/cancel endpoints | `backtesting-engine`, `api-gateway` | Delivered: `GET /api/backtest/progress/:run_id` + `POST /api/backtest/cancel/:run_id`; phase/cancel/409 tests green |
+| F6. Exchange-aware depth ceilings (Hyperliquid 5,000-candle cap, Bitget paginated) | `api-gateway`, `backtesting-engine` | Delivered: `max_candles_per_tf` config + ceiling validation naming the limiting TF; negative tests green |
+| F7. CLI backtest mode (interactive + `--backtest` headless flags) | `execution-daemon` | Delivered: headless JSON envelope, tier-restricted ladders, Ctrl+C cancel; CLI unit tests green |
+| F8. PME L4 rename (Overview Layer / `PortfolioOverviewMatrix`) + TAE L2 rename | all crates, docs | Delivered: code + docs renamed; wire JSON keys unchanged; `test-doc` green |
+| F9. E2E matrix harness (`./manage.sh e2e-backtest`, 24+ cases) | scripts | Delivered: `scripts/e2e-backtest-matrix.sh` + `scripts/e2e_backtest_verify.py`; sqlite invariants + determinism double-run |
 
 ---
 

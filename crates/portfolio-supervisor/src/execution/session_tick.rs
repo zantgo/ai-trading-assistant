@@ -82,7 +82,7 @@ pub async fn run_tick(
                 engine.apply_external_fills(fills).await;
             }
             None => {
-                engine.evaluate_order_fills(mid).await;
+                engine.evaluate_order_fills(symbol, mid).await;
             }
         }
     }
@@ -96,13 +96,38 @@ pub async fn run_tick(
                 outcome.last_close_size = Some(pos.size);
                 outcome.last_close_entry = Some(pos.entry_price);
             }
+            // v8.2: feed the simulated safety ladder here — the executor's
+            // own take (tick_position) now finds the slot empty.
+            if let Some(safety) = &ctx.safety {
+                safety.record_trade_outcome(symbol, close.is_loss).await;
+            }
             outcome.last_close = Some(close);
         }
     }
 
+    let safety_ref = ctx.safety.clone();
     executor
         .tick(instance_id, symbol, snaps.to_vec(), mid, ctx)
         .await;
+
+    // v8.2: market closes (signal-flip) happen INSIDE the executor tick
+    // and leave the close in the engine slot. Capture them here with the
+    // pre-tick position context (the flipped position was still open at
+    // tick start) — otherwise the ledger would record them one tick late
+    // with no direction/size context.
+    if capture_last_close && outcome.last_close.is_none() {
+        if let Some(close) = engine.take_last_close(symbol).await {
+            if let Some(pos) = &prev_position {
+                outcome.last_close_direction = Some(pos.direction);
+                outcome.last_close_size = Some(pos.size);
+                outcome.last_close_entry = Some(pos.entry_price);
+            }
+            if let Some(safety) = &safety_ref {
+                safety.record_trade_outcome(symbol, close.is_loss).await;
+            }
+            outcome.last_close = Some(close);
+        }
+    }
 
     outcome.equity = engine.get_equity().await;
     outcome
@@ -118,7 +143,7 @@ mod tests {
     fn tae_cfg() -> MinimalTaeConfig {
         MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: 1.0,
             max_position_size_usd: None,
             max_open_positions: 1,
@@ -165,13 +190,18 @@ mod tests {
                         candle_ts: ts,
                         safety: None,
                         dispatch: true,
+                        allocation_pct: None,
                     },
                     None,
                     true,
                 )
                 .await;
             }
-            assert_eq!(engine.get_equity().await, 1000.0, "no fills without decision matrices");
+            assert_eq!(
+                engine.get_equity().await,
+                1000.0,
+                "no fills without decision matrices"
+            );
         }
     }
 
@@ -194,6 +224,7 @@ mod tests {
                 candle_ts: 1,
                 safety: None,
                 dispatch: false,
+                allocation_pct: None,
             },
             None,
             false,
@@ -201,5 +232,159 @@ mod tests {
         .await;
         assert_eq!(outcome.candle_ts, 1);
         assert_eq!(engine.get_equity().await, 1000.0);
+    }
+}
+
+#[cfg(test)]
+mod flip_tests {
+    use super::*;
+    use crate::paper_trading::FeesConfig;
+    use crate::safety::SafetyManager;
+    use config_models::MinimalTaeConfig;
+    use config_models::{Direction, OrderPacket, OrderSide, OrderType};
+    use rust_decimal_macros::dec;
+
+    fn tae_cfg() -> MinimalTaeConfig {
+        MinimalTaeConfig {
+            enabled: true,
+            allocation_pct: 10.0,
+            min_net_rr: 1.0,
+            max_position_size_usd: None,
+            max_open_positions: 10,
+            entry_mode: "zone_midpoint".to_string(),
+            invalidate_on: "direction_flip".to_string(),
+        }
+    }
+
+    /// v8.2 regression: a market close left in the engine slot (the
+    /// signal-flip path's mechanics) must be captured in the SAME tick
+    /// the run observes it — not lost or deferred to a later tick. In the
+    /// real flip flow the pre-tick position context is present (the flip
+    /// happens during the tick); this synthetic case closes between ticks,
+    /// so only the capture timing + safety-ladder feed are asserted here.
+    #[tokio::test]
+    async fn market_close_during_tick_captures_position_context() {
+        let engine = Arc::new(ExecutionEngine::new(FeesConfig::default()));
+        engine.set_initial_equity(dec!(1000)).await;
+        // Open a position directly on the engine (as if an entry filled).
+        let packet = OrderPacket {
+            client_order_id: "entry".into(),
+            symbol: "BTC-USDC".into(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            price: Some(dec!(100)),
+            size: dec!(1),
+            reduce_only: false,
+            is_emergency_liquidation: false,
+            associated_position_id: None,
+            metadata: Default::default(),
+        };
+        let _ = engine.submit_order(packet, dec!(99)).await;
+
+        let executor = SetupExecutor::new(engine.clone(), &tae_cfg());
+        let safety = Arc::new(SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0));
+
+        // Tick 1: nothing happens; the close slot is empty.
+        let snap = MarketSnapshot {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: 60,
+            timestamp: 1,
+            is_completed: Some(true),
+            mid_price: dec!(100),
+            ..MarketSnapshot::default()
+        };
+        let _ = run_tick(
+            &engine,
+            &executor,
+            "test",
+            "BTC-USDC",
+            &[&snap],
+            dec!(100),
+            TickContext {
+                safety_allows_entry: true,
+                lifecycle_running: true,
+                candle_ts: 1,
+                safety: None,
+                dispatch: true,
+                allocation_pct: None,
+            },
+            None,
+            true,
+        )
+        .await;
+
+        // Close the position AT MARKET between ticks (the flip path's
+        // mechanics) — a LOSS, so the safety ladder must record it.
+        let _ = engine.close_position("BTC-USDC", dec!(98), "invalidated_signal").await;
+
+        // Tick 2: the capture must pick up the market close WITH the
+        // pre-tick position context and feed the safety ladder.
+        let snap2 = MarketSnapshot {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: 60,
+            timestamp: 2,
+            is_completed: Some(true),
+            mid_price: dec!(98),
+            ..MarketSnapshot::default()
+        };
+        let outcome = run_tick(
+            &engine,
+            &executor,
+            "test",
+            "BTC-USDC",
+            &[&snap2],
+            dec!(98),
+            TickContext {
+                safety_allows_entry: true,
+                lifecycle_running: true,
+                candle_ts: 2,
+                safety: Some(safety.clone()),
+                dispatch: true,
+                allocation_pct: None,
+            },
+            None,
+            true,
+        )
+        .await;
+
+        let close = outcome.last_close.expect("market close captured in-tick");
+        assert_eq!(close.exit_reason, "invalidated_signal");
+        // The safety ladder saw the loss (the parity contract).
+        let losses = safety.consecutive_losses.read().await;
+        assert_eq!(losses.get("BTC-USDC"), Some(&1));
+
+        // Nothing stale surfaces on the next tick (the capture is
+        // same-tick, never deferred).
+        let snap3 = MarketSnapshot {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: 60,
+            timestamp: 3,
+            is_completed: Some(true),
+            mid_price: dec!(98),
+            ..MarketSnapshot::default()
+        };
+        let outcome3 = run_tick(
+            &engine,
+            &executor,
+            "test",
+            "BTC-USDC",
+            &[&snap3],
+            dec!(98),
+            TickContext {
+                safety_allows_entry: true,
+                lifecycle_running: true,
+                candle_ts: 3,
+                safety: None,
+                dispatch: true,
+                allocation_pct: None,
+            },
+            None,
+            true,
+        )
+        .await;
+        assert!(
+            outcome3.last_close.is_none(),
+            "close must not be captured a tick late"
+        );
     }
 }

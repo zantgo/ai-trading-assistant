@@ -216,8 +216,57 @@ async fn backtest_run_and_get_round_trip() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 
-    let id = json["backtest_id"].as_i64().unwrap();
-    assert!(id > 0);
+    // v8.2 async contract: the POST returns { run_id, status } — poll
+    // progress until the run completes, then load the persisted result.
+    let run_id = json["run_id"].as_i64().unwrap();
+    assert!(run_id > 0);
+    assert_eq!(json["status"], "running");
+
+    let mut backtest_id: Option<i64> = None;
+    for _ in 0..200 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let router = api_gateway::build_router(state.clone());
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/backtest/progress/{run_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let pjson: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let status = pjson["status"].as_str().unwrap_or("running");
+        if status != "running" {
+            assert_eq!(status, "completed", "{}", pjson);
+            backtest_id = pjson["backtest_id"].as_i64();
+            break;
+        }
+    }
+    let id = backtest_id.expect("run completed with a persisted backtest_id");
+
+    // Round-trip via GET /api/backtest/:id.
+    let router = api_gateway::build_router(state.clone());
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/backtest/{}", id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
     assert_eq!(json["summary"]["total_trades"], 1);
     assert_eq!(json["summary"]["win_count"], 1);
     assert_eq!(json["trades"][0]["exit_reason"], "tp");
@@ -243,6 +292,7 @@ async fn backtest_run_and_get_round_trip() {
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["backtest_id"], id);
     assert_eq!(json["summary"]["total_trades"], 1);
+    assert_eq!(json["summary"]["win_count"], 1);
     assert!(json["stats"]["p_value"].as_f64().is_some());
 }
 

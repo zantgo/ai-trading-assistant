@@ -110,4 +110,4 @@ Per-dimension scoring rules are documented in [Risk Matrix §4.8](../../matrices
 - [Risk Matrix](../../matrices/02-11-risk-matrix.md) — Output contract.
 - [LiquidityMatrix](../../matrices/02-12-liquidity-matrix.md) · [ClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md) — Cascade inputs.
 - [MME Layer 6 — Decision Support](03-02-07-mme-layer6-decision-support.md) — Consumer.
-- [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Systemic risk consumer.
+- [PME Layer 4 — Overview](../portfolio-management-engine/03-04-05-pme-layer4-overview.md) — Systemic risk consumer.

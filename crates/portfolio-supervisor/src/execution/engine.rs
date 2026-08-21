@@ -246,14 +246,24 @@ impl ExecutionEngine {
 
     /// Evaluate resting limit/stop orders against the current mid via the
     /// backend. Returns `(order_id, fill_price)` for every fill.
-    pub async fn evaluate_order_fills(&self, current_mid_price: Decimal) -> Vec<(String, Decimal)> {
+    /// v8.2: evaluates ONLY `symbol`'s open orders — the engine is shared
+    /// across instances, and evaluating every symbol's orders at one
+    /// symbol's mid cross-fills brackets (e.g. an ETH tick would trigger
+    /// BTC's stop at ETH's price).
+    pub async fn evaluate_order_fills(
+        &self,
+        symbol: &str,
+        current_mid_price: Decimal,
+    ) -> Vec<(String, Decimal)> {
         let mut fills = Vec::new();
 
         let orders_to_check: Vec<(String, OrderLifecycle)> = {
             let orders = self.orders.read().await;
             orders
                 .iter()
-                .filter(|(_, o)| o.status == OrderStatus::Open)
+                .filter(|(_, o)| {
+                    o.status == OrderStatus::Open && o.packet.symbol == symbol
+                })
                 .map(|(id, o)| (id.clone(), o.clone()))
                 .collect()
         };
@@ -1180,5 +1190,66 @@ mod live_tests {
             .unwrap();
         let orders = e.orders.read().await;
         assert_eq!(orders.get(&id).unwrap().status, OrderStatus::Closed);
+    }
+
+    /// v8.2 regression: the engine is shared across instances — evaluating
+    /// fills must only touch the TICKED symbol's orders. An ETH tick at
+    /// 3.4k must not fill BTC's stop at 77k (the pre-v8.2 cross-fill bug).
+    #[tokio::test]
+    async fn evaluate_fills_isolates_symbols() {
+        let e = ExecutionEngine::new(FeesConfig::default());
+        e.set_initial_equity(dec!(1000)).await;
+        // Open a BTC LONG position + arm a BTC stop below it.
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "btc_entry".into(),
+                symbol: "BTC-USDC".into(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Limit,
+                price: Some(dec!(78000)),
+                size: dec!(1),
+                reduce_only: false,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(77900),
+        )
+        .await
+        .unwrap();
+        // Fill the entry on its own symbol's tick (fills evaluate per
+        // tick, not at submit).
+        e.evaluate_order_fills("BTC-USDC", dec!(77900)).await;
+        assert!(e.get_position("BTC-USDC").await.is_some());
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "btc_sl".into(),
+                symbol: "BTC-USDC".into(),
+                side: OrderSide::Sell,
+                order_type: OrderType::Stop,
+                price: Some(dec!(77000)),
+                size: dec!(1),
+                reduce_only: true,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(77900),
+        )
+        .await
+        .unwrap();
+
+        // An ETH tick (far below BTC's stop) must NOT fill the BTC stop.
+        e.evaluate_order_fills("ETH-USDC", dec!(3400)).await;
+        assert!(
+            e.get_position("BTC-USDC").await.is_some(),
+            "BTC position must survive an unrelated ETH tick"
+        );
+        // A BTC tick at/below the stop fills it.
+        e.evaluate_order_fills("BTC-USDC", dec!(76800)).await;
+        assert!(
+            e.get_position("BTC-USDC").await.is_none(),
+            "BTC stop fills on its own symbol's tick"
+        );
     }
 }

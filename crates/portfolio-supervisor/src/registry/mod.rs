@@ -361,6 +361,7 @@ pub async fn add_instance(
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
                 mode: execution_mode,
+                allocation_pct: None,
                 weight_overrides: weight_overrides.clone(),
                 position_scaling: position_scaling.clone(),
                 activation: None,

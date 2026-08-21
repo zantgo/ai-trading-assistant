@@ -64,7 +64,7 @@ Correlated downside elevates `sync_penalty` (0–100), because synchronized decl
 | `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_FRAGMENTED` | 0 |
 | `global_market_bias ∉ {BEARISH, STRONG_BEARISH}` | 0 |
 
-The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA` — canonical derivation rule table in [Overview Matrix §2.3](../../matrices/02-09-overview-matrix.md)) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA` — canonical derivation rule table in [Overview Matrix §2.3](../../matrices/02-09-overview-matrix.md)) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-overview.md).
 
 > **STRONG_BEARISH coverage (correction).** A previous version of this section used the informal phrase "unless the global bias is bearish" — this excluded `STRONG_BEARISH`. The corrected condition is member-set inclusion over `GlobalBias`'s bearish family (`BEARISH` ∪ `STRONG_BEARISH`), matching the canonical table in [Overview Matrix §4](../../matrices/02-09-overview-matrix.md).
 
@@ -119,4 +119,4 @@ The remaining breadth / bias / sync / risk aggregates are unaffected. The dashbo
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Per-asset L6 input.
 - [Alignment Matrix](../../matrices/02-01-alignment-matrix.md) — Per-asset L2 input (v6.10.3+).
 - [Overview Matrix](../../matrices/02-09-overview-matrix.md) — Output contract.
-- [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Systemic Risk consumer.
+- [PME Layer 4 — Overview](../portfolio-management-engine/03-04-05-pme-layer4-overview.md) — Systemic Risk consumer.

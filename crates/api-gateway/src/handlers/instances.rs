@@ -237,6 +237,7 @@ pub async fn serve_update_instance_config(
                 Some("observe") => config_models::ExecutionMode::Observe,
                 _ => config_models::ExecutionMode::Paper,
             },
+            allocation_pct: None,
             weight_overrides: None,
             position_scaling: None,
             activation: None,

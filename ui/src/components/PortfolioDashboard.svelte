@@ -106,7 +106,7 @@
     let pollFailed = $state(false);
     let safetyCfg = $state<{ daily: number; caution: number; dropout: number; hours: number; drawdown: number } | null>(null);
     // v7.3: real risk-per-trade from `[workspace.minimal_tae]` (ConfigResponse).
-    let riskPerTradePct = $state<number | null>(null);
+    let allocationPct = $state<number | null>(null);
 
     const mode = $derived.by<ExecutionMode | undefined>(() => {
         const pMode = portfolio?.mode;
@@ -160,9 +160,9 @@
                     drawdown: Number(s.drawdown_limit_pct) || 30,
                 };
             }
-            const tae = cfg?.minimal_tae as { risk_per_trade_pct?: number } | undefined;
-            if (tae && typeof tae.risk_per_trade_pct === 'number' && tae.risk_per_trade_pct > 0) {
-                riskPerTradePct = tae.risk_per_trade_pct;
+            const tae = cfg?.minimal_tae as { allocation_pct?: number } | undefined;
+            if (tae && typeof tae.allocation_pct === 'number' && tae.allocation_pct > 0) {
+                allocationPct = tae.allocation_pct;
             }
         } catch {
             // Blueprint falls back to shipped defaults.
@@ -300,10 +300,11 @@
             positions: 'Positions',
             exposure: 'Exposure',
             capital: 'Capital',
+            portfolio: 'Portfolio Overview',
             safety: 'Safety',
-            settings: 'Settings',
+            settings: 'Portfolio Settings',
         };
-        return m[s] ?? 'Overview';
+        return m[s] ?? 'Portfolio';
     }
 
     // ── KPI sets ───────────────────────────────────────────────────────
@@ -408,7 +409,7 @@
                     initial_capital: portfolio?.initial_capital ?? null,
                     current_equity: portfolio?.current_equity ?? null,
                     safety_state: portfolio?.safety_state ?? null,
-                    risk_per_trade_pct: riskPerTradePct,
+                    allocation_pct: allocationPct,
                     safety_blueprint: safetyCfg,
                 };
         }
@@ -493,7 +494,7 @@
                             </div>
                             <div class={local.blueprintItem}>
                                 <div class={local.blueprintLabel}>Risk per trade</div>
-                                <div class={local.blueprintValue}>{riskPerTradePct ?? 1}%</div>
+                                <div class={local.blueprintValue}>{allocationPct ?? 10}%</div>
                                 <div class={local.blueprintSub}>minimal_tae sizing</div>
                             </div>
                             <div class={local.blueprintItem}>
@@ -618,11 +619,11 @@
                 </div>
 
             {:else if safeSection === 'portfolio'}
-                <!-- ── PME L4: Portfolio Matrix ── -->
+                <!-- ── PME L4: Overview Layer (PortfolioOverviewMatrix) ── -->
                 <div class={styles.card}>
-                    <h3 class={styles.cardTitle}>Portfolio Matrix</h3>
+                    <h3 class={styles.cardTitle}>Portfolio Overview Matrix</h3>
                     <p class={styles.infoLine}>
-                        L4 portfolio view — the aggregate money picture across the instance:
+                        L4 Overview Layer — the aggregate money picture across the instance:
                         session accounting, drawdown trajectory and systemic risk.
                     </p>
                     <div class={styles.grid2}>

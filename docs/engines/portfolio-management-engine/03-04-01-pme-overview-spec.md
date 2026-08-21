@@ -27,7 +27,7 @@ The PME is the platform's **informational portfolio mirror**. It tracks active p
 ```
 [ExecutionEngine ledgers] ──► PME (pure computation)
         │                            │
-        └── fills/equity             └──► [Portfolio Matrix] ──► API ──► PortfolioDashboard
+        └── fills/equity             └──► [PortfolioOverviewMatrix] ──► API ──► PortfolioDashboard
                                                       │
                                                       └── safety_state ──► [TAE soft gate]
 ```
@@ -39,7 +39,7 @@ The PME is the platform's **informational portfolio mirror**. It tracks active p
 | L1 | [Position Layer](03-04-02-pme-layer1-position.md) | Position Matrix (incl. mark-to-market) |
 | L2 | [Exposure Layer](03-04-03-pme-layer2-exposure.md) | Exposure Matrix |
 | L3 | [Capital Layer](03-04-04-pme-layer3-capital.md) | Capital Matrix |
-| L4 | [Portfolio Layer](03-04-05-pme-layer4-portfolio.md) | Portfolio Matrix (risk *reporting*) |
+| L4 | [Overview Layer](03-04-05-pme-layer4-overview.md) | PortfolioOverviewMatrix (risk *reporting*) |
 
 
 **Dashboard tabs ↔ layers (v7.3).** Overview (landing) · Positions (L1) · Exposure (L2) · Capital (L3) · Portfolio (L4) · Safety (cross-cutting ladder last). Observe mode collapses to Overview + Safety (Readiness Board). Exposure limits are config-driven via `[workspace.risk_limits]` (see [07-07 §2](../../ui-ux/07-07-engine-dashboard-vocabulary.md)).
@@ -115,6 +115,6 @@ None of these can place, cancel, or modify orders.
 - [PME Layer 1 — Position](03-04-02-pme-layer1-position.md)
 - [PME Layer 2 — Exposure](03-04-03-pme-layer2-exposure.md)
 - [PME Layer 3 — Capital](03-04-04-pme-layer3-capital.md)
-- [PME Layer 4 — Portfolio](03-04-05-pme-layer4-portfolio.md)
+- [PME Layer 4 — Overview](03-04-05-pme-layer4-overview.md)
 - [TAE Overview — soft gate](../trade-automation-engine/03-03-01-tae-overview-spec.md)
 - [Systemic Data Flow](../../conceptual-foundations/01-03-systemic-data-flow.md)

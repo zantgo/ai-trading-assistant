@@ -77,7 +77,7 @@ The recommended protection method resolves to a concrete **stop-loss distance pe
 
 $$S = \frac{E \times R}{D_{sl} / 100}$$
 
-`D_sl` is a raw percentage float (e.g. `1.5` = 1.5%), divided by 100 in the formula; `E` is available margin. *(Units: `E` = available margin (Decimal, quote currency); `R = risk_per_trade_pct / 100` (unitless fraction in `[0, 1]`); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
+`D_sl` is a raw percentage float (e.g. `1.5` = 1.5%), divided by 100 in the formula; `E` is available margin. *(Units: `E` = available margin (Decimal, quote currency); `allocation_pct` = raw percent in `[1, 100]` (unitless); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
 
 ---
 

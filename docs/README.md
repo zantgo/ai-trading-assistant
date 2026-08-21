@@ -91,7 +91,7 @@ docs/
 │   │   ├── 03-04-02-pme-layer1-position.md
 │   │   ├── 03-04-03-pme-layer2-exposure.md
 │   │   ├── 03-04-04-pme-layer3-capital.md            ← Decimal ledger (available_margin)
-│   │   └── 03-04-05-pme-layer4-portfolio.md
+│   │   └── 03-04-05-pme-layer4-overview.md
 │   └── performance-analytics-engine/                 (03-05 — 6 files)
 │       ├── 03-05-01-pae-overview-spec.md             ← PAE boundaries, scheduled tasks
 │       ├── 03-05-02-pae-layer1-trade-analytics.md
@@ -234,9 +234,9 @@ This table is the **single source of implementation truth** — every spec in `d
 - Divergences are nested `Divergence` signals on the parent indicator key — there are no separate `*_divergence` registry entries (see `04-02-00-indicator-index.md`).
 - The **Analytical Input Universe** is the collective term for everything emitted into the `MarketSnapshot` that MME Layers 2–7 consume: the full 52-entry indicator registry, all signals (indicator signals + the 11 `liquidity_signals`), and the L1.5/L2.5 telemetry sub-objects (`liquidity`, `cluster`, derivatives/orderbook data). It is a vocabulary term — no code artifact exists for it. Canonical definition: [`01-01-ontology.md` §3.9.1](conceptual-foundations/01-01-ontology.md); in-context usage: [`02-07-metrics-matrix.md` §1](matrices/02-07-metrics-matrix.md).
 - Monte Carlo significance uses **sign-randomization** (±1 on each PnL), not order-shuffling (see `03-05-03-pae-layer2-strategy-analytics.md §3.3`).
-- The PME vetoes new entries by switching the affected symbol's **stance** to `AVOID` *or* `CLOSE_ONLY` per trigger severity (see `03-04-05-pme-layer4-portfolio.md §4.1` and `01-03-systemic-data-flow.md Sequence D`). A `CLOSE_ONLY` stance is a Policy-Layer scope restriction, *not* an order attribute. Every order packet generated from a `CLOSE_ONLY` stance is forced to carry the Execution-Layer **`reduce_only` flag** (a per-order boolean, exchange-native term) — see `03-03-03-tae-layer2-execution.md §3.3`. The DB column `is_reduce_only` and the wire field `reduce_only` mirror Hyperliquid/Bitget/Binance and are intentionally unchanged for exchange-protocol parity.
+- The PME vetoes new entries by switching the affected symbol's **stance** to `AVOID` *or* `CLOSE_ONLY` per trigger severity (see `03-04-05-pme-layer4-overview.md §4.1` and `01-03-systemic-data-flow.md Sequence D`). A `CLOSE_ONLY` stance is a Policy-Layer scope restriction, *not* an order attribute. Every order packet generated from a `CLOSE_ONLY` stance is forced to carry the Execution-Layer **`reduce_only` flag** (a per-order boolean, exchange-native term) — see `03-03-03-tae-layer2-execution.md §3.3`. The DB column `is_reduce_only` and the wire field `reduce_only` mirror Hyperliquid/Bitget/Binance and are intentionally unchanged for exchange-protocol parity.
 - Two drawdown metrics exist and are **distinct**:
   - `max_daily_drawdown_pct` — cumulative PnL decline within the trading session; default 5 %; used as an early-warning threshold.
   - `drawdown_limit_pct` — equity peak-to-trough ratio; default 30 %; this is the **hard veto** threshold.
-  See `03-04-05-pme-layer4-portfolio.md §3–§4` and `03-04-01-pme-overview-spec.md §3`.
+  See `03-04-05-pme-layer4-overview.md §3–§4` and `03-04-01-pme-overview-spec.md §3`.
 - The registry contains **52 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 5 Regime + 4 Institutional + 8 Derivatives) and **101 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). The historical 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](conceptual-foundations/01-01-ontology.md); the current 100 → 101 add-back reflects the v6.6 `mark_index_spread` registry entry. The canonical source of truth is the registry count itself. See also Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.

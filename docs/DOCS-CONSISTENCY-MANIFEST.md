@@ -110,7 +110,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **11 LiquiditySignalKind** variants (`CascadeDetected`, `CascadeSustained`, `CascadeExhausted`, `LiquidityVacuum`, `FundingExtreme`, `OIFundingDivergence`, `MagnetActivated`, `ClusterPressureHigh`, `ClusterForwardPressure`, `FundingFlip`, `OiPriceDivergence`). Serialised in `SCREAMING_SNAKE_CASE` per the Rust `Display` impl in `crates/core-domain/src/liquidity/mod.rs`.
 - [x] **6 StrategyEnvironment / 5 ProtectionStrategy / 5 TargetStrategy**
 - [x] **2 distinct drawdown metrics** (`max_daily_drawdown_pct` 5 % early-warning vs `drawdown_limit_pct` 30 % hard veto)
-- [x] **Sizing formula** `S = (E × R) / (D_sl / 100)` with `E = available_margin`, `R = risk_per_trade_pct / 100`, `D_sl = stop_loss_distance_pct` (raw percent float) — present and consistent across `01-00 §8.7`, `01-02 §6.3`, `03-03-01 §6`, `03-03-03 §2`, `03-03-01 §5`, `03-04-04 §4.2`, `08-02 Gate 4`
+- [x] **Sizing formula** `notional = equity × allocation_pct / 100` with `allocation_pct` ∈ 1–100 % (per-instance override; Σ ≤ 100 %) — present and consistent across `01-00 §8.7`, `01-02 §6.3`, `03-03-01 §5`, `03-04-04 §4.2`, `08-02 Gate 4`
 - [x] **Systemic risk** `0.6 × high_pct + 0.4 × sync_penalty` = 1.00
 
 ### 12.3 Worked-example arithmetic

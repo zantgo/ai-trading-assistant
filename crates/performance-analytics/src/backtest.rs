@@ -166,6 +166,7 @@ pub async fn run_backtest(
                 candle_ts: rec.timestamp as u64,
                 safety: None,
                 dispatch: true,
+                allocation_pct: None,
             },
             None,
             true,
@@ -463,7 +464,7 @@ mod tests {
     fn tae_cfg() -> MinimalTaeConfig {
         MinimalTaeConfig {
             enabled: true,
-            risk_per_trade_pct: 1.0,
+            allocation_pct: 10.0,
             min_net_rr: 1.0,
             max_position_size_usd: None,
             max_open_positions: 1,

@@ -91,7 +91,7 @@ The executor builds `OrderPacket`s for the setup geometry:
 | `symbol` | Instance symbol |
 | `side` | LONG entry → `Buy`; SHORT entry → `Sell`; TP → opposite of entry; SL → opposite of entry |
 | `order_type` | Entry: `Limit` at `entry_mid`; TP: `Limit` at `tp`; SL: `Stop` at `sl` |
-| `size` | From Layer ③ `compute_risk` (`position_size_units`), notional clamped to `max_position_size_usd` |
+| `size` | From Layer ③ allocation sizing (`position_size_units = equity × allocation_pct/100 ÷ entry_mid`), notional clamped to `max_position_size_usd` |
 | `reduce_only` | `true` for all bracket/exit orders |
 
 Size for exits is **copied from the open position** (never re-sized) — closing can never fail for lack of margin.

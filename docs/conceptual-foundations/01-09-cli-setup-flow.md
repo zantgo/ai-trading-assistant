@@ -117,6 +117,36 @@ printf 'hyperliquid\n\n\n\n\n\n\ny\n' | execution-daemon --mode cli
 ./manage.sh run-cli
 ```
 
+### 3.1 Backtest mode (v8.2)
+
+The CLI launch prompt offers a fourth choice — **Backtest** — mirroring
+the GUI launcher wizard (Environment → Instances with the 4 timeframe
+dropdowns + allocation % → Depth 1–365 → Run). The run renders a terminal
+progress bar with the four phases (`Fetching → Warming → Replaying →
+Analyzing`); Ctrl+C cancels the run cleanly; the summary (trades, win
+rate, profit factor, drawdown, edge verdict) prints to the terminal and
+the run persists to the same tables the GUI History/Study read.
+
+Non-interactive flags for automation (the E2E harness hook):
+
+```bash
+execution-daemon --backtest \
+    --exchange hl|bitget \
+    --symbols BTC,ETH \
+    --tf 60,180,300,900 \
+    --depth 180 \
+    --capital 1000 \
+    --allocation 10
+```
+
+- Timeframe values must be one of the 14 standard dropdown tiers; ladder
+  slots below 60 s are rejected (exchange history granularity), and
+  Hyperliquid depths beyond the 5,000-candle ceiling fail with a message
+  naming the limiting TF.
+- Progress renders on stderr; the final stdout line is a JSON envelope
+  (`{"run_id":…,"status":"ok|failed",…}`); exit code 0/1; Ctrl+C exits 130
+  with no partial run row.
+
 ---
 
 ## 4. Convergence with the GUI
@@ -150,3 +180,5 @@ default), which keeps scripted use (`printf ... | execution-daemon --mode cli`) 
 - **Keyboard interaction** — pause/stop instances, toggle `--save` at runtime, jump
   between per-instance and overview frames.
 - **Rich rendering** — migrate to `ratatui` if the monitor grows interactive frames.
+- **Canonical-1m backfill derivation** (v8.3) — Bitget backfills fetch canonical 1m
+  candles and derive the higher ladder TFs locally.

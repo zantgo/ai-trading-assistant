@@ -115,7 +115,7 @@ This is the central operational narrative of institutional risk management:
 | Sharpe > 5 | Curve looks like a straight line | Leverage can be safely increased to amplify returns |
 | Sharpe > 10 | Curve is nearly indistinguishable from a line | High-frequency strategies typically live here |
 
-A higher Sharpe means a smoother equity curve at a given return rate, which means drawdown-driven liquidation is less likely, which means leverage can be applied safely, which means capital efficiency rises. The platform reports Sortino (downside-only deviation), Ulcer (drawdown-based), and Calmar (return / max drawdown) as supplements to Sharpe (`03-05-04`). The platform's PME hard veto (`03-04-05-pme-layer4-portfolio.md`) enforces the inverse discipline: if realized drawdown breaches `drawdown_limit_pct` (default 30 %), new entries are vetoed regardless of Sharpe.
+A higher Sharpe means a smoother equity curve at a given return rate, which means drawdown-driven liquidation is less likely, which means leverage can be applied safely, which means capital efficiency rises. The platform reports Sortino (downside-only deviation), Ulcer (drawdown-based), and Calmar (return / max drawdown) as supplements to Sharpe (`03-05-04`). The platform's PME Overview Layer safety ladder (`03-04-05-pme-layer4-overview.md` §3) reports the inverse discipline: if realized drawdown breaches `drawdown_limit_pct` (default 30 %), the TAE setup executor's soft gate blocks new entries regardless of Sharpe.
 
 ---
 
@@ -278,7 +278,7 @@ The Kelly criterion `f* = (p · b − q) / b` (where `b` is the win/loss ratio) 
 2. **Non-stationarity**: Kelly is derived for a stationary distribution; the platform's regime detector explicitly identifies regime shifts, which is the antithesis of the Kelly assumption.
 3. **Fat tails**: Kelly is derived for a Gaussian or bounded distribution; crypto-asset returns exhibit fat tails, and Kelly sizing amplifies tail exposure.
 
-The platform's `S = (E · R) / (D_sl / 100)` formula is fixed-fractional risk sizing with explicit stop-distance scaling. `E` is the **available margin** (Decimal, retrieved from the PME Capital Matrix — see `03-04-04-pme-layer3-capital.md §4.2`); `R` is the risk-per-trade fraction (`risk_per_trade_pct / 100`, e.g. `0.01` for 1 %); `D_sl` is the stop-loss distance as a raw percent float (`1.5` for 1.5 %), divided by `100` inside the formula. In §8.7's compact textbook form the same sizing is written `S = E · R / D_sl` with `D_sl` as the fraction stop distance (`0.015` for 1.5 %). The engine form and the textbook form are equivalent. Implementation: `03-03-03-tae-layer2-execution.md §2`; gate ordering: `08-02-pre-trade-risk-controls.md Gate 4`. This is the institutional alternative to Kelly for low-edge, non-stationary, fat-tailed regimes.
+The platform's v8.2 sizing is **portfolio-share allocation**: each position's notional is `equity × allocation_pct / 100` (`allocation_pct` ∈ 1–100 %, default 10 %; per-instance override; the sum of all instance allocations is validated ≤ 100 %), and the order size is `notional / entry_price`. The stop-loss no longer sizes the position — it defines the risk budget and the invalidation level. Implementation: `03-03-01-tae-overview-spec.md §5`; caps: `08-02-pre-trade-risk-controls.md Gate 4`. This is the institutional alternative to Kelly for low-edge, non-stationary, fat-tailed regimes.
 
 ---
 
@@ -410,7 +410,7 @@ Every concept in this document maps to a concrete implementation file:
 | 3 | Simple returns | `03-05-02-pae-layer1-trade-analytics.md` §2 Trade Analytics Matrix Schema (Net PnL, ROI) |
 | 4 | Sharpe ratio | `03-05-04-pae-layer3-risk-analytics.md` §4.1 |
 | 4 | Sortino / Ulcer / Calmar | `03-05-04-pae-layer3-risk-analytics.md` §4.2–§4.3 |
-| 4 | Drawdown veto | `03-04-05-pme-layer4-portfolio.md` §3–§4 + `08-02-pre-trade-risk-controls.md` |
+| 4 | Drawdown soft gate | `03-04-05-pme-layer4-overview.md` §3–§4 + `08-02-pre-trade-risk-controls.md` |
 | 5 | Order book | `02-10-raw-data-matrix.md` §2 NormalizedEvent Variants |
 | 5 | Mid-price | `02-07-metrics-matrix.md` §2.1 Top-Level Fields |
 | 5 | Spread | `04-02-49-spread.md` |

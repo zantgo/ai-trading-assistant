@@ -54,7 +54,7 @@ Per-engine maps (all config in `ui/src/lib/engineTabs.ts`):
 | DIE | Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution | L1 raw ingestion (2 tabs) → L2 market data → L3 data quality → L4 distribution; NTP = L2 time contract. v7.4: **no Settings tab** — platform config is read-only, exported from Profile → Share Config |
 | MME | Overview · Workspace (sub-tabs: Charts · Metrics · Alignment · Analysis · Opportunities · Risks · Recommendation) · Settings | sub-tabs follow L1 Metrics → L6 Decision Support (v7.3: Analysis L3 moved before Opportunities L4) |
 | TAE | Overview · Orders · Activity · Trade History · Settings | Overview = ① intake + ② executor + ③ sizing aggregate; Orders = ④ execution; Activity/History = ⑥ telemetry; Settings cross-cutting last |
-| PME | Overview · Positions · Exposure · Capital · Portfolio · Safety · Settings | L1 Position → L2 Exposure → L3 Capital → L4 Portfolio (v7.3 new); Safety ladder + Settings cross-cutting last |
+| PME | Overview · Positions · Exposure · Capital · Portfolio Overview · Safety · Settings | L1 Position → L2 Exposure → L3 Capital → L4 Overview Layer (v8.2: renamed from "Portfolio Layer"; the matrix is `PortfolioOverviewMatrix`); Safety ladder + Settings cross-cutting last |
 | PAE | Overview · Trades · Strategy · Risk · Performance · Backtesting · History · Methodology · Settings | L1 Trade Analytics → L2 Strategy (NHST) → L3 Risk → L4 Performance (renamed from "Regime Map") → L5 Backtesting; History + Methodology + Settings cross-cutting last |
 
 ---
@@ -69,7 +69,7 @@ The execution mode (observe / paper / live) is fixed at launch per instance. Obs
 |---|---|---|
 | DIE | All 7 (platform-level, mode-agnostic; no Settings) | All 7 |
 | TAE | Overview · Activity · Settings | Overview · Orders · Activity · Trade History · Settings |
-| PME | Overview · Safety · Settings | Overview · Positions · Exposure · Capital · Portfolio · Safety · Settings |
+| PME | Overview · Safety · Settings | Overview · Positions · Exposure · Capital · Portfolio Overview · Safety · Settings |
 | PAE | Overview · History · Methodology · Settings (v8: Backtesting moved out) | All 8 |
 | **BTE** (v8) | **No instance** → Overview · History · Settings; **running instance** → Overview · DIE · MME · TAE · PME · PAE · Study Report · History · Settings (one tab per simulated engine, layer order, cross-cutting last) | hidden |
 
@@ -77,35 +77,41 @@ Observe-mode personality (per engine): TAE = "Setup Radar" (ghost would-be setup
 
 The Bottom Console (Positions / Orders / History / Plan) is hidden in observe mode.
 
-### 3.0 BTE instance-selection UX (v8)
+### 3.0 BTE launcher UX (v8.2)
 
-The Backtesting Engine adds **no new picker**: it binds to the operator's
-existing instance selection (right-side Instances panel / Market Monitor
-Workspace tab — the shared `selectedInstance` store), exactly like the
-other engines. Its navbar **recharges reactively** around the selection:
+The Backtesting Engine's Overview tab renders the **Backtest Launcher** —
+an installer-style wizard (Environment → Instances → Historical Data →
+Run) with Back/Continue/Cancel and a run progress bar:
 
-- No running instance → simplified navbar (Overview + History + Settings)
-  with the shared `NoInstanceState` look ("Select an instance from the
-  right-side Instances panel or the Market Monitor Workspace tab").
-- A running instance → the full 9-tab set; the current section clamps to
-  a visible tab on selection changes (`safeSection` derivation, mirroring
-  the PAE pattern) so the navbar and rendered content never disagree.
-- A stale selection (instance not in `/api/instances` or not running)
-  renders the no-instance state; the 3 s instance-list polling backstop
-  (TAE/PME pattern) revalidates.
-- The run form renders the bound instance as a read-only chip (id, pair,
-  symbol) — Run/Backfill act on it.
-- **Depth-driven run form (v8.1):** the archive-depth control (slider +
-  typed input, validated 1..=365) is the only window control — Start/End
-  dates are removed. The window derives from it (`[now − days + burn_in,
-  now]`); the burn-in portion warms the pipeline, the rest is scored.
-- **Automatic data preparation:** Run Backtest checks the four-timeframe
-  archive coverage (micro · fast · slow · macro, burn-in included) and
-  auto-starts the backfill when any TF is short, showing live progress
-  (pages/candles) and firing the run when coverage is sufficient. A
-  per-TF readiness strip (MICRO/FAST/SLOW/MACRO · READY/FETCHING) renders
-  all four timeframes; no manual Backfill step exists on the form (the
-  manual tool stays on the DIE tab).
+- **Always available:** the launcher renders with or without a running
+  instance — backtests are **standalone** (v8.2). When the operator has
+  an instance selected (right-side Instances panel / Market Monitor
+  Workspace tab), the wizard is **preseeded** from it (exchange, symbol,
+  ladder, capital).
+- **Environment step:** exchange (Hyperliquid / Bitget), settlement
+  currency (USDC for HL, USDT for Bitget), starting capital.
+- **Instances step:** add-instance list — ticker + the 4 timeframe
+  dropdowns (the standard tier list, preseeded 1m/3m/5m/15m) +
+  **allocation %** per instance with a live Σ ≤ 100 % guard and a
+  100-instance cap (mirrors `[workspace.minimal_tae].allocation_pct`).
+- **Historical Data step:** the archive-depth control (slider + typed
+  input, validated 1..=365) is the only window control — no date range
+  pickers. Per-TF readiness chips (MICRO/FAST/SLOW/MACRO · READY/FETCHING)
+  render the four timeframes; the burn-in note and the **per-exchange
+  max-depth display** (Hyperliquid's 5,000-candle ceiling per TF) are
+  shown here.
+- **Run step:** a `<progress>` bar with phases
+  `Fetching → Warming → Replaying → Analyzing` and a **Cancel** button.
+  Run Backtest auto-starts the backfill for missing coverage (live
+  progress: pages/candles), then fires the run; completion loads the
+  Study Report.
+- Backend: `POST /api/backtest/run` returns `{ run_id, status }`
+  immediately; the dashboard polls `GET /api/backtest/progress/:run_id`
+  (1 s) and cancels via `POST /api/backtest/cancel/:run_id`.
+- The Study Report presents the finished analysis (KPI strip, equity
+  curve, drawdown, rolling win-rate, P&L histogram, exit-reason table
+  including `end_of_backtest`, NHST edge verdict); the DIE / MME / TAE /
+  PME / PAE tabs render per-engine breakdowns.
 
 ---
 
@@ -123,7 +129,7 @@ other engines. Its navbar **recharges reactively** around the selection:
 
 When no instance is active, every engine dashboard renders the shared **`NoInstanceState`** component (SVG icon + title + engine-specific guidance, mirroring the MME InstancePicker empty state) instead of data, loading messages, or fallback values:
 
-- **No data fallback is ever shown** — PAE removed its default-symbol fallback (`['BTC-USDC']`); the backtest form does not render without a real instance.
+- **No data fallback is ever shown** — PAE removed its default-symbol fallback (`['BTC-USDC']`); the BTE launcher renders without an instance (v8.2 standalone backtests).
 - **No infinite loading** — the TAE/PME refresh loops resolve `loading = false` when there is no instance.
 - **Settings is exempt** — the Settings tab always renders its config cards (workspace/platform-level, instance-independent).
 - The header shows a muted **`NO INSTANCE`** chip instead of the instance selector.
@@ -161,7 +167,7 @@ Envelope (`ui/src/lib/engineExport.ts`):
 | Surface | Value | Source |
 |---|---|---|
 | DIE Settings (all rows) | Real `config.toml` | `GET /api/system/platform-config` + `/api/system/clock` + `/api/config` |
-| PME "Risk per trade" | `minimal_tae.risk_per_trade_pct` | `ConfigResponse.minimal_tae` |
+| PME "Allocation %" | `minimal_tae.allocation_pct` | `ConfigResponse.minimal_tae` |
 | PME Exposure limits | `risk_limits.*` (single-pair %, portfolio %, correlation) | `ConfigResponse.risk_limits` + `/api/instances/:id/exposure` `limits` block |
 | PAE Methodology / verdicts | `analytics.*` (α, Monte Carlo runs, min trades) | `ConfigResponse.analytics`; wired into `performance-analytics` via `AnalyticsParams` |
 | PME Safety ladder thresholds | `safety.*` | `ConfigResponse.safety` (existing) |

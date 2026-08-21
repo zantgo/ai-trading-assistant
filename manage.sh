@@ -37,6 +37,7 @@ show_help() {
     echo "  test-indicators    Per-indicator pipeline e2e with console reporting"
     echo "  test-property      Generative property tests across indicators"
     echo "  test-doc           Documentation corpus consistency checks (Phases 8/9/10 gate)"
+    echo "  e2e-backtest       v8.2 backtest matrix harness (headless CLI cases, exchange-aware)"
     echo "  lint               Run cargo fmt --check + clippy (correctness lints) + svelte-check"
     echo "  lint-fix           Run cargo fmt + cargo clippy --fix (mechanical fixes only)"
     echo "  clean              Delete build targets, dependencies, and temporary locks"
@@ -306,6 +307,11 @@ test_doc() {
     python3 scripts/check_docs.py
 }
 
+e2e_backtest() {
+    echo "🧪 TEST-E2E-BACKTEST: Running the v8.2 backtest matrix harness..."
+    bash scripts/e2e-backtest-matrix.sh "$@"
+}
+
 lint() {
     local failures=0
     echo "═══════════════════════════════════════════════════════════"
@@ -402,6 +408,9 @@ case "$1" in
         ;;
     test-doc)
         test_doc
+        ;;
+    e2e-backtest)
+        e2e_backtest "${@:2}"
         ;;
     lint)
         lint

@@ -52,7 +52,9 @@ pub async fn compute_strategy_analytics(
 
     by_setup
         .into_iter()
-        .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades, params))
+        .map(|(setup_type, setup_trades)| {
+            compute_setup_analytics(&setup_type, &setup_trades, params)
+        })
         .collect()
 }
 
@@ -387,7 +389,11 @@ mod tests {
     #[test]
     fn test_empty_trades_returns_empty() {
         let trades: Vec<TradeAnalyticsRecord> = vec![];
-        let result = compute_setup_analytics("POLICY_A", &trades.iter().collect::<Vec<_>>(), AnalyticsParams::default());
+        let result = compute_setup_analytics(
+            "POLICY_A",
+            &trades.iter().collect::<Vec<_>>(),
+            AnalyticsParams::default(),
+        );
         assert_eq!(result.total_trades, 0);
         assert_eq!(result.win_count, 0);
         assert_eq!(result.loss_count, 0);
@@ -557,7 +563,9 @@ mod tests {
         }
         by_setup
             .into_iter()
-            .map(|(setup_type, setup_trades)| compute_setup_analytics(&setup_type, &setup_trades, AnalyticsParams::default()))
+            .map(|(setup_type, setup_trades)| {
+                compute_setup_analytics(&setup_type, &setup_trades, AnalyticsParams::default())
+            })
             .collect()
     }
 }

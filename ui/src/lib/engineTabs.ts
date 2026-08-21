@@ -57,14 +57,16 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'history', label: 'Trade History' },
         { key: 'settings', label: 'Settings' },
     ],
-    // v7.3: PME tabs follow L1 Position → L2 Exposure → L3 Capital →
-    // L4 Portfolio, with the cross-cutting Safety ladder and Settings last.
+    // v8.2: PME tabs follow L1 Position → L2 Exposure → L3 Capital →
+    // L4 Overview Layer (renamed from "Portfolio Layer"; the matrix is
+    // `PortfolioOverviewMatrix`), with the cross-cutting Safety ladder and
+    // Settings last.
     portfolio: [
         { key: 'overview', label: 'Overview' },
         { key: 'positions', label: 'Positions' },
         { key: 'exposure', label: 'Exposure' },
         { key: 'capital', label: 'Capital' },
-        { key: 'portfolio', label: 'Portfolio' },
+        { key: 'portfolio', label: 'Portfolio Overview' },
         { key: 'safety', label: 'Safety' },
         { key: 'settings', label: 'Settings' },
     ],

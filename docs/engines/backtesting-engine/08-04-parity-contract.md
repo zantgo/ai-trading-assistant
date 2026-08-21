@@ -33,11 +33,22 @@ per-mode config fork. A backtest result therefore equals the paper result
 ## 2. What this guarantees
 
 - Identical setup extraction (`extract_top_setup`), identical invalidation
-  semantics, identical risk sizing.
+  semantics, identical allocation sizing (`equity × allocation_pct / 100`).
 - Identical `PaperSimulation` fill math (deterministic in mid).
 - Identical NHST treatment (seeded Monte Carlo — deterministic).
+- **v8.2 — identical safety ladder**: the historical runner carries a
+  simulated `SafetyManager` per instance fed by replayed equity, so
+  `DRAWDOWN_STOP`/`SUSPENDED` block new entries in the backtest exactly
+  like paper.
+- **v8.2 — identical funding**: funding settles at simulated 8h
+  boundaries of replay time (`funding_rate_8h × notional`), the same
+  debit paper applies every 8h of wall-clock.
+- **v8.2 — complete ledger**: open positions are force-closed at the
+  final replayed candle close with `exit_reason = "end_of_backtest"`, so
+  backtest statistics cover every trade — no dangling unrealized
+  positions.
 
-## 3. What live adds (documented honestly)
+## 3. Documented boundaries
 
 Live mode runs the same logic against a real venue, so it differs in ways
 a backtest cannot model:
@@ -45,6 +56,10 @@ a backtest cannot model:
 - venue fills, partial fills, and latency;
 - real funding timestamps and venue fees;
 - connection gaps and reconstruction.
+- **Tick granularity**: the daemon ticks every second reading the latest
+  snapshot per TF; the historical replay ticks once per completed candle
+  of each symbol's smallest ladder TF, and fills evaluate at candle close
+  (no intrabar path).
 
 Paper↔backtest parity is exact; live is "same logic, real venue".
 
@@ -52,7 +67,10 @@ Paper↔backtest parity is exact; live is "same logic, real venue".
 
 - `session_tick` unit tests: deterministic, dispatch-gated ticks.
 - Recorded + historical runners: deterministic reruns (byte-identical
-  trades/equity), burn-in respected.
+  trades/equity), burn-in respected, no future-data consumption,
+  multi-symbol timestamp ordering.
+- Parity fixtures: safety-ladder blocking, funding settle, end-of-run
+  force-close, and paper↔backtest order-size identity.
 - The daemon loop body is the same `run_tick` call — the existing
   failover/liquidation/engine suites are the regression net for the
   refactor.

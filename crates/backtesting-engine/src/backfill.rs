@@ -142,6 +142,27 @@ async fn page_timeframe(
         // HFP-03: sub-minute history does not exist on either exchange.
         return Ok(());
     }
+    // HFP-03b: per-granularity retention ceilings — deeper backfills
+    // silently truncate, so the validation layer rejects them up front.
+    let exchange_limit = exchange_max_depth_secs(&cfg.exchange, tf_secs, &cfg.backtest);
+    if exchange_limit > 0 {
+        let requested = cfg.depth_days as i64 * 86400;
+        if requested > exchange_limit {
+            let exchange_label = if cfg.exchange.eq_ignore_ascii_case("Bitget") {
+                format!("Bitget's {tf_secs}s history (retention ≈ {} days)", exchange_limit / 86400)
+            } else {
+                format!(
+                    "Hyperliquid's {}-candle ceiling for the {tf_secs}s timeframe (max ≈ {} days)",
+                    cfg.backtest.hyperliquid.max_candles_per_tf,
+                    exchange_limit / 86400
+                )
+            };
+            return Err(format!(
+                "depth {}d exceeds {exchange_label}",
+                cfg.depth_days
+            ));
+        }
+    }
 
     let now_ms = chrono::Utc::now().timestamp_millis() as u64;
     let duration_ms = tf_secs * 1000;
@@ -156,7 +177,9 @@ async fn page_timeframe(
     )
     .await;
     let mut end_ms = match earliest_archived {
-        Some(secs) if secs > 0 => (secs as u64).saturating_mul(1000).saturating_sub(duration_ms),
+        Some(secs) if secs > 0 => (secs as u64)
+            .saturating_mul(1000)
+            .saturating_sub(duration_ms),
         _ => now_ms,
     };
 
@@ -182,13 +205,10 @@ async fn page_timeframe(
             break;
         }
 
-        let earliest_in_page = page
-            .iter()
-            .map(|c| c.start_time_ms)
-            .min()
-            .unwrap_or(end_ms);
-        let stored = database_storage::queries::archive::upsert_archive_candles(pool, &page, "backfill")
-            .await;
+        let earliest_in_page = page.iter().map(|c| c.start_time_ms).min().unwrap_or(end_ms);
+        let stored =
+            database_storage::queries::archive::upsert_archive_candles(pool, &page, "backfill")
+                .await;
         progress.pages_fetched += 1;
         progress.candles_stored += stored;
         progress.cursor_ts_secs = Some((earliest_in_page / 1000) as i64);
@@ -299,9 +319,7 @@ mod tests {
         }
     }
 
-    fn canned_fetcher(
-        pages: Vec<Vec<NormalizedCandle>>,
-    ) -> PageFetcher {
+    fn canned_fetcher(pages: Vec<Vec<NormalizedCandle>>) -> PageFetcher {
         let state = std::sync::Mutex::new(pages.into_iter());
         Arc::new(move |_tf, _start, _end| {
             let next = state.lock().unwrap().next().unwrap_or_default();
@@ -316,8 +334,14 @@ mod tests {
         let tf = 60u64;
         // Two pages of two candles each, then an empty page.
         let pages = vec![
-            vec![candle(tf, now_ms - 60_000, 105.0), candle(tf, now_ms - 120_000, 104.0)],
-            vec![candle(tf, now_ms - 180_000, 103.0), candle(tf, now_ms - 240_000, 102.0)],
+            vec![
+                candle(tf, now_ms - 60_000, 105.0),
+                candle(tf, now_ms - 120_000, 104.0),
+            ],
+            vec![
+                candle(tf, now_ms - 180_000, 103.0),
+                candle(tf, now_ms - 240_000, 102.0),
+            ],
             vec![],
         ];
         let cfg = BackfillJobConfig {
@@ -330,7 +354,11 @@ mod tests {
             fetcher: canned_fetcher(pages),
         };
         let progress = Arc::new(tokio::sync::Mutex::new(BackfillProgress::new(
-            1, "btc".into(), "BTC-USDC".into(), "Hyperliquid".into(), 1,
+            1,
+            "btc".into(),
+            "BTC-USDC".into(),
+            "Hyperliquid".into(),
+            1,
         )));
         let cancel = Arc::new(AtomicBool::new(false));
         run_backfill(pool.clone(), cfg, progress.clone(), cancel).await;
@@ -363,7 +391,10 @@ mod tests {
         let first_request_start = Arc::new(std::sync::Mutex::new(0u64));
         let req_start = first_request_start.clone();
         let older_pages = vec![
-            vec![candle(tf, now_ms - 300_000, 101.0), candle(tf, now_ms - 360_000, 100.0)],
+            vec![
+                candle(tf, now_ms - 300_000, 101.0),
+                candle(tf, now_ms - 360_000, 100.0),
+            ],
             vec![],
         ];
         let fetcher: PageFetcher = {
@@ -385,7 +416,11 @@ mod tests {
             fetcher,
         };
         let progress = Arc::new(tokio::sync::Mutex::new(BackfillProgress::new(
-            1, "btc".into(), "BTC-USDC".into(), "Hyperliquid".into(), 1,
+            1,
+            "btc".into(),
+            "BTC-USDC".into(),
+            "Hyperliquid".into(),
+            1,
         )));
         let cancel = Arc::new(AtomicBool::new(false));
         run_backfill(pool.clone(), cfg, progress.clone(), cancel).await;
@@ -417,12 +452,83 @@ mod tests {
             fetcher: canned_fetcher(vec![]),
         };
         let progress = Arc::new(tokio::sync::Mutex::new(BackfillProgress::new(
-            1, "btc".into(), "BTC-USDC".into(), "Hyperliquid".into(), 1,
+            1,
+            "btc".into(),
+            "BTC-USDC".into(),
+            "Hyperliquid".into(),
+            1,
         )));
         let cancel = Arc::new(AtomicBool::new(false));
         run_backfill(pool.clone(), cfg, progress.clone(), cancel).await;
         let p = progress.lock().await.clone();
         assert_eq!(p.status, BackfillStatus::Done);
         assert_eq!(p.pages_fetched, 0);
+    }
+}
+
+/// Bitget v2 mix-market candle retention, per granularity — measured
+/// empirically against `BTCUSDT` (2026-08-21): the endpoint returns empty
+/// pages beyond these horizons, so deeper backfills silently truncate.
+/// The platform treats these as per-TF depth ceilings and fails loudly.
+///
+/// | granularity | retention |
+/// |-------------|-----------|
+/// | 1m–30m      | ≈ 30 days |
+/// | 1H          | ≈ 45 days |
+/// | 4H          | ≈ 180 days |
+/// | 12H–1D      | ≈ 365 days |
+pub fn bitget_retention_days(tf_secs: u64) -> u32 {
+    match tf_secs {
+        _ if tf_secs <= 1800 => 30,
+        _ if tf_secs <= 3600 => 45,
+        _ if tf_secs <= 14400 => 180,
+        _ => 365,
+    }
+}
+
+/// The exchange's maximum reachable depth for one TF, in seconds of
+/// lookback (0 = no cap — the archive depth config governs).
+pub fn exchange_max_depth_secs(
+    exchange: &str,
+    tf_secs: u64,
+    cfg: &config_models::BacktestConfig,
+) -> i64 {
+    if exchange.eq_ignore_ascii_case("Hyperliquid") {
+        let ceiling = cfg.hyperliquid.max_candles_per_tf;
+        if ceiling > 0 {
+            return ceiling as i64 * tf_secs as i64;
+        }
+    }
+    if exchange.eq_ignore_ascii_case("Bitget") {
+        return bitget_retention_days(tf_secs) as i64 * 86400;
+    }
+    0
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    #[test]
+    fn bitget_retention_table() {
+        assert_eq!(bitget_retention_days(60), 30);
+        assert_eq!(bitget_retention_days(1800), 30);
+        assert_eq!(bitget_retention_days(3600), 45);
+        assert_eq!(bitget_retention_days(14400), 180);
+        assert_eq!(bitget_retention_days(43200), 365);
+        assert_eq!(bitget_retention_days(86400), 365);
+    }
+
+    #[test]
+    fn exchange_ceilings() {
+        let cfg = config_models::BacktestConfig::default();
+        assert_eq!(
+            exchange_max_depth_secs("Hyperliquid", 60, &cfg),
+            5000 * 60
+        );
+        assert_eq!(
+            exchange_max_depth_secs("Bitget", 60, &cfg),
+            30 * 86400
+        );
     }
 }

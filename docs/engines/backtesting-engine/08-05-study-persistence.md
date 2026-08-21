@@ -16,8 +16,8 @@ snapshots, and metrics — for later data-science work.
 
 | Table | Grain | Columns |
 |-------|-------|---------|
-| `backtest_runs` | one run | + `instance_id`, `mode`, `config_snapshot_json` (legacy JSON columns kept) |
-| `backtest_trades` | one simulated close | `seq`, `ts_close_secs`, `direction`, `entry_price`, `exit_price`, `size`, `pnl`, `exit_reason` |
+| `backtest_runs` | one run | + `instance_id`, `mode`, `config_snapshot_json` (legacy JSON columns kept); multi-symbol runs carry the symbols in `params_json` |
+| `backtest_trades` | one simulated close | `seq`, `ts_close_secs`, `direction`, `entry_price`, `exit_price`, `size`, `pnl`, `exit_reason` — **v8.2: `exit_reason = "end_of_backtest"`** for the end-of-run force-close; rows are tagged per symbol (`params_json` + the trade row's symbol column) |
 | `backtest_equity` | one curve point | `ts_secs`, `equity` (downsampled ≤ `max_equity_points`) |
 | `backtest_portfolio` | one tick sample | `equity`, `cash`, `margin_used`, `exposure_pct`, `drawdown_pct`, `positions_open` |
 | `backtest_signals` | one decision snapshot | `ts_secs`, `timeframe_secs`, `label`, `kind`, `value` (`decision/bias`, `decision/trade_readiness`, `opportunity/score`) |
@@ -28,6 +28,9 @@ snapshots, and metrics — for later data-science work.
 
 | Endpoint | Purpose |
 |----------|---------|
+| `POST /api/backtest/run` | start a run (returns `{ run_id, status }` immediately; v8.2 async) |
+| `GET /api/backtest/progress/:run_id` | phase progress (`fetching/warming/replaying/analyzing`, pct) |
+| `POST /api/backtest/cancel/:run_id` | cancel a running backtest |
 | `GET /api/backtest/:id/trades?limit=` | paginated trade rows |
 | `GET /api/backtest/:id/equity` | equity curve rows |
 | `GET /api/backtest/:id/portfolio` | capital/exposure/drawdown samples |
@@ -39,8 +42,8 @@ snapshots, and metrics — for later data-science work.
 
 The Study Report renders the finished analysis from these rows (KPI strip,
 equity curve, drawdown, rolling win-rate, P&L histogram, exit-reason
-table, edge verdict); the DIE / MME / TAE / PME / PAE tabs render the
-per-engine breakdowns of the same study.
+table — including `end_of_backtest` — edge verdict); the DIE / MME / TAE /
+PME / PAE tabs render the per-engine breakdowns of the same study.
 
 ## 5. Cross-references
 

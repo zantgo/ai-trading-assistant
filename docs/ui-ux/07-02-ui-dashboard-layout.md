@@ -381,7 +381,7 @@ Three new engine dashboards follow the same sub-sidebar pattern:
 | Risk Metrics | `'risk'` | Detailed risk analytics cards with gauge bars and interpretative labels |
 | Regime Map | `'regimes'` | Per-regime performance cards (trade count, WR, PF, avg R, P&L) with compatibility labels (Strong/Favorable/Marginal/Avoid). Optimization recommendations |
 | Trade Analytics | `'trades'` | Trade ledger table: Trade ID, Symbol, Direction, Hold time, Gross/Net P&L, ROI, MFE, MAE, Flat flag |
-| **Backtesting** | `'backtesting'` | Backtest form (setup type, date range, capital, fee %) → `POST /api/backtest/run` → 8 stat cards, NHST verdict block (t, p, MC p, α = 0.05, edge), equity-curve chart, trade log; results re-fetched via `GET /api/backtest/:id` |
+| **Backtesting** | `'backtesting'` | The v8.2 launcher wizard (Environment → Instances with 4 TF dropdowns + allocation % → Depth 1–365 → Run with progress bar + Cancel) → `POST /api/backtest/run` (async) + `GET /api/backtest/progress/:run_id` → Study Report with NHST verdict block (t, p, MC p, α = 0.05, edge), equity curve, trade log; results re-fetched via `GET /api/backtest/:id` |
 
 ### 7.3 Distinguishing Rules
 
@@ -758,4 +758,4 @@ The `PerformanceDashboard` Backtesting panel provides the **recorded-decision re
 - [MME Layer 7 — Overview](../engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) — OverviewPanel data source.
 - [Decision Matrix](../matrices/02-04-decision-matrix.md) — Decision Matrix panel data.
 - [TAE Overview — Layer ⑦ Dashboard](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md) — TradeAutomationDashboard surface.
-- [PME Layer 4 Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — PortfolioDashboard Safety panel.
+- [PME Layer 4 Portfolio](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) — PortfolioDashboard Safety panel.

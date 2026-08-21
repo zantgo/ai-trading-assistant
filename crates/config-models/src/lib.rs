@@ -340,6 +340,10 @@ pub struct InstanceEntry {
     /// v7 execution mode (Observe / Paper / Live). Default Paper.
     #[serde(default)]
     pub mode: ExecutionMode,
+    /// v8.2 per-instance allocation override (percent of portfolio equity,
+    /// 1..=100). `None` = the global `[workspace.minimal_tae].allocation_pct`.
+    #[serde(default)]
+    pub allocation_pct: Option<f64>,
     #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
@@ -378,21 +382,28 @@ pub enum ExecutionMode {
 /// v7 TAE — the minimal setup-executor configuration. Replaces the erased
 /// policy engine: the executor consumes the MME's top setup directly and
 /// manages the trade to completion. See docs/engines/trade-automation-engine/.
+///
+/// v8.2: sizing is portfolio-share allocation — `allocation_pct` (1–100 %)
+/// replaces the erased stop-distance risk sizing. Position size =
+/// `equity × allocation_pct/100 ÷ entry_mid`; the sum of all instance
+/// allocations must be ≤ 100 %.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MinimalTaeConfig {
     /// Master switch for the setup executor.
     #[serde(default)]
     pub enabled: bool,
-    /// Percent of instance equity risked per trade (1.0 = 1%).
-    #[serde(default = "default_risk_per_trade_pct")]
-    pub risk_per_trade_pct: f64,
+    /// v8.2: percent of portfolio equity allocated to each position
+    /// (10.0 = 10 %). Range 1..=100; per-instance override on
+    /// `InstanceEntry.allocation_pct`; Σ of all allocations ≤ 100 %.
+    #[serde(default = "default_allocation_pct")]
+    pub allocation_pct: f64,
     /// Fee-adjusted minimum reward-to-risk ratio for accepting a setup.
     #[serde(default = "default_min_net_rr")]
     pub min_net_rr: f64,
     /// Optional notional cap (USD). None = no cap.
     #[serde(default)]
     pub max_position_size_usd: Option<f64>,
-    /// Global concurrent-position cap across all symbols.
+    /// Global concurrent-position cap across all symbols (1..=100).
     #[serde(default = "default_max_open_positions")]
     pub max_open_positions: u32,
     /// Entry placement mode. v7 supports only "zone_midpoint".
@@ -404,14 +415,14 @@ pub struct MinimalTaeConfig {
     pub invalidate_on: String,
 }
 
-fn default_risk_per_trade_pct() -> f64 {
-    1.0
+fn default_allocation_pct() -> f64 {
+    10.0
 }
 fn default_min_net_rr() -> f64 {
     1.0
 }
 fn default_max_open_positions() -> u32 {
-    1
+    10
 }
 fn default_entry_mode() -> String {
     "zone_midpoint".to_string()
@@ -424,7 +435,7 @@ impl Default for MinimalTaeConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            risk_per_trade_pct: default_risk_per_trade_pct(),
+            allocation_pct: default_allocation_pct(),
             min_net_rr: default_min_net_rr(),
             max_position_size_usd: None,
             max_open_positions: default_max_open_positions(),
@@ -523,7 +534,10 @@ fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
     // reject nonsense at boot instead of silently mis-verdicting trades.
     if !(ws.analytics.alpha.is_finite() && ws.analytics.alpha > 0.0 && ws.analytics.alpha <= 1.0) {
         return Err(ConfigError::InvalidNumeric {
-            detail: format!("[workspace.analytics].alpha = {} (must be in (0, 1])", ws.analytics.alpha),
+            detail: format!(
+                "[workspace.analytics].alpha = {} (must be in (0, 1])",
+                ws.analytics.alpha
+            ),
         });
     }
     if ws.analytics.monte_carlo_runs < 1000 {
@@ -539,6 +553,51 @@ fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
             detail: format!(
                 "[workspace.analytics].min_trades_for_verdict = {} (must be >= 10)",
                 ws.analytics.min_trades_for_verdict
+            ),
+        });
+    }
+    // v8.2 allocation model: percent-of-equity sizing with a hard capital
+    // conservation bound — allocations are 1..=100 %, at most 100 instances,
+    // and the sum of all instance allocations must not exceed 100 %.
+    let alloc = ws.minimal_tae.allocation_pct;
+    if !alloc.is_finite() || !(1.0..=100.0).contains(&alloc) {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.minimal_tae].allocation_pct = {alloc} (must be in 1..=100)"
+            ),
+        });
+    }
+    if !(1..=100).contains(&ws.minimal_tae.max_open_positions) {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.minimal_tae].max_open_positions = {} (must be in 1..=100)",
+                ws.minimal_tae.max_open_positions
+            ),
+        });
+    }
+    if ws.instances.len() > 100 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "workspace declares {} instances (maximum is 100)",
+                ws.instances.len()
+            ),
+        });
+    }
+    let allocation_sum: f64 = ws
+        .instances
+        .iter()
+        .map(|i| i.allocation_pct.unwrap_or(alloc))
+        .sum();
+    if allocation_sum > 100.0 + 1e-9 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!("Σ instance allocations = {allocation_sum:.2}% (must be <= 100%)"),
+        });
+    }
+    if ws.backtest.hyperliquid.max_candles_per_tf > 100_000 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.backtest].hyperliquid.max_candles_per_tf = {} (must be <= 100000)",
+                ws.backtest.hyperliquid.max_candles_per_tf
             ),
         });
     }
@@ -591,8 +650,14 @@ fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
         }
     }
     for (name, v) in [
-        ("max_single_pair_exposure_pct", ws.risk_limits.max_single_pair_exposure_pct),
-        ("max_portfolio_exposure_pct", ws.risk_limits.max_portfolio_exposure_pct),
+        (
+            "max_single_pair_exposure_pct",
+            ws.risk_limits.max_single_pair_exposure_pct,
+        ),
+        (
+            "max_portfolio_exposure_pct",
+            ws.risk_limits.max_portfolio_exposure_pct,
+        ),
     ] {
         if !v.is_finite() || !(0.0 < v) || !(v <= 100.0) {
             return Err(ConfigError::InvalidNumeric {
@@ -868,6 +933,7 @@ candles = { duration_seconds = 180 }
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
+            allocation_pct: None,
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -886,6 +952,7 @@ candles = { duration_seconds = 180 }
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
+            allocation_pct: None,
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -929,6 +996,7 @@ candles = { duration_seconds = 180 }
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
+            allocation_pct: None,
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -980,6 +1048,7 @@ candles = { duration_seconds = 180 }
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
+            allocation_pct: None,
             weight_overrides: None,
             position_scaling: None,
             activation: None,
@@ -1007,6 +1076,7 @@ candles = { duration_seconds = 180 }
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
+            allocation_pct: None,
             weight_overrides: None,
             position_scaling: None,
             activation: None,

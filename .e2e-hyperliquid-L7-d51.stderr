@@ -1,0 +1,39 @@
+🧪 CLI backtest: exchange=hl symbols=BTC-USDC tf=[900, 1800, 3600, 14400] depth=51d capital=1000 allocation=10%
+[warming    25%] warming BTC-USDC 900s (1/4)
+[warming    50%] warming BTC-USDC 1800s (2/4)
+[warming    75%] warming BTC-USDC 3600s (3/4)
+[warming   100%] warming BTC-USDC 14400s (4/4)
+[replaying   3%] replaying BTC-USDC @ 1787250600
+[replaying   6%] replaying BTC-USDC @ 1787251500
+[replaying   9%] replaying BTC-USDC @ 1787252400
+[replaying  12%] replaying BTC-USDC @ 1787253300
+[replaying  16%] replaying BTC-USDC @ 1787254200
+[replaying  19%] replaying BTC-USDC @ 1787255100
+[replaying  22%] replaying BTC-USDC @ 1787256000
+[replaying  25%] replaying BTC-USDC @ 1787256900
+[replaying  28%] replaying BTC-USDC @ 1787257800
+[replaying  31%] replaying BTC-USDC @ 1787258700
+[replaying  34%] replaying BTC-USDC @ 1787259600
+[replaying  38%] replaying BTC-USDC @ 1787260500
+[replaying  41%] replaying BTC-USDC @ 1787261400
+[replaying  44%] replaying BTC-USDC @ 1787262300
+[replaying  47%] replaying BTC-USDC @ 1787263200
+[replaying  50%] replaying BTC-USDC @ 1787264100
+[replaying  53%] replaying BTC-USDC @ 1787265000
+[replaying  56%] replaying BTC-USDC @ 1787265900
+[replaying  59%] replaying BTC-USDC @ 1787266800
+[replaying  62%] replaying BTC-USDC @ 1787267700
+[replaying  66%] replaying BTC-USDC @ 1787268600
+[replaying  69%] replaying BTC-USDC @ 1787269500
+[replaying  72%] replaying BTC-USDC @ 1787270400
+[replaying  75%] replaying BTC-USDC @ 1787271300
+[replaying  78%] replaying BTC-USDC @ 1787272200
+[replaying  81%] replaying BTC-USDC @ 1787273100
+[replaying  84%] replaying BTC-USDC @ 1787274000
+[replaying  88%] replaying BTC-USDC @ 1787274900
+[replaying  91%] replaying BTC-USDC @ 1787275800
+[replaying  94%] replaying BTC-USDC @ 1787276700
+[replaying  97%] replaying BTC-USDC @ 1787277600
+[replaying 100%] replaying BTC-USDC @ 1787278500
+[analyzing 100%] analysis complete
+OK run=88 trades=0 equity_points=32 final_equity=1000.00

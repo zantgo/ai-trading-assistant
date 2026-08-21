@@ -137,9 +137,9 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 > **Implementation status (v7.1).** The Execution Layer is implemented: the unified execution engine routes through the `ExecutionBackend` trait — `PaperSimulation` by default, `LiveBroker` (Hyperliquid) and `BitgetLiveBroker` (Bitget) in live mode — with the same fees/slippage/funding/PnL accounting in both modes. The diagrams below describe the implemented system.
 
 *   **Purpose:** Route transactional orders and manage trade lifecycles on the configured execution venue. The current implementation routes through the unified execution engine (`crates/portfolio-supervisor/src/execution/engine.rs`) to the paper simulation matching engine (`crates/portfolio-supervisor/src/execution/backend.rs::PaperSimulation`), or to the live venue adapters (`LiveBroker`, `BitgetLiveBroker`) in live mode.
-*   **Processing:** Execute the Position Sizing Protocol upon trade entry validation. Query PME Capital Matrix for Available Margin ($E$) and MME Decision Matrix for Stop-Loss Distance as a raw percentage float ($D_{sl}$, e.g. `1.5`). Calculate the exact trade size ($S$) based on the user-configured risk-per-trade fraction ($R$, e.g. $0.01$ = 1% of margin; with the default `risk_per_trade_pct = 1.0`, $R = 0.01$):
-    $$S = \frac{E \times R}{D_{sl} / 100}$$
-    Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue (live or paper), and track order execution states. The canonical sizing + projection math lives in `crates/portfolio-supervisor/src/risk_calculator.rs::compute_risk` (consumed by the setup executor — see [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
+*   **Processing:** Execute the Allocation Sizing Protocol upon trade entry validation. Query the execution engine for current equity and the instance's configured `allocation_pct` (1–100 %, default 10 %). Calculate the position notional and order size (v8.2 portfolio-share model):
+    $$\text{notional} = \frac{\text{equity} \times \text{allocation\_pct}}{100}, \qquad \text{size\_units} = \frac{\text{notional}}{\text{entry\_price}}$$
+    Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue (live or paper), and track order execution states. The canonical sizing + projection math lives in `crates/portfolio-supervisor/src/setup_executor.rs::project` (consumed by the setup executor — see [03-03-01-tae-overview-spec.md §5](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md)).
 *   **Output (Execution Matrix):** Structured database of outstanding, filled, modified, and cancelled orders.
 
 ---
@@ -151,7 +151,7 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 The Portfolio Management Engine manages capital safety boundaries, tracks asset exposures, and maintains active ledger accounts.
 
 ```
-[Fills & Fails] -> (Position Layer) -> (Exposure Layer) -> (Capital Layer) -> (Portfolio Layer) -> [TAE / UI]
+[Fills & Fails] -> (Position Layer) -> (Exposure Layer) -> (Capital Layer) -> (Overview Layer) -> [TAE / UI]
 ```
 
 #### Layer 1: Position Layer
@@ -169,10 +169,10 @@ The Portfolio Management Engine manages capital safety boundaries, tracks asset 
 *   **Processing:** Manage available balances, track margin usage, evaluate leverage limits, and record fee impacts.
 *   **Output (Capital Matrix):** High-frequency balance sheet of active and available capital.
 
-#### Layer 4: Portfolio Layer
-*   **Purpose:** Consolidate active position, exposure, and capital matrices into a unified ledger and enforce absolute account-level safety parameters.
-*   **Processing:** Synthesize child matrices to track account health. Enforce aggregate portfolio safety rules (e.g., maximum daily drawdown thresholds). If a systemic threshold is breached, execute **Veto Power**: override the Trade Automation Engine's active stances, immediately setting affected symbol stances to `Avoid` or `Close Only` at the execution boundary to reject new entry trigger payloads.
-*   **Output (Portfolio Matrix):** The master financial state ledger of the trading account.
+#### Layer 4: Overview Layer
+*   **Purpose:** Consolidate active position, exposure, and capital matrices into a unified ledger and report account-level safety state.
+*   **Processing:** Synthesize child matrices to track account health. Maintain the safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP) from the portfolio-wide drawdown and consecutive-loss counters. The ladder is read-only: the TAE setup executor's soft gate blocks new entries in `DRAWDOWN_STOP` / `SUSPENDED`; no veto, no stance override.
+*   **Output (PortfolioOverviewMatrix):** The master financial state ledger of the trading account.
 
 ---
 
@@ -339,8 +339,8 @@ To illustrate the complete pipeline in practice, below is the sequence of events
 6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` (L3) but does *not* consume the L4 Opportunity Matrix itself.
 7.  **Decision:** The *Decision Layer* synthesizes these matrices, sets *Trade Readiness* to `READY`, and logs a structural invalidation target and calculated `stop_loss_distance_pct: 1.5` in the **Decision Matrix**.
 8.  **Trigger:** The Trade Automation Engine (TAE) receives this decision snapshot. The *Policy Layer* identifies that this state satisfies an active long breakout policy and logs an entry command in the **Policy Matrix**.
-9.  **Routing:** The *Execution Layer* queries the PME *Capital Matrix* to check available margin, reads the Stop-Loss Distance from the MME *Decision Matrix*, runs the Position Sizing Protocol to calculate a safe, risk-adjusted position size ($S = \frac{E \times R}{D_{sl} / 100}$), routes the buy order to the live exchange API, and records the event in the **Execution Matrix**.
-10.  **Supervision:** The Portfolio Management Engine (PME) receives the execution confirmation. The *Position Layer* initializes a new open position in the **Position Matrix**. The *Exposure Layer* recalculates directional risk, the *Capital Layer* locks margin, and the *Portfolio Layer* updates the account's master balance vector, running continuous safety checks to verify that the portfolio-wide drawdown ceiling has not been breached, triggering a veto clamp if required.
+9.  **Routing:** The *Execution Layer* reads current equity from the engine ledger, looks up the instance's `allocation_pct` (1–100 %), runs the Allocation Sizing Protocol to calculate the position notional ($\text{notional} = \text{equity} \times \text{allocation\_pct} / 100$), routes the buy order to the live exchange API, and records the event in the **Execution Matrix**.
+10.  **Supervision:** The Portfolio Management Engine (PME) receives the execution confirmation. The *Position Layer* initializes a new open position in the **Position Matrix**. The *Exposure Layer* recalculates directional risk, the *Capital Layer* locks margin, and the *Overview Layer* updates the account's master balance vector, running continuous safety checks to verify that the portfolio-wide drawdown ceiling has not been breached and updating the safety-state ladder consumed by the TAE soft entry gate.
 11. **Analysis:** Upon a subsequent exit trigger, the trade is closed. The Performance Analytics Engine (PAE) imports the closed log into the *Trade Analytics Layer*, calculates performance metrics and runs statistical significance calculations (P-Value, T-Stat, Monte Carlo sign-randomization) in the *Strategy Analytics Layer*, measures drawdown impact in the *Risk Analytics Layer*, and updates the *Performance Matrix* to refine the strategy-to-regime compatibility maps. If the trade was run headlessly via CLI Mode, these entries are persisted to the database; the operator boots the GUI retroactively to display and analyze these metrics.
 
 ---
@@ -376,12 +376,12 @@ The transition occurs at **MME Layer 6 (Decision Support)**:
 3. The **TAE Execution Layer** pulls that `f64`, pulls **available margin** ($E$) from the PME Capital Matrix as a `Decimal`, and safely converts the float to `Decimal` at the entry boundary before executing the Position Sizing Protocol with transactional precision:
 
    ```rust
-   // Type-boundary conversion (target design)
-   let d_sl          = Decimal::from_f64_retain(stop_loss_distance_pct / 100.0)?; // 1.5 → 0.015
-   let risk_fraction = Decimal::from_f64_retain(risk_per_trade_pct     / 100.0)?; // 1.0 → 0.010
-   let size          = (available_margin * risk_fraction) / d_sl;                  // all Decimal
+   // Type-boundary conversion (v8.2 allocation sizing)
+   let allocation = Decimal::from_f64_retain(allocation_pct / 100.0)?; // 10.0 → 0.10
+   let notional   = equity * allocation;                                // all Decimal
+   let size       = notional / entry_price;                             // position units
    ```
 
-   Equivalently, $S = \dfrac{E \times R}{D_{sl} / 100}$ with $E$ = available margin (Decimal), $R = \text{risk\_per\_trade\_pct} / 100$ (the **fraction** form: $R \in [0, 1]$; the raw user-facing value `risk_per_trade_pct` is divided by `100` to obtain $R$), and $D_{sl}$ = stop-loss distance as a raw percentage float.
+   Equivalently, $\text{notional} = \text{equity} \times \text{allocation\_pct} / 100$ with `allocation_pct` ∈ 1–100 (the raw user-facing percent; per-instance override; the sum of all instance allocations is validated ≤ 100 %). The stop-loss level does not size the position — it defines the risk budget and invalidation level.
 
-   > **Variable-naming hazard (correction).** A previous snippet used `risk_pct` in the multiplication — this is a 100× over-size hazard if `risk_pct` carries the raw-percent float (`1.0`) instead of the fraction (`0.01`). The canonical variable name for the fraction is `risk_fraction`.
+   > **Variable-naming hazard (historical).** The pre-v8.2 formula used `risk_per_trade_pct` in a stop-distance-scaled size (`size = (equity × risk_fraction) / stop_distance`) — a naming hazard where raw-percent vs fraction confusion caused 100× over-sizing. v8.2 removes the stop-distance scaling entirely: the size is the allocated portfolio share.

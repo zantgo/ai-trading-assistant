@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS paper_balances (
 );
 ```
 
-**Persistence semantics.** `active_stance` (per-symbol authorization: `ACTIVE`, `CLOSE_ONLY`, `AVOID`) and the account-level `safety_state` (`NORMAL`, `WARN`, `CAUTIOUS`, `SUSPENDED`, `DRAWDOWN_STOP`) are both persisted; `consecutive_losses` and `cooldown_start_ms` complete the safety-state reconstruction set. The PME reconstructs the safety-state machine on engine restart from these columns deterministically. See [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and the `AUDIT-V4-046` resolution in `docs/CHANGELOG.md`.
+**Persistence semantics.** `active_stance` (per-symbol authorization: `ACTIVE`, `CLOSE_ONLY`, `AVOID`) and the account-level `safety_state` (`NORMAL`, `WARN`, `CAUTIOUS`, `SUSPENDED`, `DRAWDOWN_STOP`) are both persisted; `consecutive_losses` and `cooldown_start_ms` complete the safety-state reconstruction set. The PME reconstructs the safety-state machine on engine restart from these columns deterministically. See [`03-04-05-pme-layer4-overview.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) and the `AUDIT-V4-046` resolution in `docs/CHANGELOG.md`.
 
 ### 3.5 `active_positions` — PME Position Matrix
 
@@ -493,6 +493,8 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
   direction TEXT NOT NULL, entry_price REAL NOT NULL, exit_price REAL NOT NULL,
   size REAL NOT NULL, pnl REAL NOT NULL, exit_reason TEXT NOT NULL DEFAULT ''
 );
+-- exit_reason vocabulary (v8.2): 'tp' | 'sl' | 'invalidated_signal' |
+-- 'manual' | 'stop_flatten' | 'end_of_backtest' (v8.2 end-of-run force-close)
 
 CREATE TABLE IF NOT EXISTS backtest_equity (
   run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL, equity REAL NOT NULL,
@@ -605,7 +607,7 @@ The canonical v4.0 migration set adds eight changes:
 - [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md) — canonical `MarketSnapshot` wire contract; top-level liquidity fields.
 - [`02-08-opportunity-matrix.md §2.1`](../matrices/02-08-opportunity-matrix.md) — `invalidation_level` canonical name; migration from `invalidation_level` and `final_invalidation`.
 - [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — order-state lifecycle; `PRE_DISPATCH` semantics.
-- [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — safety-state machine and reconstruction from persisted columns.
+- [`03-04-05-pme-layer4-overview.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) — safety-state machine and reconstruction from persisted columns.
 - [`03-05-02-pae-layer1-trade-analytics.md §3`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) — per-fill reconstruction contract.
 - [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md) — `POST /api/keys` encrypted-credential contract.
 - [`08-02-pre-trade-risk-controls.md`](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — gate ordering and `risk_control_events` provenance.

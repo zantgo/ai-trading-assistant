@@ -500,6 +500,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::analytics::serve_backtest_list),
         )
         .route(
+            "/api/backtest/progress/:id",
+            get(handlers::analytics::serve_backtest_progress),
+        )
+        .route(
+            "/api/backtest/cancel/:id",
+            post(handlers::analytics::serve_backtest_cancel),
+        )
+        .route(
             "/api/backtest/coverage",
             get(handlers::backtest::serve_backtest_coverage),
         )

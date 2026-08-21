@@ -1,0 +1,1 @@
+❌ CLI backtest failed: --depth 3d is too small for the warm-up window (needs > 3.1d)

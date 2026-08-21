@@ -101,6 +101,7 @@ fn write_initial_config(path: &std::path::Path) {
         automation: Default::default(),
         operational_mode: Default::default(),
         mode: config_models::ExecutionMode::Paper,
+        allocation_pct: None,
         weight_overrides: None,
         position_scaling: None,
         activation: None,

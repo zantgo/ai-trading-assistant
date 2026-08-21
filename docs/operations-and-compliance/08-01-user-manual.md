@@ -68,6 +68,39 @@ For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) 
 
 ---
 
+## 4.5 Running a Backtest (v8.2)
+
+The **Backtesting** engine (observe sessions) opens the **Backtest Launcher**
+— an installer-style wizard that runs the whole platform over historical
+candles:
+
+1. **Environment** — exchange (Hyperliquid / Bitget), settlement currency, starting capital.
+2. **Instances** — add one or more instances: ticker, the 4 timeframe
+   dropdowns (preseeded 1m/3m/5m/15m), and the **allocation %** per
+   instance (1–100 %; the sum is validated ≤ 100 %, up to 100 instances).
+3. **Historical Data** — archive depth 1–365 days. There are no date
+   pickers; the window is "the last N days, minus the warm-up". The
+   per-TF readiness chips show whether the archive covers the depth; the
+   per-exchange max-depth note shows Hyperliquid's 5,000-candle ceiling.
+4. **Run** — a progress bar (Fetching → Warming → Replaying → Analyzing)
+   with a **Cancel** button. The Study Report shows the trades, equity
+   curve, drawdown, exit reasons (including `end_of_backtest`), and the
+   statistical edge verdict.
+
+The same flow is available headlessly from the CLI:
+
+```bash
+./manage.sh run-cli                 # choose "Backtest" in the launch prompt
+# or non-interactive:
+cargo run --bin execution-daemon -- --backtest --exchange bitget \
+    --symbols BTC,ETH --tf 60,180,300,900 --depth 180 \
+    --capital 1000 --allocation 10
+```
+
+Backtest results persist to the same tables the GUI History/Study read.
+
+---
+
 ## 5. Configuring Engines & Timeframes
 
 The single source of configuration truth is `config.toml` at the workspace root. It controls:
@@ -75,7 +108,7 @@ The single source of configuration truth is `config.toml` at the workspace root.
 - `candles.duration_seconds` — base (micro) timeframe
 - `fast_timeframe`, `slow_timeframe`, `macro_timeframe` — additional timeframe tiers, each with `enabled` and `duration_seconds`
 - `indicators.<name>.<param>` — per-indicator lookback, threshold, smoothing window, etc.
-- `risk_per_trade_pct`, `leverage.cross_leverage`, `safety.*` — risk and safety gates
+- `allocation_pct`, `leverage.cross_leverage`, `safety.*` — allocation, risk and safety settings
 - `symbols` — list of `Exchange:Symbol` instruments to ingest
 - `[workspace.minimal_tae]` — automation risk tuning (see [TAE Overview §9](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md))
 
@@ -139,7 +172,7 @@ The Recommendation tab is **read-only** — it never places orders. The Trade Au
 
 **Programming an instance (start/pause/stop automation).** Each instance supports optional automation via a `[instances.<id>.automation]` block in `config.toml` (or the equivalent inline edit affordance in the Workspaces Sidebar). You can arm independent `start`, `pause`, and `stop` conditions using `at_price_above`, `at_price_below`, `at_time` (RFC3339 UTC), or `after_duration_secs` (pause/stop only, measured from the most recent transition into RUNNING). Multiple keys inside one condition are OR — first to fire wins. Editing any key re-arms that condition; saving a past `at_time` returns `422`. Manual `/start`/`/pause`/`/stop` commands are always available regardless of automation configuration (operator supremacy), and `DELETE` on a non-STOPPED instance returns `409`. See [03-03-06-tae-instance-lifecycle-spec.md §3/§4](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
-**Reading the Portfolio.** Active positions, margin usage, and the safety veto status are visible in the "Portfolio" sidebar entry. The PME's Ontological Priority Veto overrides the TAE's active stances when systemic thresholds are breached — see [PME Layer 4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) for the trigger conditions.
+**Reading the Portfolio.** Active positions, margin usage, and the safety-state ladder are visible in the "Portfolio" sidebar entry. The PME's safety ladder (`NORMAL` / `WARN` / `CAUTIOUS` / `SUSPENDED` / `DRAWDOWN_STOP`) blocks **new entries** via the TAE setup executor's soft gate when `DRAWDOWN_STOP` or `SUSPENDED` is active — see [PME Layer 4](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md) for the state transitions.
 
 **Trade journal.** All closed trades are written to `paper_trades` and `trade_telemetry_history`. Human annotations go into `trade_learning_journal`. Exposes via `GET /api/trade-journal/export/csv` and `/api/trade-journal/export/json`.
 
@@ -185,7 +218,7 @@ A value of `0` disables the cleanup loop for that table (rows accumulate indefin
 | Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.toml` `[indicators.*]`; check the indicator rulebook via `GET /api/rules`. |
 | Connectivity warning on a specific exchange | Adapter is in backoff after repeated disconnects | Check `/api/system/status`; permanent disable after 5 consecutive failed cycles (a cycle = a full backoff sequence; a failure = one attempt), shown as "5 consecutive failures" (supervisor must be restarted). |
 | SQLite "database is locked" errors | Long-running query holding a write transaction | Reduce log retention or query frequency; the WAL mode is already enabled. |
-| Veto stuck at `AVOID` for a symbol | PME safety trigger fired; threshold must clear | Inspect portfolio equity vs. peak; check `systemic_risk_score`; follow the [PME veto release procedure](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#43-veto-release). |
+| Safety state stuck at `DRAWDOWN_STOP` for a symbol | PME safety trigger fired; threshold must clear | Inspect portfolio equity vs. peak; check `systemic_risk_score`; follow the [PME safety release procedure](../engines/portfolio-management-engine/03-04-05-pme-layer4-overview.md#43-veto-release). |
 
 ---
 

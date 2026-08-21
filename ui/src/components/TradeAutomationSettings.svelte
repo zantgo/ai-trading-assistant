@@ -17,7 +17,7 @@
 
     interface MinimalTae {
         enabled?: boolean;
-        risk_per_trade_pct?: number;
+        allocation_pct?: number;
         min_net_rr?: number;
         max_position_size_usd?: number | null;
         max_open_positions?: number;
@@ -40,9 +40,9 @@
     let saveState = $state<SettingsSaveState>('idle');
 
     // Drafts — seeded from the loaded config, compared for dirty state.
-    let tae = $state<Required<Pick<MinimalTae, 'enabled' | 'risk_per_trade_pct' | 'min_net_rr' | 'max_position_size_usd' | 'max_open_positions' | 'entry_mode' | 'invalidate_on'>>>({
+    let tae = $state<Required<Pick<MinimalTae, 'enabled' | 'allocation_pct' | 'min_net_rr' | 'max_position_size_usd' | 'max_open_positions' | 'entry_mode' | 'invalidate_on'>>>({
         enabled: false,
-        risk_per_trade_pct: 1,
+        allocation_pct: 10,
         min_net_rr: 1,
         max_position_size_usd: null,
         max_open_positions: 1,
@@ -67,7 +67,7 @@
             if (data.minimal_tae) {
                 tae = {
                     enabled: data.minimal_tae.enabled ?? false,
-                    risk_per_trade_pct: data.minimal_tae.risk_per_trade_pct ?? 1,
+                    allocation_pct: data.minimal_tae.allocation_pct ?? 10,
                     min_net_rr: data.minimal_tae.min_net_rr ?? 1,
                     max_position_size_usd: data.minimal_tae.max_position_size_usd ?? null,
                     max_open_positions: data.minimal_tae.max_open_positions ?? 1,
@@ -101,7 +101,7 @@
         return (
             JSON.stringify(tae) !== JSON.stringify({
                 enabled: c.minimal_tae?.enabled ?? false,
-                risk_per_trade_pct: c.minimal_tae?.risk_per_trade_pct ?? 1,
+                allocation_pct: c.minimal_tae?.allocation_pct ?? 10,
                 min_net_rr: c.minimal_tae?.min_net_rr ?? 1,
                 max_position_size_usd: c.minimal_tae?.max_position_size_usd ?? null,
                 max_open_positions: c.minimal_tae?.max_open_positions ?? 1,
@@ -138,7 +138,7 @@
                 body: JSON.stringify({
                     minimal_tae: {
                         enabled: tae.enabled,
-                        risk_per_trade_pct: Number(tae.risk_per_trade_pct),
+                        allocation_pct: Number(tae.allocation_pct),
                         min_net_rr: Number(tae.min_net_rr),
                         max_position_size_usd: Number(tae.max_position_size_usd) > 0 ? Number(tae.max_position_size_usd) : null,
                         max_open_positions: Number(tae.max_open_positions),
@@ -219,8 +219,8 @@
                         </select>
                     </div>
                     <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-risk">Risk per trade %</label>
-                        <input class={styles.fieldInput} id="tae-risk" type="number" min="0.01" max="10" step="0.1" bind:value={tae.risk_per_trade_pct} />
+                        <label class={styles.fieldLabel} for="tae-alloc">Allocation % per position (1–100)</label>
+                        <input class={styles.fieldInput} id="tae-alloc" type="number" min="1" max="100" step="1" bind:value={tae.allocation_pct} />
                     </div>
                     <div class={styles.field}>
                         <label class={styles.fieldLabel} for="tae-rr">Min net R:R</label>
@@ -233,7 +233,7 @@
                     </div>
                     <div class={styles.field}>
                         <label class={styles.fieldLabel} for="tae-maxpos">Max open positions</label>
-                        <input class={styles.fieldInput} id="tae-maxpos" type="number" min="1" max="20" step="1" bind:value={tae.max_open_positions} />
+                        <input class={styles.fieldInput} id="tae-maxpos" type="number" min="1" max="100" step="1" bind:value={tae.max_open_positions} />
                     </div>
                 </div>
                 <div class={styles.formRow}>
@@ -292,7 +292,7 @@
                         <input class={styles.fieldInput} id="tae-micro-th" type="number" min="0" max="100" step="1" bind:value={scoring.micro_score_threshold} />
                     </div>
                 </div>
-                <p class={styles.infoLine}>Current saved values — {fmtPct(cfg.minimal_tae?.risk_per_trade_pct)} risk per trade · {fmtPct(cfg.execution?.slippage_ceiling_pct)} slippage ceiling.</p>
+                <p class={styles.infoLine}>Current saved values — {cfg.minimal_tae?.allocation_pct ?? 10}% allocation per position · {fmtPct(cfg.execution?.slippage_ceiling_pct)} slippage ceiling.</p>
             </div>
         {:else}
             <div class={styles.empty}>No configuration available.</div>
