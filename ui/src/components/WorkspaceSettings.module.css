@@ -19,6 +19,13 @@
     gap: 16px;
 }
 
+.tf-shell-layout {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
 .empty {
     border: 1px dashed rgba(255, 255, 255, 0.12);
     border-radius: 8px;
@@ -218,5 +225,6 @@
 
 @media (max-width: 900px) {
     .tf-shell { flex-direction: column; }
+    .tf-shell-layout { flex-direction: column; }
     .tf-shell-rail { width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; }
 }

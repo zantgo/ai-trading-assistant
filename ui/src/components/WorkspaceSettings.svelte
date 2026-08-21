@@ -549,6 +549,7 @@
         <div class="{engine.alertBanner} {engine.alertError}" role="alert" style="margin:0 24px">Save failed — check the console or server log.</div>
     {/if}
 
+    <div class={styles.tfShellLayout}>
     <aside class={styles.tfShellRail}>
         <h3 class={engine.subTitle}>TIMEFRAMES</h3>
         {#each slotOrder as slot (slot)}
@@ -746,4 +747,5 @@
             </div>
         </div>
     </section>
+    </div>
 </div>
