@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 > **Implementation status (v7.1).** All five engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper mode by default, live dispatch for Hyperliquid and Bitget), PME as an informational portfolio mirror, and PAE with live analytics plus the recorded-decision backtest runner. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.

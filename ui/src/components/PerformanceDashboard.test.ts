@@ -100,43 +100,7 @@ afterEach(() => {
     cleanup();
 });
 
-describe('PerformanceDashboard backtest tab (v7 live)', () => {
-    it('runs a backtest and renders stats + edge verdict + trades + equity curve', async () => {
-        render(PerformanceDashboard, { props: { section: 'backtesting' } });
-
-        // Real form fields.
-        await waitFor(() => expect(document.querySelector('#bt-symbol')).toBeTruthy());
-        expect(document.querySelector('#bt-tf')).toBeTruthy();
-        expect(document.querySelector('#bt-start')).toBeTruthy();
-        expect(document.querySelector('#bt-end')).toBeTruthy();
-        expect(document.querySelector('#bt-capital')).toBeTruthy();
-
-        // Submit the backtest.
-        await waitFor(() => expect(screen.getByText('Run Backtest')).toBeTruthy());
-        await fireEvent.click(screen.getByText('Run Backtest'));
-
-        // Results: summary stat cards + edge verdict + trade log + curve.
-        await waitFor(() => expect(screen.getByText('EDGE VERDICT')).toBeTruthy());
-        expect(screen.getByText('42')).toBeTruthy();
-        expect(screen.getByText(/Moderate Edge/)).toBeTruthy();
-        expect(screen.getByText(/significant at α = 0.05/)).toBeTruthy();
-        expect(screen.getByText(/[0-9,]+ runs/)).toBeTruthy();
-        expect(screen.getByText('Trade Log')).toBeTruthy();
-        expect(screen.getByText('Equity Curve')).toBeTruthy();
-
-        // POST was issued with the right body shape.
-        const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
-        const runCall = calls.find((c: unknown[]) => String(c[0]).includes('/api/backtest/run'));
-        expect(runCall).toBeTruthy();
-        const opts = runCall?.[1] as RequestInit | undefined;
-        const body = JSON.parse(String(opts?.body ?? '{}'));
-        expect(body.symbol).toBeTruthy();
-        expect(body.timeframe_secs).toBeTruthy();
-        expect(body.initial_capital).toBeTruthy();
-    });
-});
-
-describe('PerformanceDashboard mode-aware framing (v7.3)', () => {
+describe('PerformanceDashboard mode-aware framing (v7.3, v8)', () => {
     it('observe mode keeps the edge-validator overview + data-bearing tabs', async () => {
         const app = useAppStore();
         app.session.sessionMode = 'observe';
@@ -153,14 +117,17 @@ describe('PerformanceDashboard mode-aware framing (v7.3)', () => {
         expect(screen.queryByText('Trade Analytics')).toBeNull();
     });
 
-    it('observe mode renders the backtesting tab with the run form', async () => {
+    // v8: the Backtesting tab moved to the Backtesting Engine
+    // (`ui/src/components/backtesting/`) — a stale `#/engine/performance/
+    // backtesting` URL clamps to Overview instead of rendering a form.
+    it('v8: a stale backtesting section clamps to Overview', async () => {
         const app = useAppStore();
         app.session.sessionMode = 'observe';
         render(PerformanceDashboard, { props: { section: 'backtesting' } });
 
         await waitFor(() => expect(screen.getByText('OBSERVE')).toBeTruthy());
-        await waitFor(() => expect(screen.getByText('Run Backtest')).toBeTruthy());
-        expect(document.querySelector('#bt-symbol')).toBeTruthy();
+        await waitFor(() => expect(screen.getByText('Edge Validation')).toBeTruthy());
+        expect(document.querySelector('#bt-symbol')).toBeNull();
     });
 
     it('paper mode shows the forward-test drift card and full tabs', async () => {
@@ -183,12 +150,12 @@ describe('PerformanceDashboard no-instance state (v7.3)', () => {
         cleanup();
         mockFetchImpl();
         app.session.sessionMode = 'observe';
+        // v8: 'backtesting' is no longer a PAE tab — the clamp lands on
+        // Overview which renders the same no-instance empty state.
         render(PerformanceDashboard, { props: { section: 'backtesting' } });
 
         await waitFor(() => expect(screen.getByText('No active instance')).toBeTruthy());
         expect(screen.getByText(/Performance analytics evaluate recorded decisions/)).toBeTruthy();
-        // The backtest form must NOT render with a fallback symbol.
-        expect(document.querySelector('#bt-symbol')).toBeNull();
     });
 
     it('keeps the Settings tab rendered without an instance', async () => {

@@ -235,6 +235,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }
 

@@ -21,6 +21,7 @@
     import PerformanceDashboard from '../PerformanceDashboard.svelte';
     import TradeAutomationDashboard from '../TradeAutomationDashboard.svelte';
     import PortfolioDashboard from '../PortfolioDashboard.svelte';
+    import BacktestingDashboard from '../backtesting/BacktestingDashboard.svelte';
     import WorkspaceSettings from '../WorkspaceSettings.svelte';
 
     interface Props {
@@ -61,7 +62,7 @@
     // render (e.g. `orders` in observe) lands on the engine default — the
     // navbar and the rendered section always agree.
     const activeMode = $derived<ExecutionMode | undefined>(
-        currentEngine === 'performance'
+        currentEngine === 'performance' || currentEngine === 'backtesting'
             ? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined)
             : (selectedInstance
                 ? app.instancesMap[selectedInstance]?.mode
@@ -113,6 +114,8 @@
         {/if}
     {:else if currentEngine === 'performance'}
         <PerformanceDashboard section={section} />
+    {:else if currentEngine === 'backtesting'}
+        <BacktestingDashboard section={section} />
     {:else if currentEngine === 'trade_automation'}
         <TradeAutomationDashboard section={section} />
     {:else if currentEngine === 'portfolio'}

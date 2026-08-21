@@ -23,13 +23,18 @@ use sqlx::SqlitePool;
 
 use crate::strategy_analytics::compute_setup_analytics;
 
-/// Backtest window + capital parameters (the API request body).
+/// Backtest window + capital parameters.
+///
+/// Unit contract: the API accepts milliseconds (`from_ms` / `to_ms`) and the
+/// gateway converts to **Unix seconds** before constructing these params —
+/// `market_snapshots.timestamp` and the candle archive are stored in seconds.
+/// `from_secs`/`to_secs` are inclusive bounds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BacktestParams {
     pub symbol: String,
     pub timeframe_secs: u64,
-    pub from_ms: i64,
-    pub to_ms: i64,
+    pub from_secs: i64,
+    pub to_secs: i64,
     #[serde(default = "default_capital")]
     pub initial_capital: f64,
 }
@@ -122,8 +127,8 @@ pub async fn run_backtest(
         pool,
         &params.symbol,
         params.timeframe_secs,
-        params.from_ms,
-        params.to_ms,
+        params.from_secs,
+        params.to_secs,
         BACKTEST_MAX_SNAPSHOTS,
     )
     .await;
@@ -143,59 +148,63 @@ pub async fn run_backtest(
         let snap = snap_to_market(&params.symbol, rec);
         let mid = snap.mid_price;
 
-        let prev_position = engine.get_position(&params.symbol).await;
+        // BTE v8 parity: the replay drives the SAME per-tick session body
+        // the daemon runs (`run_tick`); `capture_last_close` snapshots the
+        // close outcome between fills and the executor tick so the trade
+        // log records every simulated close. The executor consumes
+        // `take_last_close` afterwards exactly as it does live.
+        let outcome = portfolio_supervisor::execution::session_tick::run_tick(
+            &engine,
+            &executor,
+            "backtest",
+            &params.symbol,
+            &[&snap],
+            mid,
+            TickContext {
+                safety_allows_entry: true,
+                lifecycle_running: true,
+                candle_ts: rec.timestamp as u64,
+                safety: None,
+                dispatch: true,
+            },
+            None,
+            true,
+        )
+        .await;
 
-        if prev_position.is_some() {
-            engine.mark_to_market(&params.symbol, mid).await;
+        if let Some(close) = &outcome.last_close {
+            let direction = match outcome.last_close_direction {
+                Some(config_models::Direction::Long) => "LONG",
+                Some(config_models::Direction::Short) => "SHORT",
+                None => "UNKNOWN",
+            };
+            let entry = outcome
+                .last_close_entry
+                .and_then(|d| d.to_f64())
+                .unwrap_or(0.0);
+            let size = outcome
+                .last_close_size
+                .and_then(|d| d.to_f64())
+                .unwrap_or(0.0);
+            let exit = if size > 0.0 {
+                let pnl = close.pnl.to_f64().unwrap_or(0.0);
+                match outcome.last_close_direction {
+                    Some(config_models::Direction::Short) => entry - pnl / size,
+                    _ => entry + pnl / size,
+                }
+            } else {
+                entry
+            };
+            trades.push(BacktestTrade {
+                timestamp: rec.timestamp,
+                direction: direction.to_string(),
+                entry_price: entry,
+                exit_price: exit,
+                size,
+                pnl: close.pnl.to_f64().unwrap_or(0.0),
+                exit_reason: close.exit_reason.clone(),
+            });
         }
-        engine.evaluate_order_fills(mid).await;
-
-        // Record the close (the executor consumes `take_last_close` — the
-        // None here simply means we already took it).
-        if let Some(outcome) = engine.take_last_close(&params.symbol).await {
-            if let Some(pos) = &prev_position {
-                let direction = match pos.direction {
-                    config_models::Direction::Long => "LONG",
-                    config_models::Direction::Short => "SHORT",
-                };
-                let entry = pos.entry_price.to_f64().unwrap_or(0.0);
-                let size = pos.size.to_f64().unwrap_or(0.0);
-                let exit = if size > 0.0 {
-                    if pos.direction == config_models::Direction::Long {
-                        entry + outcome.pnl.to_f64().unwrap_or(0.0) / size
-                    } else {
-                        entry - outcome.pnl.to_f64().unwrap_or(0.0) / size
-                    }
-                } else {
-                    entry
-                };
-                trades.push(BacktestTrade {
-                    timestamp: rec.timestamp,
-                    direction: direction.to_string(),
-                    entry_price: entry,
-                    exit_price: exit,
-                    size,
-                    pnl: outcome.pnl.to_f64().unwrap_or(0.0),
-                    exit_reason: outcome.exit_reason.clone(),
-                });
-            }
-        }
-
-        executor
-            .tick(
-                "backtest",
-                &params.symbol,
-                vec![&snap],
-                mid,
-                TickContext {
-                    safety_allows_entry: true,
-                    lifecycle_running: true,
-                    candle_ts: rec.timestamp as u64,
-                    safety: None,
-                    dispatch: true,
-                },
-            )
-            .await;
 
         // Equity curve sample: ledger + unrealized.
         let unrealized: Decimal = {
@@ -474,8 +483,8 @@ mod tests {
         let params = BacktestParams {
             symbol: "BTC-USDC".to_string(),
             timeframe_secs: 60,
-            from_ms: 0,
-            to_ms: 10_000,
+            from_secs: 0,
+            to_secs: 10_000,
             initial_capital: 1000.0,
         };
         let result = run_backtest(
@@ -514,8 +523,8 @@ mod tests {
         let params = BacktestParams {
             symbol: "BTC-USDC".to_string(),
             timeframe_secs: 60,
-            from_ms: 0,
-            to_ms: 10_000,
+            from_secs: 0,
+            to_secs: 10_000,
             initial_capital: 1000.0,
         };
         let result = run_backtest(

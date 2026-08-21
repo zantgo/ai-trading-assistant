@@ -1,16 +1,12 @@
-# PAE Layer 5 — Backtest
+# PAE Layer 5 — Backtest (moved to the Backtesting Engine)
 
-**Version:** 7.1 (2026-08-18) — delivered with the v7 PAE release.
-**Status:** Specified — implemented.
-**Engine:** Performance Analytics Engine (PAE)
-**Layer:** 5 of 5
-**Input Contract:** Recorded completed `market_snapshots` (with decision matrices), `[workspace.minimal_tae]` executor config, fee/leverage config
-**Output Contract:** `BacktestResult` (params, summary, NHST stats, trades, equity curve) persisted to `backtest_runs`
-**Purpose:** This document specifies the backtest layer — a deterministic replay of recorded MME decisions through the unchanged TAE setup executor and unified paper engine, with the full statistical treatment (t-test, Monte Carlo, α = 0.05, edge classification) applied to the simulated trades.
-
----
-
-> **v7.3 — configurable significance treatment + persistence UX.** The α level, Monte Carlo run count and the min-trade verdict floor are no longer constants: they come from `[workspace.analytics]` (`alpha`, `monte_carlo_runs`, `min_trades_for_verdict`) and flow through `strategy_analytics::AnalyticsParams` into both live strategy analytics and backtest verdicts. New endpoints serve the History and data-coverage surfaces: `GET /api/backtest/list?limit=N` (recent persisted runs, newest first) and `GET /api/backtest/coverage` (recorded-snapshot counts + time window per symbol × timeframe, so the operator can see whether a requested window is coverable before running).
+**Version:** 8.0 (2026-08-20) — delivered with the v7 PAE release.
+**Status:** MOVED — as of v8 the backtest layer lives in the **Backtesting
+Engine** (`crates/backtesting-engine/src/recorded.rs` +
+`historical.rs`; see
+`docs/engines/backtesting-engine/08-01-bte-overview.md`). This document is
+kept for historical reference; the recorded-replay contract below still
+describes `mode: "recorded"` exactly.
 
 ## 1. Design principle: record today, replay tomorrow
 
@@ -33,12 +29,13 @@ recorded snapshots (ascending ts) ──► [ExecutionEngine (fresh, seeded capi
 
 ## 2. Replay contract
 
-- **Source:** `market_snapshots` rows for `(symbol, timeframe_secs)` with `timestamp ∈ [from_ms, to_ms]`, `is_completed = 1`, ordered ascending. Single timeframe per run — each recorded snapshot already carries the MTF decision.
-- **Bound:** the window is capped (≤ 50,000 snapshots per run) to keep runs synchronous and fast.
+- **Source:** `market_snapshots` rows for `(symbol, timeframe_secs)` with `timestamp ∈ [from_secs, to_secs]` (v8: the API accepts ms and converts), reconstructed rows excluded, ordered ascending. Single timeframe per run — each recorded snapshot already carries the MTF decision.
+- **Bound:** the window is capped (≤ 50,000 snapshots per run, now `[workspace.backtest].max_snapshots`) to keep runs synchronous and fast.
 - **Engine:** a fresh `ExecutionEngine` with the configured fee/slippage/leverage config, seeded with `initial_capital`. Paper fills only — the same `PaperSimulation` backend as live paper trading.
-- **Executor:** the same `SetupExecutor` (same `extract_top_setup`, same invalidation, same gates) driven once per snapshot with the snapshot's `mid_price`; the daemon-equivalent loop body is `mark_to_market → evaluate_order_fills → tick`.
+- **Executor:** the same `SetupExecutor` (same `extract_top_setup`, same invalidation, same gates) driven once per snapshot with the snapshot's `mid_price`; the loop body is the shared `run_tick` (v8 parity contract — see `docs/engines/backtesting-engine/08-04-parity-contract.md`).
 - **Determinism:** identical inputs ⇒ identical results (no wall clock, no randomness in the executor path).
-- **Isolation:** backtest runs never write trade telemetry, activity logs, or open state; they only write the `backtest_runs` result row.
+- **Isolation:** backtest runs never write trade telemetry, activity logs, or open state; they only write the `backtest_runs` row + the normalized DS tables.
+- **Validation:** an empty window fails loudly with `400 not_enough_data` + coverage numbers (no silent zero-trade 200s).
 
 ## 3. Result shape (`BacktestResult`)
 
@@ -54,8 +51,17 @@ recorded snapshots (ascending ts) ──► [ExecutionEngine (fresh, seeded capi
 
 | Endpoint | Behavior |
 |----------|----------|
-| `POST /api/backtest/run` | Body `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital }`. Runs synchronously, persists the `BacktestResult` to `backtest_runs`, returns it with `backtest_id`. |
+| `POST /api/backtest/run` | Body `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital, instance_id?, mode? }`. `mode` is `"recorded"` (this doc) or `"historical"` (BTE deep-history). Runs synchronously (global lock → 409), persists the `BacktestResult` to `backtest_runs` + the DS tables, returns it with `backtest_id`. |
 | `GET /api/backtest/:id` | Returns the persisted run (or 404). |
+| `GET` | `/api/backtest/:id/trades` | Normalized trade rows (data-science tables). |
+| `GET` | `/api/backtest/:id/equity` | Normalized equity curve rows. |
+| `GET` | `/api/backtest/:id/portfolio` | Capital/exposure/drawdown samples. |
+| `GET` | `/api/backtest/:id/signals` | Per-tick decision snapshots. |
+| `GET` | `/api/backtest/:id/metrics` | Summary + NHST key/values. |
+
+v8 coverage: `GET /api/backtest/coverage` now serves the extended
+`{ snapshots, archive, backfill_jobs }` shape (see
+`docs/engines/backtesting-engine/08-02-archive-and-backfill.md`).
 
 ## 5. Trader-facing interpretation
 

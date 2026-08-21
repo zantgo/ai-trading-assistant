@@ -57,6 +57,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             analytics: Default::default(),
             risk_limits: Default::default(),
             execution: Default::default(),
+            backtest: Default::default(),
         };
         let indicators = test_workspace.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);

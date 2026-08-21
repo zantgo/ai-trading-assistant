@@ -1,6 +1,6 @@
 # PME Layer 4 — Portfolio Layer (v7)
 
-**Version:** 7.1 (2026-08-18) — v7: the veto/stance machinery is erased; the Portfolio Layer is now **risk reporting** only.
+**Version:** 8.0 (2026-08-20) — v7: the veto/stance machinery is erased; the Portfolio Layer is now **risk reporting** only.
 **Status:** Specified — v7 implementation in progress.
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4

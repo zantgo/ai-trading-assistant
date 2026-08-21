@@ -1,4 +1,6 @@
 pub mod analytics;
+pub mod archive;
+pub mod backtest_ds;
 pub mod journals;
 
 pub mod profiles;

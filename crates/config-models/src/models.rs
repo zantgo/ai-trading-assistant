@@ -2120,3 +2120,113 @@ fn default_snapshot_export_interval_secs() -> u64 {
 fn default_snapshot_export_max_snapshots_retained() -> u32 {
     1000
 }
+
+/// Backtesting Engine (BTE) configuration.
+///
+/// The deep-history backtest replays the full MME pipeline over archived
+/// OHLCV candles. `archive_depth_days` bounds how far back the candle
+/// archive reaches (and how deep an on-demand backfill may page); the
+/// value is operator-tunable between 1 and 365 days and is enforced by the
+/// M8 numeric guards. The per-exchange page caps mirror the documented /
+/// empirical candle-endpoint limits (Hyperliquid `candleSnapshot` is
+/// window-bounded with no `limit` parameter — we page conservatively at
+/// 1000; Bitget accepts `limit` 1–1000 — we page at 200).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BacktestConfig {
+    /// Candle-archive retention / maximum backfill depth in days.
+    /// Default: 180. Enforced range: 1..=365 (M8).
+    #[serde(default = "default_backtest_archive_depth_days")]
+    pub archive_depth_days: u32,
+    /// Warmup bars before the first valid MTF-aligned decision — the
+    /// burn-in span is `warmup_bars × longest_timeframe_secs`.
+    /// Default: 300.
+    #[serde(default = "default_backtest_warmup_bars")]
+    pub warmup_bars: u32,
+    /// Persist the exact input candles per run for reproducibility.
+    /// Default: true.
+    #[serde(default = "default_backtest_store_input_bars")]
+    pub store_input_bars: bool,
+    /// Maximum equity-curve points persisted per run (downsampled).
+    /// Default: 2000.
+    #[serde(default = "default_backtest_max_equity_points")]
+    pub max_equity_points: u32,
+    /// Maximum recorded snapshots replayed per run (keeps the synchronous
+    /// endpoint bounded). Default: 50_000.
+    #[serde(default = "default_backtest_max_snapshots")]
+    pub max_snapshots: u32,
+    #[serde(default)]
+    pub hyperliquid: ExchangeBacktestLimits,
+    #[serde(default)]
+    pub bitget: ExchangeBacktestLimits,
+}
+
+/// Per-exchange paging limits for the BTE archive backfill.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeBacktestLimits {
+    /// Candles per REST page.
+    #[serde(default = "default_backtest_page_cap")]
+    pub page_cap: u32,
+    /// Delay between pages (rate-limit courtesy).
+    #[serde(default = "default_backtest_rate_limit_delay_ms")]
+    pub rate_limit_delay_ms: u64,
+    /// Hard ceiling on pages per backfill run (bounded fetch time).
+    #[serde(default = "default_backtest_max_pages_per_run")]
+    pub max_pages_per_run: u32,
+}
+
+fn default_backtest_archive_depth_days() -> u32 {
+    180
+}
+fn default_backtest_warmup_bars() -> u32 {
+    300
+}
+fn default_backtest_store_input_bars() -> bool {
+    true
+}
+fn default_backtest_max_equity_points() -> u32 {
+    2000
+}
+fn default_backtest_max_snapshots() -> u32 {
+    50_000
+}
+fn default_backtest_page_cap() -> u32 {
+    1000
+}
+fn default_backtest_rate_limit_delay_ms() -> u64 {
+    1000
+}
+fn default_backtest_max_pages_per_run() -> u32 {
+    2000
+}
+
+impl Default for BacktestConfig {
+    fn default() -> Self {
+        Self {
+            archive_depth_days: default_backtest_archive_depth_days(),
+            warmup_bars: default_backtest_warmup_bars(),
+            store_input_bars: default_backtest_store_input_bars(),
+            max_equity_points: default_backtest_max_equity_points(),
+            max_snapshots: default_backtest_max_snapshots(),
+            hyperliquid: ExchangeBacktestLimits {
+                page_cap: 1000,
+                rate_limit_delay_ms: 1000,
+                max_pages_per_run: 2000,
+            },
+            bitget: ExchangeBacktestLimits {
+                page_cap: 200,
+                rate_limit_delay_ms: 100,
+                max_pages_per_run: 6000,
+            },
+        }
+    }
+}
+
+impl Default for ExchangeBacktestLimits {
+    fn default() -> Self {
+        Self {
+            page_cap: default_backtest_page_cap(),
+            rate_limit_delay_ms: default_backtest_rate_limit_delay_ms(),
+            max_pages_per_run: default_backtest_max_pages_per_run(),
+        }
+    }
+}

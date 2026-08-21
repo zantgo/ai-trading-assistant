@@ -95,7 +95,7 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             analysis_json, advisory_json
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95, ?96, ?97, ?98, ?99, ?100, ?101)"
     )
-    .bind(exchange_label)
+    .bind(&exchange_label)
     .bind(snapshot.timeframe_secs as i64)
     .bind(snapshot.timestamp as i64)
     .bind(&snapshot.symbol)
@@ -227,6 +227,41 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     {
         eprintln!("Database Error: Failed to save completed snapshot: {}", e);
     }
+
+    // BTE live archive write path: every completed snapshot also upserts
+    // its OHLCV into `candle_archive` so the deep-history backtest has a
+    // warm local store in every session mode (observe / paper / live).
+    // Gap-filled candles carry source 'reconstructed'; genuine live rows
+    // carry 'live'. Dedup is handled by the UNIQUE constraint.
+    let archive_source = if snapshot
+        .quality_envelope
+        .as_ref()
+        .map(|q| q.is_gap_filled)
+        .unwrap_or(false)
+    {
+        "reconstructed"
+    } else {
+        "live"
+    };
+    let _ = sqlx::query(
+        "INSERT INTO candle_archive
+            (exchange, symbol, timeframe_secs, ts_secs, open, high, low, close,
+             volume, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT (exchange, symbol, timeframe_secs, ts_secs) DO NOTHING",
+    )
+    .bind(&exchange_label)
+    .bind(&snapshot.symbol)
+    .bind(snapshot.timeframe_secs as i64)
+    .bind(snapshot.timestamp as i64)
+    .bind(snapshot.open.map(|d| d.to_string()))
+    .bind(snapshot.high.map(|d| d.to_string()))
+    .bind(snapshot.low.map(|d| d.to_string()))
+    .bind(snapshot.close.map(|d| d.to_string()))
+    .bind(snapshot.volume.map(|d| d.to_string()))
+    .bind(archive_source)
+    .execute(pool)
+    .await;
 }
 
 /// Reconstruct recent completed OHLCV candles for a pair + timeframe from the
@@ -549,12 +584,17 @@ pub struct RecordedSnapshot {
 
 /// Fetch completed snapshots (with decision matrices) for a symbol +
 /// timeframe + window, ascending — the PAE backtest replay source.
+///
+/// Unit contract: `from_secs`/`to_secs` are Unix **seconds** (the
+/// `market_snapshots.timestamp` unit; the API gateway converts ms → s).
+/// Reconstructed (synthesized) rows are excluded — the replay only
+/// consumes exchange-observed decision history.
 pub async fn query_backtest_snapshots(
     pool: &SqlitePool,
     symbol: &str,
     timeframe_secs: u64,
-    from_ms: i64,
-    to_ms: i64,
+    from_secs: i64,
+    to_secs: i64,
     limit: u32,
 ) -> Vec<RecordedSnapshot> {
     sqlx::query_as::<_, RecordedSnapshot>(
@@ -565,13 +605,14 @@ pub async fn query_backtest_snapshots(
          FROM market_snapshots
          WHERE symbol = ?1 AND timeframe_secs = ?2
            AND timestamp >= ?3 AND timestamp <= ?4
+           AND (reconstructed IS NULL OR reconstructed = '')
          ORDER BY timestamp ASC
          LIMIT ?5",
     )
     .bind(symbol)
     .bind(timeframe_secs as i64)
-    .bind(from_ms)
-    .bind(to_ms)
+    .bind(from_secs)
+    .bind(to_secs)
     .bind(limit as i64)
     .fetch_all(pool)
     .await
@@ -587,17 +628,18 @@ pub struct BacktestCoverageRow {
     pub symbol: String,
     pub timeframe_secs: i64,
     pub snapshot_count: i64,
-    pub earliest_ms: i64,
-    pub latest_ms: i64,
+    pub earliest_secs: i64,
+    pub latest_secs: i64,
 }
 
 /// Aggregate recorded-snapshot coverage grouped by symbol × timeframe.
+/// `earliest_secs`/`latest_secs` are Unix seconds (the `timestamp` unit).
 pub async fn query_backtest_coverage(pool: &SqlitePool) -> Vec<BacktestCoverageRow> {
     sqlx::query_as::<_, BacktestCoverageRow>(
         "SELECT symbol, timeframe_secs,
                 COUNT(*) as snapshot_count,
-                MIN(timestamp) as earliest_ms,
-                MAX(timestamp) as latest_ms
+                MIN(timestamp) as earliest_secs,
+                MAX(timestamp) as latest_secs
          FROM market_snapshots
          WHERE opportunity_json IS NOT NULL OR decision_context_json IS NOT NULL
          GROUP BY symbol, timeframe_secs

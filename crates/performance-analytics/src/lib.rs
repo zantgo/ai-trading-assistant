@@ -5,7 +5,7 @@
 //! regime-strategy optimizer, and the performance evaluator.
 //! Reads from `database-storage` and produces JSON-shaped reports for the API gateway.
 
-pub mod backtest;
+// `backtest` (PAE L5 recorded replay) moved to `backtesting_engine::recorded` (v8 BTE).
 pub mod performance_evaluator;
 pub mod performance_layer;
 pub mod risk_analytics;

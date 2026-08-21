@@ -1,6 +1,6 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 7.1 (2026-08-18) — v7 redesign: the unified engine replaces the old policy-driven `ExecutionEngine` (gates, `process_trigger`, hard-exit) and absorbs the paper-matching logic as a simulation backend; v7.1 adds the Bitget live backend + the venue matrix.
+**Version:** 8.0 (2026-08-20) — v7 redesign: the unified engine replaces the old policy-driven `ExecutionEngine` (gates, `process_trigger`, hard-exit) and absorbs the paper-matching logic as a simulation backend; v7.1 adds the Bitget live backend + the venue matrix.
 **Status:** Implemented (v7.1) — Hyperliquid + Bitget live backends.
 **Engine:** Trade Automation Engine (TAE)
 **Input Contract:** SetupPlan (Setup Executor), [Decision Matrix](../../matrices/02-04-decision-matrix.md) (via the snapshot the executor passes through)

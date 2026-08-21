@@ -33,7 +33,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
 
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90, 180).await;
     });
 
     database_storage::risk_profile_insert(
@@ -76,6 +76,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
     let router = api_gateway::build_router(state.clone());
@@ -189,7 +190,7 @@ async fn setup_override_state() -> (Arc<AppState>, String, i64) {
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90, 180).await;
     });
 
     let profile_id = database_storage::risk_profile_insert(
@@ -230,6 +231,7 @@ async fn setup_override_state() -> (Arc<AppState>, String, i64) {
             core_domain::snapshot_export::SnapshotExportRuntime::default(),
         )),
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
     let router = api_gateway::build_router(state.clone());

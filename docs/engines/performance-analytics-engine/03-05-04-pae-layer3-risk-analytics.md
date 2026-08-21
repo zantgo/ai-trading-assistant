@@ -1,6 +1,6 @@
 # PAE Layer 3 — Risk Analytics Layer
 
-**Version:** 7.1 (2026-08-18) — v7: implemented; grouping keyed by setup type.
+**Version:** 8.0 (2026-08-20) — v7: implemented; grouping keyed by setup type.
 **Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 3 of 4

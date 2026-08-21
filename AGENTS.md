@@ -2,13 +2,13 @@
 
 > **Single-operator local deployment.** This platform is built for one operator and their team — no clients, no multi-tenant/SaaS model. One workspace, one operator identity (`local`), no per-route authentication. All audit events carry `operator_id = "local"`.
 
-This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 52 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates trade setups, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
+This project is a **Trading Platform** — a quantitative trading system that ingests live cryptocurrency data from exchanges, computes 52 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates trade setups, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 10 specialized, decoupled crates and a Svelte 5 dashboard.
 
-> **Implementation status (v7.1 — roadmap complete).** All five engines are **implemented and production-ready**: DIE + MME end-to-end; TAE = v7 setup executor on the unified execution engine (`ExecutionBackend`: `PaperSimulation` default, `LiveBroker` + `BitgetLiveBroker` for live dispatch); PME = informational portfolio mirror (safety ladder live); PAE = live analytics + recorded-decision backtest with the full significance treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict). The roadmap and its verification checklist are closed; `./manage.sh test-doc` reports ALL CHECKS PASSED.
+> **Implementation status (v8 — Backtesting Engine added).** Six engines are **implemented and production-ready**: DIE + MME end-to-end; TAE = v7 setup executor on the unified execution engine (`ExecutionBackend`: `PaperSimulation` default, `LiveBroker` + `BitgetLiveBroker` for live dispatch); PME = informational portfolio mirror (safety ladder live); PAE = live analytics + recorded-decision backtest with the full significance treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict); **BTE (v8) = the Backtesting Engine** — deep-history simulations over the candle archive (`mode: "historical"`, full MME pipeline replay) plus the recorded-decision replay (`mode: "recorded"`), instance-bound, one run at a time, results persisted to normalized data-science tables (`backtest_trades/equity/portfolio/signals/metrics/input_bars`). The roadmap and its verification checklist are closed; `./manage.sh test-doc` reports ALL CHECKS PASSED.
 
 ## Project overview
 
-The platform is organized around a **Two-Dimensional Architecture** — 5 specialized logical engines (DIE, MME, TAE, PME, PAE) across sequenced analytical layers. These logical engines are mapped onto 9 physical Rust crates so that "Engine" remains a logical term and the physical directories describe their engineering role.
+The platform is organized around a **Two-Dimensional Architecture** — 6 specialized logical engines (DIE, MME, TAE, PME, PAE, BTE) across sequenced analytical layers. These logical engines are mapped onto 10 physical Rust crates so that "Engine" remains a logical term and the physical directories describe their engineering role.
 
 | Logical Engine | Physical Crate(s) | Responsibility | Status |
 |---------------|-------------------|----------------|--------|
@@ -17,8 +17,9 @@ The platform is organized around a **Two-Dimensional Architecture** — 5 specia
 | Trade Automation Engine (TAE) | `portfolio-supervisor` | Setup executor (4-TF top-setup aggregation, zone-midpoint geometry, lifecycle state machine, invalidation), unified execution engine + `ExecutionBackend` (`PaperSimulation` default; `LiveBroker` + `BitgetLiveBroker` live), risk sizing, STOP flatten; live `TradeAutomationDashboard` (`/api/instances/:id/automation`) | Implemented (paper default; live dispatch Hyperliquid + Bitget) |
 | Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP), capital/margin ledger, position/exposure/capital/portfolio layers; informational (read-only); live `PortfolioDashboard` (`/api/instances/:id/portfolio` + `/safety`) | Implemented (informational) |
 | Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator, recorded-decision backtest runner (NHST: t-test, 10k Monte Carlo, α = 0.05, edge verdict); SQLite persistence for analytics tables; live backtest tab (`POST /api/backtest/run`) | Implemented |
+| Backtesting Engine (BTE) | `backtesting-engine` + `database-storage` | Candle archive (`candle_archive`, live-warm + on-demand backfill, 1..=365 days), historical runner (full MME pipeline replay over archived candles), recorded replay (moved from PAE L5), shared `run_tick` parity contract, DS persistence (`backtest_*` tables), single-run lock; `BacktestingDashboard` (observe-only in the UI) | Implemented (v8) |
 | (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps | Implemented |
-| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers | Implemented |
+| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers (`[workspace.backtest]` v8) | Implemented |
 | (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving | Implemented |
 | (cross-cutting) | `execution-daemon` | Headless CLI binary that wires everything together | Implemented |
 
@@ -31,6 +32,7 @@ crates/
 ├── network-adapters/       # WS/REST clients, NTP clock monitor, candle reconstruction, connection-quality tracker
 ├── portfolio-supervisor/   # PME+TAE: instances, sizing, exposure, capital, session, safety vetoes, profile eval
 ├── performance-analytics/  # Stats compiler, strategy optimizer, perf evaluator
+├── backtesting-engine/     # BTE: candle archive, backfill, historical runner, recorded replay, parity
 ├── api-gateway/            # Axum router, WS broadcast, HTTP handlers, types
 └── execution-daemon/       # main.rs: parses CLI, loads config, boots tasks, starts Axum
 ```
@@ -93,6 +95,28 @@ created instances; changing mode requires editing `config.toml` and restarting.
 **v7.3:** boot-restored instances honor their persisted `InstanceEntry.mode` (previously the
 session default, which is `None` at cold boot, silently downgraded `observe` to `paper`).
 
+### v8 — Left-panel visibility per mode (BTE)
+
+The sidebar (`AppEngineSidebar.svelte`) filters the engine list by session mode:
+
+| Engine | Observe | Paper | Live |
+|--------|---------|-------|------|
+| Data Infrastructure (DIE) | ✅ | ✅ | ✅ |
+| Market Monitor (MME) | ✅ | ✅ | ✅ |
+| **Backtesting (BTE)** | ✅ | ❌ | ❌ |
+| Trade Automation (TAE) | ❌ | ✅ | ✅ |
+| Portfolio Management (PME) | ❌ | ✅ | ✅ |
+| Performance Analytics (PAE) | ❌ | ✅ | ✅ |
+| Profile / Settings | ✅ | ✅ | ✅ |
+
+The Backtesting Engine (v8) is observe-only in the UI: it binds to **one running
+instance** via the shared selection (right-side Instances panel / Market Monitor
+Workspace tab), runs one backtest at a time, and backfills the candle archive on
+demand (depth 1..=365 days, resumable, rate-limited). Its navbar is dynamic: no
+instance → Overview + History + Settings (`NoInstanceState`); running instance →
+Overview · DIE · MME · TAE · PME · PAE · Study Report · History · Settings.
+Backend endpoints work for any running instance regardless of session mode.
+
 ### CLI ↔ GUI parity (observe mode)
 
 The CLI terminal monitor and the GUI Market Overview panel render the **same server-computed
@@ -118,7 +142,8 @@ bun run check        # svelte-check + tsc typecheck
 - Config API: `GET /api/config` (returns parsed `config.toml`)
 - Platform config API: `GET /api/system/platform-config` (returns the serialized `PlatformConfig` — exchange endpoints, clock monitor, quality, reconnect, candle buffer; DIE has no Settings tab — export `config.toml` via Profile → Share Config)
 - DIE system APIs: `GET /api/system/pipelines` (per-instance × slot candle-pipeline state), `GET /api/system/distribution` (L4 egress telemetry incl. WS client count)
-- PAE backtest APIs: `POST /api/backtest/run`, `GET /api/backtest/:id`, `GET /api/backtest/list` (History tab), `GET /api/backtest/coverage` (recorded-snapshot data availability)
+- PAE backtest APIs: `POST /api/backtest/run` (v8: `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital, instance_id?, mode? }`; `mode` = `recorded` | `historical`), `GET /api/backtest/:id`, `GET /api/backtest/list` (History tab), `GET /api/backtest/coverage` (v8 extended: `{ snapshots, archive, backfill_jobs }`), plus DS reads `GET /api/backtest/:id/{trades,equity,portfolio,signals,metrics}`
+- BTE backfill APIs: `POST /api/backtest/archive/backfill` `{ instance_id, depth_days? (1..=365) }`, `GET /api/backtest/archive/progress/:id`, `POST /api/backtest/archive/cancel/:id`
 - History API: `GET /api/history?symbol=&timeframe_secs=&limit=` (default `100`, max `1000`; returns `{ symbol, prices[], candles[], indicator_history }`)
 - Connection Quality API: `GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100; when both `instance_id` and `timeframe_secs` are supplied returns per-scope; absent params return process-wide aggregate)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
@@ -154,7 +179,7 @@ Full specification documents under `docs/`:
 
 Start at `docs/README.md` for a guided reading order.
 
-## Testing (~2,355 tests across 5 stages)
+## Testing (~2,450+ tests across 5 stages)
 
 | Suite | Command | Boundary | Tests | Runtime |
 |-------|---------|----------|-------|---------|

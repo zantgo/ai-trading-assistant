@@ -52,6 +52,7 @@ async fn setup_state_with_config(
             core_domain::snapshot_export::SnapshotExportRuntime::default(),
         )),
         snapshot_export_manual_tick: Arc::new(Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     (api_gateway::build_router(state.clone()), state)
 }

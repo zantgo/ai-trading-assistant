@@ -279,6 +279,7 @@ async fn setup_app_with_pair() -> (
         )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     (state, micro_bcast, fast_bcast, slow_bcast, macro_bcast)
 }

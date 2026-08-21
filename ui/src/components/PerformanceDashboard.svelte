@@ -25,7 +25,6 @@
     import StrategyTab from './performance/StrategyTab.svelte';
     import RiskTab from './performance/RiskTab.svelte';
     import PerformanceTab from './performance/PerformanceTab.svelte';
-    import BacktestTab from './performance/BacktestTab.svelte';
     import HistoryTab from './performance/HistoryTab.svelte';
     import MethodologyTab from './performance/MethodologyTab.svelte';
     import NoInstanceState from './NoInstanceState.svelte';
@@ -43,26 +42,9 @@
     let performanceRows = $state<PerformanceMatrixRow[]>([]);
     let optimizationReport = $state<OptimizationReport | null>(null);
     let tradeRecords = $state<TradeAnalyticsRecord[]>([]);
-
-    // ── Backtesting state (v7: live /api/backtest/run) — lifted here so
-    // the Overview drift card can reference the latest run.
-    // v7.3: NO symbol fallback — with no instance active the dashboard
-    // renders the no-instance empty state instead of a default symbol.
-    const btSymbols = $derived(Object.keys(app.instancesMap));
-    let btSymbol = $state('BTC-USDC');
-    let btTimeframe = $state(60);
-    let btStartDate = $state(new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
-    let btEndDate = $state(new Date().toISOString().slice(0, 10));
-    let btCapital = $state(1000);
-    let btRunning = $state(false);
-    let btError = $state('');
-    let btResult = $state<{
-        backtest_id: number;
-        summary: { total_trades: number; win_count: number; loss_count: number; win_rate: number; gross_profit: number; gross_loss: number; profit_factor: number | null; expectancy: number; max_drawdown_pct: number };
-        stats: StrategyAnalyticsRow;
-        trades: { timestamp: number; direction: string; entry_price: number; exit_price: number; size: number; pnl: number; exit_reason: string }[];
-        equity_curve: [number, number][];
-    } | null>(null);
+    // Config-driven verdict floor (default 30 mirrors the backend default;
+    // the live value comes from [workspace.analytics] in /api/config).
+    let workspaceAnalytics = $state<{ min_trades_for_verdict?: number } | null>(null);
 
     // v7.2: the system-wide launch mode drives PAE framing.
     const mode = $derived<ExecutionMode | undefined>(
@@ -70,56 +52,29 @@
     );
     const observe = $derived(mode === 'observe');
 
-    // v7.3: observe keeps the data-bearing tab set (Overview + Backtesting +
-    // History + Methodology); Settings is always present in every mode.
-    // Any other section falls back to Overview.
-    const OBSERVE_SECTIONS = ['overview', 'backtesting', 'history', 'methodology', 'settings'];
+    // v7.3: observe keeps the data-bearing tab set (Overview + History +
+    // Methodology); Settings is always present in every mode. v8: the
+    // Backtesting tab moved to the Backtesting Engine.
+    const OBSERVE_SECTIONS = ['overview', 'history', 'methodology', 'settings'];
     const safeSection = $derived(observe && !OBSERVE_SECTIONS.includes(section) ? 'overview' : section);
 
     const status = $derived<'live' | 'stale' | 'error' | 'loading'>(
         loading ? 'loading' : errorMsg ? 'error' : 'live',
     );
 
-    async function runBacktest() {
-        btRunning = true;
-        btError = '';
-        btResult = null;
-        try {
-            const fromMs = Date.parse(btStartDate);
-            const toMs = Date.parse(btEndDate) + 864e5 - 1;
-            if (!isFinite(fromMs) || !isFinite(toMs)) throw new Error('Invalid date range');
-            const res = await fetch('/api/backtest/run', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    symbol: btSymbol,
-                    timeframe_secs: Number(btTimeframe),
-                    from_ms: fromMs,
-                    to_ms: toMs,
-                    initial_capital: Number(btCapital),
-                }),
-            });
-            if (!res.ok) throw new Error('Backtest failed: HTTP ' + res.status);
-            btResult = await res.json();
-        } catch (e: any) {
-            btError = e?.message ?? 'Backtest failed';
-        } finally {
-            btRunning = false;
-        }
-    }
-
     const sessionCapital = $derived(app.sessionCapital ?? 10000);
 
     async function fetchPanelData() {
         loading = true; errorMsg = null;
         try {
-            const [statsRes, strategyRes, riskRes, perfRes, optRes, tradesRes] = await Promise.all([
+            const [statsRes, strategyRes, riskRes, perfRes, optRes, tradesRes, configRes] = await Promise.all([
                 fetch(`/api/dashboard/stats?initial_capital=${sessionCapital}`),
                 fetch('/api/analytics/strategy'),
                 fetch('/api/analytics/risk'),
                 fetch('/api/analytics/performance'),
                 fetch('/api/analytics/optimization'),
                 fetch('/api/analytics/trades?limit=200'),
+                fetch('/api/config'),
             ]);
             if (statsRes.ok) dashboardStats = await statsRes.json();
             if (strategyRes.ok) strategyRows = await strategyRes.json();
@@ -127,6 +82,10 @@
             if (perfRes.ok) performanceRows = await perfRes.json();
             if (optRes.ok) optimizationReport = await optRes.json();
             if (tradesRes.ok) tradeRecords = await tradesRes.json();
+            if (configRes.ok) {
+                const cfg = await configRes.json();
+                workspaceAnalytics = cfg?.workspace?.analytics ?? null;
+            }
         } catch (e: any) {
             errorMsg = e?.message ?? 'Failed to fetch analytics data';
         } finally {
@@ -191,11 +150,10 @@
                     observe,
                     dashboard_stats: dashboardStats,
                     risk_data: riskData,
-                    last_backtest: btResult ? {
-                        backtest_id: btResult.backtest_id,
-                        summary: btResult.summary,
-                        stats: btResult.stats,
-                    } : null,
+                    // v8: latest-run verdict flows from the History list
+                    // (fetched by OverviewTab); the run form lives in the
+                    // Backtesting Engine.
+                    last_backtest: null,
                 };
         }
         return buildEngineExport('performance', safeSection, mode ?? null, data);
@@ -235,7 +193,7 @@
                 {observe}
                 {dashboardStats}
                 {riskData}
-                {btResult}
+                btResult={null}
             />
         {:else if safeSection === 'trades'}
             <TradesTab {tradeRecords} />
@@ -245,19 +203,6 @@
             <RiskTab {riskData} />
         {:else if safeSection === 'performance'}
             <PerformanceTab {performanceRows} {optimizationReport} />
-        {:else if safeSection === 'backtesting'}
-            <BacktestTab
-                {btSymbols}
-                bind:btSymbol
-                bind:btTimeframe
-                bind:btStartDate
-                bind:btEndDate
-                bind:btCapital
-                {btRunning}
-                {btError}
-                {btResult}
-                {runBacktest}
-            />
         {:else if safeSection === 'history'}
             <HistoryTab />
         {:else if safeSection === 'methodology'}

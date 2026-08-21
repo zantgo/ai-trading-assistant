@@ -1,6 +1,6 @@
 # Engine Dashboard Vocabulary (v7.3)
 
-**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical specification for the **engine dashboards** — Data Infrastructure (DIE), Trade Automation (TAE), Portfolio Management (PME) and Performance Analytics (PAE) — and the rule that unifies them with the Market Monitor (MME). It defines: the shared design tokens, the shared components, the canonical **tab order = layer order** rule, the per-engine × per-mode tab maps, the Export Data contract, and the config-driven values policy.
 
@@ -63,16 +63,49 @@ Per-engine maps (all config in `ui/src/lib/engineTabs.ts`):
 
 The execution mode (observe / paper / live) is fixed at launch per instance. Observe mode collapses each engine to its data-bearing tabs; paper/live keep the full set. **The Settings tab is always present in every mode for TAE / PME / PAE** (per-engine config is instance-independent); MME and Profile keep theirs in all modes too, while DIE has no Settings tab (v7.4). No mode ever renders fewer than three tabs.
 
+**v8 — left-panel visibility per mode:** observe shows DIE · MME · **Backtesting** · Profile; paper/live show DIE · MME · TAE · PME · PAE · Profile (the Backtesting Engine is observe-only in the UI). The backend keeps computing in every mode — nav visibility is a surface rule, not a compute rule.
+
 | Engine | Observe tabs | Paper / Live tabs |
 |---|---|---|
 | DIE | All 7 (platform-level, mode-agnostic; no Settings) | All 7 |
 | TAE | Overview · Activity · Settings | Overview · Orders · Activity · Trade History · Settings |
 | PME | Overview · Safety · Settings | Overview · Positions · Exposure · Capital · Portfolio · Safety · Settings |
-| PAE | Overview · Backtesting · History · Methodology · Settings | All 9 |
+| PAE | Overview · History · Methodology · Settings (v8: Backtesting moved out) | All 8 |
+| **BTE** (v8) | **No instance** → Overview · History · Settings; **running instance** → Overview · DIE · MME · TAE · PME · PAE · Study Report · History · Settings (one tab per simulated engine, layer order, cross-cutting last) | hidden |
 
-Observe-mode personality (per engine): TAE = "Setup Radar" (ghost would-be setups, no orders); PME = "Readiness Board" (unarmed safety + capital blueprints); PAE = "Edge Validator" (data coverage + recorded-decision backtest + methodology); DIE = unchanged.
+Observe-mode personality (per engine): TAE = "Setup Radar" (ghost would-be setups, no orders); PME = "Readiness Board" (unarmed safety + capital blueprints); PAE = "Edge Validator" (data coverage + methodology); BTE = the research cockpit (archive coverage, deep-history simulations, study reports); DIE = unchanged.
 
 The Bottom Console (Positions / Orders / History / Plan) is hidden in observe mode.
+
+### 3.0 BTE instance-selection UX (v8)
+
+The Backtesting Engine adds **no new picker**: it binds to the operator's
+existing instance selection (right-side Instances panel / Market Monitor
+Workspace tab — the shared `selectedInstance` store), exactly like the
+other engines. Its navbar **recharges reactively** around the selection:
+
+- No running instance → simplified navbar (Overview + History + Settings)
+  with the shared `NoInstanceState` look ("Select an instance from the
+  right-side Instances panel or the Market Monitor Workspace tab").
+- A running instance → the full 9-tab set; the current section clamps to
+  a visible tab on selection changes (`safeSection` derivation, mirroring
+  the PAE pattern) so the navbar and rendered content never disagree.
+- A stale selection (instance not in `/api/instances` or not running)
+  renders the no-instance state; the 3 s instance-list polling backstop
+  (TAE/PME pattern) revalidates.
+- The run form renders the bound instance as a read-only chip (id, pair,
+  symbol) — Run/Backfill act on it.
+- **Depth-driven run form (v8.1):** the archive-depth control (slider +
+  typed input, validated 1..=365) is the only window control — Start/End
+  dates are removed. The window derives from it (`[now − days + burn_in,
+  now]`); the burn-in portion warms the pipeline, the rest is scored.
+- **Automatic data preparation:** Run Backtest checks the four-timeframe
+  archive coverage (micro · fast · slow · macro, burn-in included) and
+  auto-starts the backfill when any TF is short, showing live progress
+  (pages/candles) and firing the run when coverage is sufficient. A
+  per-TF readiness strip (MICRO/FAST/SLOW/MACRO · READY/FETCHING) renders
+  all four timeframes; no manual Backfill step exists on the form (the
+  manual tool stays on the DIE tab).
 
 ---
 

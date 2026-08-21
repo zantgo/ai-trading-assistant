@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod backtest;
 pub mod clock;
 pub mod cluster_status;
 pub mod config;

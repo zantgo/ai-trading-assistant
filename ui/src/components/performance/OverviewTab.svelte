@@ -24,15 +24,19 @@
 
     let { mode, observe, dashboardStats, riskData, btResult }: Props = $props();
 
-    let coverage: { symbol: string; timeframe_secs: number; snapshot_count: number; earliest_ms: number; latest_ms: number }[] = $state([]);
+    let coverage: { symbol: string; timeframe_secs: number; snapshot_count: number; earliest_secs: number; latest_secs: number }[] = $state([]);
     interface AnalyticsCfg { alpha?: number; monte_carlo_runs?: number; min_trades_for_verdict?: number }
     let analyticsCfg = $state<AnalyticsCfg>({});
     let latestRun: { id: number; created_at: number; params: any; summary: any } | null = $state(null);
 
     onMount(() => {
         void fetch('/api/backtest/coverage')
-            .then((r) => (r.ok ? r.json() : []))
-            .then((d: unknown) => (coverage = Array.isArray(d) ? (d as typeof coverage) : []))
+            .then((r) => (r.ok ? r.json() : {}))
+            .then((d: any) => {
+                // v8 BTE shape: { snapshots, archive, ... }.
+                const arr = Array.isArray(d?.snapshots) ? d.snapshots : Array.isArray(d) ? d : [];
+                coverage = arr;
+            })
             .catch(() => {});
         void fetch('/api/backtest/list?limit=1')
             .then((r) => (r.ok ? r.json() : []))
@@ -147,8 +151,8 @@
                             <td class={styles.tdMono}>{c.symbol}</td>
                             <td class={styles.tdRight}>{c.timeframe_secs}s</td>
                             <td class={styles.tdRight}>{c.snapshot_count.toLocaleString()}</td>
-                            <td class={styles.tdRight}>{new Date(c.earliest_ms).toLocaleDateString()}</td>
-                            <td class={styles.tdRight}>{new Date(c.latest_ms).toLocaleDateString()}</td>
+                            <td class={styles.tdRight}>{new Date(c.earliest_secs * 1000).toLocaleDateString()}</td>
+                            <td class={styles.tdRight}>{new Date(c.latest_secs * 1000).toLocaleDateString()}</td>
                         </tr>
                     {/each}
                 </tbody>

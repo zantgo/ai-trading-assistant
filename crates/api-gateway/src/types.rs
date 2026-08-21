@@ -184,6 +184,10 @@ pub struct ConfigResponse {
     /// when an instance carries no per-instance `activation` override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activation: Option<config_models::ActivationConfig>,
+    /// v8: Backtesting Engine config (archive depth 1..=365, warmup bars,
+    /// per-exchange paging limits) — BTE Settings tab + run form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backtest: Option<config_models::BacktestConfig>,
 }
 
 #[derive(Debug, Deserialize)]

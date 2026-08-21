@@ -1,6 +1,6 @@
 # Exchange Key Rotation Procedure
 
-**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Operator procedure for rotating the `EXCHANGE_SECRET_KEY` (master encryption key for the `exchange_keys` SQLite table) and re-encrypting credentials without losing access to live exchange connections.
 

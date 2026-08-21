@@ -94,6 +94,11 @@ pub struct AppState {
     /// scheduler task for an immediate tick (the next scheduled tick is
     /// unaffected).
     pub snapshot_export_manual_tick: Arc<tokio::sync::Notify>,
+
+    // ── Backtesting Engine (BTE, v8) ───────────────────────────────
+    /// Single-run lock + live backfill progress registry. The BTE runs one
+    /// backtest at a time; concurrent runs return 409.
+    pub backtest: Arc<backtesting_engine::registry::BacktestRegistry>,
 }
 
 impl AppState {
@@ -496,7 +501,39 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/backtest/coverage",
-            get(handlers::analytics::serve_backtest_coverage),
+            get(handlers::backtest::serve_backtest_coverage),
+        )
+        .route(
+            "/api/backtest/archive/backfill",
+            post(handlers::backtest::serve_backfill_start),
+        )
+        .route(
+            "/api/backtest/archive/progress/:id",
+            get(handlers::backtest::serve_backfill_progress),
+        )
+        .route(
+            "/api/backtest/archive/cancel/:id",
+            post(handlers::backtest::serve_backfill_cancel),
+        )
+        .route(
+            "/api/backtest/:id/trades",
+            get(handlers::analytics::serve_backtest_trades),
+        )
+        .route(
+            "/api/backtest/:id/equity",
+            get(handlers::analytics::serve_backtest_equity),
+        )
+        .route(
+            "/api/backtest/:id/portfolio",
+            get(handlers::analytics::serve_backtest_portfolio),
+        )
+        .route(
+            "/api/backtest/:id/signals",
+            get(handlers::analytics::serve_backtest_signals),
+        )
+        .route(
+            "/api/backtest/:id/metrics",
+            get(handlers::analytics::serve_backtest_metrics),
         )
         .route(
             "/api/backtest/:id",

@@ -178,6 +178,7 @@ async fn build_state() -> Arc<AppState> {
             core_domain::snapshot_export::SnapshotExportRuntime::default(),
         )),
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }
 
@@ -185,11 +186,15 @@ async fn build_state() -> Arc<AppState> {
 async fn backtest_run_and_get_round_trip() {
     let state = build_state().await;
 
+    // The seeded snapshots carry second-valued timestamps (1000..=1002).
+    // The request sends real millisecond timestamps — the ms→s conversion
+    // must land the window on those rows (regression for the unit-mismatch
+    // bug that made UI-driven backtests always return "not enough data").
     let body = serde_json::json!({
         "symbol": "BTC-USDC",
         "timeframe_secs": 60,
-        "from_ms": 0,
-        "to_ms": 10_000,
+        "from_ms": 1_000_000,
+        "to_ms": 1_010_000,
         "initial_capital": 1000.0,
     });
 
@@ -239,6 +244,84 @@ async fn backtest_run_and_get_round_trip() {
     assert_eq!(json["backtest_id"], id);
     assert_eq!(json["summary"]["total_trades"], 1);
     assert!(json["stats"]["p_value"].as_f64().is_some());
+}
+
+#[tokio::test]
+async fn backtest_run_400_not_enough_data_for_empty_window() {
+    let state = build_state().await;
+
+    // A window far away from the seeded rows (seconds 1000..=1002) must
+    // produce a loud 400 with coverage numbers, not a silent 200.
+    let body = serde_json::json!({
+        "symbol": "BTC-USDC",
+        "timeframe_secs": 60,
+        "from_ms": 50_000_000_000_i64,
+        "to_ms": 50_000_100_000_i64,
+        "initial_capital": 1000.0,
+    });
+
+    let router = api_gateway::build_router(state);
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/backtest/run")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["code"], "not_enough_data");
+    assert_eq!(json["snapshot_count"], 0);
+    assert_eq!(json["earliest_secs"], 1000);
+    assert_eq!(json["latest_secs"], 1002);
+}
+
+#[tokio::test]
+async fn backtest_run_400_invalid_window_and_timeframe() {
+    let state = build_state().await;
+
+    for (body, expected_code) in [
+        (
+            serde_json::json!({
+                "symbol": "BTC-USDC", "timeframe_secs": 60,
+                "from_ms": 2_000_000, "to_ms": 1_000_000,
+            }),
+            "invalid_window",
+        ),
+        (
+            serde_json::json!({
+                "symbol": "BTC-USDC", "timeframe_secs": 0,
+                "from_ms": 1_000_000, "to_ms": 1_010_000,
+            }),
+            "invalid_timeframe",
+        ),
+    ] {
+        let router = api_gateway::build_router(state.clone());
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/backtest/run")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["code"], expected_code);
+    }
 }
 
 #[tokio::test]

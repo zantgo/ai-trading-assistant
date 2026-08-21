@@ -62,6 +62,7 @@ async fn build_state(mode: ExecutionMode) -> (Arc<AppState>, Arc<Instance>) {
             core_domain::snapshot_export::SnapshotExportRuntime::default(),
         )),
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     (state, instance)
 }

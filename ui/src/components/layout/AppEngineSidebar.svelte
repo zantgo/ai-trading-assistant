@@ -14,16 +14,34 @@
 
     let { isOpen, currentEngine, onclose, onnavigate, onquit }: Props = $props();
 
-    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
+    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'backtesting' | 'exchange_settings';
 
     const ENGINES_SIDEBAR: { key: EngineKey; label: string; divider?: boolean }[] = [
         { key: 'data_infra',        label: 'Data Infrastructure' },
         { key: 'market_monitor',    label: 'Market Monitor' },
+        { key: 'backtesting',       label: 'Backtesting' },
         { key: 'trade_automation',  label: 'Trade Automation' },
         { key: 'portfolio',         label: 'Portfolio Management' },
         { key: 'performance',       label: 'Performance Analytics' },
         { key: 'profile', label: 'Settings', divider: true },
     ];
+
+    // v8 BTE: mode-aware engine visibility. Observe is the research
+    // session (DIE + MME + Backtesting); paper/live are the execution
+    // sessions (TAE + PME + PAE). The backend keeps computing in every
+    // mode — this only controls the left-panel surface.
+    const VISIBLE_ENGINES: Record<'observe' | 'paper' | 'live', EngineKey[]> = {
+        observe: ['data_infra', 'market_monitor', 'backtesting', 'profile'],
+        paper: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
+        live: ['data_infra', 'market_monitor', 'trade_automation', 'portfolio', 'performance', 'profile'],
+    };
+
+    const app = useAppStore();
+    const sessionMode = $derived.by(() => {
+        const m = app.sessionMode;
+        return m === 'paper' || m === 'live' || m === 'observe' ? m : 'paper';
+    });
+    const visibleEngines = $derived(VISIBLE_ENGINES[sessionMode]);
 
     function sidebarItemClass(key: EngineKey): string {
         const base = styles.sidebarItem;
@@ -42,6 +60,7 @@
             trade_automation: 'cycle',
             portfolio: 'dollar',
             performance: 'search',
+            backtesting: 'flask',
             exchange_settings: 'key',
         };
         return map[key] || 'home';
@@ -59,7 +78,7 @@
     <div class={styles.sidebarPanel}>
         <div class={styles.sidebarBrand}>TRADING PLATFORM</div>
         <div class={styles.sidebarNav}>
-            {#each ENGINES_SIDEBAR as engine (engine.key)}
+            {#each ENGINES_SIDEBAR.filter((e) => visibleEngines.includes(e.key)) as engine (engine.key)}
                 {#if engine.divider}
                     <div class={styles.sidebarDivider}></div>
                 {/if}

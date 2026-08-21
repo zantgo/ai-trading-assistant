@@ -26,6 +26,7 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
         execution: Some(current_config.execution.clone()),
         scoring: Some(current_config.scoring.clone()),
         activation: Some(current_config.activation.clone()),
+        backtest: Some(current_config.backtest.clone()),
     };
     let json = axum::Json(response_body);
     let mut response = json.into_response();
@@ -75,6 +76,9 @@ pub struct ConfigUpdateRequest {
     pub leverage: Option<config_models::LeverageConfig>,
     #[serde(default)]
     pub activation: Option<config_models::ActivationConfig>,
+    // v8: Backtesting Engine settings section.
+    #[serde(default)]
+    pub backtest: Option<config_models::BacktestConfig>,
     // Accept-and-ignore: derived or read-only fields echoed by the GET
     // response that must not clobber the loaded config on save.
     #[serde(default)]
@@ -167,6 +171,29 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
             return Some("analytics.min_trades_for_verdict must be 1–10,000".into());
         }
     }
+    // v8: the BTE depth contract — 1..=365, mirroring the run-form slider.
+    if let Some(bt) = &payload.backtest {
+        if bt.archive_depth_days < 1 || bt.archive_depth_days > 365 {
+            return Some("backtest.archive_depth_days must be 1–365".into());
+        }
+        if bt.warmup_bars < 30 || bt.warmup_bars > 10_000 {
+            return Some("backtest.warmup_bars must be 30–10,000".into());
+        }
+        if bt.max_equity_points < 10 || bt.max_equity_points > 100_000 {
+            return Some("backtest.max_equity_points must be 10–100,000".into());
+        }
+        for (exchange, limits) in [
+            ("hyperliquid", &bt.hyperliquid),
+            ("bitget", &bt.bitget),
+        ] {
+            if limits.page_cap == 0 || limits.page_cap > 10_000 {
+                return Some(format!("backtest.{exchange}.page_cap must be 1–10,000"));
+            }
+            if limits.max_pages_per_run == 0 || limits.max_pages_per_run > 100_000 {
+                return Some(format!("backtest.{exchange}.max_pages_per_run must be 1–100,000"));
+            }
+        }
+    }
     if let Some(sc) = &payload.scoring {
         if !f(sc.base_allocation_pct, 0.01, 100.0)
             || !f(sc.micro_allocation_pct, 0.01, 100.0)
@@ -208,7 +235,8 @@ pub async fn update_config(
         || payload.execution.is_some()
         || payload.fees.is_some()
         || payload.leverage.is_some()
-        || payload.activation.is_some();
+        || payload.activation.is_some()
+        || payload.backtest.is_some();
 
     let mut merged = state.workspace.config().await;
     if let Some(candles) = payload.candles {
@@ -249,6 +277,9 @@ pub async fn update_config(
     }
     if let Some(activation) = payload.activation {
         merged.activation = activation;
+    }
+    if let Some(backtest) = payload.backtest {
+        merged.backtest = backtest;
     }
     merged.config_version = merged.config_version.saturating_add(1);
 

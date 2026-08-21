@@ -499,12 +499,14 @@ pub struct BacktestRunRow {
     pub created_at: i64,
     pub params_json: String,
     pub summary_json: String,
+    pub instance_id: Option<String>,
+    pub mode: Option<String>,
 }
 
 /// List persisted backtest runs, newest first — the History tab source.
 pub async fn query_backtest_runs_list(pool: &SqlitePool, limit: u32) -> Vec<BacktestRunRow> {
     sqlx::query_as::<_, BacktestRunRow>(
-        "SELECT id, created_at, params_json, summary_json \
+        "SELECT id, created_at, params_json, summary_json, instance_id, mode \
          FROM backtest_runs ORDER BY created_at DESC LIMIT ?1",
     )
     .bind(limit as i64)

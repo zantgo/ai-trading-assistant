@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod engine;
+pub mod session_tick;
 pub mod state_machine;
 
 pub use backend::{ExecutionBackend, PaperSimulation};

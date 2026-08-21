@@ -149,7 +149,7 @@
     // list resolves) the navbar is still deterministic from the first
     // render instead of showing the full (non-collapsed) tab set.
     const activeMode = $derived<ExecutionMode | undefined>(
-        app.currentEngine === 'performance'
+        app.currentEngine === 'performance' || app.currentEngine === 'backtesting'
             ? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined)
             : (app.selectedInstance
                 ? app.instancesMap[app.selectedInstance]?.mode
@@ -206,7 +206,7 @@
         const map: Record<string, string> = {
             data_infra: 'DATA INFRASTRUCTURE', market_monitor: 'MARKET MONITOR',
             trade_automation: 'TRADE AUTOMATION', portfolio: 'PORTFOLIO MANAGEMENT',
-            performance: 'PERFORMANCE ANALYTICS',
+            performance: 'PERFORMANCE ANALYTICS', backtesting: 'BACKTESTING',
         };
         return map[key]?.toUpperCase() ?? 'COMING SOON';
     }

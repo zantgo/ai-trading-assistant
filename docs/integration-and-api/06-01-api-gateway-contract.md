@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -253,7 +253,7 @@ The response shape is:
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v7.1; retired name recorded in `docs/CHANGELOG.md`). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v8.0; retired name recorded in `docs/CHANGELOG.md`). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -331,10 +331,18 @@ The Performance Analytics Engine exposes serving endpoints under `/api/analytics
 | `GET` | `/api/analytics/strategy/history?limit=` | `StrategyAnalyticsRow[]` — historical strategy analytics. |
 | `GET` | `/api/analytics/trades?limit=200` | `TradeAnalyticsRecord[]` — reconstructed closed trades (default limit 200). |
 | `GET` | `/api/analytics` | Catch-all for `/api/analytics/*` references — **not registered** (returns 404; only the concrete `/api/analytics/*` rows above are served). |
-| `POST` | `/api/backtest/run` | Run a backtest `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital }` — replays recorded MME decisions through the setup executor (paper only); returns `{ backtest_id, summary, stats (NHST + α), trades, equity_curve }`. See [03-05-06](../engines/performance-analytics-engine/03-05-06-pae-layer5-backtest.md). The significance treatment (α, Monte Carlo runs, min trades) comes from `[workspace.analytics]`. |
+| `POST` | `/api/backtest/run` | Run a backtest `{ symbol, timeframe_secs, from_ms, to_ms, initial_capital, instance_id?, mode? }` — `mode` is `recorded` (replays recorded MME decisions through the setup executor, paper only) or `historical` (full MME pipeline over the candle archive; requires `instance_id`); returns `{ backtest_id, mode, summary, stats (NHST + α), trades, equity_curve }`. v8: ms→seconds conversion server-side; `400 not_enough_data` with coverage numbers for empty windows; global run lock → `409 backtest_busy`. See [BTE overview](../engines/backtesting-engine/08-01-bte-overview.md) and [03-05-06](../engines/performance-analytics-engine/03-05-06-pae-layer5-backtest.md). The significance treatment (α, Monte Carlo runs, min trades) comes from `[workspace.analytics]`. |
 | `GET` | `/api/backtest/:id` | Fetch a persisted backtest run (or 404). |
-| `GET` | `/api/backtest/list?limit=N` | Recent persisted runs, newest first — `[{ id, created_at, params, summary }]` (History tab). |
-| `GET` | `/api/backtest/coverage` | Recorded-snapshot coverage per symbol × timeframe — `[{ symbol, timeframe_secs, snapshot_count, earliest_ms, latest_ms }]` (observe-mode data-availability surface). |
+| `GET` | `/api/backtest/list?limit=N` | Recent persisted runs, newest first — `[{ id, created_at, instance_id, mode, params, summary }]` (History tab). |
+| `GET` | `/api/backtest/coverage?instance_id=` | Extended coverage (v8) — `{ archive_depth_days, snapshots[], archive[], backfill_jobs[] }`: recorded-snapshot coverage + candle-archive coverage (counts, earliest/latest seconds, covered span, theoretical max lookback, coverage %) per symbol × TF. |
+| `POST` | `/api/backtest/archive/backfill` | Start an on-demand archive backfill `{ instance_id, depth_days? }` (1..=365; instance must be running; 409 while another job runs for the instance) → `{ job_id, depth_days }`. |
+| `GET` | `/api/backtest/archive/progress/:id` | Live backfill progress — `{ status, pages_fetched, candles_stored, cursor_ts_secs, error, ... }`. |
+| `POST` | `/api/backtest/archive/cancel/:id` | Cancel a running backfill (best-effort). |
+| `GET` | `/api/backtest/:id/trades` | Normalized trade rows for a run (data-science tables). |
+| `GET` | `/api/backtest/:id/equity` | Normalized equity curve rows for a run. |
+| `GET` | `/api/backtest/:id/portfolio` | Capital/exposure/drawdown samples for a run. |
+| `GET` | `/api/backtest/:id/signals` | Per-tick decision snapshots for a run. |
+| `GET` | `/api/backtest/:id/metrics` | Summary + NHST key/values for a run. |
 | `GET` | `/api/backtest` | Catch-all for `/api/backtest/*` references — **not registered** (returns 404; only the concrete rows above are served). |
 
 The endpoints above are documented in segment form (not in the canonical `(METHOD, /path)` row layout) for readability. Each path is canonical to the per-tab `PerformanceDashboard` `fetch()` call and the `api-gateway` HTTP handler in `crates/api-gateway/src/handlers/analytics.rs`.

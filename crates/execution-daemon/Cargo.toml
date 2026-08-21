@@ -20,6 +20,7 @@ database-storage = { path = "../database-storage" }
 network-adapters = { path = "../network-adapters" }
 portfolio-supervisor = { path = "../portfolio-supervisor" }
 performance-analytics = { path = "../performance-analytics" }
+backtesting-engine = { path = "../backtesting-engine" }
 api-gateway = { path = "../api-gateway" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

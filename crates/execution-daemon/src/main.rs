@@ -599,10 +599,12 @@ async fn main() {
     // 5x shorter than the configured 90 days and prematurely aged out
     // event rows that operators still wanted to query.
     let liq_retention_days = workspace.liquidity.event_retention_days.max(1);
+    // BTE archive retention from [workspace.backtest].archive_depth_days.
+    let archive_depth_days = workspace.backtest.archive_depth_days.max(1);
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {
-            run_telemetry_logger(pool, telemetry_rx, liq_retention_days).await;
+            run_telemetry_logger(pool, telemetry_rx, liq_retention_days, archive_depth_days).await;
         }
     });
 
@@ -685,6 +687,7 @@ async fn main() {
         recharge_tx: recharge_tx.clone(),
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
     // ── Launch plan (CLI mode: interactive; web mode: config-driven) ──
@@ -1173,11 +1176,6 @@ async fn main() {
 
                             let candle_ts = snaps.iter().map(|s| s.timestamp).max().unwrap_or(0);
 
-                            // Mark-to-market (live unrealized PnL for display).
-                            if tae_engine.get_position(&symbol).await.is_some() {
-                                tae_engine.mark_to_market(&symbol, mid).await;
-                            }
-
                             // v7.1+: Observe instances are market-monitoring
                             // only — no fills processing. The setup executor
                             // still evaluates in ghost mode (`dispatch: false`)
@@ -1186,39 +1184,46 @@ async fn main() {
                             let is_observe = inst.execution_mode().await
                                 == config_models::ExecutionMode::Observe;
 
-                            // Fills first (entry, TP, SL), then the state machine.
-                            if !is_observe {
-                                if tae_engine.mode().await == config_models::ExecutionMode::Live {
-                                    let fills = tae_engine
+                            // BTE v8 parity: the per-tick session body lives
+                            // in `run_tick` — the SAME function the backtest
+                            // runner drives with recorded/archived snapshots.
+                            // The daemon only decides the fill source.
+                            let live_fills = if !is_observe
+                                && tae_engine.mode().await == config_models::ExecutionMode::Live
+                            {
+                                Some(
+                                    tae_engine
                                         .backend
                                         .read()
                                         .await
                                         .poll_fills()
-                                        .await;
-                                    tae_engine.apply_external_fills(fills).await;
-                                } else {
-                                    tae_engine.evaluate_order_fills(mid).await;
-                                }
-                            }
-                            executor
-                                .tick(
-                                    &inst.id,
-                                    &symbol,
-                                    snaps,
-                                    mid,
-                                    portfolio_supervisor::setup_executor::TickContext {
-                                        safety_allows_entry: safety_allows,
-                                        lifecycle_running,
-                                        candle_ts,
-                                        safety: Some(inst.safety.clone()),
-                                        dispatch: !is_observe,
-                                    },
+                                        .await,
                                 )
-                                .await;
+                            } else {
+                                None
+                            };
+                            let outcome = portfolio_supervisor::execution::session_tick::run_tick(
+                                &tae_engine,
+                                &executor,
+                                &inst.id,
+                                &symbol,
+                                &snaps,
+                                mid,
+                                portfolio_supervisor::setup_executor::TickContext {
+                                    safety_allows_entry: safety_allows,
+                                    lifecycle_running,
+                                    candle_ts,
+                                    safety: Some(inst.safety.clone()),
+                                    dispatch: !is_observe,
+                                },
+                                live_fills,
+                                false,
+                            )
+                            .await;
 
                             // Equity sync + PME informational safety update
                             // (peak equity, daily PnL, WARN / DRAWDOWN_STOP).
-                            let current_equity = tae_engine.get_equity().await;
+                            let current_equity = outcome.equity;
                             inst.set_current_equity(current_equity).await;
                             inst.safety
                                 .update(

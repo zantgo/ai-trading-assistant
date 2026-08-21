@@ -241,6 +241,11 @@ pub struct WorkspaceConfig {
     /// Execution-layer configuration (slippage ceiling, etc.).
     #[serde(default)]
     pub execution: ExecutionConfig,
+
+    /// Backtesting Engine (BTE) — candle archive depth, warmup bars,
+    /// per-exchange paging limits for the deep-history backtest.
+    #[serde(default)]
+    pub backtest: BacktestConfig,
 }
 
 impl Default for WorkspaceConfig {
@@ -274,6 +279,7 @@ impl Default for WorkspaceConfig {
             analytics: AnalyticsConfig::default(),
             risk_limits: RiskLimitsConfig::default(),
             execution: ExecutionConfig::default(),
+            backtest: BacktestConfig::default(),
         }
     }
 }
@@ -535,6 +541,54 @@ fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
                 ws.analytics.min_trades_for_verdict
             ),
         });
+    }
+    // BTE (v8): archive depth 1..=365, warmup floor, and per-exchange
+    // paging sanity. The depth is the "how far back can I look" contract —
+    // reject out-of-range values instead of silently clamping.
+    if !(1..=365).contains(&ws.backtest.archive_depth_days) {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.backtest].archive_depth_days = {} (must be in 1..=365)",
+                ws.backtest.archive_depth_days
+            ),
+        });
+    }
+    if ws.backtest.warmup_bars < 30 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.backtest].warmup_bars = {} (must be >= 30)",
+                ws.backtest.warmup_bars
+            ),
+        });
+    }
+    if ws.backtest.max_equity_points < 10 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[workspace.backtest].max_equity_points = {} (must be >= 10)",
+                ws.backtest.max_equity_points
+            ),
+        });
+    }
+    for (exchange, limits) in [
+        ("hyperliquid", &ws.backtest.hyperliquid),
+        ("bitget", &ws.backtest.bitget),
+    ] {
+        if limits.page_cap == 0 {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.backtest].{exchange}.page_cap = {} (must be > 0)",
+                    limits.page_cap
+                ),
+            });
+        }
+        if limits.max_pages_per_run == 0 {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.backtest].{exchange}.max_pages_per_run = {} (must be >= 1)",
+                    limits.max_pages_per_run
+                ),
+            });
+        }
     }
     for (name, v) in [
         ("max_single_pair_exposure_pct", ws.risk_limits.max_single_pair_exposure_pct),
@@ -975,6 +1029,51 @@ candles = { duration_seconds = 180 }
         };
         assert!(matches!(
             validate_platform(&platform),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+    }
+
+    #[test]
+    fn backtest_config_defaults_and_bounds() {
+        // Defaults ship valid.
+        let mut ws = WorkspaceConfig::default();
+        assert_eq!(ws.backtest.archive_depth_days, 180);
+        assert_eq!(ws.backtest.hyperliquid.page_cap, 1000);
+        assert_eq!(ws.backtest.bitget.page_cap, 200);
+        assert!(validate_workspace(&ws).is_ok());
+
+        // Depth bounds: 0 and 366 must fail, 1 and 365 must pass.
+        for bad in [0u32, 366] {
+            ws.backtest.archive_depth_days = bad;
+            assert!(
+                matches!(
+                    validate_workspace(&ws),
+                    Err(ConfigError::InvalidNumeric { .. })
+                ),
+                "depth {bad} must be rejected"
+            );
+        }
+        for ok in [1u32, 365] {
+            ws.backtest.archive_depth_days = ok;
+            assert!(validate_workspace(&ws).is_ok(), "depth {ok} must pass");
+        }
+
+        // Warmup floor + page-cap sanity.
+        ws.backtest.warmup_bars = 29;
+        assert!(matches!(
+            validate_workspace(&ws),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+        ws.backtest.warmup_bars = 30;
+        ws.backtest.hyperliquid.page_cap = 0;
+        assert!(matches!(
+            validate_workspace(&ws),
+            Err(ConfigError::InvalidNumeric { .. })
+        ));
+        ws.backtest.hyperliquid.page_cap = 1000;
+        ws.backtest.bitget.max_pages_per_run = 0;
+        assert!(matches!(
+            validate_workspace(&ws),
             Err(ConfigError::InvalidNumeric { .. })
         ));
     }

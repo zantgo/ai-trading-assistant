@@ -1,6 +1,6 @@
 # Database Schema Specification
 
-**Version:** 7.1 (2026-08-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v7.1 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v8.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -456,6 +456,79 @@ CREATE INDEX IF NOT EXISTS idx_lifecycle_events_instance_time
 ```
 
 Every transition from §2 of the lifecycle spec writes one row. `actor` distinguishes operator commands, automation conditions, and system-internal transitions. `to_state` extends the lifecycle CHECK with `DELETED` (the DELETE endpoint produces tombstone transitions; the row is preserved for audit but excluded from active views).
+
+### BTE candle archive + data-science tables (v8)
+
+```sql
+CREATE TABLE IF NOT EXISTS candle_archive (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  exchange        TEXT NOT NULL DEFAULT 'Hyperliquid',
+  symbol          TEXT NOT NULL,
+  timeframe_secs  INTEGER NOT NULL,
+  ts_secs         INTEGER NOT NULL,
+  open TEXT, high TEXT, low TEXT, close TEXT, volume TEXT,
+  trades_count    INTEGER,
+  source          TEXT NOT NULL DEFAULT 'live',   -- live | reconstructed | backfill
+  UNIQUE (exchange, symbol, timeframe_secs, ts_secs)
+);
+
+CREATE TABLE IF NOT EXISTS backfill_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  instance_id TEXT NOT NULL, symbol TEXT NOT NULL,
+  exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
+  depth_days INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'running',
+  pages_fetched INTEGER NOT NULL DEFAULT 0,
+  candles_stored INTEGER NOT NULL DEFAULT 0,
+  earliest_ts_secs INTEGER, latest_ts_secs INTEGER,
+  error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+
+ALTER TABLE backtest_runs ADD COLUMN instance_id TEXT;
+ALTER TABLE backtest_runs ADD COLUMN mode TEXT;
+ALTER TABLE backtest_runs ADD COLUMN config_snapshot_json TEXT;
+
+CREATE TABLE IF NOT EXISTS backtest_trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL, ts_close_secs INTEGER NOT NULL,
+  direction TEXT NOT NULL, entry_price REAL NOT NULL, exit_price REAL NOT NULL,
+  size REAL NOT NULL, pnl REAL NOT NULL, exit_reason TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS backtest_equity (
+  run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL, equity REAL NOT NULL,
+  PRIMARY KEY (run_id, ts_secs)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_portfolio (
+  run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL,
+  equity REAL NOT NULL, cash REAL NOT NULL, margin_used REAL NOT NULL,
+  exposure_pct REAL NOT NULL, drawdown_pct REAL NOT NULL,
+  positions_open INTEGER NOT NULL,
+  PRIMARY KEY (run_id, ts_secs)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_signals (
+  run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL,
+  timeframe_secs INTEGER NOT NULL, label TEXT NOT NULL,
+  kind TEXT NOT NULL, value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backtest_metrics (
+  run_id INTEGER NOT NULL, metric_key TEXT NOT NULL, value TEXT NOT NULL,
+  PRIMARY KEY (run_id, metric_key)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_input_bars (
+  run_id INTEGER NOT NULL, symbol TEXT NOT NULL,
+  timeframe_secs INTEGER NOT NULL, ts_secs INTEGER NOT NULL,
+  open TEXT NOT NULL, high TEXT NOT NULL, low TEXT NOT NULL,
+  close TEXT NOT NULL, volume TEXT NOT NULL,
+  PRIMARY KEY (run_id, symbol, timeframe_secs, ts_secs)
+);
+```
+
+See `docs/engines/backtesting-engine/08-02-archive-and-backfill.md` and
+`08-05-study-persistence.md` for the write paths and retention rules.
 
 ---
 

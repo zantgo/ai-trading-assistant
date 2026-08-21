@@ -182,6 +182,7 @@ async fn build_router_with_snapshots(
         )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     (api_gateway::build_router(state.clone()), state)
 }

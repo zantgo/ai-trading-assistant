@@ -27,6 +27,7 @@
             equity_curve: [number, number][];
         } | null;
         runBacktest: () => Promise<void>;
+        minTrades?: number;
     }
 
     let {
@@ -40,6 +41,7 @@
         btError,
         btResult,
         runBacktest,
+        minTrades = 30,
     }: Props = $props();
 
     function equityPath(points: [number, number][]): string {
@@ -110,6 +112,7 @@
             <label for="bt-tf" class={styles.fieldLabel}>Timeframe</label>
             <select id="bt-tf" bind:value={btTimeframe} class={styles.fieldInput}>
                 <option value={60}>1m</option>
+                <option value={180}>3m</option>
                 <option value={300}>5m</option>
                 <option value={900}>15m</option>
                 <option value={3600}>1h</option>
@@ -163,8 +166,8 @@
             <span class={local.edgeLabel}>EDGE VERDICT</span>
             <span class={local.edgeTitle}>{st.classification.replace(/([A-Z])/g, ' $1').trim()}</span>
             <span class={local.edgeDetail}>
-                {#if st.total_trades < 30}
-                    insufficient data — need at least 30 simulated trades for a verdict
+                {#if st.total_trades < minTrades}
+                    insufficient data — need at least {minTrades} simulated trades for a verdict
                 {:else if st.is_significant}
                     statistically significant at α = {fmtNum(st.alpha, 2)} — t-test p = {fmtNum(st.p_value, 4)}, Monte Carlo p = {fmtNum(st.p_mc, 4)} ({st.monte_carlo_runs.toLocaleString()} runs)
                 {:else}

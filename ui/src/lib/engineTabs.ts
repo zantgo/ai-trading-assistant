@@ -12,6 +12,7 @@ export type EngineKey =
     | 'trade_automation'
     | 'portfolio'
     | 'performance'
+    | 'backtesting'
     | 'exchange_settings';
 
 export interface EngineTab {
@@ -68,21 +69,42 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'settings', label: 'Settings' },
     ],
     // v7.3: PAE tabs follow L1 Trades → L2 Strategy → L3 Risk → L4
-    // Performance → L5 Backtesting, with cross-cutting History +
-    // Methodology + Settings last. "Regime Map" was renamed to its
-    // layer name.
+    // Performance, with cross-cutting History + Methodology + Settings
+    // last. v8: the Backtesting tab moved to the Backtesting Engine.
     performance: [
         { key: 'overview', label: 'Overview' },
         { key: 'trades', label: 'Trades' },
         { key: 'strategy', label: 'Strategy' },
         { key: 'risk', label: 'Risk Metrics' },
         { key: 'performance', label: 'Performance' },
-        { key: 'backtesting', label: 'Backtesting' },
         { key: 'history', label: 'History' },
         { key: 'methodology', label: 'Methodology' },
         { key: 'settings', label: 'Settings' },
     ],
+    // v8 BTE: one tab per simulated engine (DIE data → MME signals → TAE
+    // executions → PME portfolio → PAE statistics), the Study Report
+    // (the finished data-science presentation), History + Settings last.
+    backtesting: [
+        { key: 'overview', label: 'Overview' },
+        { key: 'die', label: 'DIE · Data' },
+        { key: 'mme', label: 'MME · Signals' },
+        { key: 'tae', label: 'TAE · Executions' },
+        { key: 'pme', label: 'PME · Portfolio' },
+        { key: 'pae', label: 'PAE · Statistics' },
+        { key: 'study', label: 'Study Report' },
+        { key: 'history', label: 'History' },
+        { key: 'settings', label: 'Settings' },
+    ],
 };
+
+/// v8 BTE: the simplified navbar when no running instance is selected —
+/// Overview (no-instance state) + History (runs are instance-independent)
+/// + Settings (always present, edits [backtest]).
+export const BTE_TABS_NO_INSTANCE: EngineTab[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'history', label: 'History' },
+    { key: 'settings', label: 'Settings' },
+];
 
 export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
     profile: 'settings',
@@ -92,6 +114,7 @@ export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
     trade_automation: 'overview',
     portfolio: 'overview',
     performance: 'overview',
+    backtesting: 'overview',
 };
 
 /// v7.2: observe-mode tab collapse. An observe instance has no orders,
@@ -115,9 +138,10 @@ const OBSERVE_TABS: Partial<Record<EngineKey, EngineTab[]>> = {
         { key: 'safety', label: 'Safety' },
         { key: 'settings', label: 'Settings' },
     ],
+    // v8: PAE observe keeps Overview + History + Methodology (the
+    // Backtesting surface moved to the Backtesting Engine).
     performance: [
         { key: 'overview', label: 'Overview' },
-        { key: 'backtesting', label: 'Backtesting' },
         { key: 'history', label: 'History' },
         { key: 'methodology', label: 'Methodology' },
         { key: 'settings', label: 'Settings' },

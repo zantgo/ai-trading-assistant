@@ -289,6 +289,7 @@ async fn build_state_with_config(_config_path: PathBuf) -> Arc<AppState> {
         recharge_tx,
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
+        backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }
 
