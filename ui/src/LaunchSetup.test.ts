@@ -329,7 +329,7 @@ describe('Launch Setup — launch orchestration', () => {
 
         await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
         const initCall = calls.find((c) => String(c.url).includes('/api/session/init'));
-        expect(initCall?.body).toMatchObject({ mode: 'paper', initial_capital_usd: 2500 });
+        expect(initCall?.body).toMatchObject({ mode: 'paper', portfolio_capital_usd: 2500 });
     });
 
     it('launches an execute session and saves credentials first', async () => {

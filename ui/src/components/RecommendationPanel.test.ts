@@ -174,7 +174,6 @@ function makeAnalysis(): AnalysisMatrix {
         structure_assessment: 'Strong' as AnalysisMatrix['structure_assessment'],
         volatility_assessment: 'Expanding' as AnalysisMatrix['volatility_assessment'],
         volume_assessment: 'Strong' as AnalysisMatrix['volume_assessment'],
-        opportunity_analysis: 'Breakout',
         market_quality: 'Good' as AnalysisMatrix['market_quality'],
         market_quality_score: 67.44,
         market_phase: 'Markup' as AnalysisMatrix['market_phase'],

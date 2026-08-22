@@ -99,13 +99,13 @@ async fn paper_session_stores_capital_and_mode() {
             "exchange": "Hyperliquid",
             "currency": "USDC",
             "mode": "paper",
-            "initial_capital_usd": 2500.0,
+            "portfolio_capital_usd": 2500.0,
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["mode"], "paper");
-    assert_eq!(body["capital"], 2500.0);
+    assert_eq!(body["portfolio_capital_usd"], 2500.0);
 
     // Status echoes the defaults.
     let status_json = session_status(state.clone()).await;

@@ -70,8 +70,8 @@ pub struct SessionState {
     /// start ("paper" | "live") — becomes the default for created instances.
     pub mode: RwLock<Option<String>>,
     /// v7.1 follow-up: the operator's paper-session capital (USD) — the
-    /// default `initial_capital_usd` for instances created in this session.
-    pub initial_capital_usd: RwLock<Option<f64>>,
+    /// default `portfolio_capital_usd` for instances created in this session.
+    pub portfolio_capital_usd: RwLock<Option<f64>>,
 }
 
 impl Default for SessionState {
@@ -87,7 +87,7 @@ impl SessionState {
             base_currency: RwLock::new(None),
             exchange: RwLock::new(None),
             mode: RwLock::new(None),
-            initial_capital_usd: RwLock::new(None),
+            portfolio_capital_usd: RwLock::new(None),
         }
     }
 
@@ -96,11 +96,11 @@ impl SessionState {
     }
 
     pub async fn session_capital(&self) -> Option<f64> {
-        *self.initial_capital_usd.read().await
+        *self.portfolio_capital_usd.read().await
     }
 
     pub async fn set_session_defaults(&self, mode: Option<String>, capital: Option<f64>) {
         *self.mode.write().await = mode;
-        *self.initial_capital_usd.write().await = capital;
+        *self.portfolio_capital_usd.write().await = capital;
     }
 }

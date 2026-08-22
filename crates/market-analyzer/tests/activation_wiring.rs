@@ -122,6 +122,7 @@ async fn drive_pipeline(
 
     let analyzer_handle = tokio::spawn({
         let cancel = cancel.clone();
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -151,6 +152,7 @@ async fn drive_pipeline(
             None,
             None,
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

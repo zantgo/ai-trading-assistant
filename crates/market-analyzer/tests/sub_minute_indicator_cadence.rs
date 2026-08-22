@@ -105,6 +105,7 @@ fn spawn_analyzer_with_warm(
     let label = label_for(duration_seconds);
 
     tokio::spawn(async move {
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -135,6 +136,7 @@ fn spawn_analyzer_with_warm(
             None,
             None,
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

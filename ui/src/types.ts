@@ -415,7 +415,6 @@ export interface AnalysisMatrix {
     structure_assessment: StructureAssessment;
     volatility_assessment: VolatilityAssessment;
     volume_assessment: VolumeAssessment;
-    opportunity_analysis: OpportunityType;
     market_quality: QualityLevel;
     /** Numeric market-quality score in [0, 100] — distinct from
      *  categorical `market_quality` (`QualityLevel` enum). */
@@ -525,6 +524,9 @@ export interface AdvisoryMatrix {
      *  (both unipolar 0-100; higher = better). `null` when overall risk is
      *  zero (v6.11 L6). */
     quality_to_risk_ratio?: number | null;
+    /** v9: the strategy's risk-ceiling soft-block stamp (readiness floors
+     *  at WATCH when breached). */
+    risk_blocked?: boolean;
     final_recommendation: string;
 }
 
@@ -1257,24 +1259,6 @@ export interface CompletedTradesRow {
     exit_price: number;
     pnl: number;
     roi_pct: number;
-}
-
-export type AllocationCurveModel = 'Stepped' | 'Linear' | 'Exponential';
-
-export interface AllocationCurve {
-    model: AllocationCurveModel;
-    base_allocation_pct: number;
-    max_allocation_pct: number;
-    base_score_threshold: number;
-    micro_score_threshold: number;
-    exponent: number;
-}
-
-export interface PositionScalingConfig {
-    allocation_curve: AllocationCurve;
-    leverage_mode: 'Fixed' | 'VolatilityScaled';
-    leverage_cap: number;
-    target_margin: number;
 }
 
 export type TriggerModeUnion = 'interval' | 'candle_close' | 'event_driven';

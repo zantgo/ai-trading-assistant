@@ -48,7 +48,7 @@ function makeMockApp(overrides: Partial<{
     activePaperPosition: {
       symbol: 'BTC-USDT',
       size: 0.05,
-      average_entry_price: 64000,
+      entry_price: 64000,
       opened_at: 1753950000,
     },
     openOrders: [],
@@ -75,7 +75,7 @@ describe('buildPositionsTabExport', () => {
     expect(p.brackets.stop_loss).toEqual([]);
     expect(p.position).not.toBeNull();
     expect(p.position?.direction).toBe('LONG');
-    expect(p.position?.average_entry_price).toBe(64000);
+    expect(p.position?.entry_price).toBe(64000);
     expect(p.position?.liq_price).toBeCloseTo(64000 * (1 - 1 / 10));
     expect(p.position?.unrealized_pnl_display).toBe('+$50.00');
     expect(Array.isArray(p.slots)).toBe(true);
@@ -85,7 +85,7 @@ describe('buildPositionsTabExport', () => {
     const app = makeMockApp({
       paperDirection: 'SHORT',
       paperLeverage: 1,
-      activePaperPosition: { symbol: 'BTC-USDT', size: 0.05, average_entry_price: 64000 },
+      activePaperPosition: { symbol: 'BTC-USDT', size: 0.05, entry_price: 64000 },
     });
     const p = JSON.parse(buildPositionsTabExport(app)) as PositionsPayload;
     // Shared calcLiqPrice: short + lev 1 → entry * (1 + 1/1) = 2× entry.

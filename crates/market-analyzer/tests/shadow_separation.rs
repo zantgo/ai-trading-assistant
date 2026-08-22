@@ -107,6 +107,7 @@ async fn shadow_candles_never_completed() {
 
     let analyzer_handle = tokio::spawn({
         let cancel = cancel.clone();
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -136,6 +137,7 @@ async fn shadow_candles_never_completed() {
             None,
             None, // heatmap_config (None)
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

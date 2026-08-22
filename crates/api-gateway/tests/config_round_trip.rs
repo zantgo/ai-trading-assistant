@@ -63,7 +63,6 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         id: "btc".into(),
         symbol: "BTC-USDT".into(),
         quote: "USDT".into(),
-        initial_capital_usd: 1000.0,
         status: config_models::InstanceStatus::Running,
         micro_term: config_models::TimeframeConfig::new(
             60,
@@ -78,9 +77,9 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         automation: config_models::AutomationConfig::default(),
         operational_mode: config_models::OperationalMode::Advisory,
         mode: config_models::ExecutionMode::Paper,
+        strategy: None,
         allocation_pct: None,
         weight_overrides: None,
-        position_scaling: None,
         activation: None,
         custom_pipelines: Default::default(),
     });

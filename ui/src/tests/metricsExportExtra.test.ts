@@ -187,7 +187,6 @@ function makeTf() {
             structure_assessment: 'Strong',
             volatility_assessment: 'Normal',
             volume_assessment: 'Strong',
-            opportunity_analysis: 'TrendContinuation',
             market_quality: 'Excellent',
             market_quality_score: 90,
             market_phase: 'Markup',

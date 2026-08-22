@@ -31,14 +31,14 @@ impl InstanceStatus {
 
 #[derive(Debug, Clone)]
 pub struct TradingState {
-    pub initial_capital: f64,
+    pub portfolio_capital: f64,
     pub current_equity: f64,
 }
 
 impl Default for TradingState {
     fn default() -> Self {
         Self {
-            initial_capital: 0.0,
+            portfolio_capital: 0.0,
             current_equity: 0.0,
         }
     }
@@ -46,8 +46,8 @@ impl Default for TradingState {
 
 impl TradingState {
     pub fn pnl_pct(&self) -> f64 {
-        if self.initial_capital > 0.0 {
-            ((self.current_equity - self.initial_capital) / self.initial_capital) * 100.0
+        if self.portfolio_capital > 0.0 {
+            ((self.current_equity - self.portfolio_capital) / self.portfolio_capital) * 100.0
         } else {
             0.0
         }
@@ -212,10 +212,10 @@ impl Instance {
         self.config_state.write().await.status = status;
     }
 
-    pub async fn set_initial_capital(&self, capital: f64) {
-        self.trading.write().await.initial_capital = capital;
+    pub async fn set_portfolio_capital(&self, capital: f64) {
+        self.trading.write().await.portfolio_capital = capital;
         self.safety
-            .set_initial_capital(
+            .set_portfolio_capital(
                 rust_decimal::Decimal::from_f64_retain(capital).unwrap_or_default(),
             )
             .await;

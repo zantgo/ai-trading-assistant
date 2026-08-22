@@ -30,7 +30,7 @@ const mockApp = {
     activePaperPosition: {
         symbol: 'BTC-USDT',
         size: 0.05,
-        average_entry_price: 64000,
+        entry_price: 64000,
         opened_at: 1753950000,
     },
     paperHistory: [],

@@ -176,9 +176,6 @@ pub struct ConfigResponse {
     /// v7.3: execution layer config (slippage ceiling) — TAE Settings tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<config_models::ExecutionConfig>,
-    /// v7.3: allocation scoring thresholds — TAE Settings tab.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scoring: Option<config_models::ScoringConfig>,
     /// v7.4: workspace-wide indicator/signal activation defaults — the MME
     /// Workspace Settings "Indicator Activation" card falls back to these
     /// when an instance carries no per-instance `activation` override.
@@ -920,7 +917,8 @@ pub struct FeeTableQuery {
 #[derive(Debug, Deserialize)]
 pub struct StatsQuery {
     #[serde(default)]
-    pub initial_capital: Option<f64>,
+    #[serde(alias = "initial_capital")]
+    pub portfolio_capital_usd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -983,9 +981,11 @@ pub struct SessionInitRequest {
     /// instances. Observe is market-monitoring only (no orders dispatched).
     #[serde(default)]
     pub mode: Option<String>,
-    /// Paper-session capital (USD) — default `initial_capital_usd`.
+    /// Paper-session capital (USD) — default `portfolio_capital_usd`
+    /// (v9 F-07: ONE capital dial; the session default overrides the
+    /// workspace value for new sessions).
     #[serde(default)]
-    pub initial_capital_usd: Option<f64>,
+    pub portfolio_capital_usd: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1043,9 +1043,11 @@ pub struct InstanceConfigPayload {
     #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
-    pub position_scaling: Option<config_models::PositionScalingConfig>,
-    #[serde(default)]
     pub activation: Option<config_models::ActivationConfig>,
+    /// v9: bind the instance to a strategy (by name). Recharges fully at
+    /// the next candle boundary.
+    #[serde(default)]
+    pub strategy: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

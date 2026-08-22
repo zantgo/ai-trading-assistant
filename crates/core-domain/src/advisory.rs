@@ -8,6 +8,7 @@
 //! Layer: L4.75 in the architecture (Decision Guidance).
 
 use crate::analysis::{AnalysisMatrix, OpportunityType};
+use crate::decision_params::DecisionParams;
 use crate::opportunity::OpportunityMatrix;
 use crate::risk::{RiskDimension, RiskMatrix};
 use serde::{Deserialize, Serialize};
@@ -131,6 +132,13 @@ pub struct AdvisoryMatrix {
     /// is 0 (division guard).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality_to_risk_ratio: Option<f64>,
+    /// v9: `true` when the strategy's risk ceiling
+    /// (`l6.risk_ceiling.max_overall_risk`) is breached — the advisory
+    /// soft-blocks (readiness floors at WATCH) and the recommendation
+    /// sentence carries the stand-aside note. `false` = no ceiling or not
+    /// breached (backward-safe wire default).
+    #[serde(default)]
+    pub risk_blocked: bool,
     pub final_recommendation: String,
 }
 
@@ -151,6 +159,7 @@ impl AdvisoryMatrix {
             cascade_risk_score: 30.0,
             environment_favorability: RiskDimension::default(),
             quality_to_risk_ratio: None,
+            risk_blocked: false,
             final_recommendation: "Insufficient data to provide guidance.".into(),
         }
     }
@@ -161,34 +170,35 @@ impl AdvisoryMatrix {
 /// Lower score = more favorable environment.
 ///
 /// Bug-fix #18: the legacy implementation read the L3
-/// `analysis.opportunity_analysis` enum (a coarse OpportunityType
-/// bucketed as 20 vs 80) instead of the L4
-/// `OpportunityMatrix.opportunity_score` (a continuous 0-100 score).
-/// The 60-point discretization collapsed every non-NoClearOpportunity
-/// case to 80, masking the difference between a prime TrendContinuation
-/// (opportunity_score ≈ 90) and a marginal Pullback (opportunity_score
-/// ≈ 45). We now consume the L4 numeric score directly; when the
-/// opportunity matrix is absent (early warmup), we fall back to the
-/// L3 enum proxy at 50 (neutral).
+/// deprecated opportunity enum (a coarse OpportunityType bucketed as
+/// 20 vs 80) instead of the L4 `OpportunityMatrix.opportunity_score`
+/// (a continuous 0-100 score). The 60-point discretization collapsed
+/// every non-NoClearOpportunity case to 80, masking the difference
+/// between a prime TrendContinuation (opportunity_score ≈ 90) and a
+/// marginal Pullback (opportunity_score ≈ 45). We consume the L4
+/// numeric score directly; when the opportunity matrix is absent
+/// (early warmup), we fall back to the neutral 50 sentinel (v9 F-03:
+/// the deprecated L3 enum mirror is erased entirely).
 fn compute_environment_favorability(
     analysis: &AnalysisMatrix,
     opportunity: Option<&crate::opportunity::OpportunityMatrix>,
+    params: &DecisionParams,
 ) -> RiskDimension {
     let quality_penalty: f64 = match analysis.market_quality {
-        crate::analysis::QualityLevel::Excellent => 10.0,
-        crate::analysis::QualityLevel::Good => 25.0,
-        crate::analysis::QualityLevel::Average => 50.0,
-        crate::analysis::QualityLevel::Weak => 70.0,
-        crate::analysis::QualityLevel::Poor => 80.0,
+        crate::analysis::QualityLevel::Excellent => params.quality_penalty(0),
+        crate::analysis::QualityLevel::Good => params.quality_penalty(1),
+        crate::analysis::QualityLevel::Average => params.quality_penalty(2),
+        crate::analysis::QualityLevel::Weak => params.quality_penalty(3),
+        crate::analysis::QualityLevel::Poor => params.quality_penalty(4),
     };
     let opportunity_score: f64 = if let Some(opp) = opportunity {
         opp.opportunity_score
     } else {
-        // Pre-warmup fallback. The L3 enum proxy at 50 is the
-        // "no L4 data available" sentinel (neutral, not optimistic).
-        50.0
+        // Pre-warmup fallback (neutral sentinel, not optimistic).
+        params.opportunity_fallback
     };
-    let score: f64 = ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
+    let score: f64 =
+        ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
     RiskDimension {
         score,
         ..RiskDimension::default()
@@ -197,11 +207,25 @@ fn compute_environment_favorability(
 
 /// Compute Advisory Matrix from Analysis + Risk + Opportunity + Cluster.
 /// `opportunity` may be `None` during early warm-up.
+///
+/// `sr_distance_atr` (v9 F-02): the distance from the reference price to
+/// the nearest structural level, expressed in ATR multiples, computed by
+/// the caller from the indicator map. `None` = no structural levels
+/// available. The documented `SR_BASED` protection rule requires
+/// `distance_to_nearest_SR < params.sr_proximity_atr_mult · ATR`;
+/// without the distance input the branch cannot fire and falls through
+/// to `ATR_BASED` (fail-closed).
+///
+/// `params` (v9 F-05): the shared Decision-layer parameter struct —
+/// `advisory.rs` and `decision_context.rs` previously duplicated these
+/// grids; both now read the single source of truth.
 pub fn compute_advisory(
     analysis: &AnalysisMatrix,
     risk: &RiskMatrix,
     opportunity: Option<&OpportunityMatrix>,
     _cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
+    sr_distance_atr: Option<f64>,
+    params: &DecisionParams,
 ) -> AdvisoryMatrix {
     if analysis.timeframes_considered == 0 {
         return AdvisoryMatrix::empty(&analysis.symbol);
@@ -220,18 +244,20 @@ pub fn compute_advisory(
     // BEFORE directional guidance so the AVOID short-circuit can run first
     // (see v6.10 A3 below).
     let stance = match analysis.market_quality {
-        // Rule 1: POOR quality OR overall_risk ≥ 80 → AVOID.
-        // Rule 2: POOR/WEAK quality OR overall_risk ≥ 60 → CAUTIOUS.
-        // Rule 3: AVERAGE quality AND overall_risk < 40 → NEUTRAL.
-        // Rule 4: EXCELLENT quality AND overall_risk < 20 → AGGRESSIVE.
-        // Rule 5: GOOD/EXCELLENT quality AND overall_risk < 30 → CONSTRUCTIVE.
+        // Rule 1: POOR quality OR overall_risk ≥ avoid → AVOID.
+        // Rule 2: POOR/WEAK quality OR overall_risk ≥ cautious → CAUTIOUS.
+        // Rule 3: AVERAGE quality AND overall_risk < neutral → NEUTRAL.
+        // Rule 4: EXCELLENT quality AND overall_risk < aggressive → AGGRESSIVE.
+        // Rule 5: GOOD/EXCELLENT quality AND overall_risk < constructive → CONSTRUCTIVE.
         // Rule 6 (default): everything else → CAUTIOUS.
         //
         // NOTE: rules 1 and 2 share the POOR/WEAK triggers with rule 6;
         // ordering matters. We model them as a single match against quality
-        // with risk-band sub-matches.
+        // with risk-band sub-matches. v9 F-05: all borders come from
+        // `DecisionParams` (the single source shared with
+        // `decision_context.rs`).
         crate::analysis::QualityLevel::Poor => {
-            if risk.overall_risk.score >= 80.0 {
+            if risk.overall_risk.score >= params.stance_risk_avoid {
                 MarketStance::Avoid
             } else {
                 // POOR + any other risk band → CAUTIOUS (rule 2)
@@ -239,33 +265,33 @@ pub fn compute_advisory(
             }
         }
         crate::analysis::QualityLevel::Weak => {
-            if risk.overall_risk.score >= 60.0 {
+            if risk.overall_risk.score >= params.stance_risk_cautious {
                 MarketStance::Cautious
             } else {
-                // WEAK + risk < 60 → still CAUTIOUS (rule 2)
+                // WEAK + risk < cautious → still CAUTIOUS (rule 2)
                 MarketStance::Cautious
             }
         }
         crate::analysis::QualityLevel::Average => {
-            if risk.overall_risk.score < 40.0 {
+            if risk.overall_risk.score < params.stance_risk_neutral {
                 MarketStance::Neutral // rule 3
             } else {
                 MarketStance::Cautious // default rule 6
             }
         }
         crate::analysis::QualityLevel::Good => {
-            if risk.overall_risk.score < 30.0 {
+            if risk.overall_risk.score < params.stance_risk_constructive {
                 MarketStance::Constructive // rule 5 (with EXCELLENT below)
             } else {
                 MarketStance::Cautious // default rule 6
             }
         }
         crate::analysis::QualityLevel::Excellent => {
-            if risk.overall_risk.score >= 80.0 {
+            if risk.overall_risk.score >= params.stance_risk_avoid {
                 MarketStance::Avoid // rule 1
-            } else if risk.overall_risk.score < 20.0 {
+            } else if risk.overall_risk.score < params.stance_risk_aggressive {
                 MarketStance::Aggressive // rule 4
-            } else if risk.overall_risk.score < 30.0 {
+            } else if risk.overall_risk.score < params.stance_risk_constructive {
                 MarketStance::Constructive // rule 5
             } else {
                 MarketStance::Cautious // default rule 6
@@ -289,28 +315,28 @@ pub fn compute_advisory(
         let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score);
         match analysis.bias {
             crate::analysis::MarketBias::StrongBullish => {
-                if risk.overall_risk.score < 50.0 {
+                if risk.overall_risk.score < params.direction_risk_strong {
                     DirectionalGuidance::StrongLong
                 } else {
                     DirectionalGuidance::Long
                 }
             }
             crate::analysis::MarketBias::Bullish => {
-                if lifted || risk.overall_risk.score < 40.0 {
+                if lifted || risk.overall_risk.score < params.direction_risk_plain {
                     DirectionalGuidance::Long
                 } else {
                     DirectionalGuidance::Neutral
                 }
             }
             crate::analysis::MarketBias::StrongBearish => {
-                if risk.overall_risk.score < 50.0 {
+                if risk.overall_risk.score < params.direction_risk_strong {
                     DirectionalGuidance::StrongShort
                 } else {
                     DirectionalGuidance::Short
                 }
             }
             crate::analysis::MarketBias::Bearish => {
-                if lifted || risk.overall_risk.score < 40.0 {
+                if lifted || risk.overall_risk.score < params.direction_risk_plain {
                     DirectionalGuidance::Short
                 } else {
                     DirectionalGuidance::Neutral
@@ -320,7 +346,10 @@ pub fn compute_advisory(
         }
     };
 
-    // Opportunity from L4 OpportunityMatrix (fallback to analysis.opportunity_analysis)
+    // Opportunity classification from the L4 OpportunityMatrix. v9 (F-03):
+    // the deprecated L3 `opportunity_analysis` fallback is ERASED — the
+    // classification belongs to L4 alone. When the L4 matrix is absent
+    // (pre-warmup), the honest classification is NoClearOpportunity.
     let opportunity = if let Some(opp) = opportunity {
         match opp.primary_opportunity {
             OpportunityType::TrendContinuation => OpportunityClass::TrendContinuation,
@@ -333,22 +362,7 @@ pub fn compute_advisory(
             OpportunityType::NoClearOpportunity => OpportunityClass::NoClearOpportunity,
         }
     } else {
-        match analysis.opportunity_analysis {
-            crate::analysis::OpportunityType::TrendContinuation => {
-                OpportunityClass::TrendContinuation
-            }
-            crate::analysis::OpportunityType::Breakout => OpportunityClass::Breakout,
-            crate::analysis::OpportunityType::Pullback => OpportunityClass::Pullback,
-            crate::analysis::OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
-            crate::analysis::OpportunityType::Reversal => OpportunityClass::Reversal,
-            crate::analysis::OpportunityType::LiquiditySqueeze => {
-                OpportunityClass::LiquiditySqueeze
-            }
-            crate::analysis::OpportunityType::Scalp => OpportunityClass::Scalp,
-            crate::analysis::OpportunityType::NoClearOpportunity => {
-                OpportunityClass::NoClearOpportunity
-            }
-        }
+        OpportunityClass::NoClearOpportunity
     };
 
     // Strategy environment from regime (canonical mapping over all 8 MarketRegime values)
@@ -364,12 +378,12 @@ pub fn compute_advisory(
     };
 
     // Entry guidance: ordered first-match rules (spec §3.4)
-    let entry = if risk.volatility_risk.score >= 60.0 {
+    let entry = if risk.volatility_risk.score >= params.entry_vol_no_entry {
         EntryGuidance::NoEntryContext
     } else if matches!(
         analysis.trend_assessment,
         crate::analysis::TrendAssessment::Strong | crate::analysis::TrendAssessment::Healthy
-    ) && risk.volatility_risk.score < 40.0
+    ) && risk.volatility_risk.score < params.entry_vol_immediate
     {
         EntryGuidance::Immediate
     } else if matches!(
@@ -378,7 +392,7 @@ pub fn compute_advisory(
     ) {
         EntryGuidance::Pullback
     } else if analysis.trend_assessment == crate::analysis::TrendAssessment::Developing
-        && risk.volatility_risk.score < 20.0
+        && risk.volatility_risk.score < params.entry_vol_breakout
     {
         EntryGuidance::Breakout
     } else if analysis.trend_assessment == crate::analysis::TrendAssessment::Developing {
@@ -388,7 +402,7 @@ pub fn compute_advisory(
     };
 
     // Exit guidance: ordered first-match rules (spec §3.5)
-    let exit = if risk.overall_risk.score >= 80.0 {
+    let exit = if risk.overall_risk.score >= params.exit_risk_increasing {
         ExitGuidance::RiskIncreasing
     } else if matches!(
         analysis.structure_assessment,
@@ -399,7 +413,7 @@ pub fn compute_advisory(
     } else if analysis.momentum_assessment == crate::analysis::MomentumAssessment::Reversing {
         ExitGuidance::MomentumExhaustion
     } else if analysis.momentum_assessment == crate::analysis::MomentumAssessment::Weakening
-        || risk.overall_risk.score >= 60.0
+        || risk.overall_risk.score >= params.exit_trend_weakening
     {
         ExitGuidance::TrendWeakening
     } else {
@@ -410,7 +424,7 @@ pub fn compute_advisory(
     let protection =
         if analysis.volatility_assessment == crate::analysis::VolatilityAssessment::Compressed {
             ProtectionStrategy::StructureBased
-        } else if risk.volatility_risk.score > 60.0
+        } else if risk.volatility_risk.score > params.protection_vol_risk
             && matches!(
                 analysis.volatility_assessment,
                 crate::analysis::VolatilityAssessment::Expanding
@@ -424,6 +438,7 @@ pub fn compute_advisory(
                 crate::analysis::StructureAssessment::Strong
                     | crate::analysis::StructureAssessment::Healthy
             )
+            && sr_distance_atr.is_some_and(|d| d < params.sr_proximity_atr_mult)
         {
             ProtectionStrategy::SRBased
         } else {
@@ -437,9 +452,9 @@ pub fn compute_advisory(
             | crate::analysis::StructureAssessment::Healthy
     ) {
         TargetStrategy::ResistanceBased
-    } else if risk.overall_risk.score < 40.0 {
+    } else if risk.overall_risk.score < params.target_rr_based {
         TargetStrategy::RRBased
-    } else if risk.overall_risk.score < 60.0 {
+    } else if risk.overall_risk.score < params.target_trailing {
         TargetStrategy::TrailingMethod
     } else {
         TargetStrategy::VolatilityBased
@@ -451,7 +466,7 @@ pub fn compute_advisory(
     // not the L4 matrix, it's the L3 bucketed enum used by the rest of
     // `compute_advisory`. Bug-fix #18 needs the L4 numeric
     // `opportunity_score`, so we reference the parameter directly.
-    let environment_favorability = compute_environment_favorability(analysis, opp_matrix);
+    let environment_favorability = compute_environment_favorability(analysis, opp_matrix, params);
 
     // Quality-to-Risk ratio — setup efficiency. Both inputs are unipolar
     // [0, 100] with opposite semantics (high quality good, high risk bad);
@@ -462,9 +477,10 @@ pub fn compute_advisory(
         None
     };
 
-    // Confidence: analysis.state_confidence × (1 - risk.overall/100)
-    let confidence = (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
-        .clamp(0.0, 100.0);
+    // Confidence: analysis.state_confidence × (1 - k·risk/100) —
+    // v9 F-05: shared DecisionParams helper (same formula the
+    // probability path uses).
+    let confidence = params.confidence_assessment(analysis.state_confidence, risk.overall_risk.score);
 
     // Stop-loss distance: percent-scale output for the TAE type-boundary
     // handoff, `[0.5, 15.0]` percent (e.g. `2.5` means 2.5%).
@@ -485,25 +501,14 @@ pub fn compute_advisory(
     // formula is a stance-keyed base (`1.0|1.5 × 2.0%`) plus a
     // `volatility_risk.score / 10` bump, clamped to `[0.5, 15.0]`. Docs
     // 02-04 §3.6 and 03-02-07 §4 describe this actual formula.
-    let stop_loss_distance_pct = {
-        let base_multiplier = if analysis.structure_assessment
-            == crate::analysis::StructureAssessment::Strong
-            || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy
-        {
-            1.0
-        } else {
-            1.5
-        };
-        // `atr_14` and `close` aren't directly available on the
-        // AdvisoryMatrix input; we approximate via the volatility risk
-        // dimension (a stable 0-100 risk score) and the close that
-        // synthesizes the bracket. The structural multiplier does the
-        // heavy lifting here: high-quality structure → 1× stop,
-        // weak structure → 1.5× stop. The clamp is preserved.
-        let base_pct: f64 = (base_multiplier * 2.0_f64).clamp(0.5, 5.0); // 0.5%-5% base (percent)
-        let risk_bump: f64 = (risk.volatility_risk.score / 100.0) * 10.0; // 0-10% additional (percent)
-        (base_pct + risk_bump).clamp(0.5, 15.0) // final: percent in [0.5, 15.0]
-    };
+    // v9 F-05: the formula lives in `DecisionParams::stop_loss_distance_pct`.
+    let strong_structure = matches!(
+        analysis.structure_assessment,
+        crate::analysis::StructureAssessment::Strong
+            | crate::analysis::StructureAssessment::Healthy
+    );
+    let stop_loss_distance_pct =
+        params.stop_loss_distance_pct(strong_structure, risk.volatility_risk.score);
 
     // v6.10.19 (T5): under a Neutral or Avoid directional read there is no
     // actionable entry — the "Entry: …. Stop: …" clauses are execution
@@ -584,6 +589,25 @@ pub fn compute_advisory(
         entry_stop_clause
     );
 
+    // v9: the risk-ceiling soft-block. When the strategy sets
+    // `l6.risk_ceiling.max_overall_risk` and the environment exceeds it,
+    // the advisory carries the `risk_blocked` stamp and the
+    // recommendation sentence gains the stand-aside note. The
+    // probability split stays descriptive (locked decision); the
+    // readiness floors at WATCH (decision_context.rs).
+    let risk_blocked = params
+        .risk_ceiling_max_overall_risk
+        .is_some_and(|ceiling| risk.overall_risk.score > ceiling);
+    let recommendation = if risk_blocked {
+        let ceiling = params.risk_ceiling_max_overall_risk.unwrap_or(0.0);
+        format!(
+            "{recommendation} Environment risk {:.0} exceeds the strategy ceiling ({:.0}) — standing aside.",
+            risk.overall_risk.score, ceiling
+        )
+    } else {
+        recommendation
+    };
+
     AdvisoryMatrix {
         symbol: analysis.symbol.clone(),
         directional_guidance: directional,
@@ -599,6 +623,7 @@ pub fn compute_advisory(
         cascade_risk_score: risk.cascade_risk.score,
         environment_favorability,
         quality_to_risk_ratio,
+        risk_blocked,
         final_recommendation: recommendation,
     }
 }
@@ -611,7 +636,7 @@ mod tests {
     fn empty_analysis_returns_empty_advisory() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None);
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral
@@ -629,7 +654,7 @@ mod tests {
         analysis.timeframes_considered = 1;
         analysis.bias = MarketBias::Neutral;
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None);
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral
@@ -661,7 +686,7 @@ mod tests {
         analysis.timeframes_considered = 1;
         analysis.bias = MarketBias::StrongBullish;
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None);
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
         // `RiskMatrix::empty` carries overall risk 50.0, so the StrongBullish
         // gate demotes to a plain LONG — the fragment shape is what matters.
         assert!(matches!(
@@ -688,7 +713,7 @@ mod tests {
         analysis.market_quality_score = 80.0;
         let mut risk = RiskMatrix::empty("BTC-USD");
         risk.overall_risk.score = 20.0;
-        let adv = compute_advisory(&analysis, &risk, None, None);
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
         assert_eq!(adv.quality_to_risk_ratio, Some(4.0));
     }
 
@@ -701,7 +726,7 @@ mod tests {
         analysis.market_quality_score = 90.0;
         let mut risk = RiskMatrix::empty("BTC-USD");
         risk.overall_risk.score = 0.0;
-        let adv = compute_advisory(&analysis, &risk, None, None);
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
         assert_eq!(adv.quality_to_risk_ratio, None);
     }
 
@@ -709,7 +734,7 @@ mod tests {
     fn advisory_serde_skips_none_quality_to_risk_ratio() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None);
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
         let json = serde_json::to_string(&adv).unwrap();
         assert!(!json.contains("quality_to_risk_ratio"));
         let back: AdvisoryMatrix = serde_json::from_str(&json).unwrap();

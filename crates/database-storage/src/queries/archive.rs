@@ -175,7 +175,12 @@ pub async fn query_archive_earliest_secs(
     symbol: &str,
     timeframe_secs: u64,
 ) -> Option<i64> {
-    sqlx::query_scalar::<_, i64>(
+    // v9 fix: `MIN(ts_secs)` over an empty archive decodes as Some(0)
+    // under sqlx's SQLite driver (NULL → 0 coercion) — an empty archive
+    // must report None, otherwise the CLI's coverage check believes the
+    // archive is covered since epoch 0 and never backfills. Query the
+    // nullable tuple instead.
+    let row: Option<(Option<i64>,)> = sqlx::query_as(
         "SELECT MIN(ts_secs) FROM candle_archive
          WHERE exchange = ?1 AND symbol = ?2 AND timeframe_secs = ?3",
     )
@@ -184,7 +189,8 @@ pub async fn query_archive_earliest_secs(
     .bind(timeframe_secs as i64)
     .fetch_one(pool)
     .await
-    .ok()
+    .ok();
+    row.and_then(|(v,)| v)
 }
 
 /// Delete archive rows older than `now - depth_days` (hourly retention).

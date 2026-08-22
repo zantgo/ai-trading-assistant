@@ -775,7 +775,6 @@ mod tests {
             structure_assessment: StructureAssessment::Healthy,
             volatility_assessment: VolatilityAssessment::Normal,
             volume_assessment: VolumeAssessment::Normal,
-            opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Average,
             market_phase: MarketPhase::Unknown,
             market_interpretation: "Test".into(),

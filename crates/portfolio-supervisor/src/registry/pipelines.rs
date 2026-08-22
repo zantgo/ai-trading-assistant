@@ -10,7 +10,7 @@ use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
 use config_models::{
     ApiFailoverConfig, FibonacciConfig, HeatmapConfig, IntervalsConfig, LiquidityConfig,
-    OperationalMode, PositionScalingConfig, SafetyConfig, TimeframeConfig,
+    OperationalMode, OrderBookConfig, SafetyConfig, StrategyConfig, TimeframeConfig,
 };
 use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
 use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
@@ -41,8 +41,6 @@ pub struct PipelineContext {
     pub operational_mode: OperationalMode,
     #[allow(dead_code)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
-    #[allow(dead_code)]
-    pub position_scaling: Option<PositionScalingConfig>,
     pub liquidity_config: LiquidityConfig,
     /// API-failover tolerance knobs (derivatives poller disable threshold).
     pub api_failover: ApiFailoverConfig,
@@ -51,6 +49,11 @@ pub struct PipelineContext {
     /// without affecting the rest of the liquidity pipeline. See
     /// `config_models::HeatmapConfig`.
     pub heatmap_config: HeatmapConfig,
+    /// v9 (F-04): order-book depth knobs — the `[order_book]` TOML surface
+    /// (previously the pipeline hardcoded `OrderBookConfig::default()`).
+    pub ob_config: OrderBookConfig,
+    /// v9: the effective strategy (patch-resolved).
+    pub strategy: StrategyConfig,
     /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
     pub buffer_size: usize,
     /// Per-TF stale-threshold (CB-04 / DCP-05 / ILS-07).
@@ -323,6 +326,9 @@ pub async fn build_pipelines(
         ctx.liquidity_config.clone(),
         ctx.heatmap_config.clone(),
         ctx.api_failover,
+        // v9: wired order-book config + the effective strategy.
+        ctx.ob_config.clone(),
+        ctx.strategy.clone(),
         &micro_cluster_matrix,
         &fast_cluster_matrix,
         &slow_cluster_matrix,
@@ -426,6 +432,9 @@ async fn spawn_tasks(
     liquidity_config: LiquidityConfig,
     heatmap_config: HeatmapConfig,
     api_failover: ApiFailoverConfig,
+    // v9: wired order-book config + the effective strategy.
+    ob_config: OrderBookConfig,
+    strategy: StrategyConfig,
     micro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     fast_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     slow_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
@@ -659,6 +668,10 @@ async fn spawn_tasks(
         let a_funding_history = active_pair.funding_history.clone();
         let a_liquidity_config = liquidity_config.clone();
         let a_heatmap_config = heatmap_config.clone();
+        // v9: capture the wired order-book config + strategy for the
+        // moved closure.
+        let a_ob_config = ob_config.clone();
+        let a_strategy = strategy.clone();
         // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
         // pipeline owns its own `Arc<RwLock<...>>` so the 4 charts in the
         // dashboard each see the cluster at their own horizon. See
@@ -790,7 +803,8 @@ async fn spawn_tasks(
                 a_cluster_matrix,
                 Some(a_liquidity_config),
                 Some(a_heatmap_config),
-                config_models::OrderBookConfig::default(),
+                a_ob_config,
+                a_strategy,
                 ct_a,
                 ct_b,
                 ct_c,

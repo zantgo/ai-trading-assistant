@@ -1023,15 +1023,27 @@ fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct:
 /// Estimate the long/short OI split. Uses funding rate as the primary
 /// signal; price action as the secondary; default 50/50 if neither is
 /// informative.
+///
+/// The funding anchor is the configured `funding_extreme_pct` (v9 F-01) —
+/// the split heuristic must follow the operator's funding-extreme knob
+/// rather than a hardcoded 0.0005, so a tuned extreme threshold tunes the
+/// OI-split sensitivity consistently. A non-positive anchor (misconfig)
+/// falls back to the shipped 0.0005 default.
 fn estimate_long_oi_pct(
     funding_rate: f64,
     price_history: &[f64],
     override_pct: Option<f64>,
+    funding_anchor: f64,
 ) -> f64 {
     if let Some(p) = override_pct {
         return p.clamp(0.05, 0.95);
     }
-    let funding_bias = (funding_rate / 0.0005).clamp(-1.0, 1.0) * 0.3; // ±30%
+    let anchor = if funding_anchor > 0.0 {
+        funding_anchor
+    } else {
+        0.0005
+    };
+    let funding_bias = (funding_rate / anchor).clamp(-1.0, 1.0) * 0.3; // ±30%
     let price_bias = if price_history.len() >= 4 {
         let n = price_history.len();
         let recent = price_history[n - 1];
@@ -1113,7 +1125,7 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
 
     // 2. Estimate long/short OI split.
     let long_oi_pct =
-        estimate_long_oi_pct(input.funding_rate, input.price_history, input.long_oi_pct);
+        estimate_long_oi_pct(input.funding_rate, input.price_history, input.long_oi_pct, input.funding_extreme_pct);
     let long_oi_usd = input.total_oi_usd * long_oi_pct;
     let short_oi_usd = input.total_oi_usd * (1.0 - long_oi_pct);
 

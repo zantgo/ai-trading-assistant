@@ -24,7 +24,6 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
         fees: Some(current_config.fees.clone()),
         leverage: Some(current_config.leverage.clone()),
         execution: Some(current_config.execution.clone()),
-        scoring: Some(current_config.scoring.clone()),
         activation: Some(current_config.activation.clone()),
         backtest: Some(current_config.backtest.clone()),
     };
@@ -41,7 +40,7 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
 /// round-trips through `POST /api/config` with only the operator-editable
 /// fields mutated (`candles`, `indicators`, `instances`, `api_failover`,
 /// and since v7.4 the engine-settings sections: `minimal_tae`, `safety`,
-/// `risk_limits`, `analytics`, `scoring`, `execution`, `fees`, `leverage`).
+/// `risk_limits`, `analytics`, `execution`, `fees`, `leverage`).
 /// The body therefore does NOT carry `WorkspaceConfig`'s mandatory
 /// `id`/`name`/`default_currency`/`default_exchange` — merge the provided
 /// fields into the currently loaded config rather than demanding a full
@@ -66,8 +65,6 @@ pub struct ConfigUpdateRequest {
     pub risk_limits: Option<config_models::RiskLimitsConfig>,
     #[serde(default)]
     pub analytics: Option<config_models::AnalyticsConfig>,
-    #[serde(default)]
-    pub scoring: Option<config_models::ScoringConfig>,
     #[serde(default)]
     pub execution: Option<config_models::ExecutionConfig>,
     #[serde(default)]
@@ -120,9 +117,9 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
         if tae.max_open_positions < 1 || tae.max_open_positions > 20 {
             return Some("minimal_tae.max_open_positions must be 1–20".into());
         }
-        if let Some(cap) = tae.max_position_size_usd {
+        if let Some(cap) = tae.max_position_size_pct_of_equity {
             if cap <= 0.0 || cap > 1_000_000_000.0 {
-                return Some("minimal_tae.max_position_size_usd out of range".into());
+                return Some("minimal_tae.max_position_size_pct_of_equity out of range".into());
             }
         }
     }
@@ -195,17 +192,6 @@ fn validate_ranges(payload: &ConfigUpdateRequest) -> Option<String> {
             }
         }
     }
-    if let Some(sc) = &payload.scoring {
-        if !f(sc.base_allocation_pct, 0.01, 100.0)
-            || !f(sc.micro_allocation_pct, 0.01, 100.0)
-            || !f(sc.max_allocation_pct, 0.01, 100.0)
-        {
-            return Some("scoring allocation percentages must be 0.01–100".into());
-        }
-        if sc.base_score_threshold > 100 || sc.micro_score_threshold > 100 {
-            return Some("scoring thresholds must be ≤ 100".into());
-        }
-    }
     if let Some(ex) = &payload.execution {
         if !f(ex.slippage_ceiling_pct, 0.0, 5.0) {
             return Some("execution.slippage_ceiling_pct must be 0–5".into());
@@ -232,7 +218,6 @@ pub async fn update_config(
         || payload.safety.is_some()
         || payload.risk_limits.is_some()
         || payload.analytics.is_some()
-        || payload.scoring.is_some()
         || payload.execution.is_some()
         || payload.fees.is_some()
         || payload.leverage.is_some()
@@ -263,9 +248,6 @@ pub async fn update_config(
     }
     if let Some(analytics) = payload.analytics {
         merged.analytics = analytics;
-    }
-    if let Some(scoring) = payload.scoring {
-        merged.scoring = scoring;
     }
     if let Some(execution) = payload.execution {
         merged.execution = execution;

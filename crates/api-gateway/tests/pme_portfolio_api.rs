@@ -165,7 +165,7 @@ async fn exposure_and_capital_endpoints_serve_matrices() {
 #[tokio::test]
 async fn safety_endpoint_reports_extended_fields() {
     let (state, inst, _engine) = build_state().await;
-    inst.safety.set_initial_capital(dec!(1000)).await;
+    inst.safety.set_portfolio_capital(dec!(1000)).await;
     inst.safety.update(dec!(1000)).await;
 
     let (status, body) = get(state, "/api/instances/inst_test/safety").await;
@@ -179,7 +179,7 @@ async fn safety_endpoint_reports_extended_fields() {
 #[tokio::test]
 async fn session_reset_rebaselines_informational_state() {
     let (state, inst, _engine) = build_state().await;
-    inst.safety.set_initial_capital(dec!(1000)).await;
+    inst.safety.set_portfolio_capital(dec!(1000)).await;
     inst.safety.update(dec!(1200)).await;
     inst.safety.update(dec!(1000)).await;
 

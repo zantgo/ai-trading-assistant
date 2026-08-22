@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use config_models::FibonacciConfig;
+use config_models::StrategyConfig;
 use config_models::OrderBookConfig;
 use config_models::QualityConfig;
 use config_models::TimeframeConfig;
@@ -702,6 +703,11 @@ pub async fn run_single(
     // back to default 0.1% / 24h bucketing.
     heatmap_config: Option<HeatmapConfig>,
     ob_config: OrderBookConfig,
+    // v9: the effective strategy (patch-resolved). The synthesis derives
+    // its L4 opportunity params and the shared L6 DecisionParams from it.
+    // Owned (cloned once per pipeline spawn) so callers never wrestle
+    // with borrow lifetimes across the spawned task.
+    strategy: StrategyConfig,
     cross_tf_snapshot_a: Arc<RwLock<Option<MarketSnapshot>>>,
     cross_tf_snapshot_b: Arc<RwLock<Option<MarketSnapshot>>>,
     cross_tf_snapshot_c: Arc<RwLock<Option<MarketSnapshot>>>,
@@ -1486,6 +1492,7 @@ pub async fn run_single(
                             &broadcast_tx,
                             &telemetry_tx,
                             &latency_tracker,
+                            &strategy,
                         )
                         .await;
                         // AUDIT-V8-004: force-closed candles are real OHLCV —
@@ -2427,6 +2434,7 @@ pub async fn run_single(
                         &broadcast_tx,
                         &telemetry_tx,
                         &latency_tracker,
+                        &strategy,
                     )
                     .await;
 
@@ -2810,6 +2818,8 @@ async fn synthesize_completed_candle(
     broadcast_tx: &broadcast::Sender<MarketSnapshot>,
     telemetry_tx: &Sender<database_storage::TelemetryMsg>,
     latency_tracker: &core_domain::SharedLatencyTracker,
+    // v9: the effective strategy.
+    strategy: &StrategyConfig,
 ) -> MarketSnapshot {
     // Freshness guard for the order-book-backed envelope fields
     // (`mid_price` mid-of-book, `bid_size`/`ask_size` top-of-book depth).
@@ -3610,6 +3620,8 @@ async fn synthesize_completed_candle(
             Vec::new()
         };
 
+    let opportunity_params = crate::synthesis::OpportunityParams::from_strategy(&strategy.l4);
+    let decision_params = crate::strategy_params::decision_params_from_strategy(&strategy.l6);
     let synthesis = crate::synthesis::synthesize_cross_tf(
         symbol,
         &cross_refs,
@@ -3620,6 +3632,10 @@ async fn synthesize_completed_candle(
         *prev_regime,
         *prev_volume_dim,
         *prev_bias,
+        // v9: the strategy's L4 opportunity params.
+        &opportunity_params,
+        // v9: the shared L6 DecisionParams.
+        &decision_params,
     );
 
     *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
@@ -3638,6 +3654,9 @@ async fn synthesize_completed_candle(
         // unsigned [0, 100]. The direction now lives
         // separately in `Decision.bias` (Phase 6 / F2 mirrors
         // `Analysis.bias` via ±40 thresholds).
+        // v9 F-05: the blend weights come from the shared
+        // `DecisionParams` (single source with the BTE runner).
+        let [w_l2, w_l3, w_l4] = decision_params.confluence_weights;
         let tradability_dim = synthesis
             .alignment
             .dimensions
@@ -3650,7 +3669,8 @@ async fn synthesize_completed_candle(
             .as_ref()
             .map(|o| o.opportunity_score)
             .unwrap_or(0.0);
-        (0.50 * tradability_dim + 0.30 * market_quality_score + 0.20 * opp_score).clamp(0.0, 100.0)
+        (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score)
+            .clamp(0.0, 100.0)
     };
 
     let l4_opportunity = synthesis.opportunity.clone();
@@ -3663,6 +3683,8 @@ async fn synthesize_completed_candle(
         &synthesis.analysis,
         l4_opportunity.as_ref(),
         &synthesis.risk,
+        // v9: the shared strategy-derived DecisionParams.
+        &decision_params,
     );
     let sil_ctx = sil_engine.advance_ext(
         close_f,

@@ -4,6 +4,20 @@
 
 ------
 
+## Unreleased (2026-08-21) — v9: Strategy Platform (Phase 0 — fixes & erasures)
+
+**One Strategy JSON becomes the single source of truth for all model behavior (MME L1–L7, TAE, PME, PAE). Phase 0 delivers the bug fixes, dead-config wiring, logic unification, and erasures that the strategy model builds on.**
+
+- **F-01 (oi_split funding anchor):** `estimate_long_oi_pct` now reads the configured `funding_extreme_pct` instead of a hardcoded 0.0005 — tuning the funding-extreme knob tunes the OI-split sensitivity consistently (`core-domain/src/liquidity/mod.rs`).
+- **F-02 (SR_BASED proximity):** the documented `distance_to_nearest_SR < 0.5·ATR` precondition is wired — SR_BASED now requires price within half an ATR of a structural level (session pivots / Fibonacci / volume-profile anchors), fail-closed to ATR_BASED otherwise (`advisory.rs`, `synthesis.rs::nearest_sr_distance_atr`).
+- **F-03 (L3 mirror erased):** the deprecated `AnalysisMatrix.opportunity_analysis` mirror of the L4 decision tree is erased from backend + frontend (types, exports, fixtures). The classification is L4-owned; `compute_advisory` falls back to `NoClearOpportunity` when the L4 matrix is absent.
+- **F-04 (dead config wired):** `[workspace.opportunity_matrix]` (ATR zone fallback `k_entry`/`k_target` + net-cost model 6/5/0 bps) and `[order_book]` now actually flow into the synthesis — previously hardcoded at the call sites. The BTE historical runner consumes the same wired params (`HistoricalRunConfig.opportunity_matrix`).
+- **F-05 (one param struct):** new `core-domain/src/decision_params.rs` — `DecisionParams` holds every L6 constant (stance grid, direction gates, entry/exit borders, stop formula, probability modulators, confluence weights, risk ceiling). `advisory.rs` and `decision_context.rs` now consume ONE shared struct instead of duplicated grids; the analyzer and BTE runner share the same confluence blend.
+- **F-06 (scaled entries erased):** `PositionScalingConfig`, `AllocationCurve(-Model)`, `ScoringConfig`, `use_scoring_allocation`, `position_slots`, and the Position Matrix scaled-entry fields are erased (backend + UI incl. `PositionScalingPanel`). **One position per instance, one side, one SL, one TP** — the PnL formula reduces to `direction_sign × (price − entry_price) × size`.
+- **F-07 (one capital dial):** per-instance `initial_capital_usd` is erased; `[workspace] portfolio_capital_usd` (default 1000) seeds the shared ledger. Session-default key, backtest payload (`portfolio_capital_usd`, serde-alias retained on the wire), CLI flag (`--portfolio-capital`) and UI labels all renamed.
+- **F-08 (relative position cap):** `max_position_size_usd` → `max_position_size_pct_of_equity` (a percentage of equity; serde-alias retained) — the strategy stays capital-size invariant.
+- **Specs:** new docs `03-02-17-mme-strategy-config.md` (canonical strategy JSON for L1/L1.5/L2/L2.5/L3/L4/L5/L6/L7), `03-03-07-tae-strategy-settings.md`, `03-04-06-pme-strategy-settings.md`, `03-05-07-pae-strategy-settings.md`, `07-08-account-profile.md`, `07-09-strategies-builder.md`, `06-00-cli-gui-parity.md`.
+
 ## Unreleased (2026-08-21) — v8.2: backtesting production-ready
 
 **The Backtesting Engine becomes the whole platform nested inside itself — an installer-style launcher runs standalone multi-symbol historical simulations with the same functions, sizing, safety ladder and funding as paper mode, from the GUI or the CLI.**

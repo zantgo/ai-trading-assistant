@@ -11,6 +11,7 @@
     import ModeChip from './ModeChip.svelte';
     import { buildEngineExport } from '../lib/engineExport';
     import type { ExecutionMode } from '../lib/modePresentation';
+    import { fetchStrategies } from '../lib/api.svelte';
     import styles from '../styles/engine-dashboard.module.css';
 
     let { mode }: { mode?: ExecutionMode } = $props();
@@ -19,44 +20,36 @@
         enabled?: boolean;
         allocation_pct?: number;
         min_net_rr?: number;
-        max_position_size_usd?: number | null;
+        max_position_size_pct_of_equity?: number | null;
         max_open_positions?: number;
         entry_mode?: string;
         invalidate_on?: string;
     }
     interface ExecutionCfg { slippage_ceiling_pct?: number }
-    interface ScoringCfg {
-        base_allocation_pct?: number;
-        micro_allocation_pct?: number;
-        max_allocation_pct?: number;
-        base_score_threshold?: number;
-        micro_score_threshold?: number;
-    }
 
-    let cfg: { minimal_tae?: MinimalTae; execution?: ExecutionCfg; scoring?: ScoringCfg } | null = $state(null);
+    let cfg: { minimal_tae?: MinimalTae; execution?: ExecutionCfg } | null = $state(null);
     let loading = $state(true);
     let error: string | null = $state(null);
     let saveError: string | null = $state(null);
     let saveState = $state<SettingsSaveState>('idle');
+    // v9: instance-scoped — bound strategy + vol scale (auto).
+    let strategies = $state<{ name: string }[]>([]);
+    let boundStrategy = $state<string | null>(null);
+    let strategyDirty = $state(false);
+    let strategySaving = $state(false);
+    let strategyFlash = $state<string | null>(null);
 
     // Drafts — seeded from the loaded config, compared for dirty state.
-    let tae = $state<Required<Pick<MinimalTae, 'enabled' | 'allocation_pct' | 'min_net_rr' | 'max_position_size_usd' | 'max_open_positions' | 'entry_mode' | 'invalidate_on'>>>({
+    let tae = $state<Required<Pick<MinimalTae, 'enabled' | 'allocation_pct' | 'min_net_rr' | 'max_position_size_pct_of_equity' | 'max_open_positions' | 'entry_mode' | 'invalidate_on'>>>({
         enabled: false,
         allocation_pct: 10,
         min_net_rr: 1,
-        max_position_size_usd: null,
+        max_position_size_pct_of_equity: null,
         max_open_positions: 1,
         entry_mode: 'zone_midpoint',
         invalidate_on: 'direction_flip',
     });
     let exec = $state<ExecutionCfg>({ slippage_ceiling_pct: 0.5 });
-    let scoring = $state<ScoringCfg>({
-        base_allocation_pct: 1,
-        micro_allocation_pct: 2,
-        max_allocation_pct: 3,
-        base_score_threshold: 40,
-        micro_score_threshold: 60,
-    });
 
     async function fetchConfig() {
         try {
@@ -69,22 +62,15 @@
                     enabled: data.minimal_tae.enabled ?? false,
                     allocation_pct: data.minimal_tae.allocation_pct ?? 10,
                     min_net_rr: data.minimal_tae.min_net_rr ?? 1,
-                    max_position_size_usd: data.minimal_tae.max_position_size_usd ?? null,
+                    max_position_size_pct_of_equity: data.minimal_tae.max_position_size_pct_of_equity ?? null,
                     max_open_positions: data.minimal_tae.max_open_positions ?? 1,
                     entry_mode: data.minimal_tae.entry_mode ?? 'zone_midpoint',
                     invalidate_on: data.minimal_tae.invalidate_on ?? 'direction_flip',
                 };
             }
             if (data.execution) exec = { slippage_ceiling_pct: data.execution.slippage_ceiling_pct ?? 0.5 };
-            if (data.scoring) {
-                scoring = {
-                    base_allocation_pct: data.scoring.base_allocation_pct ?? 1,
-                    micro_allocation_pct: data.scoring.micro_allocation_pct ?? 2,
-                    max_allocation_pct: data.scoring.max_allocation_pct ?? 3,
-                    base_score_threshold: data.scoring.base_score_threshold ?? 40,
-                    micro_score_threshold: data.scoring.micro_score_threshold ?? 60,
-                };
-            }
+            const instances: { id?: string; strategy?: string | null }[] = data.instances ?? [];
+            boundStrategy = instances[0]?.strategy ?? null;
             error = null;
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
@@ -93,7 +79,12 @@
         }
     }
 
-    onMount(fetchConfig);
+    onMount(() => {
+        void fetchConfig();
+        void fetchStrategies()
+            .then((list) => (strategies = list))
+            .catch(() => {});
+    });
 
     const dirty = $derived.by(() => {
         const c = cfg;
@@ -103,19 +94,12 @@
                 enabled: c.minimal_tae?.enabled ?? false,
                 allocation_pct: c.minimal_tae?.allocation_pct ?? 10,
                 min_net_rr: c.minimal_tae?.min_net_rr ?? 1,
-                max_position_size_usd: c.minimal_tae?.max_position_size_usd ?? null,
+                max_position_size_pct_of_equity: c.minimal_tae?.max_position_size_pct_of_equity ?? null,
                 max_open_positions: c.minimal_tae?.max_open_positions ?? 1,
                 entry_mode: c.minimal_tae?.entry_mode ?? 'zone_midpoint',
                 invalidate_on: c.minimal_tae?.invalidate_on ?? 'direction_flip',
             }) ||
-            JSON.stringify(exec) !== JSON.stringify({ slippage_ceiling_pct: c.execution?.slippage_ceiling_pct ?? 0.5 }) ||
-            JSON.stringify(scoring) !== JSON.stringify({
-                base_allocation_pct: c.scoring?.base_allocation_pct ?? 1,
-                micro_allocation_pct: c.scoring?.micro_allocation_pct ?? 2,
-                max_allocation_pct: c.scoring?.max_allocation_pct ?? 3,
-                base_score_threshold: c.scoring?.base_score_threshold ?? 40,
-                micro_score_threshold: c.scoring?.micro_score_threshold ?? 60,
-            })
+            JSON.stringify(exec) !== JSON.stringify({ slippage_ceiling_pct: c.execution?.slippage_ceiling_pct ?? 0.5 })
         );
     });
 
@@ -140,19 +124,12 @@
                         enabled: tae.enabled,
                         allocation_pct: Number(tae.allocation_pct),
                         min_net_rr: Number(tae.min_net_rr),
-                        max_position_size_usd: Number(tae.max_position_size_usd) > 0 ? Number(tae.max_position_size_usd) : null,
+                        max_position_size_pct_of_equity: Number(tae.max_position_size_pct_of_equity) > 0 ? Number(tae.max_position_size_pct_of_equity) : null,
                         max_open_positions: Number(tae.max_open_positions),
                         entry_mode: tae.entry_mode,
                         invalidate_on: tae.invalidate_on,
                     },
                     execution: { slippage_ceiling_pct: Number(exec.slippage_ceiling_pct) },
-                    scoring: {
-                        base_allocation_pct: Number(scoring.base_allocation_pct),
-                        micro_allocation_pct: Number(scoring.micro_allocation_pct),
-                        max_allocation_pct: Number(scoring.max_allocation_pct),
-                        base_score_threshold: Number(scoring.base_score_threshold),
-                        micro_score_threshold: Number(scoring.micro_score_threshold),
-                    },
                 }),
             });
             if (res.ok) {
@@ -169,11 +146,41 @@
         }
     }
 
+    async function saveStrategyBinding() {
+        if (!boundStrategy) return;
+        strategySaving = true;
+        const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        if (!res.ok) {
+            strategyFlash = 'Failed to read instance context.';
+            strategySaving = false;
+            return;
+        }
+        const data = await res.json();
+        const instId = (data.instances ?? [])[0]?.id as string | undefined;
+        if (!instId) {
+            strategyFlash = 'No instance to bind.';
+            strategySaving = false;
+            return;
+        }
+        const post = await fetch(`/api/instances/${encodeURIComponent(instId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy: boundStrategy }),
+        });
+        strategySaving = false;
+        if (!post.ok) {
+            strategyFlash = (await post.text()) || 'Bind failed';
+            return;
+        }
+        strategyFlash = `Bound to '${boundStrategy}' — full recharge at the next candle boundary; open positions keep their entry params.`;
+        strategyDirty = false;
+        setTimeout(() => (strategyFlash = null), 5000);
+    }
+
     function buildExport(): string {
         return buildEngineExport('trade_automation', 'settings', mode ?? null, {
             minimal_tae: tae,
             execution: exec,
-            scoring,
         });
     }
 </script>
@@ -227,8 +234,8 @@
                         <input class={styles.fieldInput} id="tae-rr" type="number" min="0" max="20" step="0.1" bind:value={tae.min_net_rr} />
                     </div>
                     <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-maxsize">Max position size $</label>
-                        <input class={styles.fieldInput} id="tae-maxsize" type="number" min="0" step="10" bind:value={tae.max_position_size_usd} />
+                        <label class={styles.fieldLabel} for="tae-maxsize">Max position size % of equity</label>
+                        <input class={styles.fieldInput} id="tae-maxsize" type="number" min="0" max="100" step="1" bind:value={tae.max_position_size_pct_of_equity} />
                         <span class={styles.muted} style="font-size:10px">0 = no cap</span>
                     </div>
                     <div class={styles.field}>
@@ -263,36 +270,39 @@
                     </div>
                 </div>
             </div>
-
             <div class={styles.card}>
                 <div class={styles.cardHead}>
-                    <h3 class={styles.cardTitle}>Allocation Scoring</h3>
-                    <ConfigSourceChip source="[workspace.scoring]" apply="LIVE" />
+                    <h3 class={styles.cardTitle}>Strategy Binding</h3>
+                    <ConfigSourceChip source="[instances.*.strategy]" apply="LIVE" />
                 </div>
-                <p class={styles.infoLine}>Confluence-score → allocation mapping for the position sizing protocol.</p>
+                <p class={styles.infoLine}>
+                    The instance's bound strategy (JSON). Changing it recharges the
+                    pipeline fully at the next candle boundary; open positions keep
+                    the params they entered with.
+                </p>
                 <div class={styles.formRow}>
-                    <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-base-all">Base allocation %</label>
-                        <input class={styles.fieldInput} id="tae-base-all" type="number" min="0.01" max="100" step="0.1" bind:value={scoring.base_allocation_pct} />
+                    <div class={styles.field} style="flex:2">
+                        <label class={styles.fieldLabel} for="tae-strategy">Bound strategy</label>
+                        <select id="tae-strategy" class={styles.select} bind:value={boundStrategy} onchange={() => (strategyDirty = true)}>
+                            <option value={null}></option>
+                            {#each strategies as stg (stg.name)}
+                                <option value={stg.name}>{stg.name}</option>
+                            {/each}
+                        </select>
                     </div>
                     <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-micro-all">Micro allocation %</label>
-                        <input class={styles.fieldInput} id="tae-micro-all" type="number" min="0.01" max="100" step="0.1" bind:value={scoring.micro_allocation_pct} />
-                    </div>
-                    <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-max-all">Max allocation %</label>
-                        <input class={styles.fieldInput} id="tae-max-all" type="number" min="0.01" max="100" step="0.1" bind:value={scoring.max_allocation_pct} />
-                    </div>
-                    <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-base-th">Base score threshold</label>
-                        <input class={styles.fieldInput} id="tae-base-th" type="number" min="0" max="100" step="1" bind:value={scoring.base_score_threshold} />
-                    </div>
-                    <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="tae-micro-th">Micro score threshold</label>
-                        <input class={styles.fieldInput} id="tae-micro-th" type="number" min="0" max="100" step="1" bind:value={scoring.micro_score_threshold} />
+                        <button class="{styles.btn} {styles.btnPrimary}" disabled={!strategyDirty || strategySaving} onclick={() => void saveStrategyBinding()}>
+                            {strategySaving ? 'Binding…' : 'Bind'}
+                        </button>
                     </div>
                 </div>
-                <p class={styles.infoLine}>Current saved values — {cfg.minimal_tae?.allocation_pct ?? 10}% allocation per position · {fmtPct(cfg.execution?.slippage_ceiling_pct)} slippage ceiling.</p>
+                {#if strategyFlash}
+                    <p class={styles.infoLine}>{strategyFlash}</p>
+                {/if}
+                <p class={styles.infoLine}>
+                    Volatility scaling (vol_scale) is auto-computed per instance from ATR
+                    history; a manual override lands with the strategy editor.
+                </p>
             </div>
         {:else}
             <div class={styles.empty}>No configuration available.</div>

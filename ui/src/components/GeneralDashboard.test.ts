@@ -126,7 +126,6 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         structure_assessment: 'Healthy',
         volatility_assessment: 'Normal',
         volume_assessment: 'Normal',
-        opportunity_analysis: 'TrendContinuation',
         market_quality: 'Good',
         market_quality_score: 70,
         market_phase: 'Markup',

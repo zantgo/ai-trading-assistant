@@ -129,6 +129,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                               cancel: CancellationToken| {
             let t = telemetry_tx.clone();
             tokio::spawn(async move {
+                let strategy = config_models::StrategyConfig::default();
                 analyzer::run_single(
                     rx,
                     t,
@@ -158,6 +159,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     None,
                     None,
                     OrderBookConfig::default(),
+                    strategy,
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),

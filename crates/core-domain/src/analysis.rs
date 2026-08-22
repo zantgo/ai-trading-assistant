@@ -360,7 +360,6 @@ pub struct AnalysisMatrix {
     pub structure_assessment: StructureAssessment,
     pub volatility_assessment: VolatilityAssessment,
     pub volume_assessment: VolumeAssessment,
-    pub opportunity_analysis: OpportunityType,
     pub market_quality: QualityLevel,
     pub market_quality_score: f64,
     /// v6.12 numeric companions: the exact 0-100 alignment dimension
@@ -414,7 +413,6 @@ impl AnalysisMatrix {
             structure_assessment: StructureAssessment::Unknown,
             volatility_assessment: VolatilityAssessment::Normal,
             volume_assessment: VolumeAssessment::Normal,
-            opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Poor,
             market_quality_score: 0.0,
             trend_score: None,
@@ -833,43 +831,11 @@ pub fn derive_analysis(
         MarketPhase::Unknown
     };
 
-    // Opportunity (deprecated — L4 owns the canonical tree; kept for
-    // backward compat on `analysis.opportunity_analysis`). v6.10.8: the
-    // chain is synced with the L4 §4 tree (02-08-opportunity-matrix.md)
-    // so the Analysis interpretation prose and the Metrics export label
-    // can never contradict the L4 verdict:
-    //   - TrendContinuation requires a directional bias AND non-reversing
-    //     momentum (the legacy default fell through to TrendContinuation
-    //     for EVERY market, including collapsed/neutral ones).
-    //   - MeanReversion requires the range regime (`is_range`) — the same
-    //     B2 gate the L4 tree enforces.
-    //   - LiquiditySqueeze is NOT derivable here (it needs L1.5 cascade
-    //     data); the legacy `opp_dim` heuristic is dropped.
-    //   - The default is NoClearOpportunity.
-    // Reversal (confirmed divergence) is likewise not derivable here —
-    // it needs the indicator signal map.
-    let momentum_not_exhausted = !matches!(momentum_assessment, MomentumAssessment::Reversing);
-    let is_range = matches!(regime, MarketRegime::Range | MarketRegime::Contraction);
-    let opportunity = if trend_dim >= 75.0
-        && (matches!(
-            bias,
-            MarketBias::Bullish
-                | MarketBias::StrongBullish
-                | MarketBias::Bearish
-                | MarketBias::StrongBearish
-        ))
-        && momentum_not_exhausted
-    {
-        OpportunityType::TrendContinuation
-    } else if vol_dim >= 70.0 && struct_dim >= 60.0 {
-        OpportunityType::Breakout
-    } else if trend_dim >= 60.0 && momentum_assessment == MomentumAssessment::Weakening {
-        OpportunityType::Pullback
-    } else if vol_dim <= 30.0 && is_range {
-        OpportunityType::MeanReversion
-    } else {
-        OpportunityType::NoClearOpportunity
-    };
+    // v9 (F-03): the deprecated L3 opportunity chain is ERASED — the
+    // OpportunityType classification is an L4 forecast (Opportunity
+    // Matrix), never an L3 state interpretation. The Analysis Matrix no
+    // longer carries `opportunity_analysis`; consumers read L4's
+    // `primary_opportunity` / `profiles[]` directly.
 
     // Market quality aggregate. Bug-fix #12: the legacy aggregate
     // averaged 4 dimensions (trend + momentum + structure + volume) and
@@ -961,7 +927,7 @@ pub fn derive_analysis(
     }
 
     let interpretation = format!(
-        "{} market with {} trend, {} momentum, {} structure, {} volatility, and {} volume participation. {}",
+        "{} market with {} trend, {} momentum, {} structure, {} volatility, and {} volume participation.",
         match regime {
             MarketRegime::TrendingBull => "Bullish trending",
             MarketRegime::TrendingBear => "Bearish trending",
@@ -977,16 +943,6 @@ pub fn derive_analysis(
         format!("{:?}", structure_assessment).to_lowercase(),
         format!("{:?}", volatility_assessment).to_lowercase(),
         format!("{:?}", volume_assessment).to_lowercase(),
-        match opportunity {
-            OpportunityType::TrendContinuation => "Favors trend continuation.",
-            OpportunityType::Breakout => "Breakout conditions present.",
-            OpportunityType::Pullback => "Pullback opportunity forming.",
-            OpportunityType::MeanReversion => "Mean reversion conditions detected.",
-            OpportunityType::Reversal => "Reversal signals emerging.",
-            OpportunityType::LiquiditySqueeze => "Liquidity squeeze setup (Phase 3).",
-            OpportunityType::Scalp => "High-frequency scalp setup active.",
-            OpportunityType::NoClearOpportunity => "No clear opportunity identified.",
-        }
     );
 
     AnalysisMatrix {
@@ -1001,7 +957,6 @@ pub fn derive_analysis(
         structure_assessment,
         volatility_assessment,
         volume_assessment,
-        opportunity_analysis: opportunity,
         market_quality,
         market_quality_score: quality_score,
         // v6.12: the exact 0-100 alignment dimension scores each
@@ -1562,78 +1517,5 @@ mod tests {
         assert_eq!(json, "\"COUNTER_TREND\"");
         let json = serde_json::to_string(&DirectionFamily::Neutral).unwrap();
         assert_eq!(json, "\"NEUTRAL\"");
-    }
-
-    // ── AN-4: the deprecated L3 opportunity chain mirrors the fixed L4 tree ──
-
-    fn custom_alignment(
-        trend_signed: f64,
-        mom_dim: f64,
-        vol_dim: f64,
-        struct_dim: f64,
-        score: f64,
-    ) -> AlignmentMatrix {
-        let mut a = AlignmentMatrix::empty("BTC-USD");
-        a.timeframes_present = 4;
-        a.mtf_trend_alignment = trend_signed;
-        a.mtf_overall_score = score;
-        if let Some(d) = a.dimensions.get_mut(1) {
-            d.score = mom_dim;
-        }
-        if let Some(d) = a.dimensions.get_mut(2) {
-            d.score = 50.0; // volume — neutral in these tests
-        }
-        if let Some(d) = a.dimensions.get_mut(3) {
-            d.score = vol_dim;
-        }
-        if let Some(d) = a.dimensions.get_mut(4) {
-            d.score = struct_dim;
-        }
-        a
-    }
-
-    #[test]
-    fn opportunity_chain_defaults_to_no_clear() {
-        // AN-4: a compressed market in an EXPANSION regime (vol ≤ 30 but
-        // NOT range) must NOT classify as MeanReversion, and the legacy
-        // default-TrendContinuation fallthrough is gone — the verdict
-        // mirrors the fixed L4 tree (B2 parity).
-        let a = custom_alignment(0.0, 50.0, 25.0, 50.0, 10.0);
-        // bbwp ≥ 85 → Expansion regime.
-        let d = derive_analysis(&a, Some(90.0), Some(20.0), None, None, None, None);
-        assert_eq!(d.market_regime, MarketRegime::Expansion);
-        assert_eq!(d.opportunity_analysis, OpportunityType::NoClearOpportunity);
-    }
-
-    #[test]
-    fn opportunity_mean_reversion_requires_range_regime() {
-        // The same compressed-vol profile in a RANGE regime classifies as
-        // MeanReversion (is_range satisfied).
-        let a = custom_alignment(0.0, 50.0, 25.0, 50.0, 10.0);
-        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None, None);
-        assert_eq!(d.market_regime, MarketRegime::Range);
-        assert_eq!(d.opportunity_analysis, OpportunityType::MeanReversion);
-    }
-
-    #[test]
-    fn opportunity_trend_continuation_requires_bias_and_momentum() {
-        // trend ≥ 75 + directional bias + stable momentum → TrendContinuation.
-        let a = custom_alignment(0.75, 70.0, 45.0, 60.0, 30.0);
-        let d = derive_analysis(&a, Some(50.0), Some(28.0), None, None, None, None);
-        assert_eq!(d.opportunity_analysis, OpportunityType::TrendContinuation);
-
-        // Reversing momentum must NOT classify as TrendContinuation.
-        let a2 = custom_alignment(0.75, 25.0, 45.0, 60.0, 30.0);
-        let d2 = derive_analysis(&a2, Some(50.0), Some(28.0), None, None, None, None);
-        assert_ne!(d2.opportunity_analysis, OpportunityType::TrendContinuation);
-    }
-
-    #[test]
-    fn opportunity_pullback_requires_weakening_momentum() {
-        // trend 65 (≥ 60) + Weakening momentum + vol above the 30 gate
-        // → Pullback, not MeanReversion.
-        let a = custom_alignment(0.3, 45.0, 45.0, 50.0, 10.0);
-        let d = derive_analysis(&a, Some(50.0), Some(20.0), None, None, None, None);
-        assert_eq!(d.opportunity_analysis, OpportunityType::Pullback);
     }
 }

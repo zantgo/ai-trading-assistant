@@ -31,6 +31,8 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             name: "Test".into(),
             default_currency: "USDC".into(),
             default_exchange: "Hyperliquid".into(),
+            portfolio_capital_usd: 1000.0,
+            strategies: vec![config_models::StrategyConfig::default()],
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
             },
@@ -41,7 +43,6 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             fibonacci: Default::default(),
             pivots: Default::default(),
             leverage: Default::default(),
-            scoring: Default::default(),
             fees: Default::default(),
             defaults: Default::default(),
             safety: Default::default(),
@@ -50,6 +51,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             heatmap: Default::default(),
             activation: Default::default(),
             opportunity_matrix: Default::default(),
+            order_book: Default::default(),
             config_version: 1,
             api_failover: Default::default(),
             instances: Vec::new(),
@@ -72,6 +74,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let analyzer_pair_key = pair_key.clone();
         let analyzer_div_det = divergence_detector.clone();
         let analyzer_handle = tokio::spawn(async move {
+            let strategy = config_models::StrategyConfig::default();
             analyzer::run_single(
                 snapshot_rx,
                 analyzer_telemetry,
@@ -101,6 +104,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 None,
                 config_models::OrderBookConfig::default(),
+                strategy,
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),

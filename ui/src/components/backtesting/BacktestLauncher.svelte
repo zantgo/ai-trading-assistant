@@ -51,6 +51,8 @@
     let depthDays = $state((() => depthDefault)());
     let depthInput = $state('');
     let error = $state('');
+    let strategies = $state<{ name: string; description?: string }[]>([]);
+    let strategyName = $state('default');
     $effect(() => {
         if (depthDays !== depthDefault) depthDays = depthDefault;
     });
@@ -68,7 +70,20 @@
     let preparingMsg = $state('');
     let lastRunId = $state<number | null>(null);
 
-    const stepTitles = ['Environment', 'Instances', 'Historical Data', 'Run'];
+    const stepTitles = ['Environment', 'Strategy', 'Instances', 'Historical Data', 'Run'];
+
+    $effect(() => {
+        void fetch('/api/strategies')
+            .then((r) => r.json())
+            .then((d) => {
+                const list: { name: string; description?: string }[] = d?.strategies ?? [];
+                strategies = list;
+                if (list.length > 0 && !list.some((x) => x.name === strategyName)) {
+                    strategyName = list[0].name;
+                }
+            })
+            .catch(() => {});
+    });
 
     const supportedCurrencies = $derived(exchange === 'Hyperliquid' ? ['USDC'] : ['USDT']);
     $effect(() => {
@@ -115,15 +130,15 @@
 
     function goNext() {
         error = '';
-        if (step === 2 && instances.length === 0) {
+        if (step === 3 && instances.length === 0) {
             error = 'Add at least one instance to continue.';
             return;
         }
-        if (step === 3 && depthInvalid) {
+        if (step === 4 && depthInvalid) {
             error = 'Depth must be a whole number of days (1–365).';
             return;
         }
-        if (step < 4) step += 1;
+        if (step < 5) step += 1;
     }
 
     function goBack() {
@@ -288,7 +303,8 @@
                     symbols,
                     from_ms: Math.floor(fromMs),
                     to_ms: Math.floor(toMs),
-                    initial_capital: Number(capital),
+                    portfolio_capital_usd: Number(capital),
+                    strategy_id: strategyName,
                     mode: 'historical',
                 }),
             });
@@ -400,12 +416,28 @@
                 </div>
             </div>
             <div class={styles.field}>
-                <label class={styles.label} for="bl-capital">Starting Capital (USD)</label>
+                <label class={styles.label} for="bl-capital">Portfolio Capital (USD)</label>
                 <input id="bl-capital" class={styles.input} type="number" min="100" step="100" bind:value={capital} />
                 <p class={styles.hint}>The virtual portfolio the replay trades against.</p>
             </div>
         </section>
     {:else if step === 2}
+        <section class={styles.section}>
+            <h2 class={styles.sectionTitle}>Strategy</h2>
+            <p class={styles.boundNote}>
+                The strategy JSON drives the whole replay (MME layers, sizing, exits,
+                verdict bar). Edit strategies in Profile → Strategies.
+            </p>
+            <div class={styles.field}>
+                <label class={styles.label} for="bl-strategy">Strategy</label>
+                <select id="bl-strategy" class={styles.input} bind:value={strategyName}>
+                    {#each strategies as stg (stg.name)}
+                        <option value={stg.name}>{stg.name}</option>
+                    {/each}
+                </select>
+            </div>
+        </section>
+    {:else if step === 3}
         <section class={styles.section}>
             <h2 class={styles.sectionTitle}>Instances</h2>
             <p class={styles.hint}>
@@ -468,7 +500,7 @@
                 </span>
             </div>
         </section>
-    {:else if step === 3}
+    {:else if step === 4}
         <section class={styles.section}>
             <h2 class={styles.sectionTitle}>Historical Data</h2>
             <p class={styles.hint}>
@@ -518,7 +550,7 @@
                 {/if}
             {/if}
         </section>
-    {:else}
+    {:else if step === 5}
         <section class={styles.section}>
             <h2 class={styles.sectionTitle}>Run</h2>
             {#if !runState && !running && !preparing}
@@ -565,7 +597,7 @@
         {:else}
             <span></span>
         {/if}
-        {#if step < 4}
+        {#if step < 5}
             <button class={styles.continueButton} onclick={goNext}>Continue</button>
         {:else if running || preparing}
             <button class={styles.cancelButton} onclick={cancelRun} disabled={preparing}>Cancel</button>

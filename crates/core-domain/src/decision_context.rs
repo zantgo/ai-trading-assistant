@@ -87,6 +87,9 @@ impl DecisionContext {
     /// `opportunity` may be `None` if the L4 Opportunity Matrix is not yet
     /// populated for this symbol (early-warmup state). The function still
     /// produces a valid `DecisionContext` in this case.
+    ///
+    /// v9 F-05: `params` is the shared Decision-layer parameter struct —
+    /// every grid below reads the same source `compute_advisory` uses.
     pub fn compute(
         indicators: &HashMap<String, NormalizedIndicatorValue>,
         close: f64,
@@ -95,6 +98,7 @@ impl DecisionContext {
         analysis: &AnalysisMatrix,
         opportunity: Option<&super::opportunity::OpportunityMatrix>,
         risk: &RiskMatrix,
+        params: &super::decision_params::DecisionParams,
     ) -> Self {
         let _ = (close, atr); // kept for API symmetry / future volatility-aware extensions
 
@@ -135,39 +139,41 @@ impl DecisionContext {
                 crate::analysis::MarketBias::Neutral => 0.0,
             })
             .unwrap_or(0.0);
-        let risk_disc = 1.0 - risk.overall_risk.score / 100.0;
+        let risk_disc = params.risk_discount(risk.overall_risk.score);
         let expected_reward_risk_ratio = active_rr * risk_disc;
 
         // -- entry_danger = mean(quality_penalty, 100 − opportunity_score)
         let quality_penalty: f64 = match analysis.market_quality {
-            crate::analysis::QualityLevel::Excellent => 10.0,
-            crate::analysis::QualityLevel::Good => 25.0,
-            crate::analysis::QualityLevel::Average => 50.0,
-            crate::analysis::QualityLevel::Weak => 70.0,
-            crate::analysis::QualityLevel::Poor => 80.0,
+            crate::analysis::QualityLevel::Excellent => params.quality_penalty(0),
+            crate::analysis::QualityLevel::Good => params.quality_penalty(1),
+            crate::analysis::QualityLevel::Average => params.quality_penalty(2),
+            crate::analysis::QualityLevel::Weak => params.quality_penalty(3),
+            crate::analysis::QualityLevel::Poor => params.quality_penalty(4),
         };
-        let opportunity_score = opportunity.map(|o| o.opportunity_score).unwrap_or(50.0);
-        let entry_danger_score =
-            ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
+        let opportunity_score = opportunity
+            .map(|o| o.opportunity_score)
+            .unwrap_or(params.opportunity_fallback);
+        let entry_danger_score = ((quality_penalty + (100.0 - opportunity_score)) / 2.0)
+            .clamp(0.0, 100.0);
         let entry_danger = RiskDimension::from_score_with_confidence(
             entry_danger_score,
             analysis.state_confidence,
         );
 
-        // -- confidence_assessment (matches AdvisoryMatrix `compute_advisory`)
+        // -- confidence_assessment (shared DecisionParams helper)
         let confidence_assessment =
-            (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0)
-                .clamp(0.0, 100.0);
+            params.confidence_assessment(analysis.state_confidence, risk.overall_risk.score);
 
         let score_confidence = (confluence_score.abs() / 100.0).min(1.0);
 
         // -- Market stance (exact replication of AdvisoryMatrix A5 / §3.2)
         //    Returns (is_avoid, is_aggressive_or_constructive) so the
         //    percentage modulation matches `compute_advisory()` exactly.
+        //    v9 F-05: the same DecisionParams borders.
         let (stance_is_avoid, stance_is_aggressive_or_constructive) = match analysis.market_quality
         {
             crate::analysis::QualityLevel::Poor => {
-                if risk.overall_risk.score >= 80.0 {
+                if risk.overall_risk.score >= params.stance_risk_avoid {
                     (true, false)
                 } else {
                     (false, false) // Cautious
@@ -180,16 +186,16 @@ impl DecisionContext {
                 (false, false) // Neutral or Cautious — neither avoid nor aggressive
             }
             crate::analysis::QualityLevel::Good => {
-                if risk.overall_risk.score < 30.0 {
+                if risk.overall_risk.score < params.stance_risk_constructive {
                     (false, true) // Constructive
                 } else {
                     (false, false) // Cautious
                 }
             }
             crate::analysis::QualityLevel::Excellent => {
-                if risk.overall_risk.score >= 80.0 {
+                if risk.overall_risk.score >= params.stance_risk_avoid {
                     (true, false) // Avoid
-                } else if risk.overall_risk.score < 30.0 {
+                } else if risk.overall_risk.score < params.stance_risk_constructive {
                     (false, true) // Aggressive or Constructive
                 } else {
                     (false, false) // Cautious
@@ -211,7 +217,7 @@ impl DecisionContext {
             match analysis.bias {
                 crate::analysis::MarketBias::StrongBullish => (true, false), // StrongLong (risk gate bypassed: identical outcome)
                 crate::analysis::MarketBias::Bullish => {
-                    if lifted || risk.overall_risk.score < 40.0 {
+                    if lifted || risk.overall_risk.score < params.direction_risk_plain {
                         (true, false) // Long (lifted reads bypass the risk gate)
                     } else {
                         (false, false) // Neutral
@@ -219,7 +225,7 @@ impl DecisionContext {
                 }
                 crate::analysis::MarketBias::StrongBearish => (false, true), // StrongShort (risk gate bypassed: identical outcome)
                 crate::analysis::MarketBias::Bearish => {
-                    if lifted || risk.overall_risk.score < 40.0 {
+                    if lifted || risk.overall_risk.score < params.direction_risk_plain {
                         (false, true) // Short (lifted reads bypass the risk gate)
                     } else {
                         (false, false) // Neutral
@@ -239,14 +245,14 @@ impl DecisionContext {
         //    mirror: NoEntryContext (vol ≥ 60, or a weak/exhausted trend)
         //    and WaitForConfirmation (Developing with vol ≥ 20) are both
         //    wait-states; only Immediate/Pullback/Breakout entries pass.
-        let entry_guidance_is_wait = risk.volatility_risk.score >= 60.0
+        let entry_guidance_is_wait = risk.volatility_risk.score >= params.entry_vol_no_entry
             || matches!(
                 analysis.trend_assessment,
                 crate::analysis::TrendAssessment::Weak
                     | crate::analysis::TrendAssessment::Exhausted
             )
             || (analysis.trend_assessment == crate::analysis::TrendAssessment::Developing
-                && risk.volatility_risk.score >= 20.0);
+                && risk.volatility_risk.score >= params.entry_vol_breakout);
 
         // v6.10.19 (T4): "FORMING" means a setup is actually coiling — it
         // requires at least one QUALIFYING profile (preconditions_met > 0,
@@ -264,10 +270,12 @@ impl DecisionContext {
             })
             .unwrap_or(false);
 
-        let trade_readiness = if stance_is_avoid || confidence_assessment < 20.0 {
+        let trade_readiness = if stance_is_avoid
+            || confidence_assessment < params.readiness_aside_max
+        {
             "STAND_ASIDE"
         } else if directional_is_non_neutral
-            && confidence_assessment >= 60.0
+            && confidence_assessment >= params.readiness_ready_min
             && stance_is_aggressive_or_constructive
             && !entry_guidance_is_wait
         {
@@ -279,10 +287,24 @@ impl DecisionContext {
         }
         .to_string();
 
+        // v9: the risk-ceiling soft-block — when the strategy's
+        // `l6.risk_ceiling.max_overall_risk` is breached, readiness floors
+        // at WATCH (the setup still surfaces, visibly blocked; TAE requires
+        // READY so it can never execute).
+        let trade_readiness = if params
+            .risk_ceiling_max_overall_risk
+            .is_some_and(|ceiling| risk.overall_risk.score > ceiling)
+            && (trade_readiness == "READY" || trade_readiness == "FORMING")
+        {
+            "WATCH".to_string()
+        } else {
+            trade_readiness
+        };
+
         // Contributing indicators: any indicator with confidence >= 0.6
         let contributing_indicators: Vec<String> = indicators
             .iter()
-            .filter(|(_, v)| v.confidence >= 0.6)
+            .filter(|(_, v)| v.confidence >= params.prob_contributing_conf_min)
             .map(|(k, _)| k.clone())
             .collect();
 
@@ -314,14 +336,14 @@ impl DecisionContext {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 }) {
                     if has_long && !has_short {
-                        offset = top.score * 0.15;
+                        offset = top.score * params.prob_geometric_offset;
                     } else if has_short && !has_long {
-                        offset = -top.score * 0.15;
+                        offset = -top.score * params.prob_geometric_offset;
                     } else if has_long && has_short {
                         if opp.long_expected_rr_internal >= opp.short_expected_rr_internal {
-                            offset = top.score * 0.15;
+                            offset = top.score * params.prob_geometric_offset;
                         } else {
-                            offset = -top.score * 0.15;
+                            offset = -top.score * params.prob_geometric_offset;
                         }
                     }
                 }
@@ -331,15 +353,15 @@ impl DecisionContext {
             signed_confluence
         };
 
-        let effective_confidence = if score_confidence >= 0.5 {
+        let effective_confidence = if score_confidence >= params.prob_eff_conf_floor {
             score_confidence
         } else {
-            0.5
+            params.prob_eff_conf_floor
         };
 
         let base_long = (effective_score.max(0.0) * effective_confidence).clamp(0.0, 100.0);
         let base_short = ((-effective_score).max(0.0) * effective_confidence).clamp(0.0, 100.0);
-        let base_hold = ((entry_danger_score / 100.0) * 50.0).clamp(0.0, 100.0);
+        let base_hold = ((entry_danger_score / 100.0) * params.prob_hold_scale).clamp(0.0, 100.0);
 
         let mut long = base_long;
         let mut short = base_short;
@@ -347,25 +369,25 @@ impl DecisionContext {
 
         // Modulation by directional guidance
         if direction_is_long {
-            long *= 1.2;
-            short *= 0.5;
+            long *= params.prob_guidance_amp;
+            short *= params.prob_guidance_atten;
         } else if direction_is_short {
-            short *= 1.2;
-            long *= 0.5;
+            short *= params.prob_guidance_amp;
+            long *= params.prob_guidance_atten;
         }
 
         // Modulation by market stance
         if stance_is_aggressive_or_constructive {
             if direction_is_long {
-                long *= 1.15;
+                long *= params.prob_stance_amp;
             } else if direction_is_short {
-                short *= 1.15;
+                short *= params.prob_stance_amp;
             }
         }
         if stance_is_avoid {
-            long *= 0.5;
-            short *= 0.5;
-            hold *= 1.5;
+            long *= params.prob_avoid_atten;
+            short *= params.prob_avoid_atten;
+            hold *= params.prob_avoid_hold_amp;
         }
 
         // R:R modulation. v6.10.17: the ×0.6 penalty applies only when an
@@ -390,9 +412,9 @@ impl DecisionContext {
         );
         if expected_reward_risk_ratio > 0.0 && expected_reward_risk_ratio < 1.0 {
             if bias_is_long {
-                long *= 0.6;
+                long *= params.prob_rr_penalty;
             } else if bias_is_short {
-                short *= 0.6;
+                short *= params.prob_rr_penalty;
             }
         }
 
@@ -411,11 +433,10 @@ impl DecisionContext {
             (l_rounded, s_rounded, h_rounded)
         };
 
-        // MIN_PCT floor = 2% (prevents degenerate 100/0/0 distributions)
-        const MIN_PCT: f64 = 2.0;
-        l = l.max(MIN_PCT);
-        s = s.max(MIN_PCT);
-        h = h.max(MIN_PCT);
+        // MIN_PCT floor (prevents degenerate 100/0/0 distributions)
+        l = l.max(params.prob_min_pct);
+        s = s.max(params.prob_min_pct);
+        h = h.max(params.prob_min_pct);
 
         // v6.10.17 graded-lean floors: whenever a directional read exists
         // the distribution must stay GRADED — HOLD is capped at 60% and
@@ -434,16 +455,16 @@ impl DecisionContext {
             // v6.10.19 (P6): track whether the floors actually moved the
             // split — the operator must SEE that this is a boosted lean.
             let mut floor_moved = false;
-            if dh > 60.0 {
+            if dh > params.prob_hold_cap {
                 floor_moved = true;
-                dh = 60.0;
+                dh = params.prob_hold_cap;
             }
-            if bias_is_long && dl < 15.0 {
+            if bias_is_long && dl < params.prob_arm_floor {
                 floor_moved = true;
-                dl = 15.0;
-            } else if bias_is_short && ds < 15.0 {
+                dl = params.prob_arm_floor;
+            } else if bias_is_short && ds < params.prob_arm_floor {
                 floor_moved = true;
-                ds = 15.0;
+                ds = params.prob_arm_floor;
             }
             lean_floor_applied = floor_moved;
             l = dl;
@@ -496,7 +517,6 @@ mod tests {
             structure_assessment: StructureAssessment::Healthy,
             volatility_assessment: VolatilityAssessment::Normal,
             volume_assessment: VolumeAssessment::Normal,
-            opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: q,
             market_quality_score: 0.0,
             trend_score: None,
@@ -556,7 +576,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Bullish");
         assert!((ctx.score - 30.0).abs() < 1e-9);
         assert!((ctx.expected_reward_risk_ratio - 2.0).abs() < 1e-9);
@@ -589,7 +609,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 50.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 50.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Bearish");
         assert!((ctx.score - -50.0).abs() < 1e-9);
         // active side is Bearish → reads short_expected_rr_internal
@@ -618,7 +638,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Neutral");
         assert!((ctx.score - 0.0).abs() < 1e-9);
         // Neutral bias with no directional offset should produce a balanced distribution
@@ -656,7 +676,7 @@ mod tests {
         // capture's L6). With a Bullish bias the signed score must be
         // positive, not zeroed.
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 63.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 63.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Bullish");
         assert!((ctx.score - 63.0).abs() < 1e-9);
         assert!(ctx.long_probability > ctx.hold_probability);
@@ -684,7 +704,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "StrongBullish");
         assert!((ctx.score - 90.0).abs() < 1e-9);
         assert!(ctx.long_probability > ctx.short_probability);
@@ -709,7 +729,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 65.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 65.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "StrongBearish");
         assert!((ctx.score - -65.0).abs() < 1e-9);
         assert!(ctx.short_probability > ctx.long_probability);
@@ -733,7 +753,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert!((ctx.expected_reward_risk_ratio - 0.5).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
         assert!(ctx.long_probability > 0.0);
@@ -758,7 +778,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert!((ctx.entry_danger.score - 70.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
         assert!(ctx.long_probability > 0.0);
@@ -789,7 +809,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Bearish");
         assert!(ctx.short_probability > ctx.long_probability);
         assert!(ctx.short_probability > ctx.hold_probability);
@@ -826,9 +846,9 @@ mod tests {
             ..Default::default()
         };
         let ctx_bear =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bear, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bear, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         let ctx_bull =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bull, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bull, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx_bear.long_probability, ctx_bull.short_probability);
         assert_eq!(ctx_bear.short_probability, ctx_bull.long_probability);
         assert_eq!(ctx_bear.hold_probability, ctx_bull.hold_probability);
@@ -856,7 +876,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Neutral");
         assert!(ctx.hold_probability >= 90.0);
         assert!(ctx.long_probability >= 2.0);
@@ -889,7 +909,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         // 0.5 × (1 − 0.4187) = 0.2907 < 1.0 → penalty applies: the short
         // arm is compressed, so HOLD overtakes it while the split stays
         // graded (hold ≤ 60, short ≥ 15).
@@ -925,7 +945,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert!(
             ctx.lean_floor_applied,
             "floors must be flagged when they adjust the split"
@@ -957,7 +977,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert!(!ctx.lean_floor_applied);
     }
 
@@ -985,7 +1005,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.trade_readiness, "WATCH");
     }
 
@@ -1030,7 +1050,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.trade_readiness, "FORMING");
     }
 
@@ -1058,7 +1078,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 71.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 71.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert_eq!(ctx.bias, "Bullish");
         // The split stays GRADED with the penalty: long ≈ 57, hold ≈ 41,
         // net ≈ +55 — versus ~75/23 unpenalized (the 0.55 R:R must cap).
@@ -1087,7 +1107,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 0.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 0.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         assert!((ctx.expected_reward_risk_ratio - 0.0).abs() < 1e-9);
         assert!(ctx.long_probability + ctx.short_probability + ctx.hold_probability > 0.0);
     }
@@ -1110,7 +1130,7 @@ mod tests {
             ..Default::default()
         };
         let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk);
+            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default());
         let total = ctx.long_probability + ctx.short_probability + ctx.hold_probability;
         assert!(
             (total - 100.0).abs() < 1e-9,

@@ -37,7 +37,10 @@ pub struct BacktestParams {
     pub from_secs: i64,
     pub to_secs: i64,
     #[serde(default = "default_capital")]
-    pub initial_capital: f64,
+    #[serde(alias = "initial_capital")]
+    /// v9 (F-07): ONE capital dial — the simulated account seed
+    /// (`portfolio_capital_usd`, same field name as paper/live).
+    pub portfolio_capital_usd: f64,
 }
 
 fn default_capital() -> f64 {
@@ -148,7 +151,7 @@ pub async fn run_backtest(
 
     let engine = ExecutionEngine::new(fees.clone());
     engine
-        .set_initial_equity(Decimal::from_f64_retain(params.initial_capital).unwrap_or(dec!(1000)))
+        .set_initial_equity(Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)))
         .await;
     engine.set_cross_leverage(cross_leverage).await;
     let engine = std::sync::Arc::new(engine);
@@ -158,7 +161,7 @@ pub async fn run_backtest(
     let mut equity_points: Vec<(i64, f64)> = Vec::new();
     let mut signals: Vec<database_storage::queries::backtest_ds::DsSignal> = Vec::new();
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
-    let mut peak_equity: f64 = params.initial_capital;
+    let mut peak_equity: f64 = params.portfolio_capital_usd;
 
     for rec in &records {
         let snap = snap_to_market(&params.symbol, rec);
@@ -589,7 +592,7 @@ mod tests {
             enabled: true,
             allocation_pct: 10.0,
             min_net_rr: 1.0,
-            max_position_size_usd: None,
+            max_position_size_pct_of_equity: None,
             max_open_positions: 1,
             entry_mode: "zone_midpoint".to_string(),
             invalidate_on: "direction_flip".to_string(),
@@ -609,7 +612,7 @@ mod tests {
             timeframe_secs: 60,
             from_secs: 0,
             to_secs: 10_000,
-            initial_capital: 1000.0,
+            portfolio_capital_usd: 1000.0,
         };
         let result = run_backtest(
             &pool,
@@ -654,7 +657,7 @@ mod tests {
             timeframe_secs: 60,
             from_secs: 0,
             to_secs: 10_000,
-            initial_capital: 1000.0,
+            portfolio_capital_usd: 1000.0,
         };
         let result = run_backtest(
             &pool,

@@ -257,7 +257,7 @@ fn opportunity_type_str(ot: &OpportunityType) -> String {
 pub struct SetupExecutor {
     pub min_net_rr: f64,
     pub default_allocation_pct: f64,
-    pub max_position_size_usd: Option<f64>,
+    pub max_position_size_pct_of_equity: Option<f64>,
     pub max_open_positions: u32,
     pub engine: Arc<ExecutionEngine>,
     state: RwLock<HashMap<String, SymbolState>>,
@@ -268,7 +268,7 @@ impl SetupExecutor {
         Self {
             min_net_rr: cfg.min_net_rr,
             default_allocation_pct: cfg.allocation_pct,
-            max_position_size_usd: cfg.max_position_size_usd,
+            max_position_size_pct_of_equity: cfg.max_position_size_pct_of_equity,
             max_open_positions: cfg.max_open_positions,
             engine,
             state: RwLock::new(HashMap::new()),
@@ -654,7 +654,9 @@ impl SetupExecutor {
     /// `notional = equity × allocation_pct / 100`, `size = notional /
     /// entry_mid`. The stop-loss no longer sizes the position — it defines
     /// the risk budget / invalidation level only. Leverage still applies to
-    /// margin; the notional is clamped to the optional `max_position_size_usd`.
+    /// margin; the notional is clamped to the optional
+    /// `max_position_size_pct_of_equity` (v9 F-08 — a relative cap so the
+    /// same strategy behaves identically at any capital size).
     /// (`risk_calculator::compute_risk` remains the engine behind
     /// `POST /api/risk/calculate` — a manual preview only.)
     async fn project(&self, plan: &SetupPlan, allocation_pct: f64) -> Option<SetupProjection> {
@@ -668,10 +670,13 @@ impl SetupExecutor {
         let allocation = Decimal::from_f64_retain(allocation_pct / 100.0)?;
         let notional_uncapped = equity * allocation;
         let mut size = notional_uncapped / plan.entry_mid;
-        if let Some(cap) = self.max_position_size_usd {
-            let cap_d = Decimal::from_f64_retain(cap)?;
-            if size * plan.entry_mid > cap_d {
-                size = cap_d / plan.entry_mid;
+        // v9 F-08: the notional cap is a PERCENTAGE of equity — the
+        // strategy stays capital-size invariant.
+        if let Some(cap_pct) = self.max_position_size_pct_of_equity {
+            let cap_f = Decimal::from_f64_retain(cap_pct / 100.0)?;
+            let cap_notional = equity * cap_f;
+            if size * plan.entry_mid > cap_notional {
+                size = cap_notional / plan.entry_mid;
             }
         }
         if size <= dec!(0) {
@@ -974,7 +979,7 @@ mod tests {
             enabled: true,
             allocation_pct: 10.0,
             min_net_rr: min_rr,
-            max_position_size_usd: None,
+            max_position_size_pct_of_equity: None,
             max_open_positions: max_pos,
             entry_mode: "zone_midpoint".to_string(),
             invalidate_on: "direction_flip".to_string(),
@@ -1717,12 +1722,12 @@ mod safety_ladder_tests {
             crate::paper_trading::FeesConfig::default(),
         ));
         let safety = Arc::new(SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0));
-        safety.set_initial_capital(dec!(1000)).await;
+        safety.set_portfolio_capital(dec!(1000)).await;
         let cfg = config_models::MinimalTaeConfig {
             enabled: true,
             allocation_pct: 10.0,
             min_net_rr: 1.0,
-            max_position_size_usd: None,
+            max_position_size_pct_of_equity: None,
             max_open_positions: 1,
             entry_mode: "zone_midpoint".to_string(),
             invalidate_on: "direction_flip".to_string(),
@@ -1793,12 +1798,12 @@ mod safety_ladder_tests {
             crate::paper_trading::FeesConfig::default(),
         ));
         let safety = Arc::new(SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0));
-        safety.set_initial_capital(dec!(1000)).await;
+        safety.set_portfolio_capital(dec!(1000)).await;
         let cfg = config_models::MinimalTaeConfig {
             enabled: true,
             allocation_pct: 10.0,
             min_net_rr: 1.0,
-            max_position_size_usd: None,
+            max_position_size_pct_of_equity: None,
             max_open_positions: 1,
             entry_mode: "zone_midpoint".to_string(),
             invalidate_on: "direction_flip".to_string(),

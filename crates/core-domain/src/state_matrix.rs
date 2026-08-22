@@ -248,7 +248,6 @@ mod tests {
             structure_assessment: StructureAssessment::Strong,
             volatility_assessment: VolatilityAssessment::Normal,
             volume_assessment: VolumeAssessment::Strong,
-            opportunity_analysis: OpportunityType::Breakout,
             market_quality: QualityLevel::Good,
             market_phase: MarketPhase::Unknown,
             market_interpretation: format!("Test interpretation for {}", symbol),

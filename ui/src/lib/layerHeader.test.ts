@@ -101,7 +101,6 @@ function analysisStub(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
         structure_assessment: 'Healthy',
         volatility_assessment: 'Normal',
         volume_assessment: 'Normal',
-        opportunity_analysis: 'TrendContinuation',
         market_quality: 'Average',
         market_quality_score: 50,
         market_phase: 'ACCUMULATION',

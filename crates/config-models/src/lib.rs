@@ -1,5 +1,7 @@
 pub mod models;
 pub use models::*;
+pub mod strategy;
+pub use strategy::*;
 
 use std::path::{Path, PathBuf};
 
@@ -168,6 +170,11 @@ pub struct WorkspaceConfig {
     pub default_currency: String,
     /// Default exchange for new instances.
     pub default_exchange: String,
+    /// v9 (F-07): THE single capital dial — the shared equity ledger
+    /// seeds from this value (paper). Live reads the exchange balance;
+    /// backtests use the same field as their simulated account seed.
+    #[serde(default = "default_portfolio_capital")]
+    pub portfolio_capital_usd: f64,
 
     // ─── Market-monitor defaults (per-instance inheritance) ────────
     #[serde(default)]
@@ -210,11 +217,14 @@ pub struct WorkspaceConfig {
     /// state is the honest signal of "no structural levels near price".
     #[serde(default)]
     pub opportunity_matrix: OpportunityMatrixConfig,
+    /// Order-book depth analysis knobs (v9 F-04: the `[order_book]` TOML
+    /// surface — previously the runtime hardcoded
+    /// `OrderBookConfig::default()` in the pipeline constructor).
+    #[serde(default)]
+    pub order_book: OrderBookConfig,
     /// Schema version counter — incremented on every successful POST /api/config.
     #[serde(default)]
     pub config_version: u64,
-    #[serde(default)]
-    pub scoring: ScoringConfig,
     #[serde(default)]
     pub leverage: LeverageConfig,
     #[serde(default)]
@@ -246,6 +256,12 @@ pub struct WorkspaceConfig {
     /// per-exchange paging limits for the deep-history backtest.
     #[serde(default)]
     pub backtest: BacktestConfig,
+    /// v9: the strategy registry — one JSON per model. The built-in
+    /// `default` strategy reproduces v8.2 behavior exactly; instances
+    /// always launch bound to `default` and can be rebound later
+    /// (full recharge at the next candle boundary).
+    #[serde(default)]
+    pub strategies: Vec<StrategyConfig>,
 }
 
 impl Default for WorkspaceConfig {
@@ -255,6 +271,7 @@ impl Default for WorkspaceConfig {
             name: "Default Workspace".to_string(),
             default_currency: "USDC".to_string(),
             default_exchange: "Hyperliquid".to_string(),
+            portfolio_capital_usd: default_portfolio_capital(),
             candles: CandlesConfig::default(),
             indicators: IndicatorsConfig::default(),
             fast_timeframe: FastTimeframeConfig::default(),
@@ -270,8 +287,8 @@ impl Default for WorkspaceConfig {
             api_failover: ApiFailoverConfig::default(),
             activation: ActivationConfig::default(),
             opportunity_matrix: OpportunityMatrixConfig::default(),
+            order_book: OrderBookConfig::default(),
             config_version: 1,
-            scoring: ScoringConfig::default(),
             leverage: LeverageConfig::default(),
             defaults: DefaultsConfig::default(),
             instances: Vec::new(),
@@ -280,6 +297,7 @@ impl Default for WorkspaceConfig {
             risk_limits: RiskLimitsConfig::default(),
             execution: ExecutionConfig::default(),
             backtest: BacktestConfig::default(),
+            strategies: vec![StrategyConfig::default()],
         }
     }
 }
@@ -307,6 +325,65 @@ impl WorkspaceConfig {
             self.macro_timeframe.duration_seconds,
         )
     }
+
+    /// v9: resolve a strategy by name, walking the `base` chain (patch
+    /// inheritance). Returns an error on unknown names or inheritance
+    /// cycles. Missing `default` entry falls back to the built-in
+    /// `StrategyConfig::default()`.
+    pub fn resolve_strategy(&self, name: &str) -> std::result::Result<StrategyConfig, String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut current = self
+            .strategies
+            .iter()
+            .find(|s| s.name == name)
+            .cloned()
+            .ok_or_else(|| format!("strategy '{name}' not found"))?;
+        loop {
+            if !seen.insert(current.name.clone()) {
+                return Err(format!("strategy inheritance cycle at '{}'", current.name));
+            }
+            let Some(base_name) = current.base.clone() else {
+                return Ok(current);
+            };
+            if base_name == current.name {
+                return Err(format!("strategy '{}' cannot inherit from itself", current.name));
+            }
+            let base = if base_name == "default" && !self.strategies.iter().any(|s| s.name == "default")
+            {
+                StrategyConfig::default()
+            } else {
+                self.strategies
+                    .iter()
+                    .find(|s| s.name == base_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!("base strategy '{base_name}' (of '{}') not found", current.name)
+                    })?
+            };
+            let child_json = serde_json::to_value(&current)
+                .map_err(|e| format!("serialize '{}': {e}", current.name))?;
+            let base_json = serde_json::to_value(&base)
+                .map_err(|e| format!("serialize '{base_name}': {e}"))?;
+            current = StrategyConfig::resolve(Some(&base_json), &child_json)?;
+        }
+        #[allow(unreachable_code)]
+        Ok(current)
+    }
+
+    /// The effective `default` strategy (what every instance binds at
+    /// launch and what unattributed consumers use).
+    pub fn default_strategy(&self) -> std::result::Result<StrategyConfig, String> {
+        self.resolve_strategy("default")
+    }
+
+    /// Ensure the built-in `default` strategy entry exists (a workspace
+    /// loaded from a pre-v9 config.toml has an empty `strategies` vec —
+    /// the built-in default must still be present and editable).
+    pub fn ensure_default_strategy(&mut self) {
+        if !self.strategies.iter().any(|s| s.name == "default") {
+            self.strategies.push(StrategyConfig::default());
+        }
+    }
 }
 
 /// One trading-pair instance inside a workspace.
@@ -321,8 +398,9 @@ pub struct InstanceEntry {
     #[serde(default)]
     pub quote: String,
     /// Initial capital allocation for this instance (USD).
-    #[serde(default = "default_initial_capital")]
-    pub initial_capital_usd: f64,
+    // v9 (F-07): the per-instance `initial_capital_usd` is ERASED —
+    // capital is ONE portfolio-wide dial (`[workspace]
+    // portfolio_capital_usd`); the shared ledger seeds from it.
     /// Runtime status: running / paused / stopped. Defaults to running; the
     /// dashboard flips the bit when the user pauses or stops the instance.
     #[serde(default)]
@@ -340,14 +418,18 @@ pub struct InstanceEntry {
     /// v7 execution mode (Observe / Paper / Live). Default Paper.
     #[serde(default)]
     pub mode: ExecutionMode,
+    /// v9: the bound strategy (by name). `None` = the workspace default
+    /// strategy. Instances always launch on the default; binding a
+    /// strategy later recharges the instance fully at the next candle
+    /// boundary (params-at-entry freeze for open positions).
+    #[serde(default)]
+    pub strategy: Option<String>,
     /// v8.2 per-instance allocation override (percent of portfolio equity,
     /// 1..=100). `None` = the global `[workspace.minimal_tae].allocation_pct`.
     #[serde(default)]
     pub allocation_pct: Option<f64>,
     #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
-    #[serde(default)]
-    pub position_scaling: Option<PositionScalingConfig>,
     /// Per-instance activation overrides (union with global [activation]).
     #[serde(default)]
     pub activation: Option<ActivationConfig>,
@@ -359,7 +441,7 @@ pub struct InstanceEntry {
     pub custom_pipelines: std::collections::HashMap<u16, TimeframeConfig>,
 }
 
-fn default_initial_capital() -> f64 {
+fn default_portfolio_capital() -> f64 {
     1_000.0
 }
 
@@ -400,9 +482,12 @@ pub struct MinimalTaeConfig {
     /// Fee-adjusted minimum reward-to-risk ratio for accepting a setup.
     #[serde(default = "default_min_net_rr")]
     pub min_net_rr: f64,
-    /// Optional notional cap (USD). None = no cap.
+    /// Optional per-position notional cap as a percentage of equity
+    /// (v9 F-08: replaces the absolute USD cap — the strategy must be
+    /// capital-size invariant). None = no cap.
     #[serde(default)]
-    pub max_position_size_usd: Option<f64>,
+    #[serde(alias = "max_position_size_usd")]
+    pub max_position_size_pct_of_equity: Option<f64>,
     /// Global concurrent-position cap across all symbols (1..=100).
     #[serde(default = "default_max_open_positions")]
     pub max_open_positions: u32,
@@ -437,7 +522,7 @@ impl Default for MinimalTaeConfig {
             enabled: false,
             allocation_pct: default_allocation_pct(),
             min_net_rr: default_min_net_rr(),
-            max_position_size_usd: None,
+            max_position_size_pct_of_equity: None,
             max_open_positions: default_max_open_positions(),
             entry_mode: default_entry_mode(),
             invalidate_on: default_invalidate_on(),
@@ -501,7 +586,9 @@ pub fn load_workspace() -> Result<WorkspaceConfig> {
         source: e,
     })?;
     validate_workspace(&on_disk.workspace)?;
-    Ok(on_disk.workspace)
+    let mut ws = on_disk.workspace;
+    ws.ensure_default_strategy();
+    Ok(ws)
 }
 
 /// Load both at once (the common case).
@@ -924,18 +1011,17 @@ candles = { duration_seconds = 180 }
             id: "btc".into(),
             symbol: "BTC-USDT".into(),
             quote: "USDT".into(),
-            initial_capital_usd: 1000.0,
             status: InstanceStatus::Running,
             micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
             fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
             slow_term: None,
             macro_term: None,
+            strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
             allocation_pct: None,
             weight_overrides: None,
-            position_scaling: None,
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         });
@@ -943,18 +1029,17 @@ candles = { duration_seconds = 180 }
             id: "eth".into(),
             symbol: "ETH-USDT".into(),
             quote: "USDT".into(),
-            initial_capital_usd: 1000.0,
             status: InstanceStatus::Running,
             micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
             fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
             slow_term: None,
             macro_term: None,
+            strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
             allocation_pct: None,
             weight_overrides: None,
-            position_scaling: None,
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         });
@@ -987,18 +1072,17 @@ candles = { duration_seconds = 180 }
             id: "btc".into(),
             symbol: "BTC-USDT".into(),
             quote: "USDT".into(),
-            initial_capital_usd: 1000.0,
             status: InstanceStatus::Running,
             micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
             fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
             slow_term: None,
             macro_term: None,
+            strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
             allocation_pct: None,
             weight_overrides: None,
-            position_scaling: None,
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         };
@@ -1034,7 +1118,6 @@ candles = { duration_seconds = 180 }
             id: "btc".into(),
             symbol: "BTC-USDT".into(),
             quote: "USDT".into(),
-            initial_capital_usd: 1000.0,
             status: InstanceStatus::Running,
             micro_term: TimeframeConfig {
                 candles: CandlesConfig {
@@ -1045,12 +1128,12 @@ candles = { duration_seconds = 180 }
             fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
             slow_term: None,
             macro_term: None,
+            strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
             allocation_pct: None,
             weight_overrides: None,
-            position_scaling: None,
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         };
@@ -1067,18 +1150,17 @@ candles = { duration_seconds = 180 }
             id: "btc".into(),
             symbol: "BTC-USDT".into(),
             quote: "USDT".into(),
-            initial_capital_usd: 1000.0,
             status: InstanceStatus::Running,
             micro_term: TimeframeConfig::new(60, IndicatorsConfig::default()),
             fast_term: TimeframeConfig::new(180, IndicatorsConfig::default()),
             slow_term: None,
             macro_term: None,
+            strategy: None,
             automation: AutomationConfig::default(),
             operational_mode: OperationalMode::Advisory,
             mode: ExecutionMode::default(),
             allocation_pct: None,
             weight_overrides: None,
-            position_scaling: None,
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         };

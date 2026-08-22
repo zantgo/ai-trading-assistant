@@ -49,7 +49,7 @@
     export interface BteResult {
         backtest_id: number;
         mode?: string;
-        params: { symbol: string; timeframe_secs: number; from_secs: number; to_secs: number; initial_capital: number };
+        params: { symbol: string; timeframe_secs: number; from_secs: number; to_secs: number; portfolio_capital_usd: number };
         summary: {
             total_trades: number; win_count: number; loss_count: number; win_rate: number;
             gross_profit: number; gross_loss: number; profit_factor: number | null;
@@ -333,7 +333,7 @@
         {:else if safeSection === 'tae'}
             <BteExecutionsTab trades={btResult?.trades ?? []} result={btResult} />
         {:else if safeSection === 'pme'}
-            <BtePortfolioTab portfolio={dsPortfolio?.portfolio ?? []} equity={btResult?.equity_curve ?? []} capital={btResult?.params?.initial_capital ?? 1000} />
+            <BtePortfolioTab portfolio={dsPortfolio?.portfolio ?? []} equity={btResult?.equity_curve ?? []} capital={btResult?.params?.portfolio_capital_usd ?? 1000} />
         {:else if safeSection === 'pae'}
             <BteStatsTab stats={btResult?.stats ?? null} summary={btResult?.summary ?? null} />
         {:else if safeSection === 'study'}

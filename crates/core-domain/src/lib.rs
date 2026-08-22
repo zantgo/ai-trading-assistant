@@ -8,6 +8,7 @@ pub mod advisory;
 pub mod alignment;
 pub mod analysis;
 pub mod decision_context;
+pub mod decision_params;
 pub mod indicator_dtos;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;

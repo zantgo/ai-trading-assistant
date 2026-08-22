@@ -100,6 +100,10 @@ pub struct HistoricalRunConfig {
     /// v8.2: safety-ladder parameters (mirror `[workspace.safety]`) so the
     /// simulated SafetyManager behaves exactly like the live one.
     pub safety: SafetyParams,
+    /// v9: the effective strategy (patch-resolved) — the historical
+    /// replay derives its L4 opportunity params and shared L6
+    /// DecisionParams from it, exactly like the live pipeline.
+    pub strategy: config_models::StrategyConfig,
 }
 
 /// Safety-ladder parameters for the simulated PME (mirrors
@@ -280,7 +284,7 @@ pub async fn run_historical_backtest(
     // multi-instance architecture) + simulated safety managers. ──
     let engine = Arc::new(ExecutionEngine::new(fees.clone()));
     engine
-        .set_initial_equity(Decimal::from_f64_retain(params.initial_capital).unwrap_or(dec!(1000)))
+        .set_initial_equity(Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)))
         .await;
     engine.set_cross_leverage(cross_leverage).await;
     let executor = SetupExecutor::new(engine.clone(), tae_cfg);
@@ -295,8 +299,8 @@ pub async fn run_historical_backtest(
             run_cfg.safety.max_daily_drawdown_pct,
             run_cfg.safety.systemic_risk_threshold,
         ));
-        mgr.set_initial_capital(
-            Decimal::from_f64_retain(params.initial_capital).unwrap_or(dec!(1000)),
+        mgr.set_portfolio_capital(
+            Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)),
         )
         .await;
         safety_managers.insert(spec.symbol.clone(), mgr);
@@ -338,7 +342,7 @@ pub async fn run_historical_backtest(
     let mut equity_points: Vec<(i64, f64)> = Vec::new();
     let mut signals: Vec<database_storage::queries::backtest_ds::DsSignal> = Vec::new();
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
-    let mut peak_equity: f64 = params.initial_capital;
+    let mut peak_equity: f64 = params.portfolio_capital_usd;
 
     // MTF synthesis state carried per symbol across ticks (mirrors the
     // live loop — state must not leak across symbols).
@@ -427,6 +431,10 @@ pub async fn run_historical_backtest(
 
         // ── The SAME pure synthesizer the live L4/L5 assembly calls ──
         let cross: Vec<(u64, &MarketSnapshot)> = tf_refs.iter().map(|(t, s)| (*t, s)).collect();
+        let opportunity_params =
+            market_analyzer::synthesis::OpportunityParams::from_strategy(&run_cfg.strategy.l4);
+        let decision_params =
+            market_analyzer::strategy_params::decision_params_from_strategy(&run_cfg.strategy.l6);
         let synthesis = market_analyzer::synthesis::synthesize_cross_tf(
             &ev.symbol,
             &cross,
@@ -437,6 +445,9 @@ pub async fn run_historical_backtest(
             mtf.prev_regime,
             mtf.prev_volume_dim,
             mtf.prev_bias,
+            // v9: same wired opportunity params as live.
+            &opportunity_params,
+            &decision_params,
         );
 
         mtf.prev_score = Some(synthesis.alignment.mtf_overall_score);
@@ -459,7 +470,11 @@ pub async fn run_historical_backtest(
                 .as_ref()
                 .map(|o| o.opportunity_score)
                 .unwrap_or(0.0);
-            (0.50 * tradability_dim + 0.30 * market_quality_score + 0.20 * opp_score)
+            {
+            let [w_l2, w_l3, w_l4] =
+                core_domain::decision_params::DecisionParams::default().confluence_weights;
+            (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score)
+        }
                 .clamp(0.0, 100.0)
         };
 
@@ -473,6 +488,8 @@ pub async fn run_historical_backtest(
             &synthesis.analysis,
             synthesis.opportunity.as_ref(),
             &synthesis.risk,
+            // v9 F-05: shared DecisionParams (strategy-derived).
+            &decision_params,
         );
 
         snap.opportunity = synthesis.opportunity.clone();
@@ -815,7 +832,7 @@ mod tests {
             enabled: true,
             allocation_pct: 10.0,
             min_net_rr: 1.0,
-            max_position_size_usd: None,
+            max_position_size_pct_of_equity: None,
             max_open_positions: 10,
             entry_mode: "zone_midpoint".to_string(),
             invalidate_on: "direction_flip".to_string(),
@@ -865,6 +882,7 @@ mod tests {
             warmup_bars: 60,
             max_equity_points: 2000,
             safety: SafetyParams::default(),
+            strategy: config_models::StrategyConfig::default(),
         }
     }
 
@@ -905,7 +923,7 @@ mod tests {
             timeframe_secs: tf,
             from_secs: from as i64,
             to_secs: to as i64,
-            initial_capital: 1000.0,
+            portfolio_capital_usd: 1000.0,
         };
         let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
 
@@ -941,7 +959,7 @@ mod tests {
             timeframe_secs: tf,
             from_secs: from as i64,
             to_secs: to as i64,
-            initial_capital: 1000.0,
+            portfolio_capital_usd: 1000.0,
         };
         let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
         let r = run(&pool, &params, &cfg).await;
@@ -993,7 +1011,7 @@ mod tests {
             timeframe_secs: tf,
             from_secs: from as i64,
             to_secs: to as i64,
-            initial_capital: 1000.0,
+            portfolio_capital_usd: 1000.0,
         };
         let cfg = run_cfg(vec![
             symbol_spec("BTC-USDC", vec![tf]),
@@ -1032,7 +1050,7 @@ mod tests {
             timeframe_secs: tf,
             from_secs: from as i64,
             to_secs: to as i64,
-            initial_capital: 1000.0,
+            portfolio_capital_usd: 1000.0,
         };
         let cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
         let ctrl = RunControls {

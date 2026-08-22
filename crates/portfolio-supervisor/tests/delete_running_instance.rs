@@ -92,7 +92,6 @@ fn write_initial_config(path: &std::path::Path) {
         id: INSTANCE_ID.to_string(),
         symbol: PAIR.to_string(),
         quote: "USDC".to_string(),
-        initial_capital_usd: 1000.0,
         status: config_models::InstanceStatus::Running,
         micro_term: config_models::TimeframeConfig::new(60, Default::default()),
         fast_term: config_models::TimeframeConfig::new(180, Default::default()),
@@ -101,9 +100,9 @@ fn write_initial_config(path: &std::path::Path) {
         automation: Default::default(),
         operational_mode: Default::default(),
         mode: config_models::ExecutionMode::Paper,
+        strategy: None,
         allocation_pct: None,
         weight_overrides: None,
-        position_scaling: None,
         activation: None,
         custom_pipelines: std::collections::HashMap::new(),
     });

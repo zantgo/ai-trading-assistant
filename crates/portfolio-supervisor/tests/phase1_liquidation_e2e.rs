@@ -107,6 +107,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
     let analyzer_handle = tokio::spawn({
         let cancel = cancel.clone();
         let symbol = "BTC-USDT".to_string();
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -137,6 +138,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             None, // liquidity_config (None → cascade defaults)
             None, // heatmap_config (None → default 0.1% / 24h)
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

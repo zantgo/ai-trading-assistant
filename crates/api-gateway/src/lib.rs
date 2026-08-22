@@ -394,6 +394,34 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::instances::serve_reset_safety),
         )
         .route(
+            "/api/instances/:instance_id/lifecycle",
+            post(handlers::instances::serve_instance_lifecycle),
+        )
+        .route(
+            "/api/strategies",
+            get(handlers::strategies::list_strategies)
+                .post(handlers::strategies::create_strategy),
+        )
+        .route(
+            "/api/strategies/:name",
+            get(handlers::strategies::get_strategy)
+                .put(handlers::strategies::update_strategy)
+                .delete(handlers::strategies::delete_strategy),
+        )
+        .route(
+            "/api/strategies/:name/clone",
+            post(handlers::strategies::clone_strategy),
+        )
+        .route(
+            "/api/account/summary",
+            get(handlers::account::account_summary),
+        )
+        .route(
+            "/api/account/capital",
+            post(handlers::account::set_account_capital),
+        )
+        .route("/api/account/reset", post(handlers::account::reset_account))
+        .route(
             "/api/instances/:instance_id/safety/release-veto",
             post(handlers::instances::serve_release_veto),
         )

@@ -31,7 +31,7 @@
         instance_id: string;
         symbol: string;
         mode?: string;
-        initial_capital: number;
+        portfolio_capital: number;
         current_equity: string;
         peak_equity: string;
         max_drawdown_pct: string;
@@ -85,7 +85,7 @@
         consecutive_losses: Record<string, number>;
         peak_equity: string;
         current_equity: number;
-        initial_capital: number;
+        portfolio_capital: number;
         context: string;
         daily_pnl: string;
         max_drawdown_pct: string;
@@ -314,12 +314,12 @@
         { label: 'Safety', value: portfolio?.safety_state ?? '—', sub: 'system health', color: safetyBadge(portfolio?.safety_state) ? undefined : undefined },
         { label: 'Lifecycle', value: portfolio?.lifecycle ?? '—', sub: 'instance state' },
         { label: 'Positions', value: '—', sub: 'none in observe' },
-        { label: 'Would-be Capital', value: fmtUsd(portfolio?.initial_capital), sub: 'if capital engaged' },
+        { label: 'Would-be Capital', value: fmtUsd(portfolio?.portfolio_capital), sub: 'if capital engaged' },
     ]);
 
     const accountingKpis = $derived([
         { label: 'Equity', value: `$${fmtUsd(portfolio?.current_equity)}`, sub: 'cash + realized PnL', color: undefined },
-        { label: 'Initial Capital', value: `$${fmtUsd(portfolio?.initial_capital)}`, sub: 'per instance' },
+        { label: 'Initial Capital', value: `$${fmtUsd(portfolio?.portfolio_capital)}`, sub: 'per instance' },
         { label: 'Peak Equity', value: `$${fmtUsd(portfolio?.peak_equity)}`, sub: 'high-water mark' },
         { label: 'Max Drawdown', value: fmtPct(portfolio?.max_drawdown_pct), sub: 'from peak', color: styles.neg },
         { label: 'Realized PnL', value: signedUsd(portfolio?.realized_pnl), sub: 'net of fees', color: pnlClass(portfolio?.realized_pnl) || undefined },
@@ -406,7 +406,7 @@
                     mode,
                     ghost,
                     lifecycle: portfolio?.lifecycle ?? null,
-                    initial_capital: portfolio?.initial_capital ?? null,
+                    portfolio_capital: portfolio?.portfolio_capital ?? null,
                     current_equity: portfolio?.current_equity ?? null,
                     safety_state: portfolio?.safety_state ?? null,
                     allocation_pct: allocationPct,
@@ -489,7 +489,7 @@
                         <div class={local.blueprintGrid}>
                             <div class={local.blueprintItem}>
                                 <div class={local.blueprintLabel}>Would-be capital</div>
-                                <div class={local.blueprintValue}>${fmtUsd(portfolio.initial_capital)}</div>
+                                <div class={local.blueprintValue}>${fmtUsd(portfolio.portfolio_capital)}</div>
                                 <div class={local.blueprintSub}>per instance</div>
                             </div>
                             <div class={local.blueprintItem}>

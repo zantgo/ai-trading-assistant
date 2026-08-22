@@ -39,7 +39,7 @@ export class SessionStore {
         this.sessionLoading = true; this.sessionError = null;
         try {
             const body: Record<string, unknown> = { currency, exchange, mode };
-            if (capital != null && capital > 0) body.initial_capital_usd = capital;
+            if (capital != null && capital > 0) body.portfolio_capital_usd = capital;
             const res = await fetch('/api/session/init', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),

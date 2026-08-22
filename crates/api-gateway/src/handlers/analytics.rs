@@ -182,11 +182,11 @@ pub async fn serve_performance_summary(
 ///
 /// v8.2 — two payload forms:
 /// - **Standalone** `{ exchange, symbols: [{ symbol, timeframes,
-///   allocation_pct }], from_ms, to_ms, initial_capital, mode }` — no
+///   allocation_pct }], from_ms, to_ms, portfolio_capital_usd, mode }` — no
 ///   running instance required; multi-symbol replay against one shared
 ///   virtual portfolio.
 /// - **Bound** (v8 compat) `{ symbol, timeframe_secs, from_ms, to_ms,
-///   initial_capital, instance_id?, mode }` — `instance_id` binds the run
+///   portfolio_capital_usd, instance_id?, mode }` — `instance_id` binds the run
 ///   to a running instance (exchange/TF ladder/config source); when
 ///   omitted the legacy recorded-replay path runs without instance
 ///   validation.
@@ -206,7 +206,8 @@ pub struct BacktestRequest {
     #[serde(default)]
     pub to_ms: i64,
     #[serde(default)]
-    pub initial_capital: Option<f64>,
+    #[serde(alias = "initial_capital")]
+    pub portfolio_capital_usd: Option<f64>,
     #[serde(default)]
     pub instance_id: Option<String>,
     #[serde(default = "default_mode")]
@@ -217,6 +218,10 @@ pub struct BacktestRequest {
     /// v8.2 standalone form: one or more simulated instances.
     #[serde(default)]
     pub symbols: Option<Vec<BacktestSymbolRequest>>,
+    /// v9: the strategy bound to the run (default "default"). The full
+    /// strategy JSON is frozen on the run.
+    #[serde(default)]
+    pub strategy_id: Option<String>,
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -654,6 +659,14 @@ pub async fn serve_backtest_run(
             warmup_bars: workspace.backtest.warmup_bars,
             max_equity_points: workspace.backtest.max_equity_points,
             safety,
+            // v9: the run's bound strategy (frozen on the run record).
+            strategy: match &payload.strategy_id {
+                Some(name) => workspace.resolve_strategy(name).unwrap_or_else(|e| {
+                    eprintln!("strategy '{name}' resolution failed ({e}); using default");
+                    config_models::StrategyConfig::default()
+                }),
+                None => workspace.default_strategy().unwrap_or_default(),
+            },
         });
     } else {
         // Recorded mode: pre-flight data validation — a UI-driven run
@@ -719,7 +732,7 @@ pub async fn serve_backtest_run(
         },
         from_secs,
         to_secs,
-        initial_capital: payload.initial_capital.unwrap_or(1000.0),
+        portfolio_capital_usd: payload.portfolio_capital_usd.unwrap_or(1000.0),
     };
 
     // ── v8.2 async run: register + spawn ──

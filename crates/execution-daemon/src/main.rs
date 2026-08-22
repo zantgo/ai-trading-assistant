@@ -61,6 +61,7 @@ use portfolio_supervisor::{
 // its types without the daemon's CLI surface.
 
 mod cli_backtest;
+mod cli_ops;
 
 // ─── CLI argument parsing ────────────────────────────────────────────
 
@@ -80,6 +81,13 @@ struct CliArgs {
     bt_depth: Option<u32>,
     bt_capital: Option<f64>,
     bt_allocation: Option<f64>,
+    /// v9: strategy bound to the backtest (default "default").
+    bt_strategy: Option<String>,
+    /// v9: headless strategy/account/instance ops.
+    ops: Vec<cli_ops::StrategyOp>,
+    account_ops: Vec<cli_ops::AccountOp>,
+    lifecycle_op: Option<(String, String)>,
+    instance_bind: Option<(String, String)>,
 }
 
 enum LaunchMode {
@@ -101,6 +109,11 @@ fn parse_args() -> CliArgs {
     let mut bt_depth = None;
     let mut bt_capital = None;
     let mut bt_allocation = None;
+    let mut bt_strategy = None;
+    let mut ops: Vec<cli_ops::StrategyOp> = Vec::new();
+    let mut account_ops: Vec<cli_ops::AccountOp> = Vec::new();
+    let mut lifecycle_op = None;
+    let mut instance_bind = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -173,10 +186,85 @@ fn parse_args() -> CliArgs {
                     bt_depth = args[i].parse::<u32>().ok();
                 }
             }
-            "--capital" => {
+            "--portfolio-capital" => {
                 i += 1;
                 if i < args.len() {
                     bt_capital = args[i].parse::<f64>().ok();
+                }
+            }
+            "--strategy" => {
+                i += 1;
+                if i < args.len() {
+                    bt_strategy = Some(args[i].clone());
+                }
+            }
+            "--strategy-list" => ops.push(cli_ops::StrategyOp::List),
+            "--strategy-export" => {
+                i += 1;
+                if i < args.len() {
+                    let name = args[i].clone();
+                    let path = if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                        i += 1;
+                        Some(args[i].clone())
+                    } else {
+                        None
+                    };
+                    ops.push(cli_ops::StrategyOp::Export { name, path });
+                }
+            }
+            "--strategy-create" | "--strategy-update" => {
+                let is_create = args[i].starts_with("--strategy-create");
+                i += 1;
+                if i + 1 < args.len() {
+                    let name = args[i].clone();
+                    let path = args[i + 1].clone();
+                    i += 1;
+                    let _ = is_create;
+                    ops.push(cli_ops::StrategyOp::Upsert { name, path });
+                }
+            }
+            "--strategy-delete" => {
+                i += 1;
+                if i < args.len() {
+                    ops.push(cli_ops::StrategyOp::Delete {
+                        name: args[i].clone(),
+                    });
+                }
+            }
+            "--strategy-clone" => {
+                i += 1;
+                if i + 1 < args.len() {
+                    ops.push(cli_ops::StrategyOp::Clone {
+                        source: args[i].clone(),
+                        target: args[i + 1].clone(),
+                    });
+                    i += 1;
+                }
+            }
+            "--account-summary" => account_ops.push(cli_ops::AccountOp::Summary),
+            "--account-set-capital" => {
+                i += 1;
+                if i < args.len() {
+                    if let Ok(usd) = args[i].parse::<f64>() {
+                        account_ops.push(cli_ops::AccountOp::SetCapital { usd });
+                    }
+                }
+            }
+            "--account-reset" => account_ops.push(cli_ops::AccountOp::Reset),
+            "--instance-set-strategy" => {
+                i += 1;
+                if i + 1 < args.len() {
+                    instance_bind = Some((args[i].clone(), args[i + 1].clone()));
+                    i += 1;
+                }
+            }
+            "--instance-start" | "--instance-pause" | "--instance-terminate" => {
+                let action = args[i]
+                    .trim_start_matches("--instance-")
+                    .to_string();
+                i += 1;
+                if i < args.len() {
+                    lifecycle_op = Some((args[i].clone(), action));
                 }
             }
             "--allocation" => {
@@ -206,6 +294,11 @@ fn parse_args() -> CliArgs {
         bt_depth,
         bt_capital,
         bt_allocation,
+        bt_strategy,
+        ops,
+        account_ops,
+        lifecycle_op,
+        instance_bind,
     }
 }
 
@@ -670,13 +763,40 @@ async fn main() {
             depth_days: cli
                 .bt_depth
                 .unwrap_or(workspace.backtest.archive_depth_days),
-            capital: cli.bt_capital.unwrap_or(1000.0),
+            portfolio_capital: cli.bt_capital.unwrap_or(1000.0),
             allocation: cli
                 .bt_allocation
                 .unwrap_or(workspace.minimal_tae.allocation_pct),
+            strategy_name: cli.bt_strategy.clone(),
         };
         let outcome = cli_backtest::run_cli_backtest(&db_pool, &workspace, args).await;
         let code = cli_backtest::print_outcome(&outcome);
+        std::process::exit(code);
+    }
+
+    // v9: headless strategy / account / instance ops (GUI parity).
+    if !cli.ops.is_empty() || !cli.account_ops.is_empty() || cli.lifecycle_op.is_some() || cli.instance_bind.is_some() {
+        let mut ws = config_models::load_workspace().unwrap_or_else(|e| {
+            eprintln!("config load failed: {e}");
+            std::process::exit(1);
+        });
+        let mut code = 0;
+        for op in cli.ops {
+            let c = cli_ops::run_strategy_op(&mut ws, &op);
+            if c != 0 { code = c; }
+        }
+        for op in cli.account_ops {
+            let c = cli_ops::run_account_op(&mut ws, &op);
+            if c != 0 { code = c; }
+        }
+        if let Some((id, strategy)) = cli.instance_bind {
+            let c = cli_ops::run_instance_bind(&mut ws, &id, &strategy);
+            if c != 0 { code = c; }
+        }
+        if let Some((id, action)) = cli.lifecycle_op {
+            let c = cli_ops::run_lifecycle_op(&id, &action);
+            if c != 0 { code = c; }
+        }
         std::process::exit(code);
     }
 
@@ -880,7 +1000,6 @@ async fn main() {
                 id: format!("inst_{}", inst.base.to_lowercase()),
                 symbol,
                 quote: plan.currency.clone(),
-                initial_capital_usd: 1000.0,
                 status: config_models::InstanceStatus::Running,
                 micro_term: tf(inst.micro),
                 fast_term: tf(inst.fast),
@@ -889,9 +1008,9 @@ async fn main() {
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
                 mode: config_models::ExecutionMode::Observe,
+                strategy: None,
                 allocation_pct: None,
                 weight_overrides: None,
-                position_scaling: None,
                 activation: None,
                 custom_pipelines: std::collections::HashMap::new(),
             });
@@ -999,12 +1118,10 @@ async fn main() {
     }
 
     // ── TAE v7: unified execution engine — equity seeding ─────────────
+    // v9 (F-07): ONE portfolio-wide capital dial — the ledger seeds from
+    // `[workspace] portfolio_capital_usd` (no per-instance capital).
     {
-        let total_capital: f64 = workspace
-            .instances
-            .iter()
-            .map(|e| e.initial_capital_usd)
-            .sum();
+        let total_capital: f64 = workspace.portfolio_capital_usd;
         if total_capital > 0.0 {
             execution_engine
                 .set_initial_equity(

@@ -76,13 +76,13 @@ pub async fn serve_session_init(
                 .into_response();
         }
     };
-    if let Some(cap) = payload.initial_capital_usd {
+    if let Some(cap) = payload.portfolio_capital_usd {
         if !cap.is_finite() || cap <= 0.0 {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "success": false,
-                    "error": "initial_capital_usd must be a positive number.",
+                    "error": "portfolio_capital_usd must be a positive number.",
                 })),
             )
                 .into_response();
@@ -116,7 +116,7 @@ pub async fn serve_session_init(
 
     state
         .session
-        .set_session_defaults(mode.clone(), payload.initial_capital_usd)
+        .set_session_defaults(mode.clone(), payload.portfolio_capital_usd)
         .await;
 
     match state.init_session(currency, exchange).await {
@@ -126,7 +126,7 @@ pub async fn serve_session_init(
                 "success": true,
                 "message": "Session initialized successfully.",
                 "mode": mode,
-                "capital": payload.initial_capital_usd,
+                "portfolio_capital_usd": payload.portfolio_capital_usd,
             })),
         )
             .into_response(),

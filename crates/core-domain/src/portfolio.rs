@@ -53,7 +53,6 @@ pub struct PositionMatrix {
     pub symbol: String,
     pub direction: String,
     pub entry_price: Decimal,
-    pub average_entry_price: Decimal,
     pub size: Decimal,
     pub allocated_usd: Decimal,
     pub entry_timestamp: u64,
@@ -68,11 +67,7 @@ pub struct PositionMatrix {
     pub invalidation_level: Option<Decimal>,
     pub target_profit_ratio: Option<Decimal>,
 
-    pub current_portions: u32,
-    pub max_portions: u32,
     pub position_state: PositionState,
-    pub initial_allocated_margin: Decimal,
-    pub realized_pnl_accumulator: Decimal,
 }
 
 // ─── L2: Exposure Matrix ───────────────────────────────────────

@@ -176,7 +176,8 @@ fn alignment_matrix_keys_match_frontend_contract() {
 fn analysis_matrix_keys_match_frontend_contract() {
     let snap = build_realistic_snapshot();
     let v = serde_json::to_value(snap.analysis.as_ref().unwrap()).unwrap();
-    // `ui/src/types.ts` `AnalysisMatrix` — the full 20-field wire shape.
+    // `ui/src/types.ts` `AnalysisMatrix` — the full wire shape (v9 F-03:
+    // `opportunity_analysis` erased — the classification is L4-owned).
     assert_keys_eq(
         &v,
         &[
@@ -191,7 +192,6 @@ fn analysis_matrix_keys_match_frontend_contract() {
             "structure_assessment",
             "volatility_assessment",
             "volume_assessment",
-            "opportunity_analysis",
             "market_quality",
             "market_quality_score",
             "market_phase",
@@ -234,7 +234,8 @@ fn advisory_matrix_keys_match_frontend_contract() {
     let snap = build_realistic_snapshot();
     let v = serde_json::to_value(snap.advisory.as_ref().unwrap()).unwrap();
     // `ui/src/types.ts` `AdvisoryMatrix` — 14 required fields (incl.
-    // `cascade_risk_score` and the `environment_favorability` band).
+    // `cascade_risk_score` and the `environment_favorability` band)
+    // + the v9 `risk_blocked` ceiling stamp.
     assert_keys_eq(
         &v,
         &[
@@ -251,6 +252,7 @@ fn advisory_matrix_keys_match_frontend_contract() {
             "stop_loss_distance_pct",
             "cascade_risk_score",
             "environment_favorability",
+            "risk_blocked",
             "final_recommendation",
         ],
         "AdvisoryMatrix",

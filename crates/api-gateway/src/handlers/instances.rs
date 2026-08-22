@@ -177,7 +177,7 @@ pub async fn serve_get_instance_detail(
                 "pair": inst.pair_display(),
                 "symbol": inst.symbol(),
                 "status": status,
-                "initial_capital": trading.initial_capital,
+                "portfolio_capital": trading.portfolio_capital,
                 "current_equity": trading.current_equity,
                 "consecutive_losses": losses,
                 "safety_state": safety_state,
@@ -224,8 +224,8 @@ pub async fn serve_update_instance_config(
             id: symbol.clone(),
             symbol: symbol.clone(),
             quote: String::new(),
-            initial_capital_usd: state.session.session_capital().await.unwrap_or(1000.0),
             status: config_models::InstanceStatus::Running,
+            strategy: None,
             micro_term: config_models::TimeframeConfig::new(60, default_indicators.clone()),
             fast_term: config_models::TimeframeConfig::new(180, default_indicators.clone()),
             slow_term: None,
@@ -239,7 +239,6 @@ pub async fn serve_update_instance_config(
             },
             allocation_pct: None,
             weight_overrides: None,
-            position_scaling: None,
             activation: None,
             custom_pipelines: std::collections::HashMap::new(),
         });
@@ -264,8 +263,21 @@ pub async fn serve_update_instance_config(
         })
         .unwrap_or(entry.operational_mode);
     entry.weight_overrides = payload.weight_overrides.or(entry.weight_overrides);
-    entry.position_scaling = payload.position_scaling.or(entry.position_scaling);
     entry.activation = payload.activation.or(entry.activation);
+    // v9: strategy binding — validated against the registry; the recharge
+    // below applies it at the next candle boundary.
+    if let Some(strategy) = &payload.strategy {
+        let strategy = strategy.clone();
+        let workspace_check = state.workspace.config().await;
+        if workspace_check.resolve_strategy(&strategy).is_err() {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("strategy '{strategy}' not found"),
+            )
+                .into_response();
+        }
+        entry.strategy = Some(strategy);
+    }
 
     // Replace or insert the entry in workspace.instances.
     if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == symbol) {
@@ -482,7 +494,7 @@ pub async fn serve_get_safety(
             let losses_map = inst.safety.consecutive_losses.read().await.clone();
             let peak_eq = inst.safety.peak_equity.read().await.to_string();
             let current_eq = inst.trading.read().await.current_equity;
-            let initial_cap = inst.trading.read().await.initial_capital;
+            let initial_cap = inst.trading.read().await.portfolio_capital;
             let context = inst.safety.get_safety_context().await;
             let daily_pnl = inst.safety.daily_pnl.read().await.to_string();
             let equity = state.execution_engine.get_equity_decimal().await;
@@ -519,7 +531,7 @@ pub async fn serve_get_safety(
                     "consecutive_losses": losses_map,
                     "peak_equity": peak_eq,
                     "current_equity": current_eq,
-                    "initial_capital": initial_cap,
+                    "portfolio_capital": initial_cap,
                     "context": context,
                     "daily_pnl": daily_pnl,
                     "max_drawdown_pct": max_drawdown_pct,
@@ -596,7 +608,7 @@ pub async fn serve_get_portfolio(
                 )
             };
             let capital = portfolio_supervisor::capital_layer::compute_capital_matrix(
-                rust_decimal::Decimal::from_f64_retain(trading.initial_capital).unwrap_or_default(),
+                rust_decimal::Decimal::from_f64_retain(trading.portfolio_capital).unwrap_or_default(),
                 dec!(0),
                 &positions,
                 rust_decimal::Decimal::from(*engine.cross_leverage.read().await),
@@ -644,7 +656,7 @@ pub async fn serve_get_portfolio(
                         config_models::ExecutionMode::Paper => "paper",
                         config_models::ExecutionMode::Live => "live",
                     },
-                    "initial_capital": trading.initial_capital,
+                    "portfolio_capital": trading.portfolio_capital,
                     "current_equity": equity.to_string(),
                     "peak_equity": peak.to_string(),
                     "max_drawdown_pct": max_drawdown_pct.to_string(),
@@ -816,7 +828,7 @@ pub async fn serve_get_capital(
     let daily_pnl = *inst.safety.daily_pnl.read().await;
     let session_eq = *inst.safety.starting_session_equity.read().await;
     let capital = portfolio_supervisor::capital_layer::compute_capital_matrix(
-        rust_decimal::Decimal::from_f64_retain(trading.initial_capital).unwrap_or_default(),
+        rust_decimal::Decimal::from_f64_retain(trading.portfolio_capital).unwrap_or_default(),
         dec!(0),
         &positions,
         rust_decimal::Decimal::from(*engine.cross_leverage.read().await),
@@ -1163,5 +1175,57 @@ pub async fn serve_reload_timeframe(
         )
             .into_response(),
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+/// v9 unified lifecycle control — `{ "action": "start" | "pause" |
+/// "terminate" }`. Maps onto the existing registry lifecycle functions:
+/// pause = close-only (no new entries, pending orders cancelled, open
+/// positions managed normally); terminate = stop (cancel all orders +
+/// flatten at market, exit_reason "stop_flatten"); start = resume.
+pub async fn serve_instance_lifecycle(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let action = payload
+        .get("action")
+        .and_then(|a| a.as_str())
+        .unwrap_or("");
+    let result = match action {
+        "pause" => portfolio_supervisor::registry::pause_instance(
+            &state.registry_context(),
+            &instance_id,
+        )
+        .await,
+        "terminate" => portfolio_supervisor::registry::stop_instance(
+            &state.registry_context(),
+            &instance_id,
+        )
+        .await,
+        "start" => portfolio_supervisor::registry::start_instance(
+            &state.registry_context(),
+            &instance_id,
+        )
+        .await,
+        other => Err(format!(
+            "unknown lifecycle action '{other}' — use start | pause | terminate"
+        )),
+    };
+    match result {
+        Ok(()) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "action": action,
+                "instance_id": instance_id,
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }

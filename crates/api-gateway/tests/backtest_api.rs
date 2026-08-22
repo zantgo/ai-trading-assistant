@@ -195,7 +195,7 @@ async fn backtest_run_and_get_round_trip() {
         "timeframe_secs": 60,
         "from_ms": 1_000_000,
         "to_ms": 1_010_000,
-        "initial_capital": 1000.0,
+        "portfolio_capital_usd": 1000.0,
     });
 
     let router = api_gateway::build_router(state.clone());
@@ -307,7 +307,7 @@ async fn backtest_run_400_not_enough_data_for_empty_window() {
         "timeframe_secs": 60,
         "from_ms": 50_000_000_000_i64,
         "to_ms": 50_000_100_000_i64,
-        "initial_capital": 1000.0,
+        "portfolio_capital_usd": 1000.0,
     });
 
     let router = api_gateway::build_router(state);

@@ -1,3 +1,4 @@
+pub mod account;
 pub mod analytics;
 pub mod backtest;
 pub mod clock;
@@ -15,5 +16,6 @@ pub mod overview;
 pub mod profiles;
 pub mod session;
 pub mod snapshot_export;
+pub mod strategies;
 pub mod system;
 pub mod trades;

@@ -68,7 +68,7 @@
         loading = true; errorMsg = null;
         try {
             const [statsRes, strategyRes, riskRes, perfRes, optRes, tradesRes, configRes] = await Promise.all([
-                fetch(`/api/dashboard/stats?initial_capital=${sessionCapital}`),
+                fetch(`/api/dashboard/stats?portfolio_capital_usd=${sessionCapital}`),
                 fetch('/api/analytics/strategy'),
                 fetch('/api/analytics/risk'),
                 fetch('/api/analytics/performance'),

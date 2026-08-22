@@ -45,7 +45,6 @@ function seedSnapshot(pairKey: string, opp: OpportunityMatrix, markPrice: number
         structure_assessment: 'Healthy' as AnalysisMatrix['structure_assessment'],
         volatility_assessment: 'Normal' as AnalysisMatrix['volatility_assessment'],
         volume_assessment: 'Normal' as AnalysisMatrix['volume_assessment'],
-        opportunity_analysis: 'TrendContinuation',
         market_quality: 'Good' as AnalysisMatrix['market_quality'],
         market_quality_score: 70,
         market_phase: 'Markup' as AnalysisMatrix['market_phase'],
@@ -371,8 +370,7 @@ describe('OpportunitiesPanel — L4 matrix binding (regression)', () => {
             ...entry.analysis!,
             bias: 'Bullish',
             market_regime: 'TrendingBull',
-            opportunity_analysis: 'TrendContinuation',
-        } as unknown as AnalysisMatrix;
+            } as unknown as AnalysisMatrix;
         entry.decisionContext = {
             score: 75,
             bias: 'Bullish',

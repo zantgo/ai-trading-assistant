@@ -17,6 +17,8 @@
     import GeneralDashboard from '../GeneralDashboard.svelte';
     import InstancePicker from '../InstancePicker.svelte';
     import GeneralSettings from '../GeneralSettings.svelte';
+    import AccountProfile from '../AccountProfile.svelte';
+    import StrategiesHome from '../StrategiesHome.svelte';
     import DataInfraDashboard from '../DataInfraDashboard.svelte';
     import PerformanceDashboard from '../PerformanceDashboard.svelte';
     import TradeAutomationDashboard from '../TradeAutomationDashboard.svelte';
@@ -75,7 +77,11 @@
 </script>
 
 <main class={styles.contentArea}>
-    {#if currentEngine === 'profile' || currentEngine === 'exchange_settings'}
+    {#if currentEngine === 'profile' && middleTab === 'account'}
+        <AccountProfile />
+    {:else if currentEngine === 'profile' && middleTab === 'strategies'}
+        <StrategiesHome />
+    {:else if currentEngine === 'profile' || currentEngine === 'exchange_settings'}
         <GeneralSettings />
     {:else if currentEngine === 'data_infra'}
         <DataInfraDashboard section={section} />

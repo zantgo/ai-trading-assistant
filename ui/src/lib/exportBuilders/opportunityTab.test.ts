@@ -97,7 +97,6 @@ function makeAnalysis(overrides: Partial<AnalysisMatrix> = {}): AnalysisMatrix {
     volume_assessment: 'Neutral',
     market_interpretation: '',
     rationale: '',
-    opportunity_analysis: 'Breakout',
     ...overrides,
   } as unknown as AnalysisMatrix;
 }

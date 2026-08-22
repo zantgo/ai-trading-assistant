@@ -66,12 +66,38 @@ pub async fn fetch_historical_candles(
         }
     });
 
-    let response = client
-        .post(rest_url)
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("REST request failed for {} {}: {}", symbol, interval, e))?;
+    // v9: transport-level retry — deep backfills page dozens of requests;
+    // a single transient send error must not abort the whole run.
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut last_err: Option<String> = None;
+    let mut response = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match client
+            .post(rest_url)
+            .json(&request_body)
+            .send()
+            .await
+        {
+            Ok(res) => {
+                response = Some(res);
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                last_err = Some(format!(
+                    "REST request failed for {} {}: {}",
+                    symbol, interval, e
+                ));
+                if attempt < MAX_ATTEMPTS {
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        400 * attempt as u64,
+                    ))
+                    .await;
+                }
+            }
+        }
+    }
+    let response = response.ok_or_else(|| last_err.unwrap_or_default())?;
 
     let status = response.status();
     if !status.is_success() {

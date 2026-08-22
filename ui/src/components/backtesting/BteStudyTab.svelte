@@ -82,7 +82,7 @@
                 <p class={styles.infoLine}>
                     {result.params.symbol} · {result.params.timeframe_secs}s ·
                     {dateTs(result.params.from_secs * 1000)} → {dateTs(result.params.to_secs * 1000)} ·
-                    {result.mode ?? 'recorded'} mode · ${result.params.initial_capital.toLocaleString()} capital
+                    {result.mode ?? 'recorded'} mode · ${(result.params as { portfolio_capital_usd?: number }).portfolio_capital_usd?.toLocaleString() ?? '—'} capital
                 </p>
             </div>
             {#if stats}

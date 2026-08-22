@@ -37,7 +37,11 @@ pub struct CliBacktestArgs {
     pub symbols: Vec<String>,
     pub tf: Vec<u64>,
     pub depth_days: u32,
-    pub capital: f64,
+    /// v9 (F-07): the simulated account seed - the same
+    /// `portfolio_capital_usd` dial as paper/live.
+    pub portfolio_capital: f64,
+    /// v9: the strategy bound to the run (default "default").
+    pub strategy_name: Option<String>,
     pub allocation: f64,
 }
 
@@ -48,7 +52,8 @@ impl Default for CliBacktestArgs {
             symbols: vec!["BTC".to_string()],
             tf: vec![60, 180, 300, 900],
             depth_days: 180,
-            capital: 1000.0,
+            portfolio_capital: 1000.0,
+            strategy_name: None,
             allocation: 10.0,
         }
     }
@@ -131,8 +136,8 @@ fn validate(workspace: &WorkspaceConfig, args: &CliBacktestArgs) -> Result<Excha
             burn_in_secs as f64 / 86400.0
         ));
     }
-    if !args.capital.is_finite() || args.capital <= 0.0 {
-        return Err("--capital must be a positive number".to_string());
+    if !args.portfolio_capital.is_finite() || args.portfolio_capital <= 0.0 {
+        return Err("--portfolio-capital must be a positive number".to_string());
     }
     if !args.allocation.is_finite() || !(1.0..=100.0).contains(&args.allocation) {
         return Err("--allocation must be in 1..=100".to_string());
@@ -409,7 +414,7 @@ pub async fn run_cli_backtest(
         symbols.join(","),
         args.tf,
         args.depth_days,
-        args.capital,
+        args.portfolio_capital,
         args.allocation,
     );
 
@@ -449,7 +454,7 @@ pub async fn run_cli_backtest(
         timeframe_secs: args.tf.iter().copied().min().unwrap_or(60),
         from_secs,
         to_secs,
-        initial_capital: args.capital,
+        portfolio_capital_usd: args.portfolio_capital,
     };
 
     let active_set = market_analyzer::active_set::ActiveSet::from_config(
@@ -491,6 +496,13 @@ pub async fn run_cli_backtest(
             max_daily_drawdown_pct: workspace.safety.max_daily_drawdown_pct,
             systemic_risk_threshold: workspace.safety.systemic_risk_threshold,
         },
+        // v9: the named strategy (CLI --strategy; default "default").
+        strategy: workspace
+            .resolve_strategy(args.strategy_name.as_deref().unwrap_or("default"))
+            .unwrap_or_else(|e| {
+                eprintln!("strategy resolution failed ({e}); using built-in default");
+                config_models::StrategyConfig::default()
+            }),
     };
     let fees = portfolio_supervisor::paper_trading::FeesConfig {
         maker_fee_pct: workspace.fees.maker_fee_pct,
@@ -552,11 +564,12 @@ pub async fn run_cli_backtest(
         timeframe_secs: params.timeframe_secs,
         from_ms: from_secs * 1000,
         to_ms: to_secs * 1000,
-        initial_capital: Some(args.capital),
+        portfolio_capital_usd: Some(args.portfolio_capital),
         instance_id: None,
         mode: "historical".to_string(),
         exchange: Some(args.exchange.clone()),
         symbols: None,
+        strategy_id: args.strategy_name.clone(),
     };
     let input_bars_target: Option<(String, Vec<u64>)> = Some((symbols[0].clone(), args.tf.clone()));
     match api_gateway::handlers::analytics::persist_backtest_run(
@@ -690,8 +703,9 @@ pub fn prompt_backtest_args(workspace: &WorkspaceConfig) -> CliBacktestArgs {
         symbols,
         tf,
         depth_days,
-        capital,
+        portfolio_capital: capital,
         allocation,
+        strategy_name: None,
     }
 }
 
@@ -748,7 +762,8 @@ mod tests {
             symbols: vec!["BTC".into(), "ETH".into()],
             tf: vec![60, 180, 300, 900],
             depth_days: 30,
-            capital: 1000.0,
+            portfolio_capital: 1000.0,
+            strategy_name: None,
             allocation: 60.0,
         };
         assert!(validate(&ws, &args).is_err(), "120% total must be rejected");
@@ -764,7 +779,8 @@ mod tests {
             symbols: vec!["BTC".into()],
             tf: vec![60, 180, 300, 900],
             depth_days: 30,
-            capital: 1000.0,
+            portfolio_capital: 1000.0,
+            strategy_name: None,
             allocation: 10.0,
         };
         let err = validate(&ws, &args).unwrap_err();

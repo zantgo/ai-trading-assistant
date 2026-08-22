@@ -76,6 +76,7 @@ async fn spawn_analyzer(
     };
 
     tokio::spawn(async move {
+        let strategy = config_models::StrategyConfig::default();
         analyzer::run_single(
             event_rx,
             telemetry_tx,
@@ -105,6 +106,7 @@ async fn spawn_analyzer(
             None,
             None, // heatmap_config (None)
             OrderBookConfig::default(),
+            strategy,
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

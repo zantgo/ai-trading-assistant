@@ -315,7 +315,17 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 
 ### 2.12 Planned endpoints (not yet served)
 
-All previously-planned endpoints are now **served** (keys management in §2.10, activation + reload in §2.4, mode in §2.4, backtest in §2.13). This section is intentionally empty.
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/account/summary` | **v9 Planned.** Aggregated account state: `portfolio_capital_source` (`paper_config \| exchange \| none`), value, equity, realized/unrealized, daily PnL, drawdown, peak, margin usage, safety state, instance + open-position counts. |
+| `POST` | `/api/account/capital` | **v9 Planned (paper only; 400 in observe/live).** `{ portfolio_capital_usd }` → session default for new sessions; existing ledgers never silently reseeded. |
+| `POST` | `/api/account/reset` | **v9 Planned (paper only).** Reseed the ledger to the configured capital (audit event). |
+| `GET` | `/api/strategies` | **v9 Planned.** List strategies (name, base, description, schema_version). |
+| `POST` | `/api/strategies` | **v9 Planned.** Create/update a strategy JSON (schema_version + M8 validation + coherence warnings). |
+| `PUT` | `/api/strategies/:name` | **v9 Planned.** Update a strategy JSON. |
+| `DELETE` | `/api/strategies/:name` | **v9 Planned.** Delete a strategy (blocked when bound to instances; `default` is locked). |
+| `POST` | `/api/strategies/:name/clone` | **v9 Planned.** Clone a strategy under a new name. |
+| `POST` | `/api/instances/:id/lifecycle` | **v9 Planned.** `{ action: "start" \| "pause" \| "terminate" }` — start → RUNNING; pause → **instance PAUSED** (close-only: no new entries, pending orders cancelled, open positions managed normally); terminate → STOPPED (cancel all orders, force-close at market, `exit_reason = "terminated"`). |
 
 ### 2.13 Performance Analytics endpoints (live)
 

@@ -76,7 +76,9 @@ function renderLauncher(props: LauncherProps = {}) {
 }
 
 async function goToInstancesStep() {
-    // Step 1 → 2 (the Add instance flow needs a valid ticker first).
+    // Step 1 → 2 (Strategy) → 3 (Instances).
+    fireEvent.click(screen.getByText('Continue'));
+    await waitFor(() => expect(screen.getAllByText('Strategy').length).toBeGreaterThanOrEqual(2));
     fireEvent.click(screen.getByText('Continue'));
     await waitFor(() => expect(screen.getByText('Σ allocations: 0%')).toBeTruthy());
 }
@@ -100,6 +102,8 @@ describe('BacktestLauncher wizard (v8.2)', () => {
 
         // Step 2: leaving without an instance is blocked (the guard fires
         // on the Continue out of the Instances step).
+        fireEvent.click(screen.getByText('Continue'));
+        await waitFor(() => expect(screen.getAllByText('Strategy').length).toBeGreaterThanOrEqual(2));
         fireEvent.click(screen.getByText('Continue'));
         await waitFor(() => expect(screen.getAllByText('Instances').length).toBeGreaterThanOrEqual(1));
         fireEvent.click(screen.getByText('Continue'));

@@ -16,4 +16,5 @@ pub mod candle_generator;
 pub mod indicators;
 pub mod market_context_synth;
 pub mod sr_engine;
+pub mod strategy_params;
 pub mod synthesis;

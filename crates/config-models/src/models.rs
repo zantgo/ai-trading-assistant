@@ -749,47 +749,10 @@ fn default_cross_leverage() -> u32 {
     20
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ScoringConfig {
-    #[serde(default = "default_base_allocation_pct")]
-    pub base_allocation_pct: f64,
-    #[serde(default = "default_micro_allocation_pct")]
-    pub micro_allocation_pct: f64,
-    #[serde(default = "default_max_allocation_pct")]
-    pub max_allocation_pct: f64,
-    #[serde(default = "default_base_score_threshold")]
-    pub base_score_threshold: u32,
-    #[serde(default = "default_micro_score_threshold")]
-    pub micro_score_threshold: u32,
-}
-
-impl Default for ScoringConfig {
-    fn default() -> Self {
-        Self {
-            base_allocation_pct: default_base_allocation_pct(),
-            micro_allocation_pct: default_micro_allocation_pct(),
-            max_allocation_pct: default_max_allocation_pct(),
-            base_score_threshold: default_base_score_threshold(),
-            micro_score_threshold: default_micro_score_threshold(),
-        }
-    }
-}
-
-fn default_base_allocation_pct() -> f64 {
-    1.0
-}
-fn default_micro_allocation_pct() -> f64 {
-    2.0
-}
-fn default_max_allocation_pct() -> f64 {
-    3.0
-}
-fn default_base_score_threshold() -> u32 {
-    40
-}
-fn default_micro_score_threshold() -> u32 {
-    60
-}
+// v9 (F-06): `ScoringConfig` (score-tiered allocation percentages) is
+// ERASED with the scaled-entry/pyramiding machinery — sizing is the
+// v8.2 allocation model (`allocation_pct` + the strategy's
+// `tae.sizing.quality_curve`, the replacement for score-based sizing).
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeesConfig {
@@ -827,8 +790,6 @@ pub struct AutomationConfig {
     pub enabled: bool,
     #[serde(default = "default_automation_interval")]
     pub interval_seconds: u64,
-    #[serde(default)]
-    pub use_scoring_allocation: bool,
     #[serde(default = "default_max_opposite_exit_signals")]
     pub max_opposite_exit_signals: usize,
 }
@@ -838,7 +799,6 @@ impl Default for AutomationConfig {
         Self {
             enabled: false,
             interval_seconds: default_automation_interval(),
-            use_scoring_allocation: false,
             max_opposite_exit_signals: default_max_opposite_exit_signals(),
         }
     }
@@ -901,77 +861,11 @@ fn default_true_bool() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum AllocationCurveModel {
-    #[default]
-    Stepped,
-    Linear,
-    Exponential,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AllocationCurve {
-    #[serde(default)]
-    pub model: AllocationCurveModel,
-    #[serde(default = "default_base_allocation_pct")]
-    pub base_allocation_pct: f64,
-    #[serde(default = "default_max_allocation_pct")]
-    pub max_allocation_pct: f64,
-    #[serde(default = "default_base_score_threshold")]
-    pub base_score_threshold: u32,
-    #[serde(default = "default_micro_score_threshold")]
-    pub micro_score_threshold: u32,
-    #[serde(default = "default_exponent")]
-    pub exponent: f64,
-}
-
-impl Default for AllocationCurve {
-    fn default() -> Self {
-        Self {
-            model: AllocationCurveModel::default(),
-            base_allocation_pct: default_base_allocation_pct(),
-            max_allocation_pct: default_max_allocation_pct(),
-            base_score_threshold: default_base_score_threshold(),
-            micro_score_threshold: default_micro_score_threshold(),
-            exponent: default_exponent(),
-        }
-    }
-}
-
-fn default_exponent() -> f64 {
-    2.0
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PositionScalingConfig {
-    #[serde(default)]
-    pub allocation_curve: AllocationCurve,
-    #[serde(default = "default_leverage_mode")]
-    pub leverage_mode: String,
-    #[serde(default = "default_cross_leverage")]
-    pub leverage_cap: u32,
-    #[serde(default = "default_target_margin")]
-    pub target_margin: f64,
-}
-
-impl Default for PositionScalingConfig {
-    fn default() -> Self {
-        Self {
-            allocation_curve: AllocationCurve::default(),
-            leverage_mode: default_leverage_mode(),
-            leverage_cap: default_cross_leverage(),
-            target_margin: default_target_margin(),
-        }
-    }
-}
-
-fn default_leverage_mode() -> String {
-    "Fixed".to_string()
-}
-
-fn default_target_margin() -> f64 {
-    0.02
-}
+// v9 (F-06): `AllocationCurveModel` / `AllocationCurve` /
+// `PositionScalingConfig` are ERASED with the scaled-entry/pyramiding
+// machinery. One position per instance, one side, one SL, one TP —
+// sizing is the v8.2 allocation model (`allocation_pct` + strategy
+// `tae.sizing`).
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TimeframeConfig {
@@ -1767,14 +1661,6 @@ impl Default for ReconnectConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_default_scoring_config() {
-        let cfg = ScoringConfig::default();
-        assert_eq!(cfg.base_allocation_pct, 1.0);
-        assert_eq!(cfg.micro_allocation_pct, 2.0);
-        assert_eq!(cfg.max_allocation_pct, 3.0);
-    }
 
     #[test]
     fn test_default_fibonacci_config() {

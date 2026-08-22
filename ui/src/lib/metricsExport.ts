@@ -290,7 +290,6 @@ interface AnalysisExport {
     structure_assessment: string;
     volatility_assessment: string;
     volume_assessment: string;
-    opportunity_analysis: string;
     market_quality: string;
     market_quality_score: number;
     /** Wyckoff-style market-cycle phase ("MARKUP" / "MARKDOWN" / …) —
@@ -850,7 +849,6 @@ function exportAnalysis(a: AnalysisMatrix | null): AnalysisExport | null {
         structure_assessment: a.structure_assessment,
         volatility_assessment: a.volatility_assessment,
         volume_assessment: a.volume_assessment,
-        opportunity_analysis: a.opportunity_analysis,
         market_quality: a.market_quality,
         market_quality_score: a.market_quality_score,
         // Wyckoff-style market-cycle phase — rendered on the Analysis page

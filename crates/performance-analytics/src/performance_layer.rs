@@ -291,9 +291,9 @@ fn compute_policy_drawdown(trades: &[&TradeAnalyticsRecord]) -> f64 {
     let mut cumulative = 0.0f64;
     let mut max_dd_pct = 0.0f64;
 
-    let initial_capital = sorted[0].entry_price * sorted[0].size;
-    let base = if initial_capital > 0.0 {
-        initial_capital
+    let base_equity = sorted[0].entry_price * sorted[0].size;
+    let base = if base_equity > 0.0 {
+        base_equity
     } else {
         1.0
     };

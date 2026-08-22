@@ -10,7 +10,7 @@
     interface HistoryRow {
         id: number;
         created_at: number;
-        params: { symbol?: string; timeframe_secs?: number; from_ms?: number; to_ms?: number; initial_capital?: number };
+        params: { symbol?: string; timeframe_secs?: number; from_ms?: number; to_ms?: number; portfolio_capital_usd?: number };
         summary: { total_trades?: number; win_rate?: number; profit_factor?: number | null; gross_profit?: number; gross_loss?: number; max_drawdown_pct?: number };
     }
 

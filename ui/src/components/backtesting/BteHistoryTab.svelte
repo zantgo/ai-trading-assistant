@@ -17,7 +17,7 @@
         created_at: number;
         instance_id: string | null;
         mode: string | null;
-        params: { symbol?: string; timeframe_secs?: number; from_secs?: number; to_secs?: number; initial_capital?: number };
+        params: { symbol?: string; timeframe_secs?: number; from_secs?: number; to_secs?: number; portfolio_capital_usd?: number };
         summary: {
             total_trades?: number; win_rate?: number; profit_factor?: number | null;
             max_drawdown_pct?: number;

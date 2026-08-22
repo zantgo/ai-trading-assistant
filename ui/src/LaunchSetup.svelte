@@ -317,7 +317,7 @@
 
                 {#if mode === 'paper'}
                     <div class={styles.formGroup}>
-                        <label class={styles.formLabel} for="launch-capital">Starting Capital (USD)</label>
+                        <label class={styles.formLabel} for="launch-capital">Portfolio Capital (USD)</label>
                         <input id="launch-capital" type="number" min="100" step="100"
                             class={styles.formInput} bind:value={capital} />
                         <p class={styles.formHint}>The paper balance for instances created in this session.</p>
@@ -413,7 +413,7 @@
                     <div class={styles.reviewRow}><span class={styles.reviewKey}>Exchange</span><span class={styles.reviewVal}>{exchange}</span></div>
                     <div class={styles.reviewRow}><span class={styles.reviewKey}>Settlement Currency</span><span class={styles.reviewVal}>{currency}</span></div>
                     {#if mode === 'paper'}
-                        <div class={styles.reviewRow}><span class={styles.reviewKey}>Starting Capital</span><span class={styles.reviewVal}>${Number(capital).toLocaleString()}</span></div>
+                        <div class={styles.reviewRow}><span class={styles.reviewKey}>Portfolio Capital</span><span class={styles.reviewVal}>${Number(capital).toLocaleString()}</span></div>
                     {:else if mode === 'live'}
                         <div class={styles.reviewRow}><span class={styles.reviewKey}>Credentials</span><span class={styles.reviewVal}>
                             {exchange === 'Hyperliquid'

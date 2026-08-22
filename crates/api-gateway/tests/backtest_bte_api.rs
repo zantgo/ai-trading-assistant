@@ -579,7 +579,7 @@ async fn standalone_run_completes_and_persists() {
             "symbols": [{ "symbol": "BTC-USDC", "timeframes": [180, 300, 900, 1800], "allocation_pct": 10.0 }],
             "from_ms": from_ms,
             "to_ms": to_ms,
-            "initial_capital": 1000.0,
+            "portfolio_capital_usd": 1000.0,
             "mode": "historical",
         }),
     )

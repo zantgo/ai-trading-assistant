@@ -168,6 +168,7 @@ async fn observation_loop_latency_p95_below_threshold() {
             None,
             None, // heatmap_config (None → defaults)
             OrderBookConfig::default(),
+            config_models::StrategyConfig::default(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),

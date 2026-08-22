@@ -464,3 +464,119 @@ export function readDraftFromPair(pair: InstanceState): {
     };
 }
 
+
+// ─── v9 Strategy / Account / Lifecycle API ───────────────────────────
+
+export interface StrategySummary {
+    name: string;
+    base: string | null;
+    description: string;
+    schema_version: number;
+}
+
+export interface AccountSummary {
+    mode: string;
+    portfolio_capital_source: 'paper_config' | 'exchange' | 'none';
+    portfolio_capital_usd: number | null;
+    equity: number;
+    daily_pnl: number;
+    drawdown_pct: number;
+    safety_state: string;
+    instance_count: number;
+    open_positions_count: number;
+}
+
+export async function fetchStrategies(): Promise<StrategySummary[]> {
+    const res = await fetch('/api/strategies');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.strategies ?? [];
+}
+
+export async function fetchStrategyJson(name: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`/api/strategies/${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function saveStrategy(
+    name: string,
+    json: Record<string, unknown>,
+    base?: string | null,
+    description?: string | null,
+): Promise<{ warnings?: string[]; error?: string }> {
+    const res = await fetch('/api/strategies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, base: base ?? null, description, strategy: json }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    return { warnings: (data as { warnings?: string[] }).warnings ?? [] };
+}
+
+export async function deleteStrategy(name: string): Promise<{ error?: string }> {
+    const res = await fetch(`/api/strategies/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function cloneStrategy(source: string, newName: string): Promise<{ error?: string }> {
+    const res = await fetch(`/api/strategies/${encodeURIComponent(source)}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_name: newName }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function fetchAccountSummary(): Promise<AccountSummary> {
+    const res = await fetch('/api/account/summary');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+}
+
+export async function postAccountCapital(usd: number): Promise<{ error?: string }> {
+    const res = await fetch('/api/account/capital', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portfolio_capital_usd: usd }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function postAccountReset(): Promise<{ error?: string }> {
+    const res = await fetch('/api/account/reset', { method: 'POST' });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}
+
+export async function postInstanceLifecycle(
+    instanceId: string,
+    action: 'start' | 'pause' | 'terminate',
+): Promise<{ error?: string }> {
+    const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/lifecycle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: (data as { error?: string }).error ?? `HTTP ${res.status}` };
+    }
+    return {};
+}

@@ -21,6 +21,8 @@ export interface EngineTab {
 }
 
 export const PROFILE_TABS: EngineTab[] = [
+    { key: 'account', label: 'Account' },
+    { key: 'strategies', label: 'Strategies' },
     { key: 'fee', label: 'Fees & Leverage' },
     { key: 'exchange', label: 'Exchange' },
     { key: 'share', label: 'Share Config' },
@@ -109,7 +111,7 @@ export const BTE_TABS_NO_INSTANCE: EngineTab[] = [
 ];
 
 export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
-    profile: 'settings',
+    profile: 'account',
     exchange_settings: 'settings',
     data_infra: 'connectivity',
     market_monitor: 'overview',

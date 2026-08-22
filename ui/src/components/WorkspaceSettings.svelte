@@ -1,12 +1,11 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
-    import type { InstanceState, PositionScalingConfig, TimeframeTelemetry } from '../types';
+    import type { InstanceState, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import { clearHistoryCache, clearCandleCache } from '../lib/indicatorHistory';
     import LiquidationHeatmapTierPicker from './LiquidationHeatmapTierPicker.svelte';
-    import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
     import SettingsSaveButton, { type SettingsSaveState } from './SettingsSaveButton.svelte';
     import ExportDataButton from './ExportDataButton.svelte';
     import ConfigSourceChip from './ConfigSourceChip.svelte';
@@ -41,7 +40,6 @@
     });
 
     // ─── v7.4: position scaling (per-instance, live-recharged) ──────────
-    let sizing = $state<PositionScalingConfig | null>(null);
     // ─── v7.4: indicator activation (per-instance override) ─────────────
     let activation = $state({
         disabledIndicators: '' as string,
@@ -262,7 +260,6 @@
                 (i: { symbol?: string; id?: string }) =>
                     (i.symbol ?? '').toLowerCase() === symbol || (i.id ?? '') === pair.instanceId,
             );
-            if (entry?.position_scaling) sizing = entry.position_scaling;
             const act = entry?.activation ?? data.activation;
             if (act) {
                 activation = {
@@ -308,7 +305,6 @@
                 slow: tfDraft.slow,
                 macro: tfDraft.macro,
             },
-            sizing,
             activation,
         });
     }
@@ -367,7 +363,6 @@
                 slow: tfDraft.slow,
                 macro: tfDraft.macro,
             },
-            position_scaling: sizing,
             activation,
         });
     }
@@ -418,8 +413,7 @@
                 slow_term: { candles: { duration_seconds: tfDraft.slow.durationSeconds }, indicators: buildIndicators(tfDraft.slow) },
                 macro_term: { candles: { duration_seconds: tfDraft.macro.durationSeconds }, indicators: buildIndicators(tfDraft.macro) },
                 automation: { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval },
-                position_scaling: sizing,
-                activation: {
+                    activation: {
                     disabled_indicators: activation.disabledIndicators.split(',').map((s) => s.trim()).filter(Boolean),
                     disabled_signals: [],
                     disabled_signal_kinds: [],
@@ -698,22 +692,6 @@
                     />
                 </div>
             </div>
-        </div>
-
-        <div class={engine.card}>
-            <div class={engine.cardHead}>
-                <h3 class={engine.cardTitle}>Position Sizing &amp; Risk</h3>
-                <ConfigSourceChip source="[instances.….position_scaling]" apply="LIVE" />
-            </div>
-            <p class={engine.infoLine}>How the TAE executor converts setup confluence scores into capital allocation and leverage. Saves live — the pipeline recharges with the new curve.</p>
-            {#if cfgLoaded}
-                <PositionScalingPanel
-                    initial={sizing}
-                    onchange={(next) => { sizing = next; }}
-                />
-            {:else}
-                <div class={styles.empty}>Loading position scaling…</div>
-            {/if}
         </div>
 
         <div class={engine.card}>

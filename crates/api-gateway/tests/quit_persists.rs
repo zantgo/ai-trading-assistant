@@ -113,7 +113,6 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         id: id.to_string(),
         symbol: pair.to_string(),
         quote: "USDT".to_string(),
-        initial_capital_usd: 1000.0,
         status: config_models::InstanceStatus::Running,
         micro_term: config_models::TimeframeConfig::new(60, Default::default()),
         fast_term: config_models::TimeframeConfig::new(180, Default::default()),
@@ -122,9 +121,9 @@ fn make_instance(id: &str, pair: &str) -> InstanceEntry {
         automation: Default::default(),
         operational_mode: Default::default(),
         mode: config_models::ExecutionMode::Paper,
+        strategy: None,
         allocation_pct: None,
         weight_overrides: None,
-        position_scaling: None,
         activation: None,
         custom_pipelines: std::collections::HashMap::new(),
     }

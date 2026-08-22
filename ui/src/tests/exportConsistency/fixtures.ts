@@ -346,7 +346,6 @@ export function makeAnalysis(): AnalysisMatrix {
     structure_assessment: 'Strong',
     volatility_assessment: 'Normal',
     volume_assessment: 'Strong',
-    opportunity_analysis: 'TrendContinuation',
     market_quality: 'Good',
     market_quality_score: 72,
     // v6.12: per-card dimension scores — the exact 0-100 inputs the

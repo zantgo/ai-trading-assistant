@@ -14,7 +14,7 @@ pub struct SafetyManager {
     pub safety_state: RwLock<SafetyState>,
     pub dropout_until: RwLock<Option<Instant>>,
     pub dropout_symbol: RwLock<Option<String>>,
-    pub initial_capital: RwLock<Decimal>,
+    pub portfolio_capital: RwLock<Decimal>,
     pub current_equity: RwLock<Decimal>,
     pub peak_equity: RwLock<Decimal>,
     pub starting_session_equity: RwLock<Decimal>,
@@ -43,7 +43,7 @@ impl SafetyManager {
             safety_state: RwLock::new(SafetyState::Normal),
             dropout_until: RwLock::new(None),
             dropout_symbol: RwLock::new(None),
-            initial_capital: RwLock::new(dec!(0)),
+            portfolio_capital: RwLock::new(dec!(0)),
             current_equity: RwLock::new(dec!(0)),
             peak_equity: RwLock::new(dec!(0)),
             starting_session_equity: RwLock::new(dec!(0)),
@@ -217,8 +217,8 @@ impl SafetyManager {
         println!("🔄 SAFETY: Loss counter reset");
     }
 
-    pub async fn set_initial_capital(&self, capital: Decimal) {
-        *self.initial_capital.write().await = capital;
+    pub async fn set_portfolio_capital(&self, capital: Decimal) {
+        *self.portfolio_capital.write().await = capital;
         self.update_peak_equity(capital).await;
         let ss_equity = self.starting_session_equity.read().await;
         if *ss_equity == dec!(0) {
@@ -363,7 +363,7 @@ mod tests {
     #[tokio::test]
     async fn test_normal_to_cautious_transition() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
 
         mgr.record_trade_outcome("BTC-USDT", true).await;
         mgr.record_trade_outcome("BTC-USDT", true).await;
@@ -444,7 +444,7 @@ mod tests {
     #[tokio::test]
     async fn test_drawdown_stop_uses_peak_equity() {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(1200)).await;
 
         mgr.update_peak_equity(dec!(1200)).await;
@@ -459,7 +459,7 @@ mod tests {
     #[tokio::test]
     async fn test_drawdown_not_triggered_within_limit() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(800)).await;
 
         mgr.update_peak_equity(dec!(1000)).await;
@@ -471,7 +471,7 @@ mod tests {
     #[tokio::test]
     async fn test_peak_equity_trailing_high_water_mark() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
 
         assert_eq!(*mgr.peak_equity.read().await, dec!(1000));
 
@@ -485,7 +485,7 @@ mod tests {
     #[tokio::test]
     async fn test_warn_state_triggered_on_daily_drawdown() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(10000)).await;
+        mgr.set_portfolio_capital(dec!(10000)).await;
         mgr.set_current_equity(dec!(10000)).await;
 
         *mgr.starting_session_equity.write().await = dec!(10000);
@@ -499,7 +499,7 @@ mod tests {
     #[tokio::test]
     async fn test_warn_state_clears_when_recovered() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(10000)).await;
+        mgr.set_portfolio_capital(dec!(10000)).await;
         mgr.set_current_equity(dec!(10000)).await;
 
         *mgr.starting_session_equity.write().await = dec!(10000);
@@ -516,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_triggers_drawdown_stop() {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.update(dec!(1200)).await;
         assert_eq!(*mgr.peak_equity.read().await, dec!(1200));
 
@@ -529,7 +529,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_triggers_warn_on_daily_drawdown() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(10000)).await;
+        mgr.set_portfolio_capital(dec!(10000)).await;
         mgr.update(dec!(10000)).await;
 
         // Daily PnL = 9400 - 10000 = -600 → 6% of session equity → WARN.
@@ -541,7 +541,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_normal_state_above_peak() {
         let mgr = SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.update(dec!(1000)).await;
 
         let state = mgr.update(dec!(1100)).await;
@@ -553,7 +553,7 @@ mod tests {
     #[tokio::test]
     async fn test_session_reset_rebaselines_peak_equity() {
         let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-        mgr.set_initial_capital(dec!(1000)).await;
+        mgr.set_portfolio_capital(dec!(1000)).await;
         mgr.set_current_equity(dec!(1500)).await;
 
         assert_eq!(*mgr.peak_equity.read().await, dec!(1500));
@@ -571,7 +571,7 @@ mod tests {
 #[tokio::test]
 async fn test_deterministic_reconstruction_sequence() {
     let mgr = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-    mgr.set_initial_capital(dec!(1000)).await;
+    mgr.set_portfolio_capital(dec!(1000)).await;
 
     let sequence = [
         1000.0, 1100.0, 1050.0, 980.0, 900.0, 870.0, 1200.0, 1150.0, 1100.0,
@@ -583,7 +583,7 @@ async fn test_deterministic_reconstruction_sequence() {
 
     // Re-run on a fresh manager — identical reconstruction expected.
     let mgr2 = SafetyManager::new(3, 5, 8, 20.0, 5.0, 80.0);
-    mgr2.set_initial_capital(dec!(1000)).await;
+    mgr2.set_portfolio_capital(dec!(1000)).await;
     let mut states2 = Vec::new();
     for eq in sequence {
         states2.push(mgr2.update(Decimal::from_f64_retain(eq).unwrap()).await);

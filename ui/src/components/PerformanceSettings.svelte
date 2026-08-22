@@ -20,16 +20,15 @@
         monte_carlo_runs?: number;
         min_trades_for_verdict?: number;
     }
-    interface InstanceEntry { id?: string; symbol?: string; initial_capital_usd?: number }
+    interface InstanceEntry { id?: string; symbol?: string; portfolio_capital_usd?: number }
 
-    let cfg: { analytics?: AnalyticsCfg; instances?: InstanceEntry[] } | null = $state(null);
+    let cfg: { analytics?: AnalyticsCfg; instances?: InstanceEntry[]; portfolio_capital_usd?: number } | null = $state(null);
     let loading = $state(true);
     let error: string | null = $state(null);
     let saveError: string | null = $state(null);
     let saveState = $state<SettingsSaveState>('idle');
 
     let analytics = $state<AnalyticsCfg>({ alpha: 0.05, monte_carlo_runs: 10000, min_trades_for_verdict: 30 });
-    let capital = $state(1000);
 
     async function fetchConfig() {
         try {
@@ -44,7 +43,6 @@
                     min_trades_for_verdict: data.analytics.min_trades_for_verdict ?? 30,
                 };
             }
-            capital = data.instances?.[0]?.initial_capital_usd ?? 1000;
             error = null;
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
@@ -63,8 +61,7 @@
                 alpha: c.analytics?.alpha ?? 0.05,
                 monte_carlo_runs: c.analytics?.monte_carlo_runs ?? 10000,
                 min_trades_for_verdict: c.analytics?.min_trades_for_verdict ?? 30,
-            }) ||
-            Number(capital) !== Number(c.instances?.[0]?.initial_capital_usd ?? 1000)
+            })
         );
     });
 
@@ -77,11 +74,6 @@
         saveError = null;
         saveState = 'saving';
         try {
-            // Round-trip the instances list with the first entry's default
-            // capital replaced — the one field PAE consumes for new runs.
-            const instances = (cfg?.instances ?? []).map((inst, idx) =>
-                idx === 0 ? { ...inst, initial_capital_usd: Number(capital) } : inst,
-            );
             const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -91,7 +83,6 @@
                         monte_carlo_runs: Number(analytics.monte_carlo_runs),
                         min_trades_for_verdict: Number(analytics.min_trades_for_verdict),
                     },
-                    instances,
                 }),
             });
             if (res.ok) {
@@ -111,7 +102,6 @@
     function buildExport(): string {
         return buildEngineExport('performance', 'settings', mode ?? null, {
             analytics,
-            default_initial_capital_usd: Number(capital),
         });
     }
 </script>
@@ -166,20 +156,6 @@
                         <label class={styles.fieldLabel} for="pae-min">Min trades for verdict</label>
                         <input class={styles.fieldInput} id="pae-min" type="number" min="1" max="10000" step="1" bind:value={analytics.min_trades_for_verdict} />
                         <span class={styles.muted} style="font-size:10px">below this: InsufficientData</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class={styles.card}>
-                <div class={styles.cardHead}>
-                    <h3 class={styles.cardTitle}>Capital Default</h3>
-                    <ConfigSourceChip source="[instances[0].initial_capital_usd]" apply="NEW_PIPELINES" />
-                </div>
-                <p class={styles.infoLine}>Default capital used for new backtest runs (applies to newly created instances).</p>
-                <div class={styles.formRow}>
-                    <div class={styles.field}>
-                        <label class={styles.fieldLabel} for="pae-capital">Default backtest capital $</label>
-                        <input class={styles.fieldInput} id="pae-capital" type="number" min="100" step="100" bind:value={capital} />
                     </div>
                 </div>
             </div>

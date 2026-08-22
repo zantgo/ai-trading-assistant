@@ -29,7 +29,6 @@ fn make_analysis(state_confidence: f64) -> AnalysisMatrix {
         structure_assessment: core_domain::analysis::StructureAssessment::Healthy,
         volatility_assessment: core_domain::analysis::VolatilityAssessment::Normal,
         volume_assessment: core_domain::analysis::VolumeAssessment::Normal,
-        opportunity_analysis: core_domain::analysis::OpportunityType::NoClearOpportunity,
         market_quality: core_domain::analysis::QualityLevel::Average,
         trend_score: None,
         momentum_score: None,

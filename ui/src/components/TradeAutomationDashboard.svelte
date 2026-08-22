@@ -8,6 +8,7 @@
     import { onMount } from 'svelte';
     import { useAppStore } from '../state.svelte';
     import DashboardHeader from './DashboardHeader.svelte';
+    import { postInstanceLifecycle } from '../lib/api.svelte';
     import ModeChip from './ModeChip.svelte';
     import ModeBanner from './ModeBanner.svelte';
     import KpiStrip from './KpiStrip.svelte';
@@ -110,6 +111,20 @@
 
     let instances = $state<InstanceSummary[]>([]);
     let selectedId = $state('');
+    let lifecycleBusy = $state(false);
+    let lifecycleFlash = $state<string | null>(null);
+
+    async function lifecycle(action: 'start' | 'pause' | 'terminate') {
+        if (!selectedId) return;
+        if (action === 'terminate' && !window.confirm('Terminate this instance? All open positions are force-closed at market.')) {
+            return;
+        }
+        lifecycleBusy = true;
+        const res = await postInstanceLifecycle(selectedId, action);
+        lifecycleBusy = false;
+        lifecycleFlash = res.error ?? `Instance ${action === 'start' ? 'resumed' : action === 'pause' ? 'paused (close-only)' : 'terminated'}.`;
+        setTimeout(() => (lifecycleFlash = null), 4000);
+    }
     let automation = $state<AutomationState | null>(null);
     let trades = $state<TradeRow[]>([]);
     let loading = $state(true);
@@ -475,6 +490,14 @@
             {#snippet trailing()}
                 {#if mode}
                     <ModeChip {mode} />
+                {/if}
+                {#if !ghost && selectedId}
+                    <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('start')} title="Resume entries">START</button>
+                    <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('pause')} title="Close-only: no new entries, open positions managed normally">PAUSE</button>
+                    <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('terminate')} title="Force-close all positions">TERMINATE</button>
+                    {#if lifecycleFlash}
+                        <span class={styles.badge}>{lifecycleFlash}</span>
+                    {/if}
                 {/if}
                 {#if instances.length > 0}
                     <select class={styles.select} bind:value={selectedId} onchange={refresh}>

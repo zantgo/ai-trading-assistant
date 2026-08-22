@@ -18,7 +18,7 @@ pub struct InstanceSummary {
     pub pair: String,
     pub status: String,
     pub symbol: String,
-    pub initial_capital: f64,
+    pub portfolio_capital: f64,
     pub current_equity: f64,
     pub consecutive_losses: u32,
     pub safety_state: String,
@@ -182,7 +182,6 @@ pub async fn add_instance(
         .map(|p| p.operational_mode.clone())
         .unwrap_or_default();
     let weight_overrides = pair_cfg.as_ref().and_then(|p| p.weight_overrides.clone());
-    let position_scaling = pair_cfg.as_ref().and_then(|p| p.position_scaling.clone());
     let liquidity_config_first = config_guard.liquidity.clone();
     let heatmap_config_first = config_guard.heatmap.clone();
     let api_failover_first = config_guard.api_failover;
@@ -190,6 +189,21 @@ pub async fn add_instance(
     let activation_first = config_guard.activation.clone();
     let activation_instance_first = pair_cfg.as_ref().and_then(|p| p.activation.clone());
     let config_version_first = config_guard.config_version;
+    // v9 (F-04): the `[order_book]` surface + the effective default
+    // strategy (patch-resolved).
+    let ob_config_first = config_guard.order_book.clone();
+    // v9: instances launch bound to the default strategy; an explicit
+    // per-instance binding overrides it.
+    let bound_name = pair_cfg
+        .as_ref()
+        .and_then(|p| p.strategy.clone())
+        .unwrap_or_else(|| "default".to_string());
+    let strategy_first = config_guard
+        .resolve_strategy(&bound_name)
+        .unwrap_or_else(|e| {
+            eprintln!("strategy resolution failed ({e}); using built-in default");
+            config_models::StrategyConfig::default()
+        });
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -273,13 +287,14 @@ pub async fn add_instance(
         cancel: cancel.clone(),
         operational_mode: operational_mode.clone(),
         weight_overrides: weight_overrides.clone(),
-        position_scaling: position_scaling.clone(),
         liquidity_config: liquidity_config_first,
         heatmap_config: heatmap_config_first,
         api_failover: api_failover_first,
         activation: activation_first,
         activation_instance: activation_instance_first,
         config_version: config_version_first,
+        ob_config: ob_config_first,
+        strategy: strategy_first,
         buffer_size,
         stale_threshold_secs,
     };
@@ -337,22 +352,29 @@ pub async fn add_instance(
         .insert(pair_key.clone(), Arc::clone(&artifacts.instance))
         .await;
 
-    let initial_capital;
+    // v9 (F-07): ONE portfolio-wide capital dial — the shared ledger
+    // seeds from `[workspace] portfolio_capital_usd` (the session default
+    // may override it for new sessions).
+    let portfolio_capital = state.workspace.config().await.portfolio_capital_usd;
+    let base_capital;
     {
         let mut config = state.workspace.config().await;
         if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == pair_key) {
             // Re-adding an existing pair (rare). Refresh the UUID in case the
             // disk copy is stale and accept the live configs in memory.
             slot.id = artifacts.instance.id.clone();
-            initial_capital = slot.initial_capital_usd;
+            base_capital = portfolio_capital;
         } else {
-            let capital = state.session.session_capital().await.unwrap_or(1000.0);
-            initial_capital = capital;
+            let capital = state
+                .session
+                .session_capital()
+                .await
+                .unwrap_or(portfolio_capital);
+            base_capital = capital;
             let entry = config_models::InstanceEntry {
                 id: artifacts.instance.id.clone(),
                 symbol: pair_key.clone(),
                 quote: quote.as_str().to_string(),
-                initial_capital_usd: capital,
                 status: config_models::InstanceStatus::Running,
                 micro_term: micro_cfg.clone(),
                 fast_term: fast_cfg.clone(),
@@ -361,10 +383,10 @@ pub async fn add_instance(
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: operational_mode.clone(),
                 mode: execution_mode,
+                strategy: None,
                 allocation_pct: None,
                 weight_overrides: weight_overrides.clone(),
-                position_scaling: position_scaling.clone(),
-                activation: None,
+                        activation: None,
                 custom_pipelines: std::collections::HashMap::new(),
             };
             config.instances.push(entry);
@@ -378,12 +400,12 @@ pub async fn add_instance(
     // Seed the live trading/safety state with the same capital the
     // persisted InstanceEntry carries (config-declared for boot-restored
     // instances, session default for new ones). Without this,
-    // trading.initial_capital / safety.initial_capital /
+    // trading.portfolio_capital / safety.portfolio_capital /
     // starting_session_equity stay 0, so /portfolio and /safety report
-    // initial_capital 0 and daily_pnl = full equity instead of 0.
+    // portfolio_capital 0 and daily_pnl = full equity instead of 0.
     artifacts
         .instance
-        .set_initial_capital(initial_capital)
+        .set_portfolio_capital(base_capital)
         .await;
 
     sync_exchange_status_active_pairs(state).await;
@@ -645,7 +667,6 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     };
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
-    let position_scaling = pair_cfg.position_scaling.clone();
     let liquidity_config_recharge = config_guard.liquidity.clone();
     let heatmap_config_recharge = config_guard.heatmap.clone();
     let api_failover_recharge = config_guard.api_failover;
@@ -653,6 +674,18 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let activation_recharge = config_guard.activation.clone();
     let activation_instance_recharge = pair_cfg.activation.clone();
     let config_version_recharge = config_guard.config_version;
+    // v9 (F-04): recharge the wired order-book knobs + strategy.
+    let ob_config_recharge = config_guard.order_book.clone();
+    let bound_name = pair_cfg
+        .strategy
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+    let strategy_recharge = config_guard
+        .resolve_strategy(&bound_name)
+        .unwrap_or_else(|e| {
+            eprintln!("strategy resolution failed ({e}); using built-in default");
+            config_models::StrategyConfig::default()
+        });
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
@@ -724,13 +757,14 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         cancel: cancel.clone(),
         operational_mode,
         weight_overrides,
-        position_scaling,
         liquidity_config: liquidity_config_recharge,
         heatmap_config: heatmap_config_recharge,
         api_failover: api_failover_recharge,
         activation: activation_recharge,
         activation_instance: activation_instance_recharge,
         config_version: config_version_recharge,
+        ob_config: ob_config_recharge,
+        strategy: strategy_recharge,
         buffer_size,
         stale_threshold_secs,
     };
@@ -833,7 +867,7 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             pair: inst.pair_key(),
             status: inst.config_state.read().await.status.as_str().to_string(),
             symbol: inst.symbol(),
-            initial_capital: inst.trading.read().await.initial_capital,
+            portfolio_capital: inst.trading.read().await.portfolio_capital,
             current_equity: inst.trading.read().await.current_equity,
             consecutive_losses: inst.safety.consecutive_losses.read().await.values().sum(),
             safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
