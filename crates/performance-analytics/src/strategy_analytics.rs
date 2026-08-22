@@ -18,6 +18,18 @@ pub struct AnalyticsParams {
     pub alpha: f64,
     pub monte_carlo_runs: u32,
     pub min_trades_for_verdict: u32,
+    /// v9: hard pre-filters — a group failing a floor is demoted to
+    /// NoEdgeNegative before the classification table (None = off).
+    pub min_profit_factor: Option<f64>,
+    pub min_expectancy: Option<f64>,
+    /// v9: the grading curve (defaults = the historical table).
+    pub edge_strong_pf: f64,
+    pub edge_strong_wr: f64,
+    pub edge_strong_p: f64,
+    pub edge_moderate_pf: f64,
+    pub edge_moderate_wr: f64,
+    pub edge_weak_pf: f64,
+    pub edge_weak_p: f64,
 }
 
 impl Default for AnalyticsParams {
@@ -26,7 +38,37 @@ impl Default for AnalyticsParams {
             alpha: ALPHA,
             monte_carlo_runs: MC_RUNS,
             min_trades_for_verdict: 30,
+            min_profit_factor: None,
+            min_expectancy: None,
+            edge_strong_pf: 1.2,
+            edge_strong_wr: 0.50,
+            edge_strong_p: 0.01,
+            edge_moderate_pf: 1.5,
+            edge_moderate_wr: 0.45,
+            edge_weak_pf: 1.0,
+            edge_weak_p: 0.10,
         }
+    }
+}
+
+impl AnalyticsParams {
+    /// v9: build the verdict bar from the strategy's `pae` section.
+    pub fn from_strategy(pae: &config_models::PaeParams) -> Self {
+        let mut p = Self::default();
+        p.alpha = pae.verdict.alpha;
+        p.monte_carlo_runs = pae.verdict.monte_carlo_runs;
+        p.min_trades_for_verdict = pae.verdict.min_trades_for_verdict;
+        p.min_profit_factor = pae.verdict.min_profit_factor;
+        p.min_expectancy = pae.verdict.min_expectancy;
+        let c = &pae.verdict.edge_classification;
+        p.edge_strong_pf = c.strong.profit_factor_min.unwrap_or(1.2);
+        p.edge_strong_wr = c.strong.win_rate_min.unwrap_or(0.50);
+        p.edge_strong_p = c.strong.p_max;
+        p.edge_moderate_pf = c.moderate.profit_factor_min.unwrap_or(1.5);
+        p.edge_moderate_wr = c.moderate.win_rate_min.unwrap_or(0.45);
+        p.edge_weak_pf = c.weak.profit_factor_min.unwrap_or(1.0);
+        p.edge_weak_p = c.weak.p_max;
+        p
     }
 }
 
@@ -160,8 +202,15 @@ pub fn compute_setup_analytics(
         0.0
     };
 
-    let classification =
-        classify_performance_with_params(profit_factor, win_rate, p_value, p_mc, total, params);
+    let classification = classify_performance_with_params(
+        profit_factor,
+        win_rate,
+        p_value,
+        p_mc,
+        total,
+        expectancy,
+        params,
+    );
 
     StrategyAnalyticsRow {
         setup_type: setup_type.to_string(),
@@ -189,12 +238,14 @@ pub fn compute_setup_analytics(
 
 /// Verdict classification with tunable significance treatment (v7.3). The
 /// min-trade floor and the α bar come from `[workspace.analytics]`.
+#[allow(clippy::too_many_arguments)]
 fn classify_performance_with_params(
     profit_factor: Option<f64>,
     win_rate: f64,
     p_value: f64,
     p_mc: f64,
     total_trades: u32,
+    expectancy: f64,
     params: AnalyticsParams,
 ) -> PerformanceClassification {
     if total_trades < params.min_trades_for_verdict {
@@ -203,11 +254,31 @@ fn classify_performance_with_params(
 
     let pf = profit_factor.unwrap_or(f64::INFINITY);
 
-    if pf > 1.2 && win_rate > 0.50 && p_value < 0.01 && p_mc < 0.01 {
+    // v9: hard pre-filters (None = off).
+    if let Some(floor) = params.min_profit_factor {
+        if pf < floor {
+            return PerformanceClassification::NoEdgeNegative;
+        }
+    }
+    if let Some(floor) = params.min_expectancy {
+        if expectancy < floor {
+            return PerformanceClassification::NoEdgeNegative;
+        }
+    }
+
+    if pf > params.edge_strong_pf
+        && win_rate > params.edge_strong_wr
+        && p_value < params.edge_strong_p
+        && p_mc < params.edge_strong_p
+    {
         PerformanceClassification::StrongEdge
-    } else if pf > 1.5 && win_rate > 0.45 && p_value < params.alpha && p_mc < params.alpha {
+    } else if pf > params.edge_moderate_pf
+        && win_rate > params.edge_moderate_wr
+        && p_value < params.alpha
+        && p_mc < params.alpha
+    {
         PerformanceClassification::ModerateEdge
-    } else if pf >= 1.0 && p_value <= 0.10 {
+    } else if pf >= params.edge_weak_pf && p_value <= params.edge_weak_p {
         PerformanceClassification::WeakMarginalEdge
     } else {
         PerformanceClassification::NoEdgeNegative

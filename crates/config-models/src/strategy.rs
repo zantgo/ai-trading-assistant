@@ -2177,6 +2177,23 @@ pub struct PmeSafety {
     pub drawdown_stop_release: PmeRelease,
 }
 
+impl PmeSafety {
+    /// v9: PME safety envelope → the runtime `SafetyConfig` the instance's
+    /// SafetyManager is built from (single source of truth = strategy).
+    /// The systemic-risk threshold stays a workspace/platform concern.
+    pub fn to_safety_config(&self, systemic_risk_threshold: f64) -> crate::SafetyConfig {
+        crate::SafetyConfig {
+            consecutive_loss_caution: self.consecutive_loss_caution,
+            consecutive_loss_dropout: self.consecutive_loss_dropout,
+            dropout_duration_hours: self.dropout_duration_hours,
+            drawdown_limit_pct: self.drawdown_limit_pct,
+            max_daily_drawdown_pct: self.max_daily_drawdown_pct,
+            systemic_risk_threshold,
+            session_reset_cron: None,
+        }
+    }
+}
+
 impl Default for PmeSafety {
     fn default() -> Self {
         Self {

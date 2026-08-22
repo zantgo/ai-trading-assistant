@@ -315,11 +315,121 @@ pub type TimeframeAlignmentInput<'a> = (
     &'a MarketContext,
 );
 
+/// v9: the L2 runtime parameters — the strategy's `l2` section. Every
+/// default reproduces the pre-v9 behavior (proportional TF weighting with
+/// a 0.2 floor / 1.0 ceiling, the 0.5/0.3/0.1/0.1 blend, the thin-volume
+/// reweight at dim < 25, ≥2-TF confluence, count-based agreement, all
+/// dimensions active).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlignmentParams {
+    /// `proportional` (today) | `equal` | `custom`.
+    pub tf_weight_mode: String,
+    /// Custom per-slot weights (label → weight); used when mode = custom.
+    pub tf_weights: std::collections::HashMap<String, f64>,
+    pub tf_weight_floor: f64,
+    pub tf_weight_ceil: f64,
+    pub blend_trend: f64,
+    pub blend_momentum: f64,
+    pub blend_volume: f64,
+    pub blend_volatility: f64,
+    pub thin_volume_enabled: bool,
+    pub thin_volume_threshold: f64,
+    pub thin_blend_trend: f64,
+    pub thin_blend_momentum: f64,
+    pub thin_blend_volume: f64,
+    pub thin_blend_volatility: f64,
+    /// Signals must appear in ≥ N TFs to count as cross-TF confluence.
+    pub min_confluence_tfs: u32,
+    /// Weight `trend_agreement_pct` by the TF weights (false = count-based).
+    pub trend_agreement_weighted: bool,
+    /// Per-dimension mute (10 entries; masked dims contribute 0).
+    pub dimension_mask: std::collections::HashMap<String, bool>,
+    pub overall_label_bands: [f64; 2],
+}
+
+impl Default for AlignmentParams {
+    fn default() -> Self {
+        Self {
+            tf_weight_mode: "proportional".into(),
+            tf_weights: std::collections::HashMap::new(),
+            tf_weight_floor: 0.2,
+            tf_weight_ceil: 1.0,
+            blend_trend: 0.5,
+            blend_momentum: 0.3,
+            blend_volume: 0.1,
+            blend_volatility: 0.1,
+            thin_volume_enabled: true,
+            thin_volume_threshold: 25.0,
+            thin_blend_trend: 0.55,
+            thin_blend_momentum: 0.35,
+            thin_blend_volume: 0.05,
+            thin_blend_volatility: 0.05,
+            min_confluence_tfs: 2,
+            trend_agreement_weighted: false,
+            dimension_mask: [
+                ("trend", true),
+                ("momentum", true),
+                ("volume", true),
+                ("volatility", true),
+                ("structure", true),
+                ("signal", true),
+                ("regime", true),
+                ("confidence", true),
+                ("liquidity", true),
+                ("tradability", true),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+            overall_label_bands: [20.0, 40.0],
+        }
+    }
+}
+
+impl AlignmentParams {
+    /// Mask lookup with default-on semantics.
+    pub fn dim_enabled(&self, key: &str) -> bool {
+        self.dimension_mask.get(key).copied().unwrap_or(true)
+    }
+
+    /// The TF weight for a slot label / duration.
+    pub fn tf_weight(&self, label: &str, secs: u64, divisor: f64) -> f64 {
+        match self.tf_weight_mode.as_str() {
+            "equal" => 1.0,
+            "custom" => self
+                .tf_weights
+                .get(label)
+                .copied()
+                .unwrap_or((secs as f64 / divisor).clamp(self.tf_weight_floor, self.tf_weight_ceil)),
+            _ => (secs as f64 / divisor).clamp(self.tf_weight_floor, self.tf_weight_ceil),
+        }
+    }
+
+    pub fn overall_label(&self, score: f64) -> String {
+        let [plain, strong] = self.overall_label_bands;
+        if score >= strong {
+            "STRONG_BULL_MTF".into()
+        } else if score >= plain {
+            "WEAK_BULL_MTF".into()
+        } else if score <= -strong {
+            "STRONG_BEAR_MTF".into()
+        } else if score <= -plain {
+            "WEAK_BEAR_MTF".into()
+        } else {
+            "NEUTRAL_MTF".into()
+        }
+    }
+}
+
 /// The caller is expected to synthesize a [`MarketContext`] per timeframe
 /// (via `market_analyzer::market_context_synth::synthesize_market_context`)
 /// and supply it alongside the indicator map. This split keeps
 /// `core-domain` free of any registry / indicator dependency.
-pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) -> AlignmentMatrix {
+pub fn compute_alignment(
+    symbol: &str,
+    tf_data: &[TimeframeAlignmentInput<'_>],
+    params: &AlignmentParams,
+) -> AlignmentMatrix {
     if tf_data.is_empty() {
         return AlignmentMatrix::empty(symbol);
     }
@@ -356,7 +466,7 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
         }
         per_tf_signal_sets.push(tf_signal_set);
 
-        let weight = (secs as f64 / divisor).clamp(0.2, 1.0);
+        let weight = params.tf_weight(label, secs, divisor);
         total_weight += weight;
 
         trend_sum += ctx.trend.score * weight;
@@ -365,9 +475,9 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
         volatility_sum += ctx.volatility.score * weight;
 
         if ctx.overall_score > 0 {
-            positive_tf_count += 1;
+            positive_tf_count += if params.trend_agreement_weighted { weight as u32 } else { 1 };
         } else if ctx.overall_score < 0 {
-            negative_tf_count += 1;
+            negative_tf_count += if params.trend_agreement_weighted { weight as u32 } else { 1 };
         }
 
         regimes.push(ctx.regime.clone());
@@ -407,6 +517,14 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
         0.0
     };
 
+    // v9: the dimension mask mutes a dimension — the signed consensus and
+    // the blend see zero; the masked dimension rides on the wire at 0/NoData.
+    let masked = |key: &str| !params.dim_enabled(key);
+    let mtf_trend_alignment = if masked("trend") { 0.0 } else { mtf_trend_alignment };
+    let mtf_momentum_alignment = if masked("momentum") { 0.0 } else { mtf_momentum_alignment };
+    let mtf_volume_alignment = if masked("volume") { 0.0 } else { mtf_volume_alignment };
+    let mtf_volatility_alignment = if masked("volatility") { 0.0 } else { mtf_volatility_alignment };
+
     // v6.10.16 (FIX-H2, thin-participation reweight): when the volume
     // dimension reads THIN/VERY_THIN (score < 25) the volume vote is a
     // participation qualifier, not a directional signal — a 10%-weight
@@ -419,11 +537,22 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
     // the legacy "Vt"/"Vm" keys were bound to Volume/Volatility swapped
     // vs. the spec, mislabeling the alignment panel's weight chips.
     let volume_dim = AlignmentDimension::from_signed(mtf_volume_alignment);
-    let thin_participation = volume_dim.score < 25.0;
+    let thin_participation =
+        params.thin_volume_enabled && volume_dim.score < params.thin_volume_threshold;
     let (wt, wm, wvol, wvola): (f64, f64, f64, f64) = if thin_participation {
-        (0.55, 0.35, 0.05, 0.05)
+        (
+            params.thin_blend_trend,
+            params.thin_blend_momentum,
+            params.thin_blend_volume,
+            params.thin_blend_volatility,
+        )
     } else {
-        (0.5, 0.3, 0.1, 0.1)
+        (
+            params.blend_trend,
+            params.blend_momentum,
+            params.blend_volume,
+            params.blend_volatility,
+        )
     };
     let blend_weights: Vec<(String, f64)> = vec![
         ("Trend".into(), wt),
@@ -459,7 +588,10 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
                 *signal_tf_counts.entry(key.clone()).or_insert(0) += 1;
             }
         }
-        signal_tf_counts.values().filter(|&&n| n >= 2).count() as u32
+        signal_tf_counts
+            .values()
+            .filter(|&&n| n >= params.min_confluence_tfs)
+            .count() as u32
     } else {
         0
     };
@@ -467,16 +599,26 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
     // ── Compute the 10 alignment dimensions ──
     let tf_maps: Vec<&HashMap<String, NormalizedIndicatorValue>> =
         tf_data.iter().map(|d| d.3).collect();
-    let dim_1_trend = AlignmentDimension::from_signed(mtf_trend_alignment);
-    let dim_2_momentum = AlignmentDimension::from_signed(mtf_momentum_alignment);
-    let dim_4_volatility = AlignmentDimension::from_signed(mtf_volatility_alignment);
-    let dim_5_structure = AlignmentMatrix::compute_structure_alignment(&tf_maps);
-    let dim_6_signal =
-        AlignmentMatrix::compute_signal_alignment(cross_tf_count, tf_data.len() as u32);
-    let dim_7_regime = AlignmentMatrix::compute_regime_alignment(&regimes);
-    let dim_8_confidence = AlignmentMatrix::compute_confidence_alignment(&confidences);
-    let dim_9_liquidity = AlignmentMatrix::compute_liquidity_alignment(&tf_maps);
-    let dim_10_opportunity = AlignmentMatrix::compute_opportunity_alignment(&ctxs);
+    // v9: masked unsigned dimensions ride on the wire at 0/NoData.
+    let zero_dim = || AlignmentDimension {
+        score: 0.0,
+        state: AlignState::NoData,
+        confidence: 0.0,
+    };
+    let dim_1_trend = if masked("trend") { zero_dim() } else { AlignmentDimension::from_signed(mtf_trend_alignment) };
+    let dim_2_momentum = if masked("momentum") { zero_dim() } else { AlignmentDimension::from_signed(mtf_momentum_alignment) };
+    let volume_dim = if masked("volume") { zero_dim() } else { volume_dim };
+    let dim_4_volatility = if masked("volatility") { zero_dim() } else { AlignmentDimension::from_signed(mtf_volatility_alignment) };
+    let dim_5_structure = if masked("structure") { zero_dim() } else { AlignmentMatrix::compute_structure_alignment(&tf_maps) };
+    let dim_6_signal = if masked("signal") {
+        zero_dim()
+    } else {
+        AlignmentMatrix::compute_signal_alignment(cross_tf_count, tf_data.len() as u32)
+    };
+    let dim_7_regime = if masked("regime") { zero_dim() } else { AlignmentMatrix::compute_regime_alignment(&regimes) };
+    let dim_8_confidence = if masked("confidence") { zero_dim() } else { AlignmentMatrix::compute_confidence_alignment(&confidences) };
+    let dim_9_liquidity = if masked("liquidity") { zero_dim() } else { AlignmentMatrix::compute_liquidity_alignment(&tf_maps) };
+    let dim_10_opportunity = if masked("tradability") { zero_dim() } else { AlignmentMatrix::compute_opportunity_alignment(&ctxs) };
 
     AlignmentMatrix {
         symbol: symbol.to_string(),
@@ -498,7 +640,7 @@ pub fn compute_alignment(symbol: &str, tf_data: &[TimeframeAlignmentInput<'_>]) 
         mtf_volume_alignment,
         mtf_volatility_alignment,
         mtf_overall_score,
-        mtf_overall_label: AlignmentMatrix::overall_label(mtf_overall_score),
+        mtf_overall_label: params.overall_label(mtf_overall_score),
         blend_weights,
         timeframe_alignments: alignments_vec,
         signal_cross_tf_count: cross_tf_count,
@@ -605,7 +747,7 @@ mod tests {
 
     #[test]
     fn empty_returns_no_data() {
-        let c = compute_alignment("BTC-USD", &[]);
+        let c = compute_alignment("BTC-USD", &[], &AlignmentParams::default());
         assert_eq!(c.timeframes_present, 0);
         assert_eq!(c.mtf_overall_label, "NO_DATA");
         assert_eq!(c.dimensions.len(), 10);
@@ -614,7 +756,7 @@ mod tests {
     #[test]
     fn single_tf_has_10_dims() {
         let map = build_map(40.0, 0.6, 30.0, 55.0, 1.2);
-        let c = compute_alignment("BTC-USD", &[("fast180", 180, 64000.0, &map, &empty_ctx())]);
+        let c = compute_alignment("BTC-USD", &[("fast180", 180, 64000.0, &map, &empty_ctx())], &AlignmentParams::default());
         assert_eq!(c.timeframes_present, 1);
         assert_eq!(c.dimensions.len(), 10);
     }
@@ -631,6 +773,7 @@ mod tests {
                 ("slow300", 300, 64000.0, &bull, &ctx),
                 ("macro900", 900, 64000.0, &bull, &ctx),
             ],
+            &AlignmentParams::default(),
         );
         assert_eq!(c.timeframes_present, 4);
         assert!(c.mtf_overall_score > 0.0);
@@ -655,6 +798,7 @@ mod tests {
                 ("slow300", 300, 64000.0, &bear, &bear_ctx),
                 ("macro900", 900, 64000.0, &bear, &bear_ctx),
             ],
+            &AlignmentParams::default(),
         );
         assert!(c.mtf_overall_score.abs() < 30.0);
         assert!(c.trend_agreement_pct <= 75.0);
@@ -672,6 +816,7 @@ mod tests {
                 ("slow300", 300, 64000.0, &bull, &ctx),
                 ("macro900", 900, 64000.0, &bull, &ctx),
             ],
+            &AlignmentParams::default(),
         );
         assert_eq!(c.blend_weights.len(), 4);
         let w = |k: &str| {
@@ -713,6 +858,7 @@ mod tests {
                 ("slow300", 300, 64000.0, &bull, &ctx),
                 ("macro900", 900, 64000.0, &bull, &ctx),
             ],
+            &AlignmentParams::default(),
         );
         assert!(c.dimensions[2].score < 25.0, "volume dim must read THIN");
         let w = |k: &str| {
@@ -773,6 +919,7 @@ mod tests {
                 ("fast180", 180, 64000.0, &shared, &empty_ctx()),
                 ("slow300", 300, 64000.0, &solo, &empty_ctx()),
             ],
+            &AlignmentParams::default(),
         );
         // "rsi/RSI_OVERBOUGHT/Threshold" appears in 2 TFs → 1 cross-TF
         // signal. "macd/MACD_CROSS_UP/Threshold" appears in 1 TF → not
@@ -816,6 +963,7 @@ mod tests {
                 ("micro60", 60, 64000.0, &heavy, &empty_ctx()),
                 ("fast180", 180, 64000.0, &sparse, &empty_ctx()),
             ],
+            &AlignmentParams::default(),
         );
         // 17 signals in total, none shared between the two TFs.
         assert_eq!(c.signal_cross_tf_count, 0);

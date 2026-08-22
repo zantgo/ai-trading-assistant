@@ -226,6 +226,8 @@ pub fn compute_advisory(
     _cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
     sr_distance_atr: Option<f64>,
     params: &DecisionParams,
+    // v9: the strategy's `l3` section (bias-lifted gate).
+    analysis_params: &crate::analysis::AnalysisParams,
 ) -> AdvisoryMatrix {
     if analysis.timeframes_considered == 0 {
         return AdvisoryMatrix::empty(&analysis.symbol);
@@ -312,7 +314,7 @@ pub fn compute_advisory(
         // `bias_lifted`) is always directional regardless of the risk gate,
         // mirroring `DecisionContext::compute` so the advisory guidance and
         // the probability split can never contradict each other.
-        let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score);
+        let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score, analysis_params);
         match analysis.bias {
             crate::analysis::MarketBias::StrongBullish => {
                 if risk.overall_risk.score < params.direction_risk_strong {
@@ -636,7 +638,7 @@ mod tests {
     fn empty_analysis_returns_empty_advisory() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral
@@ -654,7 +656,7 @@ mod tests {
         analysis.timeframes_considered = 1;
         analysis.bias = MarketBias::Neutral;
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral
@@ -686,7 +688,7 @@ mod tests {
         analysis.timeframes_considered = 1;
         analysis.bias = MarketBias::StrongBullish;
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
         // `RiskMatrix::empty` carries overall risk 50.0, so the StrongBullish
         // gate demotes to a plain LONG — the fragment shape is what matters.
         assert!(matches!(
@@ -713,7 +715,7 @@ mod tests {
         analysis.market_quality_score = 80.0;
         let mut risk = RiskMatrix::empty("BTC-USD");
         risk.overall_risk.score = 20.0;
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
         assert_eq!(adv.quality_to_risk_ratio, Some(4.0));
     }
 
@@ -726,7 +728,7 @@ mod tests {
         analysis.market_quality_score = 90.0;
         let mut risk = RiskMatrix::empty("BTC-USD");
         risk.overall_risk.score = 0.0;
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
         assert_eq!(adv.quality_to_risk_ratio, None);
     }
 
@@ -734,7 +736,7 @@ mod tests {
     fn advisory_serde_skips_none_quality_to_risk_ratio() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default());
+        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
         let json = serde_json::to_string(&adv).unwrap();
         assert!(!json.contains("quality_to_risk_ratio"));
         let back: AdvisoryMatrix = serde_json::from_str(&json).unwrap();

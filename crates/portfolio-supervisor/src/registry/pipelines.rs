@@ -775,7 +775,12 @@ async fn spawn_tasks(
                 core_domain::models::TimeframeSlot::Custom { .. } => (x_micro, x_fast, x_slow),
             };
 
-            analyzer::run_single(
+            // v9 fix: `run_single`'s future is enormous in debug builds
+            // (~2 MB state machine). Box it so the outer task future stays
+            // tiny — constructing it on the worker stack used to overflow
+            // the default 2 MiB tokio worker stack (save_recharge_cycle
+            // abort).
+            Box::pin(analyzer::run_single(
                 rx,
                 a_telemetry,
                 bcast,
@@ -824,7 +829,7 @@ async fn spawn_tasks(
                 // and pipeline_state handles for write-through.
                 a_indicator_lifecycle,
                 a_pipeline_state,
-            )
+            ))
             .await;
         });
     }

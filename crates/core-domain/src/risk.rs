@@ -232,39 +232,274 @@ fn score_mag(value: f64, max: f64) -> f64 {
     (value / max * 100.0).clamp(0.0, 100.0)
 }
 
+/// v9: the L5 runtime parameters — the strategy's `l5` section. Every
+/// default reproduces the pre-v9 baselines, additive tiers, band borders,
+/// and the overall-weight vector.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskParams {
+    pub weights_market: f64,
+    pub weights_volatility: f64,
+    pub weights_execution_liquidity: f64,
+    pub weights_structure: f64,
+    pub weights_momentum: f64,
+    pub weights_signal: f64,
+    pub weights_execution: f64,
+    pub weights_cascade: f64,
+    pub bands: [f64; 4],
+    pub state_delta: f64,
+    pub market: RiskMarketParams,
+    pub volatility: RiskVolatilityParams,
+    pub execution_liquidity: RiskExecLiquidityParams,
+    pub structure: RiskStructureParams,
+    pub momentum: RiskMomentumParams,
+    pub signal: RiskSignalParams,
+    pub execution: RiskExecutionParams,
+    pub cascade: RiskCascadeParams,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskMarketParams {
+    pub baseline: f64,
+    pub weak_trend: f64,
+    pub broken_structure: f64,
+    pub poor_quality: f64,
+    pub low_conf_max: f64,
+    pub low_conf: f64,
+    pub contradicting: f64,
+    pub strong_trend: f64,
+    pub high_conf_min: f64,
+    pub high_conf: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskVolatilityParams {
+    pub baseline: f64,
+    pub bbwp_extreme: f64,
+    pub bbwp_extreme_add: f64,
+    pub bbwp_elevated: f64,
+    pub bbwp_elevated_add: f64,
+    pub squeeze_add: f64,
+    pub micro_fast_blend: [f64; 2],
+    pub atr_pct_floor: f64,
+    pub atr_pct_max: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskExecLiquidityParams {
+    pub baseline: f64,
+    pub rvol_very_low: f64,
+    pub rvol_very_low_add: f64,
+    pub rvol_low: f64,
+    pub rvol_low_add: f64,
+    pub rvol_high: f64,
+    pub rvol_high_add: f64,
+    pub spread_wide: f64,
+    pub spread_wide_add: f64,
+    pub spread_tight: f64,
+    pub spread_tight_add: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskStructureParams {
+    pub baseline: f64,
+    pub broken: f64,
+    pub weak: f64,
+    pub healthy: f64,
+    pub flip: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskMomentumParams {
+    pub baseline: f64,
+    pub exhausted: f64,
+    pub reversing: f64,
+    pub weakening: f64,
+    pub increasing: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskSignalParams {
+    pub baseline: f64,
+    pub per_contradicting: f64,
+    pub contradicting_cap: f64,
+    pub none_active: f64,
+    pub low_conf_max: f64,
+    pub low_conf: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskExecutionParams {
+    pub baseline: f64,
+    pub spread_wide: f64,
+    pub spread_wide_add: f64,
+    pub spread_moderate: f64,
+    pub spread_moderate_add: f64,
+    pub rvol_low: f64,
+    pub rvol_add: f64,
+    /// (max, add) tiers ascending + the favorable (min, add) tier.
+    pub ratio_tiers: Vec<(Option<f64>, Option<f64>, f64)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RiskCascadeParams {
+    pub baseline: f64,
+    pub sustained: f64,
+    pub detected: f64,
+    pub asymmetry_min: f64,
+    pub asymmetry_scale: f64,
+    pub oi_divergence_max: f64,
+    pub funding_flip_max: f64,
+}
+
+impl Default for RiskParams {
+    fn default() -> Self {
+        Self {
+            weights_market: 0.14,
+            weights_volatility: 0.14,
+            weights_execution_liquidity: 0.14,
+            weights_structure: 0.10,
+            weights_momentum: 0.14,
+            weights_signal: 0.10,
+            weights_execution: 0.10,
+            weights_cascade: 0.14,
+            bands: [80.0, 60.0, 40.0, 20.0],
+            state_delta: 10.0,
+            market: RiskMarketParams {
+                baseline: 50.0,
+                weak_trend: 15.0,
+                broken_structure: 15.0,
+                poor_quality: 10.0,
+                low_conf_max: 0.4,
+                low_conf: 10.0,
+                contradicting: 10.0,
+                strong_trend: -10.0,
+                high_conf_min: 0.7,
+                high_conf: -10.0,
+            },
+            volatility: RiskVolatilityParams {
+                baseline: 30.0,
+                bbwp_extreme: 90.0,
+                bbwp_extreme_add: 30.0,
+                bbwp_elevated: 70.0,
+                bbwp_elevated_add: 15.0,
+                squeeze_add: 10.0,
+                micro_fast_blend: [0.7, 0.3],
+                atr_pct_floor: 1.0,
+                atr_pct_max: 5.0,
+            },
+            execution_liquidity: RiskExecLiquidityParams {
+                baseline: 30.0,
+                rvol_very_low: 0.5,
+                rvol_very_low_add: 30.0,
+                rvol_low: 0.8,
+                rvol_low_add: 15.0,
+                rvol_high: 2.0,
+                rvol_high_add: -15.0,
+                spread_wide: 0.2,
+                spread_wide_add: 20.0,
+                spread_tight: 0.05,
+                spread_tight_add: -10.0,
+            },
+            structure: RiskStructureParams {
+                baseline: 40.0,
+                broken: 30.0,
+                weak: 15.0,
+                healthy: -15.0,
+                flip: 15.0,
+            },
+            momentum: RiskMomentumParams {
+                baseline: 30.0,
+                exhausted: 40.0,
+                reversing: 30.0,
+                weakening: 15.0,
+                increasing: -10.0,
+            },
+            signal: RiskSignalParams {
+                baseline: 30.0,
+                per_contradicting: 10.0,
+                contradicting_cap: 40.0,
+                none_active: 10.0,
+                low_conf_max: 0.5,
+                low_conf: 15.0,
+            },
+            execution: RiskExecutionParams {
+                baseline: 25.0,
+                spread_wide: 0.15,
+                spread_wide_add: 25.0,
+                spread_moderate: 0.08,
+                spread_moderate_add: 10.0,
+                rvol_low: 0.7,
+                rvol_add: 15.0,
+                ratio_tiers: vec![
+                    (Some(1.5), None, 15.0),
+                    (Some(3.0), None, 5.0),
+                    (None, Some(10.0), -5.0),
+                ],
+            },
+            cascade: RiskCascadeParams {
+                baseline: 30.0,
+                sustained: 30.0,
+                detected: 15.0,
+                asymmetry_min: 0.3,
+                asymmetry_scale: 30.0,
+                oi_divergence_max: 15.0,
+                funding_flip_max: 10.0,
+            },
+        }
+    }
+}
+
+impl RiskParams {
+    pub fn level_label(&self, score: f64) -> &'static str {
+        let [extreme, high, moderate, low] = self.bands;
+        if score >= extreme {
+            "Extreme"
+        } else if score >= high {
+            "High"
+        } else if score >= moderate {
+            "Moderate"
+        } else if score >= low {
+            "Low"
+        } else {
+            "VeryLow"
+        }
+    }
+}
+
 /// Assess market risk: general uncertainty from conflicting signals, weak structure.
 fn assess_market_risk(
     analysis: &AnalysisMatrix,
     _indicators: &HashMap<String, NormalizedIndicatorValue>,
+    p: &RiskMarketParams,
 ) -> RiskDimension {
-    let mut score: f64 = 50.0;
+    let mut score: f64 = p.baseline;
     let mut evidence = Vec::new();
     if analysis.trend_assessment == crate::analysis::TrendAssessment::Weak {
-        score += 15.0;
+        score += p.weak_trend;
         evidence.push("Weak trend".into());
     }
     if analysis.structure_assessment == crate::analysis::StructureAssessment::Broken {
-        score += 15.0;
+        score += p.broken_structure;
         evidence.push("Broken structure".into());
     }
     if analysis.market_quality == crate::analysis::QualityLevel::Poor {
-        score += 10.0;
+        score += p.poor_quality;
         evidence.push("Poor market quality".into());
     }
-    if analysis.state_confidence < 0.4 {
-        score += 10.0;
+    if analysis.state_confidence < p.low_conf_max {
+        score += p.low_conf;
         evidence.push("Low confidence".into());
     }
     if !analysis.contradicting_signals.is_empty() {
-        score += 10.0;
+        score += p.contradicting;
         evidence.push("Conflicting signals".into());
     }
     // Reduce risk if conditions are good
     if analysis.trend_assessment == crate::analysis::TrendAssessment::Strong {
-        score -= 10.0;
+        score += p.strong_trend;
     }
-    if analysis.state_confidence > 0.7 {
-        score -= 10.0;
+    if analysis.state_confidence > p.high_conf_min {
+        score += p.high_conf;
     }
     RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
         .with_evidence(evidence)
@@ -287,6 +522,7 @@ fn assess_volatility_risk(
     indicators: &HashMap<String, NormalizedIndicatorValue>,
     close: f64,
     tf_volatility: &[(String, String, f64)],
+    p: &RiskVolatilityParams,
 ) -> RiskDimension {
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
     let atr = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
@@ -295,15 +531,15 @@ fn assess_volatility_risk(
         .map(|v| v.state_label.contains("COMPRESSION"))
         .unwrap_or(false);
     let mut evidence = Vec::new();
-    let mut score: f64 = 30.0;
-    if bbwp >= 90.0 {
-        score += 30.0;
+    let mut score: f64 = p.baseline;
+    if bbwp >= p.bbwp_extreme {
+        score += p.bbwp_extreme_add;
         evidence.push("BBWP extreme expansion".into());
-    } else if bbwp >= 70.0 {
-        score += 15.0;
+    } else if bbwp >= p.bbwp_elevated {
+        score += p.bbwp_elevated_add;
         evidence.push("BBWP elevated".into());
     } else if squeeze_on {
-        score += 10.0;
+        score += p.squeeze_add;
         evidence.push("Squeeze compression active".into());
     }
     // v6.10.18 (I-8): the fast-weighted TF volatility state.
@@ -338,7 +574,7 @@ fn assess_volatility_risk(
             other => other,
         };
         vol_component = match (micro, fast) {
-            (Some(m), Some(f)) => Some(0.7 * m + 0.3 * f),
+            (Some(m), Some(f)) => Some(p.micro_fast_blend[0] * m + p.micro_fast_blend[1] * f),
             (Some(m), None) => Some(m),
             (None, Some(f)) => Some(f),
             (None, None) => None,
@@ -357,8 +593,8 @@ fn assess_volatility_risk(
         // v6.10.18: only modulates when meaningful (≥1%), so it can no
         // longer drag a sub-0.1% BTC print to LOW beside a climax state.
         let atr_pct = (atr / close) * 100.0;
-        if atr_pct >= 1.0 {
-            let rel_atr = score_mag(atr_pct, 5.0);
+        if atr_pct >= p.atr_pct_floor {
+            let rel_atr = score_mag(atr_pct, p.atr_pct_max);
             score = (score + rel_atr) / 2.0;
         }
     }
@@ -370,26 +606,27 @@ fn assess_volatility_risk(
 fn assess_execution_liquidity_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
+    p: &RiskExecLiquidityParams,
 ) -> RiskDimension {
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
     let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
     let mut evidence = Vec::new();
-    let mut score: f64 = 30.0;
-    if rvol < 0.5 {
-        score += 30.0;
+    let mut score: f64 = p.baseline;
+    if rvol < p.rvol_very_low {
+        score += p.rvol_very_low_add;
         evidence.push("Very low relative volume".into());
-    } else if rvol < 0.8 {
-        score += 15.0;
+    } else if rvol < p.rvol_low {
+        score += p.rvol_low_add;
         evidence.push("Low relative volume".into());
-    } else if rvol > 2.0 {
-        score -= 15.0;
+    } else if rvol > p.rvol_high {
+        score += p.rvol_high_add;
         evidence.push("Strong participation".into());
     }
-    if spread > 0.2 {
-        score += 20.0;
+    if spread > p.spread_wide {
+        score += p.spread_wide_add;
         evidence.push("Wide spread".into());
-    } else if spread < 0.05 {
-        score -= 10.0;
+    } else if spread < p.spread_tight {
+        score += p.spread_tight_add;
         evidence.push("Tight spread".into());
     }
     RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
@@ -400,21 +637,22 @@ fn assess_execution_liquidity_risk(
 fn assess_structure_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
+    p: &RiskStructureParams,
 ) -> RiskDimension {
-    let mut score: f64 = 40.0;
+    let mut score: f64 = p.baseline;
     let mut evidence = Vec::new();
     match analysis.structure_assessment {
         crate::analysis::StructureAssessment::Broken => {
-            score += 30.0;
+            score += p.broken;
             evidence.push("Broken structure".into());
         }
         crate::analysis::StructureAssessment::Weak => {
-            score += 15.0;
+            score += p.weak;
             evidence.push("Weak structure".into());
         }
         crate::analysis::StructureAssessment::Strong
         | crate::analysis::StructureAssessment::Healthy => {
-            score -= 15.0;
+            score += p.healthy;
         }
         _ => {}
     }
@@ -423,7 +661,7 @@ fn assess_structure_risk(
         .map(|v| v.state_label.as_str())
         .unwrap_or("");
     if sr_label.contains("FLIP") {
-        score += 15.0;
+        score += p.flip;
         evidence.push("S/R level flip".into());
     }
     RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
@@ -431,24 +669,24 @@ fn assess_structure_risk(
 }
 
 /// Assess momentum risk: vulnerability from exhausted/diverging momentum.
-fn assess_momentum_risk(analysis: &AnalysisMatrix) -> RiskDimension {
-    let mut score: f64 = 30.0;
+fn assess_momentum_risk(analysis: &AnalysisMatrix, p: &RiskMomentumParams) -> RiskDimension {
+    let mut score: f64 = p.baseline;
     let mut evidence = Vec::new();
     match analysis.momentum_assessment {
         crate::analysis::MomentumAssessment::Exhausted => {
-            score += 40.0;
+            score += p.exhausted;
             evidence.push("Momentum exhausted".into());
         }
         crate::analysis::MomentumAssessment::Reversing => {
-            score += 30.0;
+            score += p.reversing;
             evidence.push("Momentum reversing".into());
         }
         crate::analysis::MomentumAssessment::Weakening => {
-            score += 15.0;
+            score += p.weakening;
             evidence.push("Momentum weakening".into());
         }
         crate::analysis::MomentumAssessment::Increasing => {
-            score -= 10.0;
+            score += p.increasing;
             evidence.push("Momentum increasing".into());
         }
         _ => {}
@@ -458,23 +696,23 @@ fn assess_momentum_risk(analysis: &AnalysisMatrix) -> RiskDimension {
 }
 
 /// Assess signal risk: uncertainty from conflicting/unreliable signals.
-fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
-    let mut score: f64 = 30.0;
+fn assess_signal_risk(analysis: &AnalysisMatrix, p: &RiskSignalParams) -> RiskDimension {
+    let mut score: f64 = p.baseline;
     let mut evidence = Vec::new();
     if !analysis.contradicting_signals.is_empty() {
         let n = analysis.contradicting_signals.len() as f64;
-        score += (n * 10.0).min(40.0);
+        score += (n * p.per_contradicting).min(p.contradicting_cap);
         evidence.push(format!(
             "{} contradicting signals",
             analysis.contradicting_signals.len()
         ));
     }
     if analysis.supporting_signals.is_empty() && analysis.contradicting_signals.is_empty() {
-        score += 10.0;
+        score += p.none_active;
         evidence.push("No signals active".into());
     }
-    if analysis.state_confidence < 0.5 {
-        score += 15.0;
+    if analysis.state_confidence < p.low_conf_max {
+        score += p.low_conf;
         evidence.push("Low analysis confidence".into());
     }
     RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
@@ -504,6 +742,7 @@ fn assess_execution_risk(
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
     close: f64,
+    p: &RiskExecutionParams,
 ) -> RiskDimension {
     let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
@@ -524,28 +763,35 @@ fn assess_execution_risk(
         None
     };
     let mut evidence = Vec::new();
-    let mut score: f64 = 25.0;
-    if spread > 0.15 {
-        score += 25.0;
+    let mut score: f64 = p.baseline;
+    if spread > p.spread_wide {
+        score += p.spread_wide_add;
         evidence.push("Wide spread".into());
-    } else if spread > 0.08 {
-        score += 10.0;
+    } else if spread > p.spread_moderate {
+        score += p.spread_moderate_add;
         evidence.push("Moderate spread".into());
     }
-    if rvol < 0.7 {
-        score += 15.0;
+    if rvol < p.rvol_low {
+        score += p.rvol_add;
         evidence.push("Low participation".into());
     }
     if let Some(ratio) = volatility_to_spread_ratio {
-        if ratio < 1.5 {
-            score += 15.0;
-            evidence.push(format!("Low volatility-to-spread ({:.1})", ratio));
-        } else if ratio < 3.0 {
-            score += 5.0;
-            evidence.push(format!("Moderate volatility-to-spread ({:.1})", ratio));
-        } else if ratio > 10.0 {
-            score -= 5.0;
-            evidence.push(format!("Favorable volatility-to-spread ({:.1})", ratio));
+        for (idx, (max, min, add)) in p.ratio_tiers.iter().enumerate() {
+            let hit = match (max, min) {
+                (Some(m), None) => ratio < *m,
+                (None, Some(m)) => ratio > *m,
+                _ => false,
+            };
+            if hit {
+                score += *add;
+                let label = match idx {
+                    0 => "Low volatility-to-spread",
+                    1 => "Moderate volatility-to-spread",
+                    _ => "Favorable volatility-to-spread",
+                };
+                evidence.push(format!("{label} ({:.1})", ratio));
+                break;
+            }
         }
     }
     RiskDimension::from_score_with_confidence(score.clamp(0.0, 100.0), analysis.state_confidence)
@@ -572,8 +818,9 @@ fn assess_cascade_risk(
     // layer). OI-Price divergence and funding flips are positioning-stress
     // tell-tales that belong in the cascade dimension.
     liquidity_signals: &[crate::liquidity::LiquiditySignal],
+    p: &RiskCascadeParams,
 ) -> RiskDimension {
-    let mut score: f64 = 30.0; // baseline
+    let mut score: f64 = p.baseline; // baseline
     let mut evidence = Vec::new();
     // Confidence override: if the liquidity data feed is off, there is no
     // measurement for this dimension → confidence 0 (docs §CA-15).
@@ -587,11 +834,11 @@ fn assess_cascade_risk(
         score = score.max(f.cascade_intensity);
         match f.cascade_state {
             crate::liquidity::CascadeState::Sustained => {
-                score = (score + 30.0).min(100.0);
+                score = (score + p.sustained).min(100.0);
                 evidence.push("Cascade sustained in rolling window".into());
             }
             crate::liquidity::CascadeState::Detected => {
-                score = (score + 15.0).min(100.0);
+                score = (score + p.detected).min(100.0);
                 evidence.push("Cascade detected this bar".into());
             }
             crate::liquidity::CascadeState::Exhausted => {
@@ -603,8 +850,8 @@ fn assess_cascade_risk(
     if let Some(c) = cluster {
         // Forward-looking pressure: |asymmetry| contributes up to 20.
         let asym = c.cascade_asymmetry.abs();
-        if asym > 0.3 {
-            score = (score + asym * 30.0).min(100.0);
+        if asym > p.asymmetry_min {
+            score = (score + asym * p.asymmetry_scale).min(100.0);
             evidence.push(format!(
                 "Cluster asymmetry {:.2} (significant one-sided pressure)",
                 c.cascade_asymmetry
@@ -617,12 +864,12 @@ fn assess_cascade_risk(
     for sig in liquidity_signals {
         match sig.kind {
             crate::liquidity::LiquiditySignalKind::OiPriceDivergence => {
-                let bonus = (sig.strength / 100.0 * 15.0).min(15.0);
+                let bonus = (sig.strength / 100.0 * p.oi_divergence_max).min(p.oi_divergence_max);
                 score = (score + bonus).min(100.0);
                 evidence.push("OI-price divergence (positioning stress)".into());
             }
             crate::liquidity::LiquiditySignalKind::FundingFlip => {
-                let bonus = (sig.strength / 100.0 * 10.0).min(10.0);
+                let bonus = (sig.strength / 100.0 * p.funding_flip_max).min(p.funding_flip_max);
                 score = (score + bonus).min(100.0);
                 evidence.push("Funding rate flipped (crowd positioning stress)".into());
             }
@@ -654,19 +901,21 @@ pub fn compute_risk(
     // score_0_100)` — the actionable-horizon volatility signal for the
     // volatility-risk dimension. Empty for legacy callers (warmup).
     tf_volatility: &[(String, String, f64)],
+    // v9: the strategy's `l5` section.
+    params: &RiskParams,
 ) -> RiskMatrix {
     if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
     }
 
-    let market = assess_market_risk(analysis, indicators);
-    let volatility = assess_volatility_risk(analysis, indicators, close, tf_volatility);
-    let liquidity = assess_execution_liquidity_risk(analysis, indicators);
-    let structure = assess_structure_risk(analysis, indicators);
-    let momentum = assess_momentum_risk(analysis);
-    let signal = assess_signal_risk(analysis);
-    let execution = assess_execution_risk(analysis, indicators, close);
-    let cascade = assess_cascade_risk(analysis, flow, cluster, liquidity_signals);
+    let market = assess_market_risk(analysis, indicators, &params.market);
+    let volatility = assess_volatility_risk(analysis, indicators, close, tf_volatility, &params.volatility);
+    let liquidity = assess_execution_liquidity_risk(analysis, indicators, &params.execution_liquidity);
+    let structure = assess_structure_risk(analysis, indicators, &params.structure);
+    let momentum = assess_momentum_risk(analysis, &params.momentum);
+    let signal = assess_signal_risk(analysis, &params.signal);
+    let execution = assess_execution_risk(analysis, indicators, close, &params.execution);
+    let cascade = assess_cascade_risk(analysis, flow, cluster, liquidity_signals, &params.cascade);
 
     // v6.10 (Phase 1 / A6): Risk weights restored to the canonical spec table
     // at `docs/matrices/02-11-risk-matrix.md §3`. The previous v6.9 weights
@@ -683,14 +932,14 @@ pub fn compute_risk(
     //   cascade × 0.14
     //
     // Sum = 5×0.14 + 3×0.10 = 0.70 + 0.30 = 1.00.
-    let overall_score = (market.score * 0.14
-        + volatility.score * 0.14
-        + liquidity.score * 0.14
-        + structure.score * 0.10
-        + momentum.score * 0.14
-        + signal.score * 0.10
-        + execution.score * 0.10
-        + cascade.score * 0.14)
+    let overall_score = (market.score * params.weights_market
+        + volatility.score * params.weights_volatility
+        + liquidity.score * params.weights_execution_liquidity
+        + structure.score * params.weights_structure
+        + momentum.score * params.weights_momentum
+        + signal.score * params.weights_signal
+        + execution.score * params.weights_execution
+        + cascade.score * params.weights_cascade)
         .clamp(0.0, 100.0);
     // v6.10.9: functional risk state. The overall state derives from the
     // level + the previous-synthesis delta; each dimension escalates by its
@@ -805,6 +1054,7 @@ mod tests {
             &[],
             None,
             &[],
+            &RiskParams::default(),
         );
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
@@ -849,7 +1099,8 @@ mod tests {
             &[],
             None,
             &tf_volatility,
-        );
+        &RiskParams::default(),
+    );
         let vol = &risk.volatility_risk;
         // (30 + 15) blended with 0.7×83.25 + 0.3×97.2 = 87.4 → 66.2 → HIGH.
         assert!(
@@ -896,7 +1147,8 @@ mod tests {
             &[],
             None,
             &tf_volatility,
-        );
+        &RiskParams::default(),
+    );
         let vol = &risk.volatility_risk;
         // (30 + 0) blended with 0.7×83.25 + 0.3×97.2 = 87.435 → 58.72.
         let expected = (30.0 + 0.7 * 83.25 + 0.3 * 97.2) / 2.0;
@@ -922,6 +1174,7 @@ mod tests {
             &[],
             None,
             &[],
+            &RiskParams::default(),
         );
         // Baseline (no flow, no cluster) → score = 30.0
         assert!(
@@ -951,6 +1204,7 @@ mod tests {
             &[],
             None,
             &[],
+            &RiskParams::default(),
         );
         // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
         assert!(
@@ -994,6 +1248,7 @@ mod tests {
             &[],
             None,
             &[],
+            &RiskParams::default(),
         );
         assert!(
             r.volatility_risk.score < 100.0,
@@ -1020,6 +1275,7 @@ mod tests {
             &[],
             None,
             &[],
+            &RiskParams::default(),
         );
         let dims = [
             r.market_risk.score,
@@ -1079,6 +1335,7 @@ mod tests {
             &[],
             None,
             &[],
+            &RiskParams::default(),
         );
         for dim in [
             &r.market_risk,
@@ -1113,6 +1370,7 @@ mod tests {
             &[],
             Some(90.0),
             &[],
+            &RiskParams::default(),
         );
         assert_eq!(r2.overall_risk.state, RiskState::Improving);
         // A strongly negative previous synthesis (reference ≈ 5) → Increasing.
@@ -1126,6 +1384,7 @@ mod tests {
             &[],
             Some(-90.0),
             &[],
+            &RiskParams::default(),
         );
         assert_eq!(r3.overall_risk.state, RiskState::Increasing);
     }
@@ -1164,7 +1423,7 @@ mod tests {
         // under the 0.08 moderate-spread threshold, so only the ratio rule
         // fires.)
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.05, 0.04), 100.0);
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.05, 0.04), 100.0, &RiskParams::default().execution);
         assert_eq!(dim.score, 40.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(1.25));
         assert!(
@@ -1179,7 +1438,7 @@ mod tests {
     #[test]
     fn execution_risk_moderate_vol_to_spread_adds_small_penalty() {
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.06, 0.03), 100.0);
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.06, 0.03), 100.0, &RiskParams::default().execution);
         assert_eq!(dim.score, 30.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(2.0));
     }
@@ -1188,7 +1447,7 @@ mod tests {
     fn execution_risk_high_vol_to_spread_reduces_score() {
         // Ratio 12.5 > 10.0 → −5 on the baseline 25.
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.5, 0.04), 100.0);
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.5, 0.04), 100.0, &RiskParams::default().execution);
         assert_eq!(dim.score, 20.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(12.5));
     }
@@ -1196,7 +1455,7 @@ mod tests {
     #[test]
     fn execution_risk_missing_spread_yields_none_ratio() {
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(12.0, 0.0), 100.0);
+        let dim = assess_execution_risk(&analysis, &execution_indicators(12.0, 0.0), 100.0, &RiskParams::default().execution);
         assert_eq!(dim.volatility_to_spread_ratio, None);
         assert_eq!(dim.score, 25.0);
     }
@@ -1204,7 +1463,7 @@ mod tests {
     #[test]
     fn execution_risk_zero_atr_yields_none_ratio() {
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.0, 1.0), 100.0);
+        let dim = assess_execution_risk(&analysis, &execution_indicators(0.0, 1.0), 100.0, &RiskParams::default().execution);
         assert_eq!(dim.volatility_to_spread_ratio, None);
     }
 
@@ -1217,7 +1476,7 @@ mod tests {
         // percent-vs-price unit bug).
         let analysis = make_analysis_with_timeframes();
         let dim =
-            assess_execution_risk(&analysis, &execution_indicators(1.5107, 0.000568), 63_040.0);
+            assess_execution_risk(&analysis, &execution_indicators(1.5107, 0.000568), 63_040.0, &RiskParams::default().execution);
         let ratio = dim.volatility_to_spread_ratio.expect("ratio must compute");
         assert!(
             (ratio - 4.22).abs() < 0.05,

@@ -435,6 +435,12 @@ pub async fn run_historical_backtest(
             market_analyzer::synthesis::OpportunityParams::from_strategy(&run_cfg.strategy.l4);
         let decision_params =
             market_analyzer::strategy_params::decision_params_from_strategy(&run_cfg.strategy.l6);
+        let analysis_params =
+            market_analyzer::strategy_params::analysis_params_from_strategy(&run_cfg.strategy.l3);
+        let alignment_params =
+            market_analyzer::strategy_params::alignment_params_from_strategy(&run_cfg.strategy.l2);
+        let risk_params =
+            market_analyzer::strategy_params::risk_params_from_strategy(&run_cfg.strategy.l5);
         let synthesis = market_analyzer::synthesis::synthesize_cross_tf(
             &ev.symbol,
             &cross,
@@ -448,6 +454,9 @@ pub async fn run_historical_backtest(
             // v9: same wired opportunity params as live.
             &opportunity_params,
             &decision_params,
+            &analysis_params,
+            &alignment_params,
+            &risk_params,
         );
 
         mtf.prev_score = Some(synthesis.alignment.mtf_overall_score);
@@ -490,6 +499,7 @@ pub async fn run_historical_backtest(
             &synthesis.risk,
             // v9 F-05: shared DecisionParams (strategy-derived).
             &decision_params,
+            &analysis_params,
         );
 
         snap.opportunity = synthesis.opportunity.clone();
@@ -515,10 +525,13 @@ pub async fn run_historical_backtest(
             TickContext {
                 safety_allows_entry: safety_allows,
                 lifecycle_running: true,
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
                 candle_ts: rec_ts,
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: spec.allocation_pct,
+                strategy: Some(run_cfg.strategy.clone()),
             },
             None,
             true,

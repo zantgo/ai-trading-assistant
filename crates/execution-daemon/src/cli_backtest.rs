@@ -510,10 +510,12 @@ pub async fn run_cli_backtest(
         funding_rate_8h: workspace.fees.funding_rate_8h,
         simulated_spread_pct: 0.01,
     };
-    let analytics = performance_analytics::strategy_analytics::AnalyticsParams {
-        alpha: workspace.analytics.alpha,
-        monte_carlo_runs: workspace.analytics.monte_carlo_runs,
-        min_trades_for_verdict: workspace.analytics.min_trades_for_verdict,
+    // v9: the verdict bar comes from the run's bound strategy's `pae` section.
+    let analytics = {
+        let st = workspace
+            .resolve_strategy(args.strategy_name.as_deref().unwrap_or("default"))
+            .unwrap_or_default();
+        performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(&st.pae)
     };
 
     let cancel = Arc::new(AtomicBool::new(false));

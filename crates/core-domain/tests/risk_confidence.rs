@@ -62,6 +62,7 @@ fn confidence_propagates_from_state_confidence() {
         &[],
         None,
         &[],
+        &core_domain::risk::RiskParams::default(),
     );
 
     assert!((risk.market_risk.confidence - 85.0).abs() < 1e-9);
@@ -89,6 +90,7 @@ fn confidence_low_with_low_state_confidence() {
         &[],
         None,
         &[],
+        &core_domain::risk::RiskParams::default(),
     );
 
     assert!((risk.market_risk.confidence - 30.0).abs() < 1e-9);
@@ -117,6 +119,7 @@ fn cascade_risk_confidence_zero_when_liquidity_off() {
         &[],
         None,
         &[],
+        &core_domain::risk::RiskParams::default(),
     );
 
     assert_eq!(risk.cascade_risk.confidence, 0.0);
@@ -138,6 +141,7 @@ fn cascade_risk_confidence_propagates_when_flow_present() {
         &[],
         None,
         &[],
+        &core_domain::risk::RiskParams::default(),
     );
 
     assert!((risk.cascade_risk.confidence - 72.0).abs() < 1e-9);

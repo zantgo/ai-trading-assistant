@@ -1282,6 +1282,7 @@ async fn main() {
         let tae_engine = execution_engine.clone();
         let tae_executor = setup_executor.clone();
         let tae_workspace = workspace_state.clone();
+        let tae_overview = app_state.overview.clone();
         let tae_cancel = CancellationToken::new();
         handles.push(tokio::spawn(async move {
             let executor = tae_executor;
@@ -1426,6 +1427,29 @@ async fn main() {
                             } else {
                                 None
                             };
+                            // v9: strategy intake gates — breadth floor,
+                            // systemic veto (enforced when the strategy's
+                            // `pme.enforce_systemic_veto` is on), margin
+                            // close-only, exposure caps. All veto OFF by
+                            // default (default strategy), configurable per
+                            // strategy.
+                            let strategy_now = tae_workspace
+                                .config()
+                                .await
+                                .default_strategy()
+                                .unwrap_or_default();
+                            let overview = tae_overview.read().await.clone();
+                            let breadth_pct = overview.as_ref().map(|o| o.breadth_pct).unwrap_or(0.0);
+                            let systemic_risk = overview
+                                .as_ref()
+                                .map(|o| o.systemic_risk_score)
+                                .unwrap_or(0.0);
+                            let (market_filter_allows, block_reason) =
+                                portfolio_supervisor::strategy_gates::evaluate_intake_gates(
+                                    &strategy_now,
+                                    breadth_pct,
+                                    systemic_risk,
+                                );
                             let outcome = portfolio_supervisor::execution::session_tick::run_tick(
                                 &tae_engine,
                                 &executor,
@@ -1439,6 +1463,8 @@ async fn main() {
                                     candle_ts,
                                     safety: Some(inst.safety.clone()),
                                     dispatch: !is_observe,
+                                    market_filter_allows_entry: market_filter_allows,
+                                    entry_block_reason: block_reason,
                                     // v8.2: per-instance allocation override
                                     // (falls back to the global allocation_pct).
                                     allocation_pct: workspace
@@ -1446,6 +1472,9 @@ async fn main() {
                                         .iter()
                                         .find(|e| e.symbol == symbol)
                                         .and_then(|e| e.allocation_pct),
+                                    // v9: bound strategy snapshot (frozen at
+                                    // entry; drives intake gates + exits).
+                                    strategy: Some(strategy_now.clone()),
                                 },
                                 live_fills,
                                 false,
@@ -1600,8 +1629,19 @@ async fn main() {
                         rank_score: 0.0,
                     });
                 }
-                let mut overview =
-                    core_domain::overview::compute_overview(&advisories, &metas, &alignments);
+                // v9: the L7 params come from the effective default strategy.
+                let overview_params = {
+                    let ws = workspace.config().await;
+                    ws.default_strategy()
+                        .map(|st| market_analyzer::strategy_params::overview_params_from_strategy(&st.l7))
+                        .unwrap_or_default()
+                };
+                let mut overview = core_domain::overview::compute_overview(
+                    &advisories,
+                    &metas,
+                    &alignments,
+                    &overview_params,
+                );
                 // v7.2 parity: canonical AssetRank scores → the panel rows,
                 // then merge the server-computed panel payload into the
                 // matrix. Both the dashboard and the CLI renderer read the

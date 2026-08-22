@@ -3622,6 +3622,9 @@ async fn synthesize_completed_candle(
 
     let opportunity_params = crate::synthesis::OpportunityParams::from_strategy(&strategy.l4);
     let decision_params = crate::strategy_params::decision_params_from_strategy(&strategy.l6);
+    let analysis_params = crate::strategy_params::analysis_params_from_strategy(&strategy.l3);
+    let alignment_params = crate::strategy_params::alignment_params_from_strategy(&strategy.l2);
+    let risk_params = crate::strategy_params::risk_params_from_strategy(&strategy.l5);
     let synthesis = crate::synthesis::synthesize_cross_tf(
         symbol,
         &cross_refs,
@@ -3636,6 +3639,12 @@ async fn synthesize_completed_candle(
         &opportunity_params,
         // v9: the shared L6 DecisionParams.
         &decision_params,
+        // v9: the strategy's L3 params.
+        &analysis_params,
+        // v9: the strategy's L2 params.
+        &alignment_params,
+        // v9: the strategy's L5 params.
+        &risk_params,
     );
 
     *prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
@@ -3685,6 +3694,7 @@ async fn synthesize_completed_candle(
         &synthesis.risk,
         // v9: the shared strategy-derived DecisionParams.
         &decision_params,
+        &analysis_params,
     );
     let sil_ctx = sil_engine.advance_ext(
         close_f,

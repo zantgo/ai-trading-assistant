@@ -21,11 +21,13 @@ pub async fn serve_strategy_analytics(
     // the same α / Monte Carlo runs the on-demand evaluator uses.
     let analytics = {
         let ws = state.workspace.config().await;
-        performance_analytics::strategy_analytics::AnalyticsParams {
-            alpha: ws.analytics.alpha,
-            monte_carlo_runs: ws.analytics.monte_carlo_runs,
-            min_trades_for_verdict: ws.analytics.min_trades_for_verdict,
-        }
+        // v9: the verdict bar comes from the effective default strategy's
+        // `pae` section (single source of truth).
+        ws.default_strategy()
+            .map(|st| {
+                performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(&st.pae)
+            })
+            .unwrap_or_default()
     };
     let rows = if let Some(ref pid) = query.policy_id {
         database_storage::query_strategy_analytics_history(
@@ -334,10 +336,13 @@ pub async fn serve_backtest_run(
         simulated_spread_pct: 0.01,
     };
     let cross_leverage = workspace.leverage.cross_leverage;
-    let analytics_params = performance_analytics::strategy_analytics::AnalyticsParams {
-        alpha: workspace.analytics.alpha,
-        monte_carlo_runs: workspace.analytics.monte_carlo_runs,
-        min_trades_for_verdict: workspace.analytics.min_trades_for_verdict,
+    // v9: the verdict bar comes from the RUN's bound strategy's `pae` section.
+    let analytics_params = {
+        let st = match &payload.strategy_id {
+            Some(name) => workspace.resolve_strategy(name).unwrap_or_default(),
+            None => workspace.default_strategy().unwrap_or_default(),
+        };
+        performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(&st.pae)
     };
 
     // Instance binding (BTE): when provided, the instance must exist and

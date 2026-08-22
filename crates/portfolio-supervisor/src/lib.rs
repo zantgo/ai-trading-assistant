@@ -16,6 +16,7 @@ pub mod execution;
 pub mod exposure_layer;
 pub mod instance;
 pub mod lifecycle;
+pub mod strategy_gates;
 pub mod overview_layer;
 pub mod paper_trading;
 pub mod portfolio_equity;

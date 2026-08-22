@@ -15,9 +15,10 @@
 //!
 //! Neutral / STAND_ASIDE never invalidates an open position.
 
-use config_models::{Direction, MinimalTaeConfig, OrderPacket, OrderSide, OrderType};
+use config_models::{Direction, MinimalTaeConfig, OrderPacket, OrderSide, OrderType, StrategyConfig};
 use core_domain::analysis::{MarketBias, OpportunityType, TradeViability};
 use core_domain::models::MarketSnapshot;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,10 @@ pub struct SetupPlan {
     pub tp: Decimal,
     pub net_rr: f64,
     pub time_horizon: String,
+    /// `decision.score_confidence` (0..=1) of the source snapshot.
+    pub confidence: f64,
+    /// `decision.trade_readiness` of the source snapshot.
+    pub readiness: String,
     /// Idempotency key: symbol:direction:setup_type:candle_timestamp.
     pub fingerprint: String,
 }
@@ -66,14 +71,45 @@ pub struct SetupProjection {
     pub net_rr: Option<Decimal>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecutorPhase {
     Idle,
     PendingEntry,
     PositionOpen,
 }
 
-#[derive(Debug, Clone)]
+/// v9 params-at-entry freeze: the exit/recovery knobs from the strategy
+/// that was bound when the setup was accepted. Recharge affects new
+/// setups only (V-12 / V-13).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrozenEntryParams {
+    pub breakeven_at_rr: Option<f64>,
+    pub trailing_activate_rr: Option<f64>,
+    pub trailing_atr_mult: Option<f64>,
+    pub time_stop_bars: Option<u32>,
+    pub entry_candle_ts: u64,
+    pub pending_confirmation_bars_left: u32,
+    pub last_seen_candle_ts: u64,
+    /// v9 re-entry cooldown in bars (0 = only the close candle is guarded).
+    pub reentry_cooldown_bars: u32,
+}
+
+impl FrozenEntryParams {
+    pub fn from_strategy(st: &StrategyConfig, candle_ts: u64) -> Self {
+        Self {
+            breakeven_at_rr: st.tae.risk.breakeven_at_rr,
+            trailing_activate_rr: st.tae.risk.trailing.as_ref().and_then(|t| t.activate_at_rr),
+            trailing_atr_mult: st.tae.risk.trailing.as_ref().and_then(|t| t.atr_mult),
+            time_stop_bars: st.tae.risk.time_stop_bars,
+            entry_candle_ts: candle_ts,
+            pending_confirmation_bars_left: st.tae.intake.confirmation_bars,
+            last_seen_candle_ts: candle_ts,
+            reentry_cooldown_bars: st.tae.lifecycle.reentry_cooldown_bars,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolState {
     pub phase: ExecutorPhase,
     pub fingerprint: String,
@@ -84,6 +120,8 @@ pub struct SymbolState {
     pub sl_order_id: Option<String>,
     /// Candle timestamp that produced the last close — re-entry guard.
     pub last_closed_candle_ts: u64,
+    /// v9 params-at-entry freeze (set on acceptance, cleared on reset).
+    pub frozen: Option<FrozenEntryParams>,
 }
 
 impl Default for SymbolState {
@@ -97,6 +135,7 @@ impl Default for SymbolState {
             tp_order_id: None,
             sl_order_id: None,
             last_closed_candle_ts: 0,
+            frozen: None,
         }
     }
 }
@@ -106,6 +145,12 @@ impl Default for SymbolState {
 pub struct TickContext {
     pub safety_allows_entry: bool,
     pub lifecycle_running: bool,
+    /// v9 intake gates (strategy-derived, enforced by the daemon):
+    /// breadth floor, exposure limits, margin close-only, systemic veto.
+    pub market_filter_allows_entry: bool,
+    /// Human-readable block label when a gate refuses the entry
+    /// (rendered in the activity log + dashboard).
+    pub entry_block_reason: Option<String>,
     /// Candle timestamp of the top snapshot (re-entry guard).
     pub candle_ts: u64,
     /// Per-instance SafetyManager (informational PME state). When present,
@@ -120,6 +165,10 @@ pub struct TickContext {
     /// v8.2 per-instance allocation override (percent of portfolio equity,
     /// 1..=100). `None` = the global `[workspace.minimal_tae].allocation_pct`.
     pub allocation_pct: Option<f64>,
+    /// v9: the instance's bound strategy snapshot (patch-resolved). The
+    /// executor freezes its exit params at entry and enforces the intake
+    /// gates from it. `None` = the legacy global defaults apply.
+    pub strategy: Option<StrategyConfig>,
 }
 
 /// Extract the top setup from the latest completed snapshots of the 4 TFs.
@@ -219,6 +268,8 @@ pub fn extract_top_setup(snapshots: &[&MarketSnapshot], min_net_rr: f64) -> Opti
                 tp,
                 net_rr,
                 time_horizon: opp.time_horizon.clone(),
+                confidence: decision.score_confidence,
+                readiness: decision.trade_readiness.clone(),
                 fingerprint,
             };
 
@@ -304,11 +355,11 @@ impl SetupExecutor {
                     .await
             }
             ExecutorPhase::PendingEntry => {
-                self.tick_pending(instance_id, symbol, &top, mid, entry)
+                self.tick_pending(instance_id, symbol, &top, mid, ctx, entry)
                     .await
             }
             ExecutorPhase::PositionOpen => {
-                self.tick_position(instance_id, symbol, &top, mid, ctx, entry)
+                self.tick_position(instance_id, symbol, &top, &snapshots, mid, ctx, entry)
                     .await
             }
         }
@@ -324,7 +375,18 @@ impl SetupExecutor {
         entry: &mut SymbolState,
     ) {
         let Some(plan) = top else { return };
-        if !ctx.lifecycle_running || !ctx.safety_allows_entry {
+        if !ctx.lifecycle_running || !ctx.safety_allows_entry || !ctx.market_filter_allows_entry {
+            if !ctx.market_filter_allows_entry {
+                self.log(
+                    instance_id,
+                    symbol,
+                    "entry_blocked",
+                    ctx.entry_block_reason
+                        .as_deref()
+                        .unwrap_or("market filter blocked"),
+                )
+                .await;
+            }
             return;
         }
         // No re-entry on the candle that produced the last close.
@@ -335,6 +397,64 @@ impl SetupExecutor {
         let positions = self.engine.positions.read().await;
         if positions.contains_key(symbol) {
             return;
+        }
+
+        // ── v9 strategy intake gates (TAE `intake` section) ──
+        if let Some(st) = &ctx.strategy {
+            let intake = &st.tae.intake;
+            if let Some(min_score) = intake.min_score {
+                if plan.score < min_score {
+                    self.log(
+                        instance_id, symbol, "entry_blocked",
+                        &format!("strategy min_score {:.0} — setup scored {:.0}", min_score, plan.score),
+                    ).await;
+                    return;
+                }
+            }
+            if let Some(min_conf) = intake.min_confidence {
+                if plan.confidence < min_conf {
+                    self.log(
+                        instance_id, symbol, "entry_blocked",
+                        &format!("strategy min_confidence {:.2} — setup confidence {:.2}", min_conf, plan.confidence),
+                    ).await;
+                    return;
+                }
+            }
+            match intake.direction_policy.as_str() {
+                "long_only" if plan.direction == "SHORT" => {
+                    self.log(instance_id, symbol, "entry_blocked",
+                        "strategy direction_policy=long_only rejected a SHORT setup").await;
+                    return;
+                }
+                "short_only" if plan.direction == "LONG" => {
+                    self.log(instance_id, symbol, "entry_blocked",
+                        "strategy direction_policy=short_only rejected a LONG setup").await;
+                    return;
+                }
+                _ => {}
+            }
+            if intake.execution_veto.iter().any(|v| v == "risk_blocked")
+                && plan.readiness == "STAND_ASIDE"
+            {
+                self.log(instance_id, symbol, "entry_blocked",
+                    "strategy execution_veto=risk_blocked — source snapshot is STAND_ASIDE").await;
+                return;
+            }
+            // v9 re-entry cooldown: refuse entries within N bars of the
+            // last close (0 = the close candle itself is guarded below).
+            let cooldown_bars = st.tae.lifecycle.reentry_cooldown_bars;
+            if cooldown_bars > 0
+                && ctx.candle_ts > 0
+                && entry.last_closed_candle_ts > 0
+                && ctx.candle_ts >= entry.last_closed_candle_ts
+                && plan.source_tf_secs > 0
+            {
+                let bars_since_close =
+                    (ctx.candle_ts - entry.last_closed_candle_ts) / plan.source_tf_secs;
+                if bars_since_close < cooldown_bars as u64 {
+                    return;
+                }
+            }
         }
         let open_count = positions.len() as u32;
         drop(positions);
@@ -375,6 +495,14 @@ impl SetupExecutor {
             metadata,
         };
 
+        // v9 params-at-entry freeze: stamp the exit knobs NOW (recharge
+        // affects new setups only).
+        let frozen = ctx
+            .strategy
+            .as_ref()
+            .map(|st| FrozenEntryParams::from_strategy(st, ctx.candle_ts));
+        entry.frozen = frozen;
+
         if !ctx.dispatch {
             // Ghost (observe) evaluation: record the would-be setup and
             // projection without dispatching any order. No entry_order_id
@@ -399,6 +527,24 @@ impl SetupExecutor {
                     plan.net_rr,
                     plan.score,
                     plan.source_tf
+                ),
+            )
+            .await;
+        } else if entry.frozen.as_ref().is_some_and(|f| f.pending_confirmation_bars_left > 0) {
+            // v9 confirmation hold: the strategy demands N completed bars
+            // before dispatch — tick_pending submits once the countdown
+            // elapses.
+            entry.phase = ExecutorPhase::PendingEntry;
+            entry.fingerprint = plan.fingerprint.clone();
+            entry.tracked_setup = Some(plan.clone());
+            entry.projection = Some(projection);
+            self.log(
+                instance_id,
+                symbol,
+                "setup_accepted",
+                &format!(
+                    "CONFIRMING {} {} — dispatch after {} bar(s)",
+                    plan.direction, plan.setup_type, entry.frozen.as_ref().unwrap().pending_confirmation_bars_left
                 ),
             )
             .await;
@@ -441,8 +587,98 @@ impl SetupExecutor {
         symbol: &str,
         top: &Option<SetupPlan>,
         mid: Decimal,
+        ctx: TickContext,
         entry: &mut SymbolState,
     ) {
+        // ── v9 confirmation hold: submit once the countdown elapses ──
+        if entry.entry_order_id.is_none() {
+            if let Some(f) = entry.frozen.as_mut() {
+                if f.pending_confirmation_bars_left > 0 {
+                    if ctx.candle_ts > f.last_seen_candle_ts {
+                        f.last_seen_candle_ts = ctx.candle_ts;
+                        f.pending_confirmation_bars_left -= 1;
+                    }
+                    if f.pending_confirmation_bars_left > 0 {
+                        return;
+                    }
+                    if let Some(plan) = entry.tracked_setup.clone() {
+                        let side = if plan.direction == "LONG" {
+                            OrderSide::Buy
+                        } else {
+                            OrderSide::Sell
+                        };
+                        let mut metadata = std::collections::HashMap::new();
+                        metadata.insert(
+                            "trigger_source".to_string(),
+                            plan.setup_type.clone(),
+                        );
+                        let packet = OrderPacket {
+                            client_order_id: format!("setup_entry_{}", symbol),
+                            symbol: symbol.to_string(),
+                            side,
+                            order_type: OrderType::Limit,
+                            price: Some(plan.entry_mid),
+                            size: entry
+                                .projection
+                                .as_ref()
+                                .map(|p| p.position_size_units)
+                                .unwrap_or(dec!(0)),
+                            reduce_only: false,
+                            is_emergency_liquidation: false,
+                            associated_position_id: None,
+                            metadata,
+                        };
+                        if packet.size > dec!(0) {
+                            match self.engine.submit_order(packet, mid).await {
+                                Ok(order_id) => {
+                                    entry.entry_order_id = Some(order_id);
+                                    self.log(
+                                        instance_id,
+                                        symbol,
+                                        "setup_dispatched",
+                                        "confirmation window elapsed — entry order submitted",
+                                    )
+                                    .await;
+                                }
+                                Err(e) => {
+                                    self.log(instance_id, symbol, "entry_rejected", &e).await;
+                                    self.reset(entry);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── v9 pending-entry expiry (bars-based) ──
+        if let (Some(f), Some(plan)) = (entry.frozen.as_ref(), entry.tracked_setup.as_ref()) {
+            if let Some(expiry_bars) = ctx
+                .strategy
+                .as_ref()
+                .and_then(|st| st.tae.lifecycle.pending_entry_expiry_bars)
+            {
+                if ctx.candle_ts >= f.entry_candle_ts && plan.source_tf_secs > 0 {
+                    let age_bars = (ctx.candle_ts - f.entry_candle_ts) / plan.source_tf_secs;
+                    if age_bars >= expiry_bars as u64 {
+                        if let Some(id) = entry.entry_order_id.take() {
+                            let _ = self.engine.cancel_order(&id, symbol).await;
+                        }
+                        self.log(
+                            instance_id,
+                            symbol,
+                            "expired",
+                            &format!("pending entry expired after {age_bars} bars"),
+                        )
+                        .await;
+                        self.reset(entry);
+                        return;
+                    }
+                }
+            }
+        }
+
         // ── Entry filled? ──
         let has_position = self.engine.get_position(symbol).await.is_some();
         if has_position {
@@ -517,11 +753,13 @@ impl SetupExecutor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn tick_position(
         &self,
         instance_id: &str,
         symbol: &str,
         top: &Option<SetupPlan>,
+        snapshots: &[&MarketSnapshot],
         mid: Decimal,
         ctx: TickContext,
         entry: &mut SymbolState,
@@ -548,6 +786,178 @@ impl SetupExecutor {
                 .await;
             self.reset(entry);
             return;
+        }
+
+        // ── v9 frozen exit params (stamped at entry) ──
+        if let Some(f) = entry.frozen.clone() {
+            // time stop: N bars elapsed since entry without reaching TP.
+            if let Some(bars) = f.time_stop_bars {
+                let tf_secs = entry
+                    .tracked_setup
+                    .as_ref()
+                    .map(|p| p.source_tf_secs)
+                    .unwrap_or(0);
+                if tf_secs > 0 && ctx.candle_ts >= f.entry_candle_ts {
+                    let age_bars = (ctx.candle_ts - f.entry_candle_ts) / tf_secs;
+                    if age_bars >= bars as u64 {
+                        match self
+                            .engine
+                            .close_position(symbol, mid, "time_stop")
+                            .await
+                        {
+                            Ok(_) => {
+                                self.log(
+                                    instance_id, symbol, "time_stop",
+                                    &format!("position closed at market after {age_bars} bars"),
+                                )
+                                .await;
+                                return;
+                            }
+                            Err(e) => self.log(instance_id, symbol, "close_error", &e).await,
+                        }
+                    }
+                }
+            }
+
+            // breakeven: move the SL to the entry price once unrealized R
+            // reaches the frozen threshold.
+            if let (Some(plan), Some(rr_at)) =
+                (entry.tracked_setup.clone(), f.breakeven_at_rr)
+            {
+                let rr_now = if plan.direction == "LONG" {
+                    ((mid - plan.entry_mid) / (plan.entry_mid - plan.sl))
+                        .to_f64()
+                        .unwrap_or(0.0)
+                } else {
+                    ((plan.entry_mid - mid) / (plan.sl - plan.entry_mid))
+                        .to_f64()
+                        .unwrap_or(0.0)
+                };
+                if rr_now >= rr_at {
+                    if let Some(sl_id) = entry.sl_order_id.clone() {
+                        let _ = self.engine.cancel_order(&sl_id, symbol).await;
+                        entry.sl_order_id = None;
+                    }
+                    if entry.sl_order_id.is_none() {
+                        let Some(pos) = self.engine.get_position(symbol).await else {
+                            return;
+                        };
+                        let exit_side = match pos.direction {
+                            Direction::Long => OrderSide::Sell,
+                            Direction::Short => OrderSide::Buy,
+                        };
+                        let mut meta = std::collections::HashMap::new();
+                        meta.insert("exit_reason".to_string(), "breakeven".to_string());
+                        meta.insert("trigger_source".to_string(), plan.setup_type.clone());
+                        let be_packet = OrderPacket {
+                            client_order_id: format!("breakeven_sl_{}", symbol),
+                            symbol: symbol.to_string(),
+                            side: exit_side,
+                            order_type: OrderType::Stop,
+                            price: Some(plan.entry_mid),
+                            size: pos.size,
+                            reduce_only: true,
+                            is_emergency_liquidation: false,
+                            associated_position_id: None,
+                            metadata: meta,
+                        };
+                        match self.engine.submit_order(be_packet, mid).await {
+                            Ok(id) => {
+                                entry.sl_order_id = Some(id);
+                                self.log(
+                                    instance_id, symbol, "breakeven",
+                                    &format!("stop moved to entry {}", plan.entry_mid),
+                                )
+                                .await;
+                            }
+                            Err(e) => self.log(instance_id, symbol, "close_error", &e).await,
+                        }
+                    }
+                }
+            }
+
+            // trailing stop: activate at the frozen R threshold, trail the
+            // SL by `atr_mult × ATR` (ATR read from the source snapshot).
+            if let (Some(plan), Some(activate_rr)) =
+                (entry.tracked_setup.clone(), f.trailing_activate_rr)
+            {
+                if let Some(atr_mult) = f.trailing_atr_mult {
+                    let rr_now = if plan.direction == "LONG" {
+                        ((mid - plan.entry_mid) / (plan.entry_mid - plan.sl))
+                            .to_f64()
+                            .unwrap_or(0.0)
+                    } else {
+                        ((plan.entry_mid - mid) / (plan.sl - plan.entry_mid))
+                            .to_f64()
+                            .unwrap_or(0.0)
+                    };
+                    if rr_now >= activate_rr {
+                        let atr = snapshots
+                            .iter()
+                            .find(|s| {
+                                s.is_completed == Some(true)
+                                    && s.timeframe_secs == plan.source_tf_secs
+                            })
+                            .and_then(|s| s.indicators.get("atr"))
+                            .map(|v| v.raw_value)
+                            .filter(|a| *a > 0.0)
+                            .unwrap_or(0.0);
+                        if atr > 0.0 {
+                            let trail_price = if plan.direction == "LONG" {
+                                (mid - Decimal::from_f64_retain(atr * atr_mult).unwrap_or(dec!(0)))
+                                    .max(plan.entry_mid)
+                            } else {
+                                (mid + Decimal::from_f64_retain(atr * atr_mult).unwrap_or(dec!(0)))
+                                    .min(plan.entry_mid)
+                            };
+                            if let Some(sl_id) = entry.sl_order_id.clone() {
+                                let _ = self.engine.cancel_order(&sl_id, symbol).await;
+                                entry.sl_order_id = None;
+                            }
+                            if entry.sl_order_id.is_none() {
+                                let Some(pos) = self.engine.get_position(symbol).await else {
+                                    return;
+                                };
+                                let exit_side = match pos.direction {
+                                    Direction::Long => OrderSide::Sell,
+                                    Direction::Short => OrderSide::Buy,
+                                };
+                                let mut meta = std::collections::HashMap::new();
+                                meta.insert("exit_reason".to_string(), "trailing_stop".to_string());
+                                meta.insert(
+                                    "trigger_source".to_string(),
+                                    plan.setup_type.clone(),
+                                );
+                                let tr_packet = OrderPacket {
+                                    client_order_id: format!("trailing_sl_{}", symbol),
+                                    symbol: symbol.to_string(),
+                                    side: exit_side,
+                                    order_type: OrderType::Stop,
+                                    price: Some(trail_price),
+                                    size: pos.size,
+                                    reduce_only: true,
+                                    is_emergency_liquidation: false,
+                                    associated_position_id: None,
+                                    metadata: meta,
+                                };
+                                match self.engine.submit_order(tr_packet, mid).await {
+                                    Ok(id) => {
+                                        entry.sl_order_id = Some(id);
+                                        self.log(
+                                            instance_id, symbol, "trailing_stop",
+                                            &format!("trailing stop at {}", trail_price),
+                                        )
+                                        .await;
+                                    }
+                                    Err(e) => {
+                                        self.log(instance_id, symbol, "close_error", &e).await
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // ── SIGNAL invalidation while open: close at market ──
@@ -747,6 +1157,7 @@ impl SetupExecutor {
         entry.entry_order_id = None;
         entry.tp_order_id = None;
         entry.sl_order_id = None;
+        entry.frozen = None;
     }
 
     async fn log(&self, instance_id: &str, symbol: &str, event: &str, detail: &str) {
@@ -992,10 +1403,13 @@ mod tests {
         TickContext {
             safety_allows_entry: true,
             lifecycle_running: true,
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
             candle_ts: ts,
             safety: None,
             dispatch: true,
             allocation_pct: None,
+            strategy: None,
         }
     }
 
@@ -1475,10 +1889,13 @@ mod tests {
         let blocked_ctx = TickContext {
             safety_allows_entry: false,
             lifecycle_running: true,
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
             candle_ts: 1000,
             safety: None,
             dispatch: true,
             allocation_pct: None,
+            strategy: None,
         };
         ex.tick(
             "i1",
@@ -1744,11 +2161,14 @@ mod safety_ladder_tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            },
+            strategy: None,
+        },
         )
         .await;
         engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
@@ -1760,11 +2180,14 @@ mod safety_ladder_tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            },
+            strategy: None,
+        },
         )
         .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
@@ -1779,11 +2202,14 @@ mod safety_ladder_tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 1000,
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            },
+            strategy: None,
+        },
         )
         .await;
 
@@ -1825,7 +2251,10 @@ mod safety_ladder_tests {
                     safety: Some(safety.clone()),
                     dispatch: true,
                     allocation_pct: None,
-                },
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
+            strategy: None,
+        },
             )
             .await;
             engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
@@ -1841,7 +2270,10 @@ mod safety_ladder_tests {
                     safety: Some(safety.clone()),
                     dispatch: true,
                     allocation_pct: None,
-                },
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
+            strategy: None,
+        },
             )
             .await;
             engine.evaluate_order_fills("BTC-USDC", dec!(80)).await;
@@ -1857,7 +2289,10 @@ mod safety_ladder_tests {
                     safety: Some(safety.clone()),
                     dispatch: true,
                     allocation_pct: None,
-                },
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
+            strategy: None,
+        },
             )
             .await;
         }
@@ -1881,7 +2316,10 @@ mod safety_ladder_tests {
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            },
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
+            strategy: None,
+        },
         )
         .await;
         assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::Idle);

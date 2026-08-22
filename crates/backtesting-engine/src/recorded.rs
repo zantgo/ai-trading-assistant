@@ -182,10 +182,13 @@ pub async fn run_backtest(
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
+            market_filter_allows_entry: true,
+            entry_block_reason: None,
                 candle_ts: rec.timestamp as u64,
                 safety: None,
                 dispatch: true,
                 allocation_pct: None,
+                strategy: None,
             },
             None,
             true,

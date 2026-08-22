@@ -2186,6 +2186,12 @@ pub fn synthesize_cross_tf(
     params: &OpportunityParams,
     // v9: the shared L6 DecisionParams (strategy `l6` section).
     decision_params: &core_domain::decision_params::DecisionParams,
+    // v9: the strategy's L3 params.
+    analysis_params: &core_domain::analysis::AnalysisParams,
+    // v9: the strategy's L2 params.
+    alignment_params: &core_domain::alignment::AlignmentParams,
+    // v9: the strategy's L5 params.
+    risk_params: &core_domain::risk::RiskParams,
 ) -> CrossTfSynthesisResult {
     // AUDIT-C2: labels are collected as owned `String`s first, then borrowed
     // for the alignment call. Previously the label was created *inside* the
@@ -2219,7 +2225,7 @@ pub fn synthesize_cross_tf(
         .map(|(label, secs, price, map, ctx)| (label.as_str(), *secs, *price, *map, *ctx))
         .collect();
 
-    let alignment = alignment::compute_alignment(symbol, &tf_data);
+    let alignment = alignment::compute_alignment(symbol, &tf_data, alignment_params);
 
     // Build per-key union of indicators across all 4 TFs. The previous
     // implementation took the FIRST non-empty TF's indicator map as the
@@ -2254,6 +2260,8 @@ pub fn synthesize_cross_tf(
         previous_regime,
         previous_volume_dim,
         previous_bias,
+        // v9: the strategy's L3 params.
+        analysis_params,
     );
 
     let close = tf_snapshots
@@ -2287,6 +2295,8 @@ pub fn synthesize_cross_tf(
         // RiskState trend arm (Increasing/Improving/Stable).
         previous_score,
         &tf_volatility,
+        // v9: the strategy's L5 params.
+        risk_params,
     );
 
     let opportunity = compute_opportunity(
@@ -2318,6 +2328,7 @@ pub fn synthesize_cross_tf(
         cluster,
         sr_distance_atr,
         decision_params,
+        analysis_params,
     );
 
     CrossTfSynthesisResult {
@@ -2611,6 +2622,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         assert_eq!(result.alignment.timeframes_present, 0);
         assert_eq!(result.analysis.timeframes_considered, 0);
@@ -2636,6 +2650,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         assert_eq!(result.alignment.timeframes_present, 1);
         assert_eq!(result.alignment.dimensions.len(), 10);
@@ -2666,6 +2683,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         assert_eq!(result.alignment.timeframes_present, 4);
         assert!(result.alignment.mtf_overall_score > 0.0);
@@ -2702,6 +2722,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         assert!(result.alignment.mtf_overall_score.abs() < 40.0);
     }
@@ -2730,6 +2753,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(opp.long_entry_zone.high >= opp.long_entry_zone.low);
@@ -2825,6 +2851,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(
@@ -2873,6 +2902,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         let long_target_mid = (opp.long_target_zone.low + opp.long_target_zone.high) / 2.0;
@@ -2912,6 +2944,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         let close = 64000.0;
@@ -2951,6 +2986,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(matches!(
@@ -2988,6 +3026,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
         assert!(matches!(
@@ -3033,6 +3074,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
 
         let opp = result
@@ -3082,6 +3126,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
 
         let opp = result
@@ -3120,6 +3167,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
 
         let opp = result
@@ -3200,6 +3250,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
 
         let opp = result
@@ -3260,6 +3313,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
 
         // The headline `opportunity_score` equals the selected primary
@@ -3327,6 +3383,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
 
@@ -3374,6 +3433,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = result.opportunity.expect("opportunity must be emitted");
 
@@ -3425,6 +3487,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let bull_opp = bull_result.opportunity.expect("bullish opp");
         let close = 64000.0_f64;
@@ -3464,6 +3529,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let bear_opp = bear_result.opportunity.expect("bearish opp");
         let bear_entry = bear_opp
@@ -3514,6 +3582,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
         let opp = bear_result.opportunity.expect("bearish opp");
         assert!(
@@ -3584,6 +3655,9 @@ mod tests {
             None,
             &OpportunityParams::default(),
             &core_domain::decision_params::DecisionParams::default(),
+            &core_domain::analysis::AnalysisParams::default(),
+            &core_domain::alignment::AlignmentParams::default(),
+            &core_domain::risk::RiskParams::default(),
         );
 
         let rows = &result.alignment.timeframe_alignments;

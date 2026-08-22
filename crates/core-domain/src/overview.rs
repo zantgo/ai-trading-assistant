@@ -233,10 +233,64 @@ pub struct InstanceMeta {
 /// `alignment_consensus_index`, `multi_tf_agreement_pct`) default to
 /// neutral / empty values while the existing breadth / sync / health
 /// aggregates remain populated from the advisories.
+/// v9: the L7 runtime parameters — the strategy's `l7` section. Every
+/// default reproduces the pre-v9 bands, shares, weights, and thresholds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverviewParams {
+    pub breadth_strong: f64,
+    pub breadth_positive: f64,
+    pub breadth_balanced: f64,
+    pub global_bias_strong_share: f64,
+    pub global_bias_plain_share: f64,
+    pub sync_bands: [f64; 4],
+    pub risk_low_max: f64,
+    pub risk_high_min: f64,
+    pub env_mean_high: f64,
+    pub env_mean_moderate: f64,
+    pub systemic_high_weight: f64,
+    pub systemic_sync_weight: f64,
+    pub sync_penalty: [f64; 5],
+    pub tf_decay: [f64; 4],
+    pub cascade_index_fallback: f64,
+    pub entry_veto_threshold: f64,
+    pub asset_rank_slope: f64,
+    pub asset_rank_offset: f64,
+    pub low_coverage_min_symbols: u32,
+    pub alignment_buckets: [f64; 2],
+}
+
+impl Default for OverviewParams {
+    fn default() -> Self {
+        Self {
+            breadth_strong: 60.0,
+            breadth_positive: 20.0,
+            breadth_balanced: 10.0,
+            global_bias_strong_share: 0.8,
+            global_bias_plain_share: 0.6,
+            sync_bands: [75.0, 50.0, 25.0, 10.0],
+            risk_low_max: 30.0,
+            risk_high_min: 70.0,
+            env_mean_high: 50.0,
+            env_mean_moderate: 25.0,
+            systemic_high_weight: 0.6,
+            systemic_sync_weight: 0.4,
+            sync_penalty: [100.0, 60.0, 30.0, 10.0, 0.0],
+            tf_decay: [0.1, 0.2, 0.3, 0.4],
+            cascade_index_fallback: 50.0,
+            entry_veto_threshold: 80.0,
+            asset_rank_slope: 0.5,
+            asset_rank_offset: 50.0,
+            low_coverage_min_symbols: 3,
+            alignment_buckets: [75.0, 50.0],
+        }
+    }
+}
+
 pub fn compute_overview(
     advisories: &[AdvisoryMatrix],
     instances: &[InstanceMeta],
     alignments: &[AlignmentMatrix],
+    params: &OverviewParams,
 ) -> OverviewMatrix {
     if advisories.is_empty() && instances.iter().all(|i| !i.is_active) {
         return OverviewMatrix::empty();
@@ -284,15 +338,15 @@ pub fn compute_overview(
 
     // Market breadth
     let breadth_pct = (long_count as f64 - short_count as f64) / total * 100.0;
-    let breadth = if breadth_pct > 60.0 {
+    let breadth = if breadth_pct > params.breadth_strong {
         MarketBreadth::StrongPositive
-    } else if breadth_pct > 20.0 {
+    } else if breadth_pct > params.breadth_positive {
         MarketBreadth::Positive
-    } else if breadth_pct < -60.0 {
+    } else if breadth_pct < -params.breadth_strong {
         MarketBreadth::StrongNegative
-    } else if breadth_pct < -20.0 {
+    } else if breadth_pct < -params.breadth_positive {
         MarketBreadth::Negative
-    } else if breadth_pct.abs() < 10.0 {
+    } else if breadth_pct.abs() < params.breadth_balanced {
         MarketBreadth::Balanced
     } else if breadth_pct > 0.0 {
         MarketBreadth::Weak
@@ -301,13 +355,14 @@ pub fn compute_overview(
     };
 
     // Synchronization
-    let sync = if breadth_pct.abs() > 75.0 {
+    let [s0, s1, s2, s3] = params.sync_bands;
+    let sync = if breadth_pct.abs() > s0 {
         SyncLevel::HighlySynchronized
-    } else if breadth_pct.abs() > 50.0 {
+    } else if breadth_pct.abs() > s1 {
         SyncLevel::Synchronized
-    } else if breadth_pct.abs() > 25.0 {
+    } else if breadth_pct.abs() > s2 {
         SyncLevel::Mixed
-    } else if breadth_pct.abs() > 10.0 {
+    } else if breadth_pct.abs() > s3 {
         SyncLevel::Fragmented
     } else {
         SyncLevel::HighlyFragmented
@@ -331,13 +386,13 @@ pub fn compute_overview(
     // market where no direction has a clear majority defaults to
     // `Mixed`, and the empty-input case is handled by the early
     // `OverviewMatrix::empty()` return at the top of the function.
-    let global_bias = if long_pct >= 0.8 && is_synced {
+    let global_bias = if long_pct >= params.global_bias_strong_share && is_synced {
         GlobalBias::StrongBullish
-    } else if short_pct >= 0.8 && is_synced {
+    } else if short_pct >= params.global_bias_strong_share && is_synced {
         GlobalBias::StrongBearish
-    } else if long_pct >= 0.6 {
+    } else if long_pct >= params.global_bias_plain_share {
         GlobalBias::Bullish
-    } else if short_pct >= 0.6 {
+    } else if short_pct >= params.global_bias_plain_share {
         GlobalBias::Bearish
     } else if long_count > short_count {
         GlobalBias::Bullish
@@ -359,9 +414,9 @@ pub fn compute_overview(
     let overall_for = |symbol: &str| overall_by_symbol.get(symbol).copied().unwrap_or(50.0);
     let risk_level_for = |symbol: &str| {
         let r = overall_for(symbol);
-        if r <= 30.0 {
+        if r <= params.risk_low_max {
             "LOW"
-        } else if r >= 70.0 {
+        } else if r >= params.risk_high_min {
             "HIGH"
         } else {
             "MODERATE"
@@ -398,7 +453,7 @@ pub fn compute_overview(
         .map(|(symbol, wins)| {
             let mean_conf =
                 wins.iter().map(|a| a.confidence_assessment).sum::<f64>() / wins.len() as f64;
-            let score = 0.5 * mean_conf + 50.0;
+            let score = params.asset_rank_slope * mean_conf + params.asset_rank_offset;
             let risk_level = risk_level_for(symbol);
             // Mirror the per-symbol AlignmentMatrix onto the
             // AssetRank so REST / export consumers can show
@@ -468,7 +523,7 @@ pub fn compute_overview(
     let total_adv = advisories.len().max(1) as f64;
     let low_risk = advisories
         .iter()
-        .filter(|a| overall_for(&a.symbol) <= 30.0)
+        .filter(|a| overall_for(&a.symbol) <= params.risk_low_max)
         .count() as f64
         / total_adv
         * 100.0;
@@ -477,7 +532,7 @@ pub fn compute_overview(
     // with the panels. The SYSTEMIC path below uses the TF-decayed count.
     let high_pct = advisories
         .iter()
-        .filter(|a| overall_for(&a.symbol) >= 70.0)
+        .filter(|a| overall_for(&a.symbol) >= params.risk_high_min)
         .count() as f64
         / total_adv
         * 100.0;
@@ -528,9 +583,9 @@ pub fn compute_overview(
     };
     let risk_environment = if instance_count == 0 {
         "NO_DATA"
-    } else if mean_overall_risk >= 50.0 {
+    } else if mean_overall_risk >= params.env_mean_high {
         "HIGH_RISK"
-    } else if mean_overall_risk >= 25.0 {
+    } else if mean_overall_risk >= params.env_mean_moderate {
         "MODERATE"
     } else {
         "LOW_RISK"
@@ -561,15 +616,16 @@ pub fn compute_overview(
     };
     let sync_penalty = directional_intensity
         * match sync {
-            SyncLevel::HighlySynchronized => 100.0,
-            SyncLevel::Synchronized => 60.0,
-            SyncLevel::Mixed => 30.0,
-            SyncLevel::Fragmented => 10.0,
-            SyncLevel::HighlyFragmented => 0.0,
+            SyncLevel::HighlySynchronized => params.sync_penalty[0],
+            SyncLevel::Synchronized => params.sync_penalty[1],
+            SyncLevel::Mixed => params.sync_penalty[2],
+            SyncLevel::Fragmented => params.sync_penalty[3],
+            SyncLevel::HighlyFragmented => params.sync_penalty[4],
         };
     // v6.10.19 (P7): the systemic path uses the TF-DECAYED high-share —
     // the safety veto must not fire on a micro-tier noise spike.
-    let systemic_risk_score = 0.6 * systemic_high_pct + 0.4 * sync_penalty;
+    let systemic_risk_score = params.systemic_high_weight * systemic_high_pct
+        + params.systemic_sync_weight * sync_penalty;
 
     // market_health per spec §3.4: POOR when HIGH_RISK, then bias-based
     let health = if risk_environment == "HIGH_RISK" {
@@ -593,7 +649,7 @@ pub fn compute_overview(
     let cascade_score = if cascade_count > 0 {
         cascade_total / cascade_count as f64
     } else {
-        50.0
+        params.cascade_index_fallback
     };
     let cascade_risk = RiskDimension {
         score: cascade_score,
@@ -701,7 +757,7 @@ mod tests {
 
     #[test]
     fn empty_returns_default() {
-        let o = compute_overview(&[], &[], &[]);
+        let o = compute_overview(&[], &[], &[], &OverviewParams::default());
         // Empty input → OverviewMatrix::empty() early-return path.
         // The empty OverviewMatrix declares GlobalBias::Neutral as its
         // canonical default; the live `compute_overview` path now
@@ -730,7 +786,7 @@ mod tests {
                 ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
             })
             .collect();
-        let o = compute_overview(&advs, &[], &[]);
+        let o = compute_overview(&advs, &[], &[], &OverviewParams::default());
         assert!(matches!(o.global_market_bias, GlobalBias::Mixed));
     }
 
@@ -750,7 +806,7 @@ mod tests {
             overall_risk: 50.0,
             risk_windows: vec![],
         }];
-        let o = compute_overview(&[adv], &instances, &[]);
+        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
         assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
         assert_eq!(o.instance_count, 1);
         assert!(!o.regime_distribution.is_empty());
@@ -780,7 +836,7 @@ mod tests {
             overall_risk: 20.0, // LOW band (≤ 30)
             risk_windows: vec![],
         }];
-        let o = compute_overview(&[adv], &instances, &[]);
+        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
         assert_eq!(
             o.risk_distribution.low_pct, 100.0,
             "low risk must bind to the risk distribution"
@@ -826,7 +882,7 @@ mod tests {
             overall_risk: 20.0,
             risk_windows: vec![],
         }];
-        let o = compute_overview(&[adv], &instances, &[]);
+        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
         assert_eq!(o.risk_distribution.low_pct, 0.0);
         assert_eq!(o.risk_distribution.moderate_pct, 100.0);
         assert!(o.active_symbols.contains(&"USDT".to_string()));
@@ -878,7 +934,7 @@ mod tests {
             make_alignment("X-USD2", 0.0, "NEUTRAL_MTF", 50.0),
             make_alignment("X-USD3", -60.0, "STRONG_BEAR_MTF", 85.0),
         ];
-        let o = compute_overview(&advs, &[], &alignments);
+        let o = compute_overview(&advs, &[], &alignments, &OverviewParams::default());
         assert_eq!(o.alignment_distribution.get("STRONG_BULL_MTF"), Some(&1));
         assert_eq!(o.alignment_distribution.get("WEAK_BULL_MTF"), Some(&1));
         assert_eq!(o.alignment_distribution.get("NEUTRAL_MTF"), Some(&1));
@@ -901,7 +957,7 @@ mod tests {
             make_alignment("X-USD1", 0.0, "NEUTRAL_MTF", 50.0),
             make_alignment("X-USD2", -50.0, "WEAK_BEAR_MTF", 40.0),
         ];
-        let o = compute_overview(&advs, &[], &alignments);
+        let o = compute_overview(&advs, &[], &alignments, &OverviewParams::default());
         // (50 + 0 + -50) / 3 = 0.0
         assert!((o.alignment_consensus_index - 0.0).abs() < 1e-9);
         // (60 + 50 + 40) / 3 = 50.0
@@ -925,7 +981,7 @@ mod tests {
             risk_windows: vec![],
         }];
         let alignment = make_alignment("BTC-USD", 65.5, "STRONG_BULL_MTF", 80.0);
-        let o = compute_overview(&[adv], &instances, &[alignment]);
+        let o = compute_overview(&[adv], &instances, &[alignment], &OverviewParams::default());
         assert_eq!(o.asset_ranking.len(), 1);
         assert_eq!(o.asset_ranking[0].symbol, "BTC-USD");
         assert!((o.asset_ranking[0].mtf_score - 65.5).abs() < 1e-9);
@@ -966,7 +1022,7 @@ mod tests {
                 risk_windows: vec![],
             },
         ];
-        let o = compute_overview(&[adv_low, adv_high], &instances, &[]);
+        let o = compute_overview(&[adv_low, adv_high], &instances, &[], &OverviewParams::default());
         // Despite cascade 10 on BOTH symbols, the split follows overall:
         // BTC low (20), SOL high (85).
         assert_eq!(o.risk_distribution.low_pct, 50.0);
@@ -1011,7 +1067,7 @@ mod tests {
                 risk_windows: vec![],
             },
         ];
-        let o = compute_overview(&advs, &instances, &[]);
+        let o = compute_overview(&advs, &instances, &[], &OverviewParams::default());
         assert_eq!(o.risk_distribution.low_pct, 0.0);
         assert_eq!(o.risk_distribution.moderate_pct, 100.0);
         assert_eq!(o.risk_distribution.high_pct, 0.0);
@@ -1039,7 +1095,7 @@ mod tests {
             overall_risk: 43.0,
             risk_windows: vec![],
         }];
-        let o = compute_overview(&[adv], &instances, &[]);
+        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
         assert_eq!(o.asset_ranking.len(), 1);
         assert_eq!(o.asset_ranking[0].risk_level, "MODERATE");
         assert_eq!(o.risk_distribution.risk_environment, "MODERATE");
@@ -1064,7 +1120,7 @@ mod tests {
             overall_risk: 50.0,
             risk_windows: vec![],
         }];
-        let o = compute_overview(&[adv], &instances, &[]);
+        let o = compute_overview(&[adv], &instances, &[], &OverviewParams::default());
         assert_eq!(o.asset_ranking.len(), 1);
         assert_eq!(o.asset_ranking[0].mtf_score, 0.0);
         assert_eq!(o.asset_ranking[0].mtf_label, "NO_DATA");
@@ -1088,7 +1144,7 @@ mod tests {
                 ..AdvisoryMatrix::empty(&format!("X-USD{}", i))
             })
             .collect();
-        let o = compute_overview(&advs, &[], &[]);
+        let o = compute_overview(&advs, &[], &[], &OverviewParams::default());
         assert!(matches!(o.global_market_bias, GlobalBias::StrongBullish));
         assert_eq!(o.alignment_distribution.len(), 0);
         assert_eq!(o.alignment_consensus_index, 0.0);
@@ -1117,7 +1173,7 @@ mod tests {
             risk_windows: vec![(0.1, 95.0), (0.2, 30.0), (0.3, 35.0), (0.4, 40.0)],
         };
         let advs = vec![mk("BTC-USD", DirectionalGuidance::Long)];
-        let o = compute_overview(&advs, &[spike], &[]);
+        let o = compute_overview(&advs, &[spike], &[], &OverviewParams::default());
         // Weighted high share = 0.1 (only micro ≥ 70) → systemic stays low.
         let expected_high = 0.1 / 1.0 * 100.0;
         assert!(
@@ -1139,7 +1195,7 @@ mod tests {
             overall_risk: 50.0,
             risk_windows: vec![(0.1, 30.0), (0.2, 35.0), (0.3, 40.0), (0.4, 95.0)],
         };
-        let o2 = compute_overview(&advs, &[macro_high], &[]);
+        let o2 = compute_overview(&advs, &[macro_high], &[], &OverviewParams::default());
         assert!(
             (o2.systemic_risk_score - 0.6 * 40.0).abs() < 1e-6,
             "macro high must move systemic: got {}",
@@ -1175,7 +1231,7 @@ mod tests {
             overall_risk: 41.0,
             risk_windows: vec![],
         }];
-        let o = compute_overview(&advs, &instances, &[]);
+        let o = compute_overview(&advs, &instances, &[], &OverviewParams::default());
         // ONE rank for the symbol; confidence = mean(20,30,50,40) = 35;
         // score = 0.5×35 + 50 = 67.5; bias = mode = Long (3 windows).
         assert_eq!(o.asset_ranking.len(), 1);

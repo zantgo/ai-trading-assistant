@@ -267,6 +267,7 @@ mod tests {
             None,
             &risk,
             &p,
+            &crate::analysis::AnalysisParams::default(),
         );
         // Risk 75 > ceiling 60 → readiness must never exceed WATCH.
         assert_eq!(ctx.trade_readiness, "WATCH");
@@ -283,6 +284,7 @@ mod tests {
             None,
             &low_risk(),
             &p2,
+            &crate::analysis::AnalysisParams::default(),
         );
         assert_ne!(ctx2.trade_readiness, "WATCH");
     }
@@ -299,6 +301,7 @@ mod tests {
             None,
             None,
             &p,
+            &crate::analysis::AnalysisParams::default(),
         );
         assert!(adv.risk_blocked);
         assert!(adv.final_recommendation.contains("strategy ceiling"));
@@ -309,6 +312,7 @@ mod tests {
             None,
             None,
             &p,
+            &crate::analysis::AnalysisParams::default(),
         );
         assert!(!adv2.risk_blocked);
     }

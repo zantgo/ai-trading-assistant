@@ -204,6 +204,11 @@ pub async fn add_instance(
             eprintln!("strategy resolution failed ({e}); using built-in default");
             config_models::StrategyConfig::default()
         });
+    // v9: the PME safety envelope comes from the bound strategy's `pme.safety`.
+    let safety_config = strategy_first
+        .pme
+        .safety
+        .to_safety_config(config_guard.safety.systemic_risk_threshold);
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -656,7 +661,17 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .ok_or_else(|| format!("No saved config for pair {}", pair_key))?;
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
-    let safety_config = config_guard.safety.clone();
+    // v9: the PME safety envelope comes from the bound strategy's `pme.safety`.
+    let safety_config = {
+        let bound_name = pair_cfg
+            .strategy
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+        let st = config_guard
+            .resolve_strategy(&bound_name)
+            .unwrap_or_else(|_| config_models::StrategyConfig::default());
+        st.pme.safety.to_safety_config(config_guard.safety.systemic_risk_threshold)
+    };
     let intervals_config = config_guard.intervals.clone();
     let exchange_choice =
         (*state.session.exchange.read().await).unwrap_or(ExchangeChoice::Hyperliquid);
