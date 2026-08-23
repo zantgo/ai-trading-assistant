@@ -284,22 +284,35 @@
     function eventLabel(e: string): string {
         const m: Record<string, string> = {
             setup_accepted: 'SETUP ACCEPTED',
+            setup_dispatched: 'SETUP DISPATCHED',
             entry_rejected: 'ENTRY REJECTED',
             entry_filled: 'ENTRY FILLED',
             bracket_armed: 'BRACKET ARMED',
             invalidated_level: 'INVALIDATED — LEVEL',
             invalidated_signal: 'INVALIDATED — SIGNAL',
             cancelled_replaced: 'CANCELLED — REPLACED',
+            replaced_adopted: 'REPLACED — ADOPTED',
+            reprice_pending: 'ENTRY RE-PRICED',
+            setup_gone_cancel: 'CANCELLED — SETUP GONE',
+            setup_gone_close: 'CLOSED — SETUP GONE',
+            bracket_refresh: 'BRACKET REFRESHED',
+            confidence_drop: 'CLOSED — CONFIDENCE DROP',
+            chase_entry: 'CHASE ENTRY',
+            expired: 'PENDING EXPIRED',
+            time_stop: 'TIME STOP',
+            breakeven: 'STOP TO BREAKEVEN',
+            trailing_stop: 'TRAILING STOP',
             position_closed: 'POSITION CLOSED',
             close_error: 'CLOSE ERROR',
+            entry_blocked: 'ENTRY BLOCKED',
             recovery_flatten: 'RECOVERY — FLATTENED',
         };
         return m[e] ?? e.replace(/_/g, ' ').toUpperCase();
     }
 
     function eventClass(e: string): string {
-        if (e === 'invalidated_level' || e === 'invalidated_signal' || e === 'close_error') return local.eventBad;
-        if (e === 'entry_filled' || e === 'position_closed') return local.eventGood;
+        if (e === 'invalidated_level' || e === 'invalidated_signal' || e === 'setup_gone_cancel' || e === 'setup_gone_close' || e === 'confidence_drop' || e === 'close_error') return local.eventBad;
+        if (e === 'entry_filled' || e === 'position_closed' || e === 'bracket_refresh' || e === 'replaced_adopted' || e === 'breakeven') return local.eventGood;
         return local.eventNeutral;
     }
 

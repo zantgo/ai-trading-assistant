@@ -1,5 +1,6 @@
 import type { AppStore } from '../state.svelte';
 import type { InstanceState } from '../types';
+import { decide } from './watchlistScanner';
 
 export function formatIntervalRemaining(totalSeconds: number): string {
     const h = Math.floor(totalSeconds / 3600);
@@ -318,21 +319,29 @@ export async function deleteInstanceById(instanceId: string): Promise<boolean> {
     }
 }
 
-/** Poll a single pair's `decisionContext` slot until it has a `trade_readiness`
- *  value (the first WS frame at any TF schedules the Decision pipeline,
- *  so a `=== null` -> populated transition is the "decision is in" signal).
+/** Poll a single pair's slots until a **recommendation to any side**
+ *  appears (the scanner's `decide()` rule: `trade_readiness === 'READY'`
+ *  AND a directional bias — Long / Short of any strength) or the wait
+ *  window elapses.
  *
- *  Used by the Watchlist Scanner to wait for the engine's first decision
- *  per pair before deciding whether to keep or remove the instance. The
- *  poll is a plain non-reactive read — we deliberately don't put it in a
- *  `$effect` because the modal owns the loop and the polling timer is the
- *  single source of truth for timeouts.
+ *  Used by the Watchlist Scanner as the per-pair wait window (default
+ *  5 minutes): the pair is *not* judged on its first frame — it gets the
+ *  whole window to produce a recommendation (e.g. the setup forms on the
+ *  next completed candle). The moment a qualifying state is observed the
+ *  promise resolves `READY` so the scanner keeps the instance immediately;
+ *  a window with no recommendation resolves `TIMEOUT` and the scanner
+ *  deletes the instance.
+ *
+ *  The poll is a plain non-reactive read — we deliberately don't put it
+ *  in a `$effect` because the modal owns the loop and the polling timer is
+ *  the single source of truth for timeouts.
  *
  *  Resolves with `{ status: 'READY', decisionContext, advisory }` on the
- *  first populated pair, or `{ status: 'TIMEOUT' }` after `timeoutMs`
+ *  first qualifying pair, or `{ status: 'TIMEOUT' }` after `timeoutMs`
  *  elapses. We return both the `decisionContext` (for the modal's
  *  trade_readiness read) and the `advisory` (for the directional bias
- *  read) so the scanner can derive a verdict from one await.
+ *  read) so the scanner can derive a verdict from one await. `waitedMs`
+ *  reports the elapsed window on both paths.
  *
  *  Returns TIMEOUT early if the pair was removed from `app.instancesMap`
  *  (the user cancelled the run mid-flight and the scanner deleted the
@@ -346,8 +355,9 @@ export async function waitForAdvisory(
         status: 'READY';
         decisionContext: NonNullable<InstanceState['decisionContext']>;
         advisory: InstanceState['advisory'];
+        waitedMs: number;
     }
-    | { status: 'TIMEOUT' }
+    | { status: 'TIMEOUT'; waitedMs: number }
 > {
     const start = Date.now();
     const POLL_MS = 250;
@@ -360,15 +370,21 @@ export async function waitForAdvisory(
     while (Date.now() - start < maxWaitMs) {
         const pair = app.instancesMap[pairKey];
         if (!pair) {
-            return { status: 'TIMEOUT' };
+            return { status: 'TIMEOUT', waitedMs: Date.now() - start };
         }
         const dc = pair.decisionContext;
-        if (dc && typeof dc === 'object' && typeof dc.trade_readiness === 'string') {
-            return { status: 'READY', decisionContext: dc, advisory: pair.advisory };
+        const advisory = pair.advisory;
+        if (decide(dc, advisory) === 'KEEP') {
+            return {
+                status: 'READY',
+                decisionContext: dc as NonNullable<InstanceState['decisionContext']>,
+                advisory,
+                waitedMs: Date.now() - start,
+            };
         }
         await new Promise<void>((r) => setTimeout(r, POLL_MS));
     }
-    return { status: 'TIMEOUT' };
+    return { status: 'TIMEOUT', waitedMs: Date.now() - start };
 }
 
 /** POST the instance config payload. `instanceId` is the backend-assigned

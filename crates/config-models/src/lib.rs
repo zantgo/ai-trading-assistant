@@ -159,6 +159,33 @@ pub enum InstanceStatus {
 ///
 /// "All engines running my program": the workspace is the unit of ownership
 /// for the user's portfolio. Exactly one workspace per binary.
+/// v10: the data-science export layer (`./ds/`). NDJSON mirrors of every
+/// artifact the GUI renders — one producer, three sinks (DB, WS/GUI, files).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DataScienceConfig {
+    pub enabled: bool,
+    /// Root folder for the DS export tree.
+    pub output_path: String,
+    pub capture_market: bool,
+    pub capture_trading: bool,
+    pub capture_analytics: bool,
+    pub flush_interval_secs: u64,
+}
+
+impl Default for DataScienceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            output_path: "./ds".to_string(),
+            capture_market: true,
+            capture_trading: true,
+            capture_analytics: true,
+            flush_interval_secs: 5,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     /// Workspace identifier (slug, filesystem-safe). Currently always
@@ -262,6 +289,9 @@ pub struct WorkspaceConfig {
     /// (full recharge at the next candle boundary).
     #[serde(default)]
     pub strategies: Vec<StrategyConfig>,
+    /// v10: the data-science export layer (`./ds/`).
+    #[serde(default)]
+    pub data_science: DataScienceConfig,
 }
 
 impl Default for WorkspaceConfig {
@@ -298,6 +328,7 @@ impl Default for WorkspaceConfig {
             execution: ExecutionConfig::default(),
             backtest: BacktestConfig::default(),
             strategies: vec![StrategyConfig::default()],
+            data_science: DataScienceConfig::default(),
         }
     }
 }

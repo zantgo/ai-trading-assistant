@@ -46,7 +46,7 @@ import {
     directionLabel,
 } from '../dashboardColors';
 import { formatRelativeTime } from '../relTime';
-import { resolveActiveRr } from '../decisionRank';
+import { resolveActiveRr, topSetupSummary } from '../decisionRank';
 
 // ── Header chrome (LayerHeader) ───────────────────────────────────────────
 
@@ -205,7 +205,7 @@ export interface OverviewRegimeBlock {
 export type SortKey =
     | 'symbol' | 'price' | 'bias' | 'signal' | 'direction'
     | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label'
-    | 'risk' | 'updated';
+    | 'risk' | 'entry' | 'target' | 'stop' | 'updated';
 export type SortDir = 'asc' | 'desc';
 
 export interface AssetRankingRow {
@@ -227,6 +227,15 @@ export interface AssetRankingRow {
     mtf_label_display: string;
     risk: number;
     risk_display: string;
+    /** Top-setup of the Opportunity Layer — entry / target / stop-loss
+     *  levels (0 = N/A) and their compact display strings, mirroring the
+     *  table's ENTRY / TARGET / STOP columns. */
+    entry_low: number;
+    entry_display: string;
+    target_low: number;
+    target_display: string;
+    stop_level: number;
+    stop_display: string;
     updated_ms: number | null;
     updated_display: string;
     connected: boolean;
@@ -418,6 +427,22 @@ function mtfScoreDisplay(score: number): string {
     return `${score > 0 ? '+' : ''}${score.toFixed(0)}`;
 }
 
+/** Compact price-level formatter for the setup columns — "—" for N/A
+ *  (mirrors the table's ENTRY / TARGET / STOP cells). */
+function fmtLevel(v: number): string {
+    if (!v || v <= 0) return '—';
+    const digits = v >= 100 ? 2 : v >= 1 ? 4 : 6;
+    return v.toLocaleString('en-US', { maximumFractionDigits: digits });
+}
+
+/** Zone range renderer ("63,200–63,400"); "—" when the bracket is absent. */
+function fmtZone(low: number, high: number): string {
+    if (!low || low <= 0 || !high || high <= 0) return '—';
+    const a = fmtLevel(low);
+    const b = fmtLevel(high);
+    return a === b ? a : `${a}–${b}`;
+}
+
 function buildAssetRankingRow(
     inst: InstanceState,
     nowMs: number,
@@ -459,6 +484,14 @@ function buildAssetRankingRow(
     // was the divergence source).
     const resolvedRr = resolveActiveRr(opp, inst.decisionContext, analysis);
     const rr = resolvedRr.available ? Math.round(resolvedRr.value * 100) / 100 : null;
+    // Top-setup of the Opportunity Layer — the same `topSetupSummary`
+    // derivation the table's warmup fallback and the Recommendation panel
+    // use (server-computed rows win when the L7 payload is present).
+    const setup = topSetupSummary(opp, analysis, inst.decisionContext, undefined, undefined);
+    const setupZones = setup?.zones ?? null;
+    const entryLow = setupZones?.entry.low ?? 0;
+    const targetLow = setupZones?.target.low ?? 0;
+    const stopLevel = setupZones?.invalidation ?? 0;
     const confidence = adv?.confidence_assessment ?? 0;
     const riskScore = risk?.overall_risk?.score ?? 0;
     const mtfScore = aln?.mtf_overall_score ?? 0;
@@ -484,17 +517,31 @@ function buildAssetRankingRow(
         mtf_label_display: mtfLabelDisplay(mtfLabel),
         risk: riskScore,
         risk_display: riskScore.toFixed(0),
+        entry_low: entryLow,
+        entry_display: fmtZone(entryLow, setupZones?.entry.high ?? 0),
+        target_low: targetLow,
+        target_display: fmtZone(targetLow, setupZones?.target.high ?? 0),
+        stop_level: stopLevel,
+        stop_display: fmtLevel(stopLevel),
         updated_ms: ts,
         updated_display: formatRelativeTime(ts, nowMs).label,
         connected: inst.isConnected,
     };
 }
 
+/** Numeric sort value for the setup columns (raw levels, not display). */
+function sortValue(r: AssetRankingRow, key: SortKey): number | string | null {
+    if (key === 'entry') return r.entry_low;
+    if (key === 'target') return r.target_low;
+    if (key === 'stop') return r.stop_level;
+    return (r as any)[key];
+}
+
 function sortAssetRankings(rows: AssetRankingRow[], key: SortKey, dir: SortDir): AssetRankingRow[] {
     const sign = dir === 'asc' ? 1 : -1;
     return rows.slice().sort((a, b) => {
-        const av = (a as any)[key];
-        const bv = (b as any)[key];
+        const av = sortValue(a, key);
+        const bv = sortValue(b, key);
         if (typeof av === 'string' && typeof bv === 'string') {
             return av.localeCompare(bv) * sign;
         }

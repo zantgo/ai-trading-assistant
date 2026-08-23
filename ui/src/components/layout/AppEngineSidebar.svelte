@@ -76,7 +76,12 @@
 {#if isOpen}
     <div class={styles.sidebarOverlay} role="presentation" onclick={onclose}></div>
     <div class={styles.sidebarPanel}>
-        <div class={styles.sidebarBrand}>TRADING PLATFORM</div>
+        <div class={styles.sidebarBrand}>
+            TRADING PLATFORM
+            {#if app.sessionId != null}
+                <span class={styles.sessionChip}>SESSION #{String(app.sessionId).padStart(4, '0')}</span>
+            {/if}
+        </div>
         <div class={styles.sidebarNav}>
             {#each ENGINES_SIDEBAR.filter((e) => visibleEngines.includes(e.key)) as engine (engine.key)}
                 {#if engine.divider}

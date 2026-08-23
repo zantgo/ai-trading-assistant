@@ -3,8 +3,14 @@
 //! The `MarketContext` DTO lives in `core-domain`; this module holds the
 //! `synthesize` constructor and its helpers because they need access to the
 //! indicator registry (`INDICATORS`) to group indicators by functional category.
+//!
+//! v9: the strategy's `l1` section drives the synthesis knobs
+//! (`indicator_weights`, `monitor_only`, `trend_momentum_blend`,
+//! `regime_gate_damp`, `regime_rule`, `volatility_sources`). `None` (or the
+//! default strategy) reproduces the v8.2 output byte-for-byte.
 
 use crate::indicators::registry::{IndicatorGroup, INDICATORS};
+use config_models::L1Params;
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::{ContextDimension, MarketContext};
 use std::collections::HashMap;
@@ -31,12 +37,27 @@ fn dir_label(
     .to_string()
 }
 
+/// The strategy's per-indicator trust weight (0–5, default 1.0 = today) or
+/// `None` when the key is `monitor_only` (compute + display + signals, but
+/// zero contribution to MarketContext/Alignment). No strategy = all keys at
+/// weight 1.0 (v8.2 behavior).
+fn l1_weight(l1: Option<&L1Params>, key: &str) -> Option<f64> {
+    let Some(l1) = l1 else {
+        return Some(1.0);
+    };
+    if l1.monitor_only.iter().any(|k| k == key) {
+        return None;
+    }
+    Some(l1.indicator_weights.get(key).copied().unwrap_or(1.0))
+}
+
 /// Aggregate the enabled directional indicators of a functional group into a
 /// weighted-mean signed score + mean confidence.
 fn group_dimension(
     map: &HashMap<String, NormalizedIndicatorValue>,
     group: IndicatorGroup,
     directional_only: bool,
+    l1: Option<&L1Params>,
 ) -> ContextDimension {
     let mut sum = 0.0;
     let mut conf = 0.0;
@@ -48,16 +69,22 @@ fn group_dimension(
         if directional_only && !meta.directional {
             continue;
         }
-        if let Some(v) = map.get(meta.key) {
-            // Guarded: `normalized` is clamp_unit-sanitized, but a NaN
-            // `confidence` from any future calculator would poison the
-            // weighted mean — collapse non-finite entries to neutral.
-            let norm_i = finite(v.normalized, 0.0);
-            let conf_i = finite(v.confidence, 0.0);
-            sum += norm_i * conf_i;
-            conf += conf_i;
-            n += 1.0;
-        }
+        let Some(v) = map.get(meta.key) else {
+            continue;
+        };
+        // v9: `monitor_only` mutes the key entirely; `indicator_weights`
+        // scales the contribution.
+        let Some(w) = l1_weight(l1, meta.key) else {
+            continue;
+        };
+        // Guarded: `normalized` is clamp_unit-sanitized, but a NaN
+        // `confidence` from any future calculator would poison the
+        // weighted mean — collapse non-finite entries to neutral.
+        let norm_i = finite(v.normalized, 0.0);
+        let conf_i = finite(v.confidence, 0.0);
+        sum += norm_i * conf_i * w;
+        conf += conf_i;
+        n += 1.0;
     }
     if n < f64::EPSILON {
         return ContextDimension::neutral();
@@ -102,16 +129,39 @@ fn finite(v: f64, fallback: f64) -> f64 {
 ///
 /// Lives in `market-analyzer` because it reads `INDICATORS` to group
 /// contributions by functional category.
-pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>) -> MarketContext {
-    let trend = group_dimension(map, IndicatorGroup::Trend, true);
-    let momentum = group_dimension(map, IndicatorGroup::Momentum, true);
+///
+/// v9: `l1` (the strategy's L1 section) drives weights, monitor-only keys,
+/// the regime rule, the regime gate, the directional blend and the
+/// volatility-dimension source mix. `None` = the v8.2 defaults.
+pub fn synthesize_market_context(
+    map: &HashMap<String, NormalizedIndicatorValue>,
+    l1: Option<&L1Params>,
+) -> MarketContext {
+    let trend = group_dimension(map, IndicatorGroup::Trend, true, l1);
+    let momentum = group_dimension(map, IndicatorGroup::Momentum, true, l1);
 
     // Volatility: magnitude from BBWP/HV (expansion vs compression), non-directional.
+    // v9: the source blend is the strategy's `l1.context.volatility_sources`
+    // (bbwp / hv / atr_pct weights; default bbwp-only = v8.2).
+    let vol_sources = l1
+        .map(|c| &c.context.volatility_sources)
+        .cloned()
+        .unwrap_or_default();
+    let w_bbwp = vol_sources.bbwp;
+    let w_hv = vol_sources.hv;
+    let w_atr = vol_sources.atr_pct;
+    let w_sum = (w_bbwp + w_hv + w_atr).max(1e-9);
     let bbwp = finite(map.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0), 50.0);
-    let vol_score = ((bbwp - 50.0) / 50.0).clamp(-1.0, 1.0);
+    let src_bbwp = ((bbwp - 50.0) / 50.0).clamp(-1.0, 1.0);
+    let src_hv = finite(map.get("hv").map(|v| v.normalized).unwrap_or(0.0), 0.0).abs();
+    let src_atr = finite(map.get("atr").map(|v| v.normalized).unwrap_or(0.0), 0.0).abs();
+    let vol_score = ((src_bbwp * w_bbwp + src_hv * w_hv + src_atr * w_atr) / w_sum).clamp(-1.0, 1.0);
+    let conf_bbwp = (bbwp / 100.0).clamp(0.0, 1.0);
+    let vol_confidence =
+        ((conf_bbwp * w_bbwp + src_hv * w_hv + src_atr * w_atr) / w_sum).clamp(0.0, 1.0);
     let volatility = ContextDimension {
         score: vol_score,
-        confidence: (bbwp / 100.0).clamp(0.0, 1.0),
+        confidence: vol_confidence,
         label: if bbwp >= 90.0 {
             "EXPANSION_CLIMAX".into()
         } else if bbwp >= 60.0 {
@@ -176,16 +226,21 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
     };
 
     // Regime from ADX strength + BBWP compression + trend agreement.
+    // v9: the thresholds come from `l1.context.regime_rule`.
+    let regime_rule = l1
+        .map(|c| &c.context.regime_rule)
+        .cloned()
+        .unwrap_or_default();
     let adx = finite(map.get("adx").map(|v| v.raw_value).unwrap_or(0.0), 0.0);
     let chop = finite(
         map.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0),
         50.0,
     );
-    let regime = if bbwp <= 15.0 || chop >= 61.8 {
+    let regime = if bbwp <= regime_rule.bbwp_compression || chop >= regime_rule.chop_compression {
         "COMPRESSION"
-    } else if bbwp >= 85.0 {
+    } else if bbwp >= regime_rule.bbwp_expansion {
         "EXPANSION"
-    } else if adx >= 25.0 || chop <= 38.2 {
+    } else if adx >= regime_rule.adx_trending || chop <= regime_rule.chop_trending {
         "TRENDING"
     } else {
         "RANGE"
@@ -194,12 +249,20 @@ pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>
 
     // Overall = confidence-weighted blend of trend + momentum (directional),
     // dampened when the regime is range/compression.
+    // v9: blend + gate come from the strategy's `l1.context`.
+    let (w_trend, w_momentum) = l1
+        .map(|c| (c.context.trend_momentum_blend[0], c.context.trend_momentum_blend[1]))
+        .unwrap_or((0.6, 0.4));
+    let damp = l1.map(|c| &c.context.regime_gate_damp);
     let regime_gate = match regime.as_str() {
-        "TRENDING" | "EXPANSION" => 1.0,
-        "RANGE" => 0.6,
-        _ => 0.5,
+        "TRENDING" => damp.map(|d| d.trending).unwrap_or(1.0),
+        "EXPANSION" => damp.map(|d| d.expansion).unwrap_or(1.0),
+        "RANGE" => damp.map(|d| d.range).unwrap_or(0.6),
+        _ => damp.map(|d| d.other).unwrap_or(0.5),
     };
-    let blended = (trend.score * 0.6 + momentum.score * 0.4) * regime_gate;
+    let w_sum_directional = (w_trend + w_momentum).max(1e-9);
+    let blended =
+        (trend.score * w_trend + momentum.score * w_momentum) / w_sum_directional * regime_gate;
     let overall_score = (blended * 100.0).round() as i32;
     let overall_label = dir_label(
         blended,
@@ -241,7 +304,7 @@ mod tests {
 
     #[test]
     fn empty_map_is_neutral() {
-        let ctx = synthesize_market_context(&empty_snapshot_inputs());
+        let ctx = synthesize_market_context(&empty_snapshot_inputs(), None);
         assert_eq!(ctx.regime, "RANGE");
         assert_eq!(ctx.overall_label, "NEUTRAL");
         assert_eq!(ctx.overall_score, 0);
@@ -250,7 +313,7 @@ mod tests {
     #[test]
     fn high_bbwp_is_expansion() {
         let map = scalar("bbwp", 95.0, 0.9);
-        let ctx = synthesize_market_context(&map);
+        let ctx = synthesize_market_context(&map, None);
         assert_eq!(ctx.regime, "EXPANSION");
         assert_eq!(ctx.volatility.label, "EXPANSION_CLIMAX");
     }
@@ -271,7 +334,7 @@ mod tests {
             "vwap".into(),
             NormalizedIndicatorValue::scalar(100.0, 0.0, "EQUILIBRIUM"),
         );
-        let ctx = synthesize_market_context(&heavy);
+        let ctx = synthesize_market_context(&heavy, None);
         assert!(
             ctx.liquidity.score >= -1.0 && ctx.liquidity.score <= 1.0,
             "liquidity.score {} outside [-1, 1]",
@@ -293,7 +356,7 @@ mod tests {
             "vwap".into(),
             NormalizedIndicatorValue::scalar(104.0, -0.8, "EXTREME_PREMIUM_REVERSION_ZONE"),
         );
-        let ctx2 = synthesize_market_context(&thin);
+        let ctx2 = synthesize_market_context(&thin, None);
         assert!(
             ctx2.liquidity.score >= -1.0 && ctx2.liquidity.score <= 1.0,
             "liquidity.score {} outside [-1, 1]",
@@ -317,7 +380,99 @@ mod tests {
             "macd".into(),
             NormalizedIndicatorValue::scalar(1.5, 0.7, "BULLISH_EXPANDING"),
         );
-        let ctx = synthesize_market_context(&map);
+        let ctx = synthesize_market_context(&map, None);
         assert!(ctx.overall_score > 0, "expected positive overall score");
+    }
+
+    // ── v9 L1-strategy tests ──
+
+    #[test]
+    fn default_l1_reproduces_legacy_output() {
+        let mut map = scalar("bbwp", 95.0, 0.9);
+        map.insert(
+            "rsi".into(),
+            NormalizedIndicatorValue::scalar(75.0, 0.8, "OVERBOUGHT"),
+        );
+        let legacy = synthesize_market_context(&map, None);
+        let with_default = synthesize_market_context(&map, Some(&L1Params::default()));
+        assert_eq!(legacy.overall_score, with_default.overall_score);
+        assert_eq!(legacy.regime, with_default.regime);
+        assert_eq!(legacy.volatility.score, with_default.volatility.score);
+        assert_eq!(legacy.volatility.confidence, with_default.volatility.confidence);
+        assert_eq!(legacy.trend.score, with_default.trend.score);
+        assert_eq!(legacy.momentum.score, with_default.momentum.score);
+    }
+
+    #[test]
+    fn monitor_only_mutes_key_from_context() {
+        let mut l1 = L1Params::default();
+        l1.monitor_only = vec!["rsi".to_string()];
+        let mut map = empty_snapshot_inputs();
+        map.insert(
+            "rsi".into(),
+            NormalizedIndicatorValue::scalar(75.0, 0.8, "OVERBOUGHT"),
+        );
+        map.insert(
+            "macd".into(),
+            NormalizedIndicatorValue::scalar(1.5, 0.7, "BULLISH_EXPANDING"),
+        );
+        let muted = synthesize_market_context(&map, Some(&l1));
+        let loud = synthesize_market_context(&map, None);
+        assert!(muted.momentum.score.abs() < loud.momentum.score.abs());
+    }
+
+    #[test]
+    fn indicator_weight_scales_contribution() {
+        let mut l1 = L1Params::default();
+        l1.indicator_weights.insert("rsi".to_string(), 0.0);
+        let mut map = empty_snapshot_inputs();
+        map.insert(
+            "rsi".into(),
+            NormalizedIndicatorValue::scalar(75.0, 0.9, "OVERBOUGHT"),
+        );
+        map.insert(
+            "macd".into(),
+            NormalizedIndicatorValue::scalar(1.5, 0.7, "BULLISH_EXPANDING"),
+        );
+        let zeroed = synthesize_market_context(&map, Some(&l1));
+        let loud = synthesize_market_context(&map, None);
+        assert!(zeroed.momentum.score.abs() < loud.momentum.score.abs());
+    }
+
+    #[test]
+    fn custom_regime_rule_shifts_classification() {
+        let mut l1 = L1Params::default();
+        l1.context.regime_rule.bbwp_compression = 40.0;
+        l1.context.regime_rule.bbwp_expansion = 45.0;
+        let map = scalar("bbwp", 50.0, 0.5);
+        let ctx = synthesize_market_context(&map, Some(&l1));
+        assert_eq!(ctx.regime, "EXPANSION");
+        let legacy = synthesize_market_context(&map, None);
+        assert_ne!(legacy.regime, ctx.regime);
+    }
+
+    #[test]
+    fn vol_source_blend_uses_hv_and_atr() {
+        let mut l1 = L1Params::default();
+        l1.context.volatility_sources.bbwp = 0.0;
+        l1.context.volatility_sources.hv = 1.0;
+        l1.context.volatility_sources.atr_pct = 1.0;
+        let mut map = scalar("bbwp", 50.0, 0.0);
+        map.insert(
+            "hv".into(),
+            NormalizedIndicatorValue::scalar(0.04, 0.9, "HIGH_VOLATILITY"),
+        );
+        map.insert(
+            "atr".into(),
+            NormalizedIndicatorValue::scalar(120.0, 0.7, "ELEVATED_RANGE"),
+        );
+        let ctx = synthesize_market_context(&map, Some(&l1));
+        let expected = (0.9 * 1.0 + 0.7 * 1.0) / 2.0;
+        assert!(
+            (ctx.volatility.score - expected).abs() < 1e-9,
+            "volatility.score {} != {}",
+            ctx.volatility.score,
+            expected
+        );
     }
 }

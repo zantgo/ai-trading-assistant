@@ -81,8 +81,10 @@ and direction buckets, market-health bars — produced by the L7 aggregation tas
 - Signal quality + direction distribution buckets
 - Market health sub-dimension bars (trend strength / liquidity / volatility / signal stability)
 - Instances table: symbol, exchange, mode, price, status, micro slot
-- Asset rankings: full 12-column table (symbol, price, bias, signal, direction, R:R, score,
-  confidence, MTF score+label, risk, updated)
+- Asset rankings: full 15-column table (symbol, price, bias, signal, direction, score,
+  confidence, MTF score+label, risk, entry, target, stop, R:R, updated) — the ENTRY /
+  TARGET / STOP columns render the top-setup of the Opportunity Layer (server-computed
+  `overview_rows` fields, shared with the GUI table)
 - Market summary: global summary sentence, active symbols, low coverage
 
 The parity contract (13 checks, one producer / one payload / two renderers) is pinned in

@@ -42,6 +42,12 @@ pub struct SessionTickOutcome {
     pub last_close_size: Option<Decimal>,
     /// Entry price of the closed position (for the backtest trade log).
     pub last_close_entry: Option<Decimal>,
+    /// v10: entry timestamp of the closed position (ms; for the enriched
+    /// backtest trade schema).
+    pub last_close_entry_ts_ms: Option<u64>,
+    /// v10: MFE% / MAE% over the hold (signed by direction).
+    pub last_close_mfe_pct: Option<f64>,
+    pub last_close_mae_pct: Option<f64>,
 }
 
 /// Run one session tick. `dispatch` is decided by the call site
@@ -95,6 +101,9 @@ pub async fn run_tick(
                 outcome.last_close_direction = Some(pos.direction);
                 outcome.last_close_size = Some(pos.size);
                 outcome.last_close_entry = Some(pos.entry_price);
+                outcome.last_close_entry_ts_ms = Some(pos.opened_at_ms);
+                outcome.last_close_mfe_pct = Some(pos.mfe_pct);
+                outcome.last_close_mae_pct = Some(pos.mae_pct);
             }
             // v8.2: feed the simulated safety ladder here — the executor's
             // own take (tick_position) now finds the slot empty.
@@ -121,6 +130,9 @@ pub async fn run_tick(
                 outcome.last_close_direction = Some(pos.direction);
                 outcome.last_close_size = Some(pos.size);
                 outcome.last_close_entry = Some(pos.entry_price);
+                outcome.last_close_entry_ts_ms = Some(pos.opened_at_ms);
+                outcome.last_close_mfe_pct = Some(pos.mfe_pct);
+                outcome.last_close_mae_pct = Some(pos.mae_pct);
             }
             if let Some(safety) = &safety_ref {
                 safety.record_trade_outcome(symbol, close.is_loss).await;

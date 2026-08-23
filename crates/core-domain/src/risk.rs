@@ -255,6 +255,10 @@ pub struct RiskParams {
     pub signal: RiskSignalParams,
     pub execution: RiskExecutionParams,
     pub cascade: RiskCascadeParams,
+    /// v9 (strategy `l1_5.signal_weights`): the 11-kind trust axis.
+    /// Multiplies each discrete-signal bonus (OI-price divergence,
+    /// funding flip). Empty = all 1.0 (v8.2 behavior).
+    pub signal_weights: std::collections::HashMap<String, f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -445,6 +449,7 @@ impl Default for RiskParams {
                 oi_divergence_max: 15.0,
                 funding_flip_max: 10.0,
             },
+            signal_weights: std::collections::HashMap::new(),
         }
     }
 }
@@ -819,6 +824,7 @@ fn assess_cascade_risk(
     // tell-tales that belong in the cascade dimension.
     liquidity_signals: &[crate::liquidity::LiquiditySignal],
     p: &RiskCascadeParams,
+    signal_weights: &std::collections::HashMap<String, f64>,
 ) -> RiskDimension {
     let mut score: f64 = p.baseline; // baseline
     let mut evidence = Vec::new();
@@ -862,14 +868,22 @@ fn assess_cascade_risk(
     // funding flips are positioning-stress tell-tales. Strength is 0..100;
     // scale the contribution to ≤ 15 points.
     for sig in liquidity_signals {
+        // v9: the strategy's `l1_5.signal_weights` trust axis multiplies
+        // each kind's bonus (default 1.0 = v8.2 behavior).
+        let kind_weight = signal_weights
+            .get(&format!("{:?}", sig.kind))
+            .copied()
+            .unwrap_or(1.0);
         match sig.kind {
             crate::liquidity::LiquiditySignalKind::OiPriceDivergence => {
-                let bonus = (sig.strength / 100.0 * p.oi_divergence_max).min(p.oi_divergence_max);
+                let bonus = (sig.strength / 100.0 * p.oi_divergence_max).min(p.oi_divergence_max)
+                    * kind_weight;
                 score = (score + bonus).min(100.0);
                 evidence.push("OI-price divergence (positioning stress)".into());
             }
             crate::liquidity::LiquiditySignalKind::FundingFlip => {
-                let bonus = (sig.strength / 100.0 * p.funding_flip_max).min(p.funding_flip_max);
+                let bonus = (sig.strength / 100.0 * p.funding_flip_max).min(p.funding_flip_max)
+                    * kind_weight;
                 score = (score + bonus).min(100.0);
                 evidence.push("Funding rate flipped (crowd positioning stress)".into());
             }
@@ -915,7 +929,14 @@ pub fn compute_risk(
     let momentum = assess_momentum_risk(analysis, &params.momentum);
     let signal = assess_signal_risk(analysis, &params.signal);
     let execution = assess_execution_risk(analysis, indicators, close, &params.execution);
-    let cascade = assess_cascade_risk(analysis, flow, cluster, liquidity_signals, &params.cascade);
+    let cascade = assess_cascade_risk(
+        analysis,
+        flow,
+        cluster,
+        liquidity_signals,
+        &params.cascade,
+        &params.signal_weights,
+    );
 
     // v6.10 (Phase 1 / A6): Risk weights restored to the canonical spec table
     // at `docs/matrices/02-11-risk-matrix.md §3`. The previous v6.9 weights

@@ -121,12 +121,12 @@ v7.4: `data_infra` has **no Settings tab** — DIE platform config is read-only 
 
 ### 3.4 Watchlist Scanner (Market Monitor Overview)
 
-A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is an inline **Scan Watchlist** pill button — grouped with the **SCHEDULE SNAPSHOTS** pill and centered inside the unified bottom toolbar (`.runnerBar`; the instructional caption lives in the modal, not the footer) — that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal opens with a **Watchlist Symbols** title and the subtitle *"Add a basket of pairs and keep only those with a clear decision."* directly above the input textarea. It accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, and runs the full Market Monitor pipeline on each pair one at a time. Pairs whose first `decision_context.trade_readiness === 'READY'` AND whose `advisory.directional_guidance ∈ {StrongLong, Long, Short, StrongShort}` are kept; all others are DELETE-removed from the workspace (§3.4.3). Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
+A live **Watchlist Scanner** lives at the bottom of the Market Monitor Overview (`GeneralDashboard.svelte`). The CTA is an inline **Scan Watchlist** pill button — grouped with the **SCHEDULE SNAPSHOTS** pill and centered inside the unified bottom toolbar (`.runnerBar`; the instructional caption lives in the modal, not the footer) — that opens a three-phase modal (`WatchlistScannerModal.svelte`). The modal opens with a **Watchlist Symbols** title and the subtitle *"Add a basket of pairs and keep only those with a clear decision within the wait window (default 5 min)."* directly above the input textarea, followed by a **Wait window (minutes)** numeric input (integer 1–60, default 5, clamped via `clampWaitMinutes`). It accepts a tag-style list of base symbols (space-, comma-, or `#`-separated), validates them, adds every pair concurrently, and watches **each pair for its own wait window** — a pair is kept the moment a recommendation to any side appears (see §3.4.1), and removed if the window elapses without one. The recommendation can land on a later candle — the pair is no longer judged on its first frame. Kept pairs appear in the Overview and the right-side Instances panel after the modal closes.
 
 The three phases share a single dialog (`phase: 'input' | 'running' | 'done'`):
 
-- **Phase 1 — Input** — Title + subtitle, then textarea parsed by `parseSymbols()` (drops dupes, enforces ≤10 chars per symbol). Live count chip. `Continue` is disabled when the session is inactive or the parsed list is empty.
-- **Phase 2 — Running** — Per-pair status rows showing `Queued → Add → Wait → Keep|Remove`. Footer reads `Processing N of M`. Cancel button forcibly aborts the run (already-added pairs stay added).
+- **Phase 1 — Input** — Title + subtitle, then textarea parsed by `parseSymbols()` (drops dupes, enforces ≤10 chars per symbol) and the wait-window input. Live count chip. `Continue` is disabled when the session is inactive or the parsed list is empty.
+- **Phase 2 — Running** — All pairs are added + wired concurrently (`Promise.all`), then each pair's window runs in parallel; per-pair status rows show `Queued → Add → Wait → Keep|Remove` with a live `Awaiting recommendation · window 5 min · 1:23 elapsed` label. Footer reads `Watching N of M · window 5 min`. Cancel button closes the modal (in-flight pair evaluation continues).
 - **Phase 3 — Done** — Summary card with `Added / Kept / Removed / Skipped` counts and group chips for each pair's reason. Single `Accept` button closes the modal.
 
 #### 3.4.1 Decision Rule
@@ -138,15 +138,15 @@ A pair is kept iff both:
 | `decision_context.trade_readiness` | L6 Decision Context (mirrored from `pair.decisionContext` via WS handler) | `'READY'` |
 | `advisory.directional_guidance` | L4.75 Advisory Matrix (mirrored from `pair.advisory` via WS handler) | `StrongLong`, `Long`, `Short`, `StrongShort` |
 
-The two fields are sourced from different WS frames — the scanner polls `pair.decisionContext.trade_readiness` first and then re-reads `pair.advisory` once the decision is in. The `decide()` helper in `ui/src/lib/watchlistScanner.ts` is the canonical implementation and is unit-tested.
+The two fields are sourced from different WS frames — the scanner polls the pair's slots over the wait window and resolves `READY` the first time `decide()` returns `KEEP` (any side). The `decide()` helper in `ui/src/lib/watchlistScanner.ts` is the canonical implementation and is unit-tested.
 
 #### 3.4.2 Execution Cadence
 
-Sequential `await` — one pair per loop iteration. Per pair:
+Parallel — all pairs added first, then one wait window per pair concurrently. Per pair:
 
 1. `POST /api/instances` (existing endpoint, `createInstance()` helper)
 2. `connectWsForInstance()` to attach the per-TF WS subscribers
-3. `waitForAdvisory(pairKey, 30_000)` — poll `pair.decisionContext.trade_readiness`
+3. `waitForAdvisory(pairKey, windowMs)` — poll `decide()` over the window (default 5 min = 300,000 ms; clamped 1–60 min); resolves `READY` at the first recommendation, `TIMEOUT` when the window elapses
 4. Apply `decide()` → `KEEP` or `DELETE`
 5. `DELETE` branch: `DELETE /api/instances/:id` + `app.removeInstance(pairKey)`
 
@@ -160,7 +160,7 @@ DELETE mappings by reason (for the summary chips):
 | `DIRECTION_NEUTRAL` | `trade_readiness === READY` AND `directional_guidance === Neutral` |
 | `AVOID_DIRECTIONAL` | `trade_readiness === READY` AND `directional_guidance === AvoidDirectionalExposure` |
 | `NO_DECISION` | `decisionContext` is null/never arrived |
-| `TIMEOUT` | 30s deadline elapsed without a `READY` populating `pair.decisionContext` |
+| `TIMEOUT` | the wait window elapsed without a recommendation to any side |
 | `UNAVAILABLE` | Backend rejected `POST /api/instances` (e.g. symbol not on selected exchange) |
 | `DUPLICATE` | Backend returned "already exists" — pair is left untouched in the workspace |
 | `NETWORK_ERROR` | Any other `POST /api/instances` failure |

@@ -999,6 +999,22 @@ pub struct SessionStatusResponse {
     pub mode: Option<String>,
     /// Paper-session capital (USD).
     pub capital: Option<f64>,
+    /// v10: the persisted session number (monotonic, never reused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
+}
+
+/// v10: one persisted session row (list + history).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionListRow {
+    pub id: i64,
+    pub mode: String,
+    pub exchange: Option<String>,
+    pub currency: Option<String>,
+    pub portfolio_capital_usd: Option<f64>,
+    pub started_at_ms: i64,
+    pub ended_at_ms: Option<i64>,
+    pub status: String,
 }
 
 // ─── Instance ──────────────────────────────────────────────────

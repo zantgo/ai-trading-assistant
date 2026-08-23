@@ -190,6 +190,58 @@ describe('buildOverviewTabExport — risk rows (FIX-O3)', () => {
   });
 });
 
+describe('buildOverviewTabExport — asset rankings top-setup columns', () => {
+  it('row carries the top-setup entry / target / stop levels', () => {
+    const inst = makeInstance({
+      analysis: makeAnalysis('Bullish'),
+      decisionContext: makeDecisionContext({ bias: 'Bullish', trade_readiness: 'READY' }),
+      opportunity: makeOpportunity({
+        profiles: [{
+          opportunity_type: 'Pullback',
+          score: 60,
+          preconditions_met: 2,
+          preconditions_total: 2,
+          notes: 'Pullback',
+          direction_family: 'TREND_RIDING',
+          trade_viability: 'ACTIONABLE',
+          long_entry_zone: { low: 60000, high: 62000 },
+          long_target_zone: { low: 65000, high: 68000 },
+          long_invalidation_level: 59000,
+          long_expected_rr_internal: 2.5,
+        } as never],
+      }),
+    });
+    const p = JSON.parse(buildOverviewTabExport({
+      overviewMatrix: null,
+      instances: [inst],
+      headerSpec,
+      nowMs: 1786752300000,
+    }));
+    const row = p.asset_rankings.rows[0];
+    expect(row.entry_low).toBe(60000);
+    expect(row.entry_display).toBe('60,000–62,000');
+    expect(row.target_low).toBe(65000);
+    expect(row.target_display).toBe('65,000–68,000');
+    expect(row.stop_level).toBe(59000);
+    expect(row.stop_display).toBe('59,000');
+  });
+
+  it('row setup columns render "—" when no bracket exists', () => {
+    const inst = makeInstance(); // NEUTRAL profile, no zones
+    const p = JSON.parse(buildOverviewTabExport({
+      overviewMatrix: null,
+      instances: [inst],
+      headerSpec,
+      nowMs: 1786752300000,
+    }));
+    const row = p.asset_rankings.rows[0];
+    expect(row.entry_low).toBe(0);
+    expect(row.entry_display).toBe('—');
+    expect(row.target_display).toBe('—');
+    expect(row.stop_display).toBe('—');
+  });
+});
+
 describe('buildOverviewTabExport — I-10 KPI demotion parity', () => {
   it('demotes the KPI bias token + suffix under low coverage (parity with header)', () => {
     const inst = {

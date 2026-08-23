@@ -1359,6 +1359,87 @@ def check_endpoint_cross():
     if errors == 0:
         ok(f"All required endpoints documented in 06-01")
 
+
+# ── G18: DS parity (01-10 §C14-C16 ⇄ cli_ds.rs) ───────────────────────
+def check_g18_ds_parity():
+    print("\n=== G18: CLI/GUI DS parity (01-10 ⇄ cli_ds.rs) ===")
+    global failures
+    parity = (ROOT / "conceptual-foundations/01-10-cli-gui-parity.md").read_text()
+    cli_ds = (ROOT.parent / "crates/execution-daemon/src/cli_ds.rs").read_text()
+    errors = 0
+    for token in ["--sessions", "--session-report", "--backtest-show"]:
+        if token in parity:
+            ok(f"01-10 documents {token}")
+        else:
+            fail(f"01-10 missing DS command {token}")
+            errors += 1
+        if token in cli_ds:
+            ok(f"cli_ds.rs implements {token}")
+        else:
+            fail(f"cli_ds.rs missing {token}")
+            errors += 1
+    if errors == 0:
+        ok("DS parity contract C14-C16 present on both sides")
+
+
+# ── G19: D/I/L ontology (01-12) ───────────────────────────────────────
+def check_g19_dil_ontology():
+    print("\n=== G19: D/I/L ontology (01-12) ===")
+    global failures
+    ontology = (ROOT / "conceptual-foundations/01-12-data-information-learning-ontology.md").read_text()
+    errors = 0
+    for header in ["## Data (D)", "## Information (I)", "## Learning (L)"]:
+        if header in ontology:
+            ok(f"01-12 carries tier header {header}")
+        else:
+            fail(f"01-12 missing tier header {header}")
+            errors += 1
+    for anchor in ["tier-mapping", "Invariants", "aggregation axis"]:
+        if anchor in ontology:
+            ok(f"01-12 carries '{anchor}'")
+        else:
+            fail(f"01-12 missing '{anchor}'")
+            errors += 1
+    if errors == 0:
+        ok("D/I/L ontology doc complete")
+
+
+# ── G20: DDL ↔ doc ↔ code agreement ───────────────────────────────────
+def check_g20_ddl_doc_code():
+    print("\n=== G20: DDL ⇄ doc ⇄ code (sessions + ds export) ===")
+    global failures
+    schema_doc = (ROOT / "integration-and-api/06-02-database-schema-spec.md").read_text()
+    ds_doc = (ROOT / "integration-and-api/06-04-ds-export-schema.md").read_text()
+    migrations = (ROOT.parent / "crates/database-storage/migrations/20260823000001_sessions.sql").read_text()
+    ds_code = (ROOT.parent / "crates/database-storage/src/ds_export.rs").read_text()
+    exporter = (ROOT.parent / "crates/execution-daemon/src/ds_exporter.rs").read_text()
+    errors = 0
+    for col in ["sessions", "session_id", "backtest_runs"]:
+        if col in schema_doc:
+            ok(f"06-02 documents '{col}'")
+        else:
+            fail(f"06-02 missing '{col}'")
+            errors += 1
+    for table in ["market_snapshots", "trade_telemetry_history", "paper_trades",
+                  "portfolio_equity_history", "automation_activity", "risk_control_events",
+                  "backtest_runs"]:
+        if table not in migrations:
+            fail(f"session migration missing ALTER for {table}")
+            errors += 1
+        else:
+            ok(f"session_id ALTER present for {table}")
+    for fname in ["session.json", "trades.ndjson", "equity.ndjson", "activity.ndjson",
+                  "risk_events.ndjson", "strategy.ndjson", "risk.ndjson",
+                  "performance.ndjson", "run.json", "signals.ndjson", "portfolio.ndjson"]:
+        haystack = ds_doc + ds_code + exporter
+        if fname in haystack:
+            ok(f"06-04 filename {fname} present in code")
+        else:
+            fail(f"06-04 filename {fname} missing from code")
+            errors += 1
+    if errors == 0:
+        ok("DDL ⇄ doc ⇄ code agreement holds")
+
 # ── Main ────────────────────────────────────────────────────────────────
 def main():
     global failures
@@ -1383,6 +1464,9 @@ def main():
     check_g15_index_agreement()
     check_g16_open_item_targets()
     check_g17_export_schema()
+    check_g18_ds_parity()
+    check_g19_dil_ontology()
+    check_g20_ddl_doc_code()
     check_cli_gui_parity()
     # Legacy regression checks retained from the v6.2 gate
     check_retired_terms()

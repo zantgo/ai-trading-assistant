@@ -448,14 +448,27 @@ pub async fn insert_backtest_run(
     trades_json: &str,
     equity_curve_json: &str,
 ) -> i64 {
+    insert_backtest_run_with_session(pool, params_json, summary_json, stats_json, trades_json, equity_curve_json, None).await
+}
+
+/// v10: persist with an explicit session id (NULL = standalone headless run).
+pub async fn insert_backtest_run_with_session(
+    pool: &SqlitePool,
+    params_json: &str,
+    summary_json: &str,
+    stats_json: &str,
+    trades_json: &str,
+    equity_curve_json: &str,
+    session_id: Option<i64>,
+) -> i64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
     match sqlx::query(
         "INSERT INTO backtest_runs \
-         (params_json, summary_json, stats_json, trades_json, equity_curve_json, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+         (params_json, summary_json, stats_json, trades_json, equity_curve_json, created_at, session_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )
     .bind(params_json)
     .bind(summary_json)
@@ -463,6 +476,7 @@ pub async fn insert_backtest_run(
     .bind(trades_json)
     .bind(equity_curve_json)
     .bind(now)
+    .bind(session_id)
     .execute(pool)
     .await
     {

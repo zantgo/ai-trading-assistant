@@ -1,10 +1,10 @@
 # Implementation Roadmap
 
-**Version:** 8.0 (2026-08-20) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history.
-**Status:** In progress — partial implementation; multiple engines still in WIP.
+**Version:** 8.0 (2026-08-20) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history. The v8.2 / v9 / v10 sections of the CHANGELOG are **Unreleased** at this stamp — they describe delivered code whose corpus re-stamp is part of the next release sweep.
+**Status:** Six engines implemented and production-ready (v8 + Unreleased v8.2/v9/v10). Remaining work = live-REST verification passes (`e2e-backtest` matrix, DS loop) and the Unreleased release sweep.
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
-> **Reading order.** Read §1 for the high-level status picture, §2 for the engine-by-engine reality, §3 for the phased delivery plan, §4 for the visible WIP markers (UI banners, docs banners, code annotations), §5 for the canonical list of known WIP items with the audit IDs that already track them, and §6 for the **verification checklist** that must pass before any of the "WIP" labels can be removed.
+> **Reading order.** Read §1 for the high-level status picture, §2 for the engine-by-engine reality, §3 for the phased delivery plan, §4 for the retired WIP markers, §5 for the canonical list of known audit items, and §6 for the **verification checklist** that must pass before any of the "WIP" labels can be removed.
 
 ---
 
@@ -14,20 +14,21 @@
 |---|---|---|---|---|
 | **DIE — Data Infrastructure** | `crates/network-adapters`, `crates/database-storage`, L2–L4 in `crates/market-analyzer` | `DataInfraDashboard` (live fetches) | **Yes — implemented** | Implemented |
 | **MME — Market Monitoring** | `crates/market-analyzer` (52 indicators, 4-TF pipeline, signals, multi-TF synthesis, MarketContext, Decision Matrix) | `LiveTerminal`, `TerminalMonitor`, `AlignmentPanel`, `OpportunitiesPanel`, `RiskPanel`, `AnalysisPanel`, `RecommendationPanel`, `LiquidityPanel`, `StructuralAnchorsStrip` (all WS-fed) | **Yes — implemented** | Implemented |
-| **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7: setup executor, unified execution engine + `ExecutionBackend` trait, `PaperSimulation`, `LiveBroker` + `BitgetLiveBroker`, lifecycle manager) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — implemented** (paper default; live dispatch for Hyperliquid + Bitget) | Implemented |
-| **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state reporting, position/exposure/capital/overview layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the single safety soft gate) | Implemented (informational) |
-| **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer, **backtest runner**) | `PerformanceDashboard` (fetches real data incl. the **backtest tab**: form, edge verdict, equity curve) | **Yes — implemented** | Implemented |
-| **Cross-cutting** (DTOs, config, API gateway, execution-daemon) | All 4 crates | App shell, store, websocket, settings, watchlist scanner | **Yes — implemented** | Implemented |
+| **TAE — Trade Automation** | `crates/portfolio-supervisor` (v7 setup executor + unified execution engine, v8.2 allocation sizing, v9 strategy dials, v10 lifecycle hardening) | `TradeAutomationDashboard` (live fetches: automation state, orders, position, activity log, trade history) | **Yes — implemented** (paper default; live dispatch for Hyperliquid + Bitget) | Implemented |
+| **PME — Portfolio Management** | `crates/portfolio-supervisor` (safety-state ladder, position/exposure/capital/overview layers, mark-to-market) | `PortfolioDashboard` (live fetches: overview, positions, exposure, capital, safety) | **Yes — informational** (read-only; the TAE executor applies the safety soft gate + the v9 portfolio intake gates) | Implemented (informational) |
+| **PAE — Performance Analytics** | `crates/performance-analytics` (stats compiler, NHST strategy analytics, risk analytics, performance layer, strategy optimizer) | `PerformanceDashboard` (live data incl. Study/History tabs, session analytics, Comparison) | **Yes — implemented** | Implemented |
+| **BTE — Backtesting** | `crates/backtesting-engine` (candle archive + backfill, historical runner, recorded replay, DS persistence) | `BacktestingDashboard` (observe-only: Launcher wizard, progress/cancel, Study/Chart/History tabs) | **Yes — implemented** (v8.2 production-ready) | Implemented |
+| **Cross-cutting** (DTOs, config, API gateway, execution-daemon) | All 5 crates | App shell, store, websocket, settings, watchlist scanner, strategies builder | **Yes — implemented** | Implemented |
 
 ### 1.1 Three honest categories
 
 The platform is **not** in two categories ("done" vs. "not started"). It is in three:
 
-1. **Implemented** — the feature is wired end-to-end, exercised by integration tests, and observable in the running system. **DIE and MME are in this bucket.**
-2. **WIP — backend code present, but not production-ready** — there is real Rust code that compiles, runs, and produces state, but the dashboard that surfaces the state is a hardcoded mock, or a portion of the API surface is intentionally not wired, or the operational mode (e.g. paper vs. live) is restricted. **TAE, PME, and PAE are in this bucket.**
-3. **Not yet started** — only the spec exists; no Rust code, no UI, no API surface. **There is currently no engine or major feature in this bucket** (the only items still here are sub-features of the WIP engines; see §5).
+1. **Implemented** — wired end-to-end, exercised by integration tests, observable in the running system. **All six engines are in this bucket** (v8 + Unreleased v8.2/v9/v10).
+2. **WIP — code present, verification pending** — real code compiles and runs, but the final verification passes are outstanding. The remaining items here are the **live-REST verification harnesses**: `./manage.sh e2e-backtest` (exchange-aware matrix, needs live exchange REST) and `scripts/ds-verification-loop.sh` (12 headless runs + DS invariants), plus the corpus re-stamp sweep that releases the Unreleased v8.2/v9/v10 CHANGELOG sections.
+3. **Not yet started** — only the spec exists; no Rust code, no UI, no API surface. **This bucket is empty** (see §5 for the closed audit register).
 
-> **Why "WIP" instead of "implemented" or "not yet started".** Calling TAE/PME/PAE "implemented" would imply the operator can drive a live trading session from the dashboards today; that is **false**. Calling them "not yet started" would imply no code exists; that is also **false**. The backend modules compile and run, the in-process TAE event loop spawns and consumes the veto channel, the paper matching engine fills orders, and the PAE scheduled tasks tick — but the dashboards that an operator clicks on to see any of this render hardcoded arrays of fake data. Until the dashboards fetch from the live API, none of the three engines can be considered production-complete.
+> **History.** The v7-era "WIP" labels on TAE/PME/PAE (mock dashboards, unwired veto machinery) were retired in 2026-08-18 when the v7 redesign shipped live-fetching dashboards and the unified execution engine. The v8.2 Backtesting Engine, v9 Strategy Platform and v10 Data-Science Layer are delivered in the Unreleased CHANGELOG sections.
 
 ---
 
@@ -57,7 +58,9 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 ### 2.3 TAE — Trade Automation Engine
 
-**v7 redesign (2026-08-18).** The policy engine was **erased**. The TAE is now a **setup executor** that consumes the MME's top setup directly (best Actionable/READY profile across the 4 TF snapshots) and manages the trade lifecycle (entry limit at zone midpoint → TP/SL bracket → LEVEL/SIGNAL invalidation) through a **single unified execution engine** whose only mode-dependent part is the `ExecutionBackend` (`PaperSimulation` today; a `LiveBroker` later — same fees/slippage/funding/PnL accounting in both modes). See [03-03-01-tae-overview-spec.md](engines/trade-automation-engine/03-03-01-tae-overview-spec.md).
+**v7 redesign (2026-08-18).** The policy engine was **erased**. The TAE is now a **setup executor** that consumes the MME's top setup directly (best Actionable/READY profile across the 4 TF snapshots) and manages the trade lifecycle (entry limit → TP/SL bracket → LEVEL/SIGNAL invalidation) through a **single unified execution engine** whose only mode-dependent part is the `ExecutionBackend` (`PaperSimulation` today; `LiveBroker` for Hyperliquid + Bitget — same fees/slippage/funding/PnL accounting in both modes). See [03-03-01-tae-overview-spec.md](engines/trade-automation-engine/03-03-01-tae-overview-spec.md).
+
+**v8.2 (Unreleased):** allocation sizing (`allocation_pct` 1–100 %, per-instance override, Σ ≤ 100 %) replaces stop-distance risk sizing. **v9 (Unreleased):** strategy JSON dials — `tae.sizing` (per-setup multipliers, after-loss step-down, vol-scale), intake gates (min score/confidence, direction policy), params-at-entry freeze. **v10 (Unreleased):** lifecycle hardening — tri-state `setup_gone_policy` posture, pending-entry re-pricing + replacement adoption, asymmetric SL/TP ratchet, entry dial (`entry_mode` incl. `chase`, `instant_fill_policy`, spread gate, max setup age) and exit dial (`sl_mode`, `tp_placement`, `min_sl_atr`, `confidence_drop_pct`); TP always closes 100 %. See [03-03-07-tae-strategy-settings.md](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md).
 
 **Backend (real, v7):**
 
@@ -93,24 +96,34 @@ The MME dashboards (`LiveTerminal`, `AlignmentPanel`, `OpportunitiesPanel`, `Ris
 
 **Backend (real):**
 
-- `crates/performance-analytics/src/{stats_compiler,strategy_analytics,risk_analytics,performance_layer,strategy_optimizer,performance_evaluator,backtest}.rs` — all layer modules real; the v7 backtest runner (`backtest.rs`) replays recorded decision matrices through the unchanged setup executor + unified paper engine and applies the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge classification) to the simulated trades.
-- Strategy analytics grouped by **setup type** (`trigger_source`) — the v7 successor of per-policy grouping.
+- `crates/performance-analytics/src/{stats_compiler,strategy_analytics,risk_analytics,performance_layer,strategy_optimizer,performance_evaluator}.rs` — all layer modules real; the v8 Backtesting Engine crate supersedes the old `backtest.rs` recorded replay (see 2.7 BTE).
+- Strategy analytics grouped by **setup type** (`trigger_source`) with the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict).
 - `run_performance_evaluator` — 300-second cadence; `run_strategy_optimizer` — 1-hour cadence with persisted `OptimizationReport`.
+- **v10 (Unreleased):** session-scoped analytics (`GET /api/sessions/:id/analytics`), cross-session Comparison (`GET /api/analytics/comparison`), per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR95/ES95).
 
 **Frontend (real):**
 
-- `ui/src/components/PerformanceDashboard.svelte` — six live fetches (`/api/dashboard/stats`, `/api/analytics/strategy|risk|performance|optimization`, `/api/trades`); Strategy panel shows per-setup-type NHST (t, p, Monte Carlo p, α = 0.05, edge verdict); **Backtesting tab is real** (form → `POST /api/backtest/run` → stat cards, edge verdict, trade log, equity-curve chart; results survive restart via `GET /api/backtest/:id`).
+- `ui/src/components/PerformanceDashboard.svelte` — live fetches (`/api/dashboard/stats`, `/api/analytics/strategy|risk|performance|optimization`, `/api/trades`); Strategy panel shows per-setup-type NHST; **Study/History tabs** mirror the PAE tabs; **Comparison tab** (v10) rows = sessions + backtests.
 
-**API (served):** `POST /api/backtest/run`, `GET /api/backtest/:id`.
+**API (served):** `POST /api/backtest/run`, `GET /api/backtest/:id`, `GET /api/sessions`, `GET /api/sessions/:id/analytics`, `GET /api/analytics/comparison`.
 
-### 2.6 Cross-cutting layers
+### 2.6 BTE — Backtesting Engine (v8.2, Unreleased)
+
+- `crates/backtesting-engine` — candle archive (live-warm + on-demand backfill, 1..=365 days, exchange-aware ceilings: Hyperliquid 5,000-candle cap, Bitget paginated), the **historical runner** (full MME pipeline replay over archived candles, simulated safety ladder + funding + end-of-run force-close, multi-symbol k-way tick clock) and the **recorded replay** (recorded decision snapshots through the shared `run_tick`).
+- **v10 (Unreleased):** the run's bound strategy flows into both runners (parity fix); strategy intake/portfolio gates evaluated on the simulated portfolio in historical mode; `backtest_trades` enrichment (`ts_entry_secs`/`hold_secs`/`mfe_pct`/`mae_pct`/`roi_pct`); per-run risk metrics; `GET /api/backtest/:id/input_bars`.
+- **Frontend:** `BacktestingDashboard` (observe-only in the UI) with the Launcher wizard, progress/cancel, Study/Chart/History tabs.
+- **CLI:** headless `--backtest` flags + `--backtest-show <id>` / `--sessions` / `--session-report <id>` DS commands.
+- **Verification:** `scripts/e2e-backtest-matrix.sh` (`./manage.sh e2e-backtest`) + `scripts/ds-verification-loop.sh` — both require live exchange REST.
+
+### 2.7 Cross-cutting layers
 
 - **`core-domain`** — All DTOs (`MarketSnapshot`, matrices, indicator value types), JSON-RPC envelopes, liquidity module.
-- **`config-models`** — `load_config()` / `load_instances()`, every `*Config` struct.
-- **`api-gateway`** — Axum router, WebSocket broadcast, 60+ HTTP routes including `/api/instances/:id/start`, `/api/instances/:id/pause`, `/api/instances/:id/stop`.
-- **`database-storage`** — 30 migrations, WAL telemetry logger, query layer, encryption helpers.
-- **`execution-daemon`** — 813-line `main.rs` that wires everything together in `--web` mode.
+- **`config-models`** — `load_config()` / `load_instances()`, every `*Config` struct, the strategy JSON model (`[workspace.strategies]`, base inheritance).
+- **`api-gateway`** — Axum router, WebSocket broadcast, 60+ HTTP routes including `/api/instances/:id/start|pause|stop`, `/api/strategies`, `/api/sessions`, `/api/backtest/*`.
+- **`database-storage`** — 30+ migrations (sessions, backtest DS, enrichment), WAL telemetry logger, query layer, encryption helpers.
+- **`execution-daemon`** — `main.rs` wires the web/CLI modes, the setup-executor loop, the DS exporter and the CLI DS commands.
 - **App shell** (`ui/src/App.svelte`, `state.svelte.ts`, `lib/websocket.svelte.ts`, `lib/api.svelte.ts`, `lib/router.svelte.ts`) — Singleton `AppStore`, WS demux with infinite-loop avoidance, hash-fragment routing, per-tab export builders.
+- **v10 (Unreleased):** session identity (every boot creates a persisted `sessions` row), the `./ds/` NDJSON export layer (one producer, three sinks: DB logger, GUI, DS files), CLI↔GUI parity C14–C16.
 
 ---
 
@@ -190,6 +203,21 @@ Each phase ships when its acceptance criteria pass and the verification checklis
 | F8. PME L4 rename (Overview Layer / `PortfolioOverviewMatrix`) + TAE L2 rename | all crates, docs | Delivered: code + docs renamed; wire JSON keys unchanged; `test-doc` green |
 | F9. E2E matrix harness (`./manage.sh e2e-backtest`, 24+ cases) | scripts | Delivered: `scripts/e2e-backtest-matrix.sh` + `scripts/e2e_backtest_verify.py`; sqlite invariants + determinism double-run |
 
+### Phase G — "Strategy platform + Data-Science layer" ✅ (delivered as Unreleased v9/v10)
+
+| Item | Owner | Acceptance criterion |
+|---|---|---|
+| G1. Strategy JSON as single source of truth (L1–L7, TAE, PME, PAE) | all crates | Delivered (v9): per-field strategy-over-legacy resolution (`liquidity_params.rs`, L1 threading, `l1.order_book`), per-instance strategy binding, params-at-entry freeze |
+| G2. TAE sizing + portfolio intake gates | `portfolio-supervisor`, `execution-daemon` | Delivered (v9): `tae.sizing` cascade + vol-scale, `evaluate_intake_gates`/`evaluate_portfolio_gates` in the daemon tick |
+| G3. Session identity | `database-storage`, `execution-daemon`, `api-gateway`, UI | Delivered (v10): `sessions` migration + queries, `session_id` stamped on 7 telemetry tables, boot create + quit close, `GET /api/sessions`, sidebar chip + CLI header |
+| G4. DS export layer | `execution-daemon`, `config-models`, `database-storage` | Delivered (v10): `[workspace.data_science]`, `ds_exporter.rs` fan-out (`./ds/sessions/Sxxxx_mode/...`, `./ds/backtests/BTxxxx_mode/...`), shared `persist_backtest_run` path for web + CLI |
+| G5. Backtest enrichment + chart + CLI DS | `backtesting-engine`, `performance-analytics`, `api-gateway`, UI | Delivered (v10): `backtest_trades` enrichment, `compute_risk_metrics_from_curve`, `/api/backtest/:id/input_bars`, `BacktestChart.svelte` + Chart tab, `--sessions`/`--session-report`/`--backtest-show` |
+| G6. TAE lifecycle hardening | `portfolio-supervisor`, `config-models`, UI | Delivered (v10): `setup_gone_policy` posture, pending re-price + adoption, SL/TP ratchet, entry/exit strictness dials; TP always closes 100 % |
+| G7. D/I/L ontology + gates | docs, scripts | Delivered (v10): `01-11`/`01-12`/`06-04`/`07-10`; `check_docs.py` gates G18 (DS parity) / G19 (ontology) / G20 (DDL↔doc↔code) |
+| G8. DS verification loop (12 runs) | scripts | Delivered: `scripts/ds-verification-loop.sh` (3 strategies × 2 symbols × 2 depths) — **requires live exchange REST to run** |
+
+> **Release sweep note.** The v8.2/v9/v10 CHANGELOG sections are **Unreleased**: the corpus-wide version re-stamp (G1: README stats, MANIFEST title, 171 numbered-doc stamps) happens in a single sweep when the operator cuts the release. Until then the roadmap's version header stays at v8.0 by design.
+
 ---
 
 ## 4. Delivery markers (v7.0 — removed)
@@ -240,26 +268,25 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 ### 6.1 Documentation consistency
 
 - [x] **`docs/ROADMAP.md` exists and is linked from `docs/README.md` and `README.md`**
-- [x] **`docs/README.md §Feature Status` distinguishes Implemented / WIP / Not started for every engine and major feature** (all five engines: Implemented)
-- [x] **Every `**Status:**` header in the engine docs reflects the v7.0 implemented state**
+- [x] **`docs/README.md` engine table distinguishes Implemented / WIP / Not started for every engine** (six engines: all Implemented — v10)
+- [x] **Every `**Status:**` header in the engine docs reflects the implemented state**
 - [x] **`docs/conceptual-foundations/01-02-global-architecture.md §2.3-2.5` no WIP callouts remain**
-- [x] **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` no longer calls `performance-analytics` / `portfolio-supervisor` WIP** (both crate rows read Implemented — closed 2026-08-18)
-- [x] **`docs/conceptual-foundations/01-02-global-architecture.md` §2.3 Layer 2 status callout reflects the implemented execution path** (paper default, live Hyperliquid/Bitget dispatch available — closed 2026-08-18)
-- [x] **`README.md §Quick Start` carries the v7 implementation-status callout**
-- [x] **`AGENTS.md §Project overview` reflects the completed v7.0 state**
-- [x] **All numbered docs carry `**Version:** 7.1 (2026-08-18)` and the CHANGELOG top entry is `## v7.0 (2026-08-18)`**
-- [x] **`./manage.sh test-doc`** passes (release gates G1–G16) — **ALL CHECKS PASSED** (2026-08-18)
+- [x] **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` no longer calls `performance-analytics` / `portfolio-supervisor` WIP**
+- [x] **`docs/conceptual-foundations/01-02-global-architecture.md` §2.3 Layer 2 status callout reflects the implemented execution path** (paper default, live Hyperliquid/Bitget dispatch available)
+- [x] **`README.md` carries the v10 implementation-status callout** (six engines)
+- [x] **`AGENTS.md §Project overview` reflects the completed v10 state**
+- [x] **`./manage.sh test-doc`** passes (release gates G1–G20 incl. G18 DS parity, G19 D/I/L ontology, G20 DDL↔doc↔code)
 
 ### 6.2 Source-code verification
 
-- [x] **No `// ── Placeholder data ───` comment in `TradeAutomationDashboard.svelte`** (v7 live dashboard — delivered 2026-08-18)
-- [x] **No `// ── Placeholder data ───` comment in `PortfolioDashboard.svelte`** (v7 live dashboard — delivered 2026-08-18)
-- [x] **`runBacktest` in `PerformanceDashboard.svelte` is replaced by a `fetch`** (v7 backtest tab — delivered 2026-08-18)
-- [x] **No amber banner mounted in the engine dashboard indicates WIP status** (WIP badges removed from `AppEngineSidebar` — closed 2026-08-18)
+- [x] **No `// ── Placeholder data ───` comment in `TradeAutomationDashboard.svelte`** (v7 live dashboard)
+- [x] **No `// ── Placeholder data ───` comment in `PortfolioDashboard.svelte`** (v7 live dashboard)
+- [x] **`runBacktest` in `PerformanceDashboard.svelte` is replaced by a `fetch`** (v7 backtest tab)
+- [x] **No amber banner mounted in the engine dashboard indicates WIP status**
 
 ### 6.3 Backend integration points
 
-**TAE (v7 — served):**
+**TAE (v7 + v10 — served):**
 - [x] **`GET /api/instances/:id/automation` returns the live setup-executor state** (mode, phase, tracked setup + projected risk/return, entry/bracket orders, position, invalidation state, activity log, safety gate, lifecycle, equity)
 - [x] **`POST /api/instances/:id/automation/close`** cancels pending/bracket orders and closes the open position at market
 - [x] **`GET /api/instances/:id/portfolio` returns live equity + open position**
@@ -274,12 +301,18 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **`GET /api/instances/:id/capital`** returns the Capital Matrix + margin alert
 - [x] **`GET /api/instances/:id/safety`** returns the safety state + context + drawdown/daily metrics
 - [x] **`POST /api/instances/:id/safety/session-reset`** rebaselines peak equity + daily PnL (informational)
-- [x] **`POST /api/backtest/run` + `GET /api/backtest/:id` exist and round-trip a result** (v7 — delivered 2026-08-18)
+- [x] **`POST /api/backtest/run` + `GET /api/backtest/:id` exist and round-trip a result**
 
 **Live trading (v7.1 — served):**
 - [x] **`POST /api/keys`, `GET /api/keys`, `DELETE /api/keys/:id`, `POST /api/keys/rotate`, `GET /api/keys/backup`** — encrypted credential management (both venues)
 - [x] **`POST /api/instances/:id/mode`** — engine-wide paper/live switch (requires a key; persists to config)
 - [x] **Hyperliquid + Bitget live dispatch** via `ExecutionBackend` (see [03-03-03 §5b](engines/trade-automation-engine/03-03-03-tae-layer2-execution.md))
+
+**DS layer (v10 — served):**
+- [x] **`GET /api/sessions`** lists persisted sessions; `GET /api/sessions/:id/analytics` returns session-scoped PAE payloads
+- [x] **`GET /api/analytics/comparison`** returns the sessions × backtests comparison rows
+- [x] **`GET /api/backtest/:id/input_bars`** returns the per-TF input OHLCV rows
+- [x] **`GET /api/backtest/:id/metrics`** carries Sharpe/Sortino/Calmar/Ulcer/VaR95/ES95
 
 ### 6.4 Tests
 
@@ -287,17 +320,20 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **`./manage.sh test-indicators`** passes
 - [x] **`./manage.sh test-engine`** passes
 - [x] **`./manage.sh test-ui`** passes
-- [x] **`./manage.sh test-doc`** passes (release gates G1–G16) — **ALL CHECKS PASSED** (2026-08-18)
+- [x] **`./manage.sh test-doc`** passes (release gates G1–G20)
 - [x] **`cargo fmt --all -- --check`** passes
 - [x] **clippy (workspace, deny-lints)** passes
 - [x] **`bun run check`** (svelte-check + tsc) passes
+- [ ] **`./manage.sh e2e-backtest`** — live-REST matrix (24+ cases, exchange-aware) + determinism double-run
+- [ ] **`scripts/ds-verification-loop.sh`** — 12 headless runs + DS invariants (identifiers, equity conservation, trade ordering, vocabulary, burn-in, cross-strategy sanity)
 
 ### 6.5 Final sign-off
 
-- [x] **All WIP labels in §1 of this roadmap removed** (DIE, MME, TAE, PME, PAE)
-- [x] **`docs/README.md §Feature Status` row for each engine reads "Implemented"**
+- [x] **All WIP labels in §1 of this roadmap removed** (six engines: DIE, MME, TAE, PME, PAE, BTE)
+- [x] **`docs/README.md` engine table row for each engine reads "Implemented"** (six engines — v10)
 - [x] **Amber UI banners removed from `TradeAutomationDashboard`, `PortfolioDashboard`, `PerformanceDashboard`**
-- [x] **`docs/CHANGELOG.md` top entry reads `## v7.0 (2026-08-18) — TAE / PME / PAE production-ready`** with sub-bullets referencing the closed audit IDs
+- [x] **`docs/CHANGELOG.md` carries the v8.2/v9/v10 Unreleased sections with sub-bullets referencing the closed audit IDs**
+- [ ] **Corpus release sweep** — convert the Unreleased v8.2/v9/v10 sections to released `## vX.Y` entries and re-stamp README/MANIFEST + the 171 numbered docs (G1) when the live-REST verifications above go green
 
 ---
 
@@ -306,7 +342,7 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [docs/README.md](./README.md) — entry point for the documentation corpus
 - [docs/CHANGELOG.md](./CHANGELOG.md) — canonical audit-ID register, version history
 - [docs/DOCS-CONSISTENCY-MANIFEST.md](./DOCS-CONSISTENCY-MANIFEST.md) — release-gate documentation
-- [docs/conceptual-foundations/01-02-global-architecture.md](./conceptual-foundations/01-02-global-architecture.md) — five-engine blueprint
+- [docs/conceptual-foundations/01-02-global-architecture.md](./conceptual-foundations/01-02-global-architecture.md) — six-engine blueprint
 - [docs/conceptual-foundations/01-06-crate-layout-and-cycles.md](./conceptual-foundations/01-06-crate-layout-and-cycles.md) — physical crate layout
 - [docs/conceptual-foundations/01-07-target-architecture-roadmap.md](./conceptual-foundations/01-07-target-architecture-roadmap.md) — target-architecture tracker (orthogonal to this implementation roadmap; future design improvements vs. delivery of the as-spec'd system)
 - [docs/operations-and-compliance/08-01-user-manual.md](./operations-and-compliance/08-01-user-manual.md) — operator guide

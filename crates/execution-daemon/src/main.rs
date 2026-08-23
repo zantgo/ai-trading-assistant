@@ -36,6 +36,7 @@
 //! See `docs/conceptual-foundations/01-07-data-model-hierarchy.md` for the
 //! canonical design document.
 
+use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -61,6 +62,7 @@ use portfolio_supervisor::{
 // its types without the daemon's CLI surface.
 
 mod cli_backtest;
+mod cli_ds;
 mod cli_ops;
 
 // ─── CLI argument parsing ────────────────────────────────────────────
@@ -83,6 +85,10 @@ struct CliArgs {
     bt_allocation: Option<f64>,
     /// v9: strategy bound to the backtest (default "default").
     bt_strategy: Option<String>,
+    /// v10: headless data-science commands.
+    sessions: bool,
+    session_report: Option<i64>,
+    backtest_show: Option<i64>,
     /// v9: headless strategy/account/instance ops.
     ops: Vec<cli_ops::StrategyOp>,
     account_ops: Vec<cli_ops::AccountOp>,
@@ -110,6 +116,9 @@ fn parse_args() -> CliArgs {
     let mut bt_capital = None;
     let mut bt_allocation = None;
     let mut bt_strategy = None;
+    let mut sessions = false;
+    let mut session_report: Option<i64> = None;
+    let mut backtest_show: Option<i64> = None;
     let mut ops: Vec<cli_ops::StrategyOp> = Vec::new();
     let mut account_ops: Vec<cli_ops::AccountOp> = Vec::new();
     let mut lifecycle_op = None;
@@ -196,6 +205,19 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 if i < args.len() {
                     bt_strategy = Some(args[i].clone());
+                }
+            }
+            "--sessions" => sessions = true,
+            "--session-report" => {
+                i += 1;
+                if i < args.len() {
+                    session_report = args[i].parse::<i64>().ok();
+                }
+            }
+            "--backtest-show" => {
+                i += 1;
+                if i < args.len() {
+                    backtest_show = args[i].parse::<i64>().ok();
                 }
             }
             "--strategy-list" => ops.push(cli_ops::StrategyOp::List),
@@ -299,6 +321,9 @@ fn parse_args() -> CliArgs {
         account_ops,
         lifecycle_op,
         instance_bind,
+        sessions,
+        session_report,
+        backtest_show,
     }
 }
 
@@ -733,6 +758,57 @@ async fn main() {
     let db_pool = init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
+    // ── v10: headless data-science commands (read-only, then exit) ──
+    if cli.sessions {
+        std::process::exit(cli_ds::print_sessions(&db_pool).await);
+    }
+    if let Some(id) = cli.session_report {
+        std::process::exit(cli_ds::print_session_report(&db_pool, id).await);
+    }
+    if let Some(id) = cli.backtest_show {
+        std::process::exit(cli_ds::print_backtest_show(&db_pool, &workspace, id).await);
+    }
+
+    // ── v10 session identity: one monotonic session number per boot ──
+    // Mode resolution: web sessions carry their default from
+    // `[workspace.session]`; CLI launches pin `observe` below. We read the
+    // persisted default here so the row is created before any telemetry.
+    let session_mode = if matches!(cli.mode, LaunchMode::Cli) {
+        "observe".to_string()
+    } else {
+        // Web boot: the first instance's persisted mode (Observe/Paper/
+        // Live) describes the session; the Launch Setup wizard persists it
+        // before instances spawn.
+        match workspace.instances.first().map(|i| &i.mode) {
+            Some(config_models::ExecutionMode::Observe) => "observe".to_string(),
+            Some(config_models::ExecutionMode::Live) => "live".to_string(),
+            _ => "paper".to_string(),
+        }
+    };
+    let session_started_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let config_snapshot = serde_json::to_string(&workspace).ok();
+    let session_number = database_storage::queries::sessions::create_session(
+        &db_pool,
+        &session_mode,
+        Some(workspace.default_exchange.as_str()),
+        Some(&workspace.default_currency),
+        Some(workspace.portfolio_capital_usd),
+        session_started_ms,
+        config_snapshot.as_deref(),
+    )
+    .await
+    .ok();
+    let session_id_arc: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(session_number));
+    println!(
+        "🧪 Session identity: {}",
+        session_number
+            .map(|n| format!("SESSION #{:04}", n))
+            .unwrap_or_else(|| "SESSION unavailable".to_string())
+    );
+
     // ── v8.2: headless CLI backtest (no engine boot, no web server) ──
     if cli.backtest {
         let args = cli_backtest::CliBacktestArgs {
@@ -809,6 +885,10 @@ async fn main() {
     verify_encryption_or_panic(&db_pool).await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    // v10 fan-out: one producer → DB logger + DS exporter (three sinks:
+    // DB, WS/GUI, ./ds files).
+    let (db_tx, db_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    let (ds_tx, ds_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
     // Read the liquidation-event retention window from the user's
     // `[workspace.liquidity]` config. The legacy hardcoded `7u32` was
     // 5x shorter than the configured 90 days and prematurely aged out
@@ -816,10 +896,24 @@ async fn main() {
     let liq_retention_days = workspace.liquidity.event_retention_days.max(1);
     // BTE archive retention from [workspace.backtest].archive_depth_days.
     let archive_depth_days = workspace.backtest.archive_depth_days.max(1);
+    tokio::spawn(async move {
+        let mut rx = telemetry_rx;
+        while let Some(msg) = rx.recv().await {
+            let _ = db_tx.send(msg.clone()).await;
+            let _ = ds_tx.send(msg).await;
+        }
+    });
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {
-            run_telemetry_logger(pool, telemetry_rx, liq_retention_days, archive_depth_days).await;
+            run_telemetry_logger(
+                pool,
+                db_rx,
+                liq_retention_days,
+                archive_depth_days,
+                session_number,
+            )
+            .await;
         }
     });
 
@@ -839,6 +933,9 @@ async fn main() {
             },
         );
         engine.set_db(Arc::new(db_pool.clone()));
+        if let Some(sid) = session_number {
+            engine.set_session_id(sid).await;
+        }
         engine
             .set_cross_leverage(workspace.leverage.cross_leverage)
             .await;
@@ -902,6 +999,7 @@ async fn main() {
         recharge_tx: recharge_tx.clone(),
         snapshot_export: snapshot_export_runtime.clone(),
         snapshot_export_manual_tick: snapshot_export_manual_tick.clone(),
+        session_id: session_id_arc.clone(),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
 
@@ -1277,6 +1375,24 @@ async fn main() {
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     handles.push(logger_handle);
 
+    // ── v10 DS export layer (./ds/) ────────────────────────────────────
+    {
+        let ds_cfg = workspace.data_science.clone();
+        let ds_pool = db_pool.clone();
+        let ds_meta = execution_daemon::ds_exporter::DsSessionMeta {
+            session_id: session_number.unwrap_or(0),
+            mode: session_mode.clone(),
+            exchange: workspace.default_exchange.clone(),
+            currency: workspace.default_currency.clone(),
+            capital: workspace.portfolio_capital_usd,
+            started_at_ms: session_started_ms,
+            config_snapshot: serde_json::to_value(&workspace).unwrap_or(serde_json::Value::Null),
+        };
+        handles.push(tokio::spawn(async move {
+            execution_daemon::ds_exporter::run_ds_exporter(ds_pool, ds_rx, ds_cfg, ds_meta).await;
+        }));
+    }
+
     // ── TAE v7: Setup Executor loop ───────────────────────────────────
     if tae_enabled {
         let tae_engine = execution_engine.clone();
@@ -1432,12 +1548,19 @@ async fn main() {
                             // `pme.enforce_systemic_veto` is on), margin
                             // close-only, exposure caps. All veto OFF by
                             // default (default strategy), configurable per
-                            // strategy.
-                            let strategy_now = tae_workspace
-                                .config()
-                                .await
-                                .default_strategy()
-                                .unwrap_or_default();
+                            // strategy. The gates follow the INSTANCE's
+                            // bound strategy (`instances[].strategy`), not
+                            // the workspace default.
+                            let strategy_now = {
+                                let cfg = tae_workspace.config().await;
+                                let bound = workspace
+                                    .instances
+                                    .iter()
+                                    .find(|e| e.symbol == symbol)
+                                    .and_then(|e| e.strategy.clone())
+                                    .unwrap_or_else(|| "default".to_string());
+                                cfg.resolve_strategy(&bound).unwrap_or_default()
+                            };
                             let overview = tae_overview.read().await.clone();
                             let breadth_pct = overview.as_ref().map(|o| o.breadth_pct).unwrap_or(0.0);
                             let systemic_risk = overview
@@ -1450,6 +1573,46 @@ async fn main() {
                                     breadth_pct,
                                     systemic_risk,
                                 );
+                            // v9 PME portfolio-state gates (enforced only
+                            // when the strategy's `pme.exposure.enforce.*` /
+                            // `pme.capital.enforce_margin_close_only`
+                            // flags are on).
+                            let (portfolio_allows, portfolio_block) = {
+                                let positions = tae_engine.positions.read().await;
+                                let equity = tae_engine.get_equity().await.max(1.0);
+                                let leverage = (*tae_engine.cross_leverage.read().await)
+                                    .to_f64()
+                                    .unwrap_or(1.0);
+                                let gross: f64 = positions
+                                    .values()
+                                    .map(|p| {
+                                        let size = p.size.to_f64().unwrap_or(0.0);
+                                        let px = p.entry_price.to_f64().unwrap_or(0.0);
+                                        size * px
+                                    })
+                                    .sum();
+                                let single: f64 = positions
+                                    .get(symbol.as_str())
+                                    .map(|p| {
+                                        let size = p.size.to_f64().unwrap_or(0.0);
+                                        let px = p.entry_price.to_f64().unwrap_or(0.0);
+                                        size * px
+                                    })
+                                    .unwrap_or(0.0);
+                                drop(positions);
+                                let single_pct = single / equity * 100.0;
+                                let portfolio_pct = gross / equity * 100.0;
+                                let margin_ratio =
+                                    (gross / leverage.max(1.0)) / equity;
+                                portfolio_supervisor::strategy_gates::evaluate_portfolio_gates(
+                                    &strategy_now,
+                                    single_pct,
+                                    portfolio_pct,
+                                    margin_ratio,
+                                )
+                            };
+                            let market_filter_allows = market_filter_allows && portfolio_allows;
+                            let block_reason = block_reason.or(portfolio_block);
                             let outcome = portfolio_supervisor::execution::session_tick::run_tick(
                                 &tae_engine,
                                 &executor,
@@ -1703,7 +1866,10 @@ async fn main() {
                 workspace.default_currency.as_str(),
             ),
         };
-        let session_line = format!("observe · {} · {}", ex_label, cur_label);
+        let session_line = match session_number {
+            Some(n) => format!("SESSION #{:04} · observe · {} · {}", n, ex_label, cur_label),
+            None => format!("SESSION #---- · observe · {} · {}", ex_label, cur_label),
+        };
         handles.push(tokio::spawn(
             execution_daemon::cli_renderer::run_terminal_monitor(
                 app_state.overview.clone(),
@@ -1765,9 +1931,10 @@ async fn main() {
         portfolio_equity::run_portfolio_equity_logger(eq_pool, eq_cancel).await;
     }));
 
+    let opt_pool = db_pool.clone();
     handles.push(tokio::spawn(async move {
         strategy_optimizer::run_strategy_optimizer(strategy_optimizer::OptimizerConfig {
-            pool: db_pool,
+            pool: opt_pool,
             cancel: eval_cancel,
             interval_secs: 3600,
         })
@@ -1783,6 +1950,8 @@ async fn main() {
     // config.toml is NOT cleared — a signal stop is an operator restart,
     // not a session quit.
     let shutdown_state = app_state.clone();
+    let shutdown_pool = db_pool.clone();
+    let shutdown_session = session_number;
     let shutdown = async move {
         let ctrl_c = tokio::signal::ctrl_c();
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -1798,6 +1967,14 @@ async fn main() {
         }
         // Let cancellation propagate + the logger drain the telemetry queue.
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // v10: close the session row (ended_at + status).
+        if let Some(sid) = shutdown_session {
+            let ended = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let _ = database_storage::queries::sessions::close_session(&shutdown_pool, sid, ended).await;
+        }
         eprintln!("✅ Exiting cleanly");
         std::process::exit(0);
     };

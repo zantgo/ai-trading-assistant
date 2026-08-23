@@ -179,31 +179,42 @@ Outputs → usage:
 
 ## 6. Layer ⑤ — Invalidation semantics (complete scenario table)
 
-**LONG shown; SHORT mirrors.** LEVEL = price crossed the SL/invalidation level. SIGNAL = MME direction flipped opposite on a completed candle. REPLACED = different setup type tops the ranking (pending only).
+**LONG shown; SHORT mirrors.** LEVEL = price crossed the SL/invalidation level. SIGNAL = MME direction flipped opposite on a completed candle. REPLACED = different setup type tops the ranking (pending only). GONE = no actionable setup (neutral / STAND_ASIDE).
+
+**v10 posture** (`tae.risk.setup_gone_policy`, tri-state — config + TAE Settings tab):
+
+| Posture | Pending + setup gone | Open + setup gone |
+|---|---|---|
+| `balanced` (default) | keep pending until bar-expiry (default 12 bars) | hold — SL/TP/time-stop remain the only exits |
+| `strict` | cancel pending immediately | close at market, `exit_reason = "setup_gone"` |
+| `risky` | keep pending forever (no expiry) | hold — exit only on an opposite-direction flip |
 
 | # | Scenario (LONG) | Executor behavior | Frontend label |
 |---|---|---|---|
-| 1 | Price above entry zone (normal pullback setup) | Limit BUY placed at zone midpoint; wait | `WAITING ENTRY` |
-| 2 | Price inside entry zone | Limit BUY placed; fills as soon as mid ≤ midpoint | `WAITING ENTRY` → `FILLED` |
-| 3 | Price already below entry zone low (ran through) | Limit BUY placed at midpoint; **fills immediately at current mid** (better than midpoint) | `INSTANT FILL` |
+| 1 | Price above entry zone (normal pullback setup) | Limit BUY placed per `entry_mode` dial; wait | `WAITING ENTRY` |
+| 2 | Price inside entry zone | Limit BUY placed; fills as soon as mid ≤ price | `WAITING ENTRY` → `FILLED` |
+| 3 | Price already below entry zone low (ran through) | `take_better` (default): fills immediately at current mid (better than the resting price); `cancel`: entry refused | `INSTANT FILL` |
 | 4 | Pending; price crosses **below SL** (LEVEL) | Entry order **cancelled**; setup dead | `INVALIDATED — level breached` |
-| 5 | Pending; MME direction **flips to SHORT** (SIGNAL) | Entry order **cancelled** | `INVALIDATED — recommendation flipped` |
-| 6 | Pending; different setup type wins ranking (REPLACED) | Entry order **cancelled** | `CANCELLED — setup replaced` |
-| 7 | Open; **TP hit** | Close at TP; win | `TP HIT` |
-| 8 | Open; **SL hit** (price crossed invalidation level — LEVEL) | Close at SL; loss | `SL HIT` |
-| 9 | Open; price **gaps through SL** (both TP and SL marketable) | **SL fills first** (risk before profit), at market | `SL HIT (gap)` |
-| 10 | Open; MME direction **flips to SHORT** (SIGNAL) | **Close at market now** (not at SL — level never hit) | `INVALIDATED — recommendation flipped — closed at market` |
-| 11 | Open; recommendation NEUTRAL / STAND_ASIDE (no opposite flip) | **Hold.** TP/SL remain the only exits | `HOLDING` |
-| 12 | Open; new candle, same direction, same setup type | Continue; bracket unchanged | `HOLDING` |
-| 13 | Instance paused | Pending entries cancelled; position held; no new setups | `instance PAUSED` |
-| 14 | Instance stopped | Everything flattened at market; lifecycle → STOPPED | `STOPPED — flattened` |
-| 15 | Safety state `DRAWDOWN_STOP` / `SUSPENDED` | No new entries; open positions managed normally | `BLOCKED — safety state` |
+| 5 | Pending; MME direction **flips to SHORT** (SIGNAL) | Entry order **cancelled** (posture-independent) | `INVALIDATED — recommendation flipped` |
+| 6 | Pending; different setup type wins ranking (REPLACED) | `cancel_and_adopt` (default): cancel old + adopt the replacement **same tick**; `cancel`: v9 behavior | `CANCELLED — replaced → adopted` |
+| 7 | Pending; setup **gone** (neutral) | Posture: balanced = keep until expiry (default 12 bars); strict = cancel (`setup_gone_cancel`); risky = keep forever | `HOLDING PENDING` / `CANCELLED — setup gone` |
+| 8 | Pending; new candle, same direction + type (fresh zone) | **Re-price** the pending order to the fresh geometry when the move ≥ `min_reprice_delta_atr × ATR` (cancel-first, then place; projection recomputed) | `RE-PRICED` |
+| 9 | Open; **TP hit** | Close at TP; win (always 100 % of size) | `TP HIT` |
+| 10 | Open; **SL hit** (price crossed invalidation level — LEVEL) | Close at SL; loss | `SL HIT` |
+| 11 | Open; price **gaps through SL** (both TP and SL marketable) | **SL fills first** (risk before profit), at market | `SL HIT (gap)` |
+| 12 | Open; MME direction **flips to SHORT** (SIGNAL) | **Close at market now** (not at SL — level never hit) | `INVALIDATED — recommendation flipped — closed at market` |
+| 13 | Open; setup **gone** (neutral) | Posture: balanced = **hold** (bracket + time stop bound the risk); strict = close at market (`setup_gone_close`); risky = hold until an opposite flip | `HOLDING` / `CLOSED — setup gone` |
+| 14 | Open; new candle, same direction (fresh setup) | **Asymmetric ratchet:** SL only tightens in favor (never widens); TP refreshes only when the fresh setup improves net RR by ≥ `tp_refresh_min_rr_delta`; both gated by the min-reprice delta | `BRACKET REFRESHED` / `HOLDING` |
+| 15 | Open; source-snapshot confidence fell ≥ `confidence_drop_pct` | Close at market, `exit_reason = "confidence_drop"` | `CLOSED — confidence drop` |
+| 16 | Instance paused | Pending entries cancelled; position held; no new setups | `instance PAUSED` |
+| 17 | Instance stopped | Everything flattened at market; lifecycle → STOPPED | `STOPPED — flattened` |
+| 18 | Safety state `DRAWDOWN_STOP` / `SUSPENDED` | No new entries; open positions managed normally | `BLOCKED — safety state` |
 
-**Why #11 holds:** invalidation-by-flip is defined strictly as an *opposite* direction. Neutral means "no opinion", not "wrong side". Configurable later via `invalidate_on`, default `direction_flip`.
+**Why #13 holds under balanced:** invalidation-by-flip is defined strictly as an *opposite* direction. Neutral means "no opinion", not "wrong side" — the SL, the time stop and the pending-entry expiry already bound the risk; exiting on every transient neutral bleeds fees. Operators wanting the strict semantics select the `strict` posture; `invalidate_on` remains `direction_flip` for the flip semantics.
 
 **Frontend definition of invalidation (user-facing copy, shown in an info banner + tooltips):**
 
-> *Invalidation means the setup's thesis is broken. It happens two ways: (1) price trades through the stop-loss level — if we hadn't entered yet, the order is cancelled and nothing is traded; if we were in, the stop takes us out. (2) the recommendation flips to the opposite direction — before entry the order is cancelled; after entry the position is closed at market. A neutral signal does not invalidate an open position.*
+> *Invalidation means the setup's thesis is broken. It happens two ways: (1) price trades through the stop-loss level — if we hadn't entered yet, the order is cancelled and nothing is traded; if we were in, the stop takes us out. (2) the recommendation flips to the opposite direction — before entry the order is cancelled; after entry the position is closed at market. A neutral signal does not invalidate an open position (balanced posture).*
 
 ---
 
@@ -258,13 +269,15 @@ The `TradeAutomationDashboard` shows: PAPER/LIVE mode badge, automation toggle, 
 enabled = true
 allocation_pct = 10.0        # % of equity allocated per position (1–100; Σ ≤ 100 across instances)
 min_net_rr = 1.0             # fee-adjusted minimum reward:risk
-max_position_size_usd = 200  # optional notional cap
+# max_position_size_pct_of_equity = 50  # optional relative notional cap
 max_open_positions = 10      # global concurrent-position cap (1–100)
-entry_mode = "zone_midpoint" # the only entry mode in v1
+entry_mode = "zone_midpoint" # workspace fallback; the strategy dials win
 invalidate_on = "direction_flip"  # strict opposite-flip semantics
 ```
 
 Instance level: `mode = "paper"` per `[[workspace.instances]]` (`ExecutionMode { Paper, Live }`).
+
+**v10 lifecycle-hardening dials** live in the bound strategy's `tae` section (per-strategy, params frozen at entry, recharge affects new setups only) — see [03-03-07 TAE Strategy Settings](03-03-07-tae-strategy-settings.md) for the canonical JSON: posture (`setup_gone_policy`), pending re-price (`min_reprice_delta_atr`, `replace_policy`), entry dial (`entry_mode` variants incl. `chase`, `instant_fill_policy`, `spread_gate_bps`, `max_setup_age_bars`, `pending_entry_expiry_bars`), and exit dial (`sl_mode` / `sl_padding_atr` / `atr_anchor_mult` / `min_sl_atr`, `tp_placement`, `tp_refresh_min_rr_delta`, `confidence_drop_pct`).
 
 ---
 

@@ -3,12 +3,10 @@ use sqlx::SqlitePool;
 
 const TRADING_DAYS_PER_YEAR: f64 = 365.0;
 
-/// Compute risk-adjusted performance metrics from the equity history.
-/// Implements docs:03-05-04-pae-layer3-risk-analytics.md
-pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
-    let equity =
-        portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
-
+/// v10: pure risk-metrics computation over an arbitrary equity curve
+/// `(ts_ms, value)` — shared by the live PAE path and the BTE per-run
+/// metrics enrichment.
+pub fn compute_risk_metrics_from_curve(equity: &[(i64, f64)]) -> RiskAnalyticsRow {
     if equity.len() < 2 {
         return RiskAnalyticsRow {
             maximum_drawdown_pct: 0.0,
@@ -28,9 +26,9 @@ pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
 
     let values: Vec<f64> = equity.iter().map(|(_, v)| *v).collect();
 
-    let (max_dd_pct, max_dd_days, avg_dd_pct, dd_count) = compute_drawdowns(&values, &equity);
+    let (max_dd_pct, max_dd_days, avg_dd_pct, dd_count) = compute_drawdowns(&values, equity);
 
-    let daily_returns = compute_daily_returns(&equity);
+    let daily_returns = compute_daily_returns(equity);
     let mean_return = if !daily_returns.is_empty() {
         daily_returns.iter().sum::<f64>() / daily_returns.len() as f64
     } else {
@@ -81,6 +79,13 @@ pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
         value_at_risk_95: var_95,
         expected_shortfall_95: es_95,
     }
+}
+
+/// Compute risk-adjusted performance metrics from the equity history.
+/// Implements docs:03-05-04-pae-layer3-risk-analytics.md
+pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
+    let equity = portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
+    compute_risk_metrics_from_curve(&equity)
 }
 
 fn compute_drawdowns(values: &[f64], equity: &[(i64, f64)]) -> (f64, f64, f64, u32) {

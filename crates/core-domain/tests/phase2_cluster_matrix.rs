@@ -90,6 +90,10 @@ fn positive_oi_produces_clusters() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m = estimate_clusters(&input);
     assert!(!m.short_clusters.is_empty());
@@ -121,6 +125,10 @@ fn clusters_have_reasonable_distance_from_mid() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m = estimate_clusters(&input);
     for c in &m.short_clusters {
@@ -158,6 +166,10 @@ fn confidence_increases_with_oi() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m_low = estimate_clusters(&input);
     let conf_low = m_low.estimation_confidence;
@@ -191,6 +203,10 @@ fn confidence_decays_with_extreme_funding() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m_calm = estimate_clusters(&make(0.0));
     let m_hot = estimate_clusters(&make(0.001)); // 0.1% / 8h, very hot
@@ -233,6 +249,10 @@ fn estimate_deterministic_for_same_input() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m1 = estimate_clusters(&input);
     let m2 = estimate_clusters(&input);
@@ -261,6 +281,10 @@ fn short_clusters_above_mid_long_clusters_below_mid() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m = estimate_clusters(&input);
     for c in &m.short_clusters {
@@ -298,6 +322,10 @@ fn long_oi_override_dominates_funding_signal() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     let m = estimate_clusters(&input);
     let long_total: f64 = m.long_clusters.iter().map(|c| c.notional_usd).sum();
@@ -326,6 +354,10 @@ fn empty_price_history_does_not_panic() {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
     };
     // Should not panic.
     let m = estimate_clusters(&input);

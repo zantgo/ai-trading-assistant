@@ -61,6 +61,9 @@ pub struct ExecutionEngine {
     pub equity: Arc<RwLock<Decimal>>,
     pub next_order_id: Arc<RwLock<u64>>,
     pub pool: Option<Arc<SqlitePool>>,
+    /// v10: the session id stamped on every persisted row (None = legacy
+    /// or standalone paths).
+    pub session_id: RwLock<Option<i64>>,
     /// The mode switch — lives at the very end of the execution path.
     pub mode: RwLock<ExecutionMode>,
     pub backend: tokio::sync::RwLock<Box<dyn ExecutionBackend>>,
@@ -81,6 +84,7 @@ impl ExecutionEngine {
             equity: Arc::new(RwLock::new(dec!(10000))),
             next_order_id: Arc::new(RwLock::new(1)),
             pool: None,
+            session_id: RwLock::new(None),
             mode: RwLock::new(ExecutionMode::Paper),
             backend: tokio::sync::RwLock::new(Box::new(PaperSimulation::new(fee_config))),
             cross_leverage: RwLock::new(20),
@@ -97,6 +101,15 @@ impl ExecutionEngine {
 
     pub fn set_db(&mut self, pool: Arc<SqlitePool>) {
         self.pool = Some(pool);
+    }
+
+    /// v10: bind the current session id (stamped on every persisted row).
+    pub async fn set_session_id(&self, id: i64) {
+        *self.session_id.write().await = Some(id);
+    }
+
+    async fn current_session_id(&self) -> Option<i64> {
+        *self.session_id.read().await
     }
 
     pub async fn set_mode(&self, mode: ExecutionMode) {
@@ -463,7 +476,9 @@ impl ExecutionEngine {
                     unrealized_pnl: dec!(0),
                     realized_pnl: dec!(0),
                     opened_at_ms: now_ms,
-                },
+                mfe_pct: 0.0,
+                mae_pct: 0.0,
+            },
             );
             *equity -= fee;
         }
@@ -484,6 +499,20 @@ impl ExecutionEngine {
                 config_models::Direction::Long => (mid - pos.entry_price) * pos.size,
                 config_models::Direction::Short => (pos.entry_price - mid) * pos.size,
             };
+            // v10: MFE/MAE tracking (percent move from entry, signed by
+            // direction so favorable is always positive).
+            if pos.entry_price > dec!(0) {
+                let move_pct = match pos.direction {
+                    config_models::Direction::Long => {
+                        ((mid - pos.entry_price) / pos.entry_price).to_f64().unwrap_or(0.0)
+                    }
+                    config_models::Direction::Short => {
+                        ((pos.entry_price - mid) / pos.entry_price).to_f64().unwrap_or(0.0)
+                    }
+                };
+                pos.mfe_pct = pos.mfe_pct.max(move_pct * 100.0);
+                pos.mae_pct = pos.mae_pct.min(move_pct * 100.0);
+            }
         }
     }
 
@@ -667,8 +696,8 @@ impl ExecutionEngine {
             let _ = sqlx::query(
                 "INSERT INTO paper_trades \
                  (symbol, direction, entry_price, exit_price, size, \
-                  realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                  realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger, session_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )
             .bind(symbol)
             .bind(direction)
@@ -680,6 +709,7 @@ impl ExecutionEngine {
             .bind(entry_ts_ms as i64)
             .bind(exit_ts_ms)
             .bind(trigger)
+            .bind(self.current_session_id().await)
             .execute(pool.as_ref())
             .await;
         }
@@ -715,8 +745,8 @@ impl ExecutionEngine {
                 "INSERT INTO trade_telemetry_history \
                  (exchange, symbol, direction, entry_timestamp, exit_timestamp, \
                   entry_price, exit_price, size, commission_fees, funding_fees, \
-                  realized_pnl, roi_percentage, trigger_source) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                  realized_pnl, roi_percentage, trigger_source, session_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             )
             .bind("paper")
             .bind(symbol)
@@ -731,6 +761,7 @@ impl ExecutionEngine {
             .bind(pnl.to_string())
             .bind(roi.to_string())
             .bind(&source)
+            .bind(self.current_session_id().await)
             .execute(pool.as_ref())
             .await;
         }
@@ -750,13 +781,14 @@ impl ExecutionEngine {
                 .as_millis() as i64;
             let _ = sqlx::query(
                 "INSERT INTO portfolio_equity_history \
-                 (timestamp, total_value, cash_balance, unrealized_pnl) \
-                 VALUES (?1, ?2, ?3, ?4)",
+                 (timestamp, total_value, cash_balance, unrealized_pnl, session_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
             )
             .bind(now)
             .bind(equity.to_string())
             .bind(cash.to_string())
             .bind(unrealized.to_string())
+            .bind(self.current_session_id().await)
             .execute(pool.as_ref())
             .await;
         }
@@ -784,14 +816,15 @@ impl ExecutionEngine {
         }
         if let Some(ref pool) = self.pool {
             let _ = sqlx::query(
-                "INSERT INTO automation_activity (instance_id, symbol, ts_ms, event, detail) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO automation_activity (instance_id, symbol, ts_ms, event, detail, session_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )
             .bind(instance_id)
             .bind(symbol)
             .bind(ts as i64)
             .bind(event)
             .bind(detail)
+            .bind(self.current_session_id().await)
             .execute(pool.as_ref())
             .await;
         }

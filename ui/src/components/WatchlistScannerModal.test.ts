@@ -101,6 +101,39 @@ describe('WatchlistScannerModal — input phase', () => {
         expect(continueBtn.disabled).toBe(true);
     });
 
+    it('renders the wait-window input defaulting to 5 minutes', () => {
+        render(WatchlistScannerModal, {
+            props: { isOpen: true, wssMap: {}, onclose: () => {} },
+        });
+        const waitInput = screen.getByLabelText('Wait window (minutes)') as HTMLInputElement;
+        expect(waitInput).toBeTruthy();
+        expect(waitInput.value).toBe('5');
+        expect(waitInput.min).toBe('1');
+        expect(waitInput.max).toBe('60');
+    });
+
+    it('passes the configured wait window (minutes → ms) to waitForAdvisory', async () => {
+        mockCreateInstance.mockResolvedValue({ ok: true, instanceId: 'inst_btc' });
+        mockWaitForAdvisory.mockResolvedValue({ status: 'TIMEOUT', waitedMs: 420_000 });
+
+        render(WatchlistScannerModal, {
+            props: { isOpen: true, wssMap: {}, onclose: () => {} },
+        });
+        const waitInput = screen.getByLabelText('Wait window (minutes)') as HTMLInputElement;
+        await fireEvent.input(waitInput, { target: { value: '7' } });
+        const textarea = screen.getByLabelText('Watchlist symbols') as HTMLTextAreaElement;
+        await fireEvent.input(textarea, { target: { value: 'BTC' } });
+        await fireEvent.click(screen.getByText('Continue'));
+
+        await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
+        // 7 minutes → 420,000 ms window.
+        expect(mockWaitForAdvisory).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.any(String),
+            420_000,
+        );
+    });
+
     it('shows session-not-ready banner when session is inactive', () => {
         const app = useAppStore();
         app.sessionActive = false;

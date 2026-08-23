@@ -144,6 +144,8 @@ interface ExportSignal {
     label: string;
     strength: number;
     age_bars: number | undefined;
+    /** v9: WEAK / MODERATE / STRONG / EXTREME per the strategy's `l1.signals.strength_buckets`. */
+    strength_label: string | undefined;
 }
 
 interface OpportunityExport {
@@ -477,6 +479,7 @@ function extractIndicatorsForExport(
             label: s.label,
             strength: s.strength,
             age_bars: s.age_bars,
+            strength_label: s.strength_label,
         }));
         // Phase 8: count unique signal labels (not raw signal objects).
         // This matches the UI's SIGNALS badge count in the FacetTabs.

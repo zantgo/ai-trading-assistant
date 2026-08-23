@@ -259,7 +259,7 @@
 
     function signalCellTooltip(cell: MtfSignalCell): string {
         const lines = cell.entries.map((e) =>
-            `${e.displayName} — ${e.signal.label} (str ${(e.signal.strength * 100).toFixed(0)} · ${e.signal.status} · age ${ageLabel(e.signal.age_bars)})`,
+            `${e.displayName} — ${e.signal.label} (${e.signal.strength_label ?? 'str ' + (e.signal.strength * 100).toFixed(0)} · ${e.signal.status} · age ${ageLabel(e.signal.age_bars)})`,
         );
         return lines.length > 0 ? lines.join('\n') : 'no active signals of this kind';
     }

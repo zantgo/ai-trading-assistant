@@ -339,6 +339,7 @@ pub async fn run_historical_backtest(
     let total_events = events.len().max(1) as f32;
 
     let mut trades: Vec<BacktestTrade> = Vec::new();
+    let mut entry_ts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut equity_points: Vec<(i64, f64)> = Vec::new();
     let mut signals: Vec<database_storage::queries::backtest_ds::DsSignal> = Vec::new();
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
@@ -367,6 +368,10 @@ pub async fn run_historical_backtest(
             )
         })
         .collect();
+
+    // v10 (A15): the latest completed bias per run symbol — the replay's
+    // analog of the live L7 breadth feed (strategy intake gates).
+    let mut latest_bias: HashMap<String, Option<MarketBias>> = HashMap::new();
 
     // Simulated 8h funding clock: settle at every multiple of
     // FUNDING_INTERVAL_SECS crossed by the replay clock.
@@ -464,6 +469,7 @@ pub async fn run_historical_backtest(
         mtf.prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
         mtf.prev_bias = Some(synthesis.analysis.bias);
         mtf_states.insert(ev.symbol.clone(), mtf);
+        latest_bias.insert(ev.symbol.clone(), Some(synthesis.analysis.bias));
 
         // Confluence score — the same unsigned 3-factor blend as live.
         let confluence_score = {
@@ -513,8 +519,72 @@ pub async fn run_historical_backtest(
         let safety_allows =
             safety_state != SafetyState::DrawdownStop && safety_state != SafetyState::Suspended;
 
+        // v10 (A15): full strategy gates on the simulated portfolio —
+        // breadth/systemic intake gates + PME exposure/margin gates, the
+        // same `strategy_gates` functions the daemon applies live. The
+        // replay has no L7 synthesis, so breadth is the cross-symbol bias
+        // share and the systemic veto is inert (0.0 — no shipped
+        // threshold blocks at 0).
+        let breadth_pct = breadth_from_biases(&latest_bias, run_cfg.symbols.len());
+        let (intake_allows, intake_block) =
+            portfolio_supervisor::strategy_gates::evaluate_intake_gates(
+                &run_cfg.strategy,
+                breadth_pct,
+                0.0,
+            );
+        let (portfolio_allows, portfolio_block) = {
+            let equity = engine.get_equity_decimal().await;
+            let positions = engine.positions.read().await;
+            let leverage = *engine.cross_leverage.read().await as f64;
+            let gross: f64 = positions
+                .values()
+                .map(|p| {
+                    let size = p.size.to_f64().unwrap_or(0.0);
+                    let px = p.entry_price.to_f64().unwrap_or(0.0);
+                    size * px
+                })
+                .sum();
+            let single: f64 = positions
+                .get(ev.symbol.as_str())
+                .map(|p| {
+                    let size = p.size.to_f64().unwrap_or(0.0);
+                    let px = p.entry_price.to_f64().unwrap_or(0.0);
+                    size * px
+                })
+                .unwrap_or(0.0);
+            drop(positions);
+            let equity_f = equity.to_f64().unwrap_or(0.0);
+            if equity_f > 0.0 {
+                let single_pct = single / equity_f * 100.0;
+                let portfolio_pct = gross / equity_f * 100.0;
+                let margin_ratio = (gross / leverage.max(1.0)) / equity_f;
+                portfolio_supervisor::strategy_gates::evaluate_portfolio_gates(
+                    &run_cfg.strategy,
+                    single_pct,
+                    portfolio_pct,
+                    margin_ratio,
+                )
+            } else {
+                (true, None)
+            }
+        };
+        let market_filter_allows = intake_allows && portfolio_allows;
+        let block_reason = intake_block.or(portfolio_block);
+        if let Some(reason) = &block_reason {
+            let _ = engine
+                .log_activity("backtest-historical", &ev.symbol, "entry_blocked", reason)
+                .await;
+        }
+
         let mid = snap.mid_price;
         let rec_ts = snap.timestamp;
+        // v10: track entry timestamps runner-side (the engine's
+        // `opened_at_ms` is wall-clock during replay).
+        if !entry_ts.contains_key(&ev.symbol)
+            && engine.get_position(&ev.symbol).await.is_some()
+        {
+            entry_ts.insert(ev.symbol.clone(), rec_ts as i64);
+        }
         let outcome = run_tick(
             &engine,
             &executor,
@@ -525,8 +595,8 @@ pub async fn run_historical_backtest(
             TickContext {
                 safety_allows_entry: safety_allows,
                 lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                market_filter_allows_entry: market_filter_allows,
+                entry_block_reason: block_reason,
                 candle_ts: rec_ts,
                 safety: Some(safety.clone()),
                 dispatch: true,
@@ -561,6 +631,18 @@ pub async fn run_historical_backtest(
             } else {
                 entry
             };
+            // v10 enrichment: entry ts from the runner-side map (the
+            // engine's `opened_at_ms` is wall-clock in replay), MFE/MAE
+            // from the outcome, ROI from the ledger.
+            // Fallback: a position opened and closed within THIS bar was
+            // never observed by the per-tick tracker — stamp the current bar.
+            let ts_entry = entry_ts.remove(&ev.symbol).unwrap_or(rec_ts as i64);
+            let hold_secs = if ts_entry > 0 { snap.timestamp as i64 - ts_entry } else { 0 };
+            let roi_pct = if entry > 0.0 && size > 0.0 {
+                close.pnl.to_f64().unwrap_or(0.0) / (entry * size) * 100.0
+            } else {
+                0.0
+            };
             trades.push(BacktestTrade {
                 timestamp: snap.timestamp as i64,
                 direction: direction.to_string(),
@@ -569,6 +651,11 @@ pub async fn run_historical_backtest(
                 size,
                 pnl: close.pnl.to_f64().unwrap_or(0.0),
                 exit_reason: close.exit_reason.clone(),
+                ts_entry_secs: ts_entry,
+                hold_secs,
+                mfe_pct: outcome.last_close_mfe_pct.unwrap_or(0.0),
+                mae_pct: outcome.last_close_mae_pct.unwrap_or(0.0),
+                roi_pct,
             });
         }
 
@@ -656,6 +743,15 @@ pub async fn run_historical_backtest(
                 Some(config_models::Direction::Short) => "SHORT",
                 None => "UNKNOWN",
             };
+            // Fallback: a position opened on the FINAL bar was never
+            // observed by the per-tick tracker — stamp the final bar.
+            let ts_entry = entry_ts.remove(&symbol).unwrap_or(last_ts as i64);
+            let hold_secs = if ts_entry > 0 { last_ts as i64 - ts_entry } else { 0 };
+            let roi_pct = if entry > 0.0 && size > 0.0 {
+                pnl / (entry * size) * 100.0
+            } else {
+                0.0
+            };
             trades.push(BacktestTrade {
                 timestamp: last_ts as i64,
                 direction: direction_str.to_string(),
@@ -664,6 +760,11 @@ pub async fn run_historical_backtest(
                 size,
                 pnl,
                 exit_reason: "end_of_backtest".to_string(),
+                ts_entry_secs: ts_entry,
+                hold_secs,
+                mfe_pct: 0.0,
+                mae_pct: 0.0,
+                roi_pct,
             });
             equity_points.push((
                 last_ts as i64,
@@ -806,6 +907,31 @@ fn latest_at_or_before(series: &[MarketSnapshot], t: u64) -> Option<&MarketSnaps
         Err(idx) if idx > 0 => Some(&series[idx - 1]),
         _ => series.first().filter(|s| s.timestamp <= t),
     }
+}
+
+/// v10 (A15): replay-breadth = the share of run symbols whose latest
+/// completed bias is directional (non-neutral) — the historical analog of
+/// the live L7 `breadth_pct` intake feed. Unseen symbols count as neutral.
+fn breadth_from_biases(
+    latest_bias: &std::collections::HashMap<String, Option<MarketBias>>,
+    total_symbols: usize,
+) -> f64 {
+    if total_symbols == 0 {
+        return 0.0;
+    }
+    let directional = latest_bias
+        .values()
+        .filter(|b| {
+            matches!(
+                b,
+                Some(MarketBias::Bullish)
+                    | Some(MarketBias::Bearish)
+                    | Some(MarketBias::StrongBullish)
+                    | Some(MarketBias::StrongBearish)
+            )
+        })
+        .count();
+    directional as f64 / total_symbols as f64 * 100.0
 }
 
 #[cfg(test)]
@@ -1046,6 +1172,80 @@ mod tests {
                 t.exit_reason
             );
         }
+    }
+
+    #[test]
+    fn breadth_from_biases_counts_directional_share() {
+        use std::collections::HashMap;
+        let mut b: HashMap<String, Option<MarketBias>> = HashMap::new();
+        assert_eq!(breadth_from_biases(&b, 4), 0.0, "unseen symbols are neutral");
+        b.insert("A".into(), Some(MarketBias::Bullish));
+        b.insert("B".into(), Some(MarketBias::Neutral));
+        b.insert("C".into(), Some(MarketBias::StrongBearish));
+        b.insert("D".into(), None);
+        assert_eq!(breadth_from_biases(&b, 4), 50.0);
+        assert_eq!(breadth_from_biases(&b, 2), 100.0);
+    }
+
+    #[tokio::test]
+    async fn strategy_breadth_floor_blocks_entries_in_replay() {
+        let pool = seed_pool().await;
+        let tf = 900u64;
+        let candles = synthetic_days(2, tf, 0.0);
+        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill")
+            .await;
+
+        let from = candles.first().unwrap().start_time_ms / 1000 + 60 * tf;
+        let to = candles.last().unwrap().start_time_ms / 1000;
+        let params = BacktestParams {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: tf,
+            from_secs: from as i64,
+            to_secs: to as i64,
+            portfolio_capital_usd: 1000.0,
+        };
+
+        // A breadth floor above any possible breadth (≤ 100) blocks every
+        // entry — the intake gate is wired into the replay. (The blocking
+        // semantics themselves are unit-tested at the executor level; here
+        // we verify the runner feeds the gate and completes cleanly.)
+        let mut cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
+        cfg.strategy.l7.breadth_entry_floor = Some(101.0);
+        let gated = run(&pool, &params, &cfg).await;
+        assert!(!gated.cancelled);
+        assert_eq!(gated.total_trades, 0, "breadth floor blocks all entries");
+        // Deterministic under the gate.
+        let gated2 = run(&pool, &params, &cfg).await;
+        assert_eq!(gated.total_trades, gated2.total_trades);
+        assert_eq!(gated.equity_curve.len(), gated2.equity_curve.len());
+    }
+
+    #[tokio::test]
+    async fn strategy_margin_close_only_gate_blocks_entries_in_replay() {
+        let pool = seed_pool().await;
+        let tf = 900u64;
+        let candles = synthetic_days(2, tf, 0.0);
+        database_storage::queries::archive::upsert_archive_candles(&pool, &candles, "backfill")
+            .await;
+
+        let from = candles.first().unwrap().start_time_ms / 1000 + 60 * tf;
+        let to = candles.last().unwrap().start_time_ms / 1000;
+        let params = BacktestParams {
+            symbol: "BTC-USDC".into(),
+            timeframe_secs: tf,
+            from_secs: from as i64,
+            to_secs: to as i64,
+            portfolio_capital_usd: 1000.0,
+        };
+
+        // Margin close-only band at 0.0: any margin ratio (≥ 0) trips the
+        // portfolio gate → every entry blocked in the replay.
+        let mut cfg = run_cfg(vec![symbol_spec("BTC-USDC", vec![tf])]);
+        cfg.strategy.pme.capital.enforce_margin_close_only = true;
+        cfg.strategy.pme.capital.margin_alert_bands.close_only = 0.0;
+        let gated = run(&pool, &params, &cfg).await;
+        assert!(!gated.cancelled);
+        assert_eq!(gated.total_trades, 0, "margin gate blocks all entries");
     }
 
     #[tokio::test]

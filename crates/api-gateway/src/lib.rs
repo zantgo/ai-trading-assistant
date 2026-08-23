@@ -95,6 +95,11 @@ pub struct AppState {
     /// unaffected).
     pub snapshot_export_manual_tick: Arc<tokio::sync::Notify>,
 
+    // ── v10 session identity ───────────────────────────────────────
+    /// The current session id (monotonic, persisted). `None` before the
+    /// session is created at boot.
+    pub session_id: Arc<RwLock<Option<i64>>>,
+
     // ── Backtesting Engine (BTE, v8) ───────────────────────────────
     /// Single-run lock + live backfill progress registry. The BTE runs one
     /// backtest at a time; concurrent runs return 409.
@@ -286,6 +291,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/session/status",
             get(handlers::session::serve_session_status),
+        )
+        .route(
+            "/api/sessions",
+            get(handlers::session::serve_sessions_list),
+        )
+        .route(
+            "/api/sessions/:id/analytics",
+            get(handlers::analytics::serve_session_analytics),
+        )
+        .route(
+            "/api/analytics/comparison",
+            get(handlers::analytics::serve_analytics_comparison),
         )
         .route(
             "/api/session/init",
@@ -550,6 +567,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/backtest/archive/cancel/:id",
             post(handlers::backtest::serve_backfill_cancel),
+        )
+        .route(
+            "/api/backtest/:id/input_bars",
+            get(handlers::analytics::serve_backtest_input_bars),
         )
         .route(
             "/api/backtest/:id/trades",

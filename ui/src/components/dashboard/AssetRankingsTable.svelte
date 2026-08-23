@@ -1,14 +1,20 @@
 <script lang="ts">
-    // AssetRankingsTable — 11-column leaderboard with sortable column
+    // AssetRankingsTable — 15-column leaderboard with sortable column
     // headers. Default sort is by `opportunityScore` descending — the
     // operator's first question after a glance at the hero is "which
     // pair is best?"
     //
-    // Columns: Symbol, Price, Bias, Signal, Direction, Risk/Reward,
-    //          Score, Confidence, MTF Score, MTF Label, Risk, Updated.
+    // Columns: Symbol, Price, Bias, Signal, Direction, Score, Confidence,
+    //          MTF Score, MTF Label, Risk, Entry, Target, Stop,
+    //          Risk/Reward, Updated.
+    //
+    // The ENTRY / TARGET / STOP columns render the top-setup of the
+    // Opportunity Layer (server-computed `overview_rows` fields; the local
+    // warmup fallback derives them through `topSetupSummary`). Risk/Reward
+    // sits directly after the setup block so the bracket reads as one unit.
     import { useAppStore } from '../../state.svelte';
     import { formatRelativeTime } from '../../lib/relTime';
-    import { resolveActiveRr, topQualifyingProfile } from '../../lib/decisionRank';
+    import { resolveActiveRr, topQualifyingProfile, topSetupSummary } from '../../lib/decisionRank';
     import { normalizeViability } from '../../lib/viability';
     import {
         biasColor,
@@ -24,7 +30,7 @@
 
     const app = useAppStore();
 
-    type SortKey = 'symbol' | 'price' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label' | 'risk' | 'updated';
+    type SortKey = 'symbol' | 'price' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label' | 'risk' | 'entry' | 'target' | 'stop' | 'updated';
     type SortDir = 'asc' | 'desc';
     let sortKey = $state<SortKey>('score');
     let sortDir = $state<SortDir>('desc');
@@ -47,8 +53,37 @@
         mtf_score: number;
         mtf_label: string;
         risk: number;
+        entry: string;
+        target: string;
+        stop: string;
+        entryLow: number;
+        targetLow: number;
+        stopLevel: number;
         updatedMs: number | null;
         connected: boolean;
+    }
+
+    /** Compact price-level formatter for the setup columns — "—" for N/A. */
+    function fmtLevel(v: number): string {
+        if (!v || v <= 0) return '—';
+        const digits = v >= 100 ? 2 : v >= 1 ? 4 : 6;
+        return v.toLocaleString('en-US', { maximumFractionDigits: digits });
+    }
+
+    /** Zone range renderer ("63,200–63,400"); "—" when the bracket is absent. */
+    function fmtZone(low: number, high: number): string {
+        if (!low || low <= 0 || !high || high <= 0) return '—';
+        const a = fmtLevel(low);
+        const b = fmtLevel(high);
+        return a === b ? a : `${a}–${b}`;
+    }
+
+    /** Numeric sort value for the setup columns (raw levels, not display). */
+    function sortVal(r: Row, k: SortKey): number | string {
+        if (k === 'entry') return r.entryLow;
+        if (k === 'target') return r.targetLow;
+        if (k === 'stop') return r.stopLevel;
+        return (r as any)[k];
     }
 
     /**
@@ -100,14 +135,20 @@
                 mtf_score: r.mtf_score ?? 0,
                 mtf_label: r.mtf_label ?? 'NO_DATA',
                 risk: r.risk ?? 0,
+                entry: fmtZone(r.entry_low ?? 0, r.entry_high ?? 0),
+                target: fmtZone(r.target_low ?? 0, r.target_high ?? 0),
+                stop: fmtLevel(r.invalidation ?? 0),
+                entryLow: r.entry_low ?? 0,
+                targetLow: r.target_low ?? 0,
+                stopLevel: r.invalidation ?? 0,
                 updatedMs: r.updated_ts ? r.updated_ts * 1000 : null,
                 connected: r.active,
             }));
             // Sort, mirroring the local path below.
             const sdir = sortDir === 'asc' ? 1 : -1;
             serverOut.sort((a, b) => {
-                const av = (a as any)[sortKey];
-                const bv = (b as any)[sortKey];
+                const av = sortVal(a, sortKey);
+                const bv = sortVal(b, sortKey);
                 const an = typeof av === 'string' ? Number(av.replace(/,/g, '')) : Number(av);
                 const bn = typeof bv === 'string' ? Number(bv.replace(/,/g, '')) : Number(bv);
                 if (Number.isFinite(an) && Number.isFinite(bn)) {
@@ -171,6 +212,12 @@
             // 0.10 meaningfulness floor). `0` renders "—" in the column.
             const rrResolved = resolveActiveRr(opp, inst.decisionContext, analysis);
             const rr = rrResolved.available ? rrResolved.value : 0;
+            // Top-setup of the Opportunity Layer — entry / target / stop
+            // zones through the same `topSetupSummary` derivation the
+            // Recommendation panel uses (server-computed rows win when the
+            // L7 payload is present).
+            const setup = topSetupSummary(opp, analysis, inst.decisionContext, undefined, undefined);
+            const setupZones = setup?.zones ?? null;
             const confidence = adv?.confidence_assessment ?? 0;
             const riskScore = risk?.overall_risk?.score ?? 0;
             const mtfScore = aln?.mtf_overall_score ?? 0;
@@ -189,6 +236,12 @@
                 mtf_score: mtfScore,
                 mtf_label: mtfLabel,
                 risk: riskScore,
+                entry: setupZones ? fmtZone(setupZones.entry.low, setupZones.entry.high) : '—',
+                target: setupZones ? fmtZone(setupZones.target.low, setupZones.target.high) : '—',
+                stop: setupZones && setupZones.invalidation > 0 ? fmtLevel(setupZones.invalidation) : '—',
+                entryLow: setupZones?.entry.low ?? 0,
+                targetLow: setupZones?.target.low ?? 0,
+                stopLevel: setupZones?.invalidation ?? 0,
                 updatedMs: ts,
                 connected: inst.isConnected,
             });
@@ -199,8 +252,8 @@
         // when both values parse as finite numbers.
         const dir = sortDir === 'asc' ? 1 : -1;
         out.sort((a, b) => {
-            const av = (a as any)[sortKey];
-            const bv = (b as any)[sortKey];
+            const av = sortVal(a, sortKey);
+            const bv = sortVal(b, sortKey);
             const an = typeof av === 'string' ? Number(av.replace(/,/g, '')) : Number(av);
             const bn = typeof bv === 'string' ? Number(bv.replace(/,/g, '')) : Number(bv);
             if (Number.isFinite(an) && Number.isFinite(bn)) {
@@ -252,12 +305,15 @@
                     <th class={styles.th} onclick={() => toggleSort('bias')}>Bias{arrow('bias')}</th>
                     <th class={styles.th} onclick={() => toggleSort('signal')}>Signal{arrow('signal')}</th>
                     <th class={styles.th} onclick={() => toggleSort('direction')}>Direction{arrow('direction')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('rr')}>Risk/Reward{arrow('rr')}</th>
                     <th class={styles.th} onclick={() => toggleSort('score')}>Score{arrow('score')}</th>
                     <th class={styles.th} onclick={() => toggleSort('confidence')}>Confidence{arrow('confidence')}</th>
                     <th class={styles.th} onclick={() => toggleSort('mtf_score')}>MTF Score{arrow('mtf_score')}</th>
                     <th class={styles.th} onclick={() => toggleSort('mtf_label')}>MTF Label{arrow('mtf_label')}</th>
                     <th class={styles.th} onclick={() => toggleSort('risk')}>Risk{arrow('risk')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('entry')}>Entry{arrow('entry')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('target')}>Target{arrow('target')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
+                    <th class={styles.th} onclick={() => toggleSort('rr')}>Risk/Reward{arrow('rr')}</th>
                     <th class={styles.th} onclick={() => toggleSort('updated')}>Updated{arrow('updated')}</th>
                 </tr>
             </thead>
@@ -293,6 +349,10 @@
                         <td class={styles.td} style="color: {r.risk >= 60 ? '#ef4444' : r.risk >= 40 ? '#f59e0b' : '#22c55e'}">
                             {r.risk.toFixed(0)}
                         </td>
+                        <td class={styles.tdMono} title={r.entry !== '—' ? 'Top setup entry zone' : undefined}>{r.entry}</td>
+                        <td class={styles.tdMono} title={r.target !== '—' ? 'Top setup target (take profit) zone' : undefined}>{r.target}</td>
+                        <td class={styles.tdMono} title={r.stop !== '—' ? 'Top setup stop loss' : undefined}>{r.stop}</td>
+                        <td class={styles.td} style="color: {rrColor(r.rr)}">{formatRewardRatio(r.rr)}</td>
                         <td class={styles.tdUpdated}>{rel(r.updatedMs)}</td>
                     </tr>
                 {/each}

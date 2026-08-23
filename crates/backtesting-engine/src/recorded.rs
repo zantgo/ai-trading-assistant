@@ -57,6 +57,17 @@ pub struct BacktestTrade {
     pub size: f64,
     pub pnl: f64,
     pub exit_reason: String,
+    /// v10 enrichment: entry timestamp (secs), hold time, MFE/MAE, ROI.
+    #[serde(default)]
+    pub ts_entry_secs: i64,
+    #[serde(default)]
+    pub hold_secs: i64,
+    #[serde(default)]
+    pub mfe_pct: f64,
+    #[serde(default)]
+    pub mae_pct: f64,
+    #[serde(default)]
+    pub roi_pct: f64,
 }
 
 /// The full backtest result: classic metrics + the NHST block + trades +
@@ -131,6 +142,9 @@ fn snap_to_market(symbol: &str, rec: &RecordedSnapshot) -> core_domain::models::
 
 /// Run a backtest over recorded snapshots with the unchanged executor +
 /// unified paper engine. Deterministic: identical inputs ⇒ identical result.
+///
+/// v10: the run's bound strategy flows into the executor tick (parity with
+/// the historical runner and live) — the TAE lifecycle dials replay exactly.
 pub async fn run_backtest(
     pool: &SqlitePool,
     params: &BacktestParams,
@@ -138,6 +152,7 @@ pub async fn run_backtest(
     fees: &FeesConfig,
     cross_leverage: u32,
     analytics: performance_analytics::strategy_analytics::AnalyticsParams,
+    strategy: &config_models::StrategyConfig,
 ) -> BacktestResult {
     let records = database_storage::queries::snapshots::query_backtest_snapshots(
         pool,
@@ -159,6 +174,7 @@ pub async fn run_backtest(
 
     let mut trades: Vec<BacktestTrade> = Vec::new();
     let mut equity_points: Vec<(i64, f64)> = Vec::new();
+    let mut entry_ts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut signals: Vec<database_storage::queries::backtest_ds::DsSignal> = Vec::new();
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
     let mut peak_equity: f64 = params.portfolio_capital_usd;
@@ -172,6 +188,11 @@ pub async fn run_backtest(
         // close outcome between fills and the executor tick so the trade
         // log records every simulated close. The executor consumes
         // `take_last_close` afterwards exactly as it does live.
+        if !entry_ts.contains_key(&params.symbol)
+            && engine.get_position(&params.symbol).await.is_some()
+        {
+            entry_ts.insert(params.symbol.clone(), rec.timestamp);
+        }
         let outcome = portfolio_supervisor::execution::session_tick::run_tick(
             &engine,
             &executor,
@@ -188,7 +209,7 @@ pub async fn run_backtest(
                 safety: None,
                 dispatch: true,
                 allocation_pct: None,
-                strategy: None,
+                strategy: Some(strategy.clone()),
             },
             None,
             true,
@@ -218,6 +239,15 @@ pub async fn run_backtest(
             } else {
                 entry
             };
+            // Fallback: a position opened and closed within THIS bar was
+            // never observed by the per-tick tracker — stamp the current bar.
+            let ts_entry = entry_ts.remove(&params.symbol).unwrap_or(rec.timestamp);
+            let hold_secs = if ts_entry > 0 { rec.timestamp - ts_entry } else { 0 };
+            let roi_pct = if entry > 0.0 && size > 0.0 {
+                close.pnl.to_f64().unwrap_or(0.0) / (entry * size) * 100.0
+            } else {
+                0.0
+            };
             trades.push(BacktestTrade {
                 timestamp: rec.timestamp,
                 direction: direction.to_string(),
@@ -226,6 +256,11 @@ pub async fn run_backtest(
                 size,
                 pnl: close.pnl.to_f64().unwrap_or(0.0),
                 exit_reason: close.exit_reason.clone(),
+                ts_entry_secs: ts_entry,
+                hold_secs,
+                mfe_pct: outcome.last_close_mfe_pct.unwrap_or(0.0),
+                mae_pct: outcome.last_close_mae_pct.unwrap_or(0.0),
+                roi_pct,
             });
         }
 
@@ -624,6 +659,7 @@ mod tests {
             &FeesConfig::default(),
             20,
             performance_analytics::strategy_analytics::AnalyticsParams::default(),
+            &config_models::StrategyConfig::default(),
         )
         .await;
 
@@ -669,6 +705,7 @@ mod tests {
             &FeesConfig::default(),
             20,
             performance_analytics::strategy_analytics::AnalyticsParams::default(),
+            &config_models::StrategyConfig::default(),
         )
         .await;
         assert_eq!(result.total_trades, 0);
@@ -677,5 +714,45 @@ mod tests {
             result.stats.classification,
             core_domain::performance::PerformanceClassification::InsufficientData
         );
+    }
+
+    #[tokio::test]
+    async fn strict_setup_gone_closes_with_setup_gone_reason() {
+        let pool = seed_pool().await;
+        for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0)] {
+            database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
+        }
+        // Neutral candle: the actionable setup disappears.
+        let mut neutral = long_snapshot(1002, 94.0);
+        neutral.analysis.as_mut().unwrap().bias = MarketBias::Neutral;
+        neutral.opportunity.as_mut().unwrap().profiles = vec![];
+        neutral
+            .opportunity
+            .as_mut()
+            .unwrap()
+            .primary_opportunity = OpportunityType::NoClearOpportunity;
+        database_storage::insert_snapshot_internal(&pool, &neutral).await;
+
+        let params = BacktestParams {
+            symbol: "BTC-USDC".to_string(),
+            timeframe_secs: 60,
+            from_secs: 0,
+            to_secs: 10_000,
+            portfolio_capital_usd: 1000.0,
+        };
+        let mut strategy = config_models::StrategyConfig::default();
+        strategy.tae.risk.setup_gone_policy = "strict".into();
+        let result = run_backtest(
+            &pool,
+            &params,
+            &tae_cfg(),
+            &FeesConfig::default(),
+            20,
+            performance_analytics::strategy_analytics::AnalyticsParams::default(),
+            &strategy,
+        )
+        .await;
+        assert_eq!(result.total_trades, 1, "strict posture closes the open position");
+        assert_eq!(result.trades[0].exit_reason, "setup_gone");
     }
 }

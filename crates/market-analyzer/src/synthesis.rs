@@ -49,6 +49,10 @@ pub struct OpportunityParams {
     pub zones: L4ZoneParams,
     /// Confluent source weights keyed by `LevelSource` debug name.
     pub confluence_weights: std::collections::HashMap<String, f64>,
+    /// v9 (strategy `l1_5.signal_weights`): the 11-kind trust axis,
+    /// multiplying each discrete signal's contribution to the L4
+    /// signal-strength factor. Empty = all 1.0 (v8.2 behavior).
+    pub signal_weights: std::collections::HashMap<String, f64>,
 }
 
 /// Per-setup-type precondition thresholds (defaults = the pre-v9 tree).
@@ -281,6 +285,7 @@ impl Default for OpportunityParams {
             quality_bands: [85.0, 70.0, 50.0, 30.0],
             zones: L4ZoneParams::default(),
             confluence_weights: default_confluence_weights(),
+            signal_weights: std::collections::HashMap::new(),
         }
     }
 }
@@ -387,7 +392,14 @@ fn compute_candidate_score(
         let mut count = 0;
         for v in signals.values() {
             for s in &v.signals {
-                total_strength += s.strength.min(1.0);
+                // v9: the strategy's `l1_5.signal_weights` trust axis
+                // multiplies each kind's contribution (default 1.0).
+                let kind_weight = params
+                    .signal_weights
+                    .get(&format!("{:?}", s.kind))
+                    .copied()
+                    .unwrap_or(1.0);
+                total_strength += s.strength.min(1.0) * kind_weight;
                 count += 1;
             }
         }

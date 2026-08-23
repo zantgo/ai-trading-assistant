@@ -209,6 +209,8 @@ pub async fn add_instance(
         .pme
         .safety
         .to_safety_config(config_guard.safety.systemic_risk_threshold);
+    // v9: the order-book surface follows the strategy's `l1.order_book`.
+    let ob_config_first = strategy_first.l1.order_book.to_order_book_config();
     drop(config_guard);
 
     let cancel = CancellationToken::new();

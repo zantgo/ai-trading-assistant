@@ -253,6 +253,7 @@ async fn build_test_router() -> (axum::Router, Arc<AppState>) {
         )),
 
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     });
     let router = api_gateway::build_router(state.clone());

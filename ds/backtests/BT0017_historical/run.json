@@ -1,0 +1,44 @@
+{
+  "backtest_id": 17,
+  "mode": "historical",
+  "params": {
+    "from_secs": 1787105310,
+    "portfolio_capital_usd": 1000.0,
+    "symbol": "BTC-USDT",
+    "timeframe_secs": 60,
+    "to_secs": 1787440110
+  },
+  "stats": {
+    "alpha": 0.05,
+    "average_loss": 0.09411276268125916,
+    "average_win": 1.600360601625164,
+    "avg_win_loss_ratio": 17.004713877598736,
+    "classification": "INSUFFICIENT_DATA",
+    "expectancy": 0.7531239194719525,
+    "gross_loss": 0.2823382880437775,
+    "gross_profit": 4.801081804875492,
+    "is_significant": false,
+    "loss_count": 3,
+    "monte_carlo_runs": 10000,
+    "p_mc": 0.1253,
+    "p_value": 0.035597944149583324,
+    "profit_factor": 17.004713877598736,
+    "setup_type": "BACKTEST",
+    "slippage_overhead": 0.0,
+    "t_statistic": 1.6937854712617169,
+    "total_trades": 6,
+    "win_count": 3,
+    "win_rate": 0.5
+  },
+  "summary": {
+    "expectancy": 0.7531239194719527,
+    "gross_loss": 0.2823382880437775,
+    "gross_profit": 4.801081804875492,
+    "loss_count": 3,
+    "max_drawdown_pct": 0.06678032848842937,
+    "profit_factor": 17.004713877598736,
+    "total_trades": 6,
+    "win_count": 3,
+    "win_rate": 50.0
+  }
+}

@@ -2,7 +2,7 @@ use core_domain::models::MarketSnapshot;
 use core_domain::normalized::Exchange;
 use sqlx::SqlitePool;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TelemetryMsg {
     InsertSnapshot(Box<MarketSnapshot>),
     InsertIndividualLog {
@@ -119,6 +119,7 @@ pub async fn run_telemetry_logger(
     mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>,
     liquidation_retention_days: u32,
     archive_depth_days: u32,
+    session_id: Option<i64>,
 ) {
     println!("Telemetry & Logging Worker: Background log thread running.");
 
@@ -137,7 +138,13 @@ pub async fn run_telemetry_logger(
         }
         match msg {
             TelemetryMsg::InsertSnapshot(snapshot) => {
-                crate::queries::snapshots::insert_snapshot_internal(&pool, &snapshot).await;
+                // v10: stamp the session id on every persisted snapshot.
+                crate::queries::snapshots::insert_snapshot_with_session(
+                    &pool,
+                    &snapshot,
+                    session_id,
+                )
+                .await;
             }
             TelemetryMsg::InsertIndividualLog { .. } => {
                 // No-op: master records migrated out

@@ -162,6 +162,21 @@ pub struct L1OrderBookParams {
     pub spread_wide_threshold_pct: f64,
 }
 
+impl L1OrderBookParams {
+    /// v9: the strategy's `l1.order_book` is the single source of truth for
+    /// the depth/imbalance/wall/spread surface. `to_order_book_config` maps
+    /// it onto the runtime `OrderBookConfig` the pipelines consume.
+    pub fn to_order_book_config(&self) -> crate::OrderBookConfig {
+        crate::OrderBookConfig {
+            depth_levels: self.depth_levels,
+            imbalance_threshold: self.imbalance_threshold,
+            wall_threshold: self.wall_threshold,
+            spread_warning_pct: self.spread_warning_pct,
+            spread_wide_threshold_pct: self.spread_wide_threshold_pct,
+        }
+    }
+}
+
 impl Default for L1OrderBookParams {
     fn default() -> Self {
         Self {
@@ -1971,6 +1986,14 @@ pub struct TaeLifecycle {
     pub max_per_direction: std::collections::HashMap<String, u32>,
     pub pending_entry_expiry_bars: Option<u32>,
     pub reentry_cooldown_bars: u32,
+    /// v10: behavior when a different setup type tops the ranking while an
+    /// entry is pending: `cancel_and_adopt` (cancel old, accept the
+    /// replacement same tick) | `cancel` (v9 behavior).
+    pub replace_policy: String,
+    /// v10: minimum price move (in source-TF ATR multiples) before a
+    /// pending entry is re-priced to a fresh same-direction setup
+    /// (0 = re-price every completed candle).
+    pub min_reprice_delta_atr: f64,
     pub daily: TaeDaily,
 }
 
@@ -1982,6 +2005,8 @@ impl Default for TaeLifecycle {
             max_per_direction: std::collections::HashMap::new(),
             pending_entry_expiry_bars: None,
             reentry_cooldown_bars: 1,
+            replace_policy: "cancel_and_adopt".into(),
+            min_reprice_delta_atr: 0.25,
             daily: TaeDaily::default(),
         }
     }
@@ -2066,13 +2091,24 @@ impl Default for TaeVolScale {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TaeExecution {
-    /// `zone_midpoint` (today) | `zone_edge` | `zone_upper` |
-    /// `zone_lower` | `market_on_ready`.
+    /// `zone_midpoint` | `zone_edge` | `zone_any` | `market_on_ready` |
+    /// `chase` (v10 — wired). `chase` submits a marketable limit when the
+    /// mid is within `chase_max_atr × ATR` of the entry zone AND the setup
+    /// scores ≥ `chase_score_floor` (conditional tolerance).
     pub entry_mode: String,
     pub spread_gate_bps: Option<f64>,
     pub slippage_bps: f64,
-    /// `take_better` (today) | `cancel`.
+    /// `take_better` | `cancel` (v10 — wired). `cancel` refuses the entry
+    /// when the limit would be marketable beyond the zone at dispatch.
     pub instant_fill_policy: String,
+    /// v10: max distance (in source-TF ATR multiples) at which the
+    /// `chase` entry mode may still chase the zone.
+    pub chase_max_atr: f64,
+    /// v10: minimum setup score for the `chase` entry mode (0..=100).
+    pub chase_score_floor: f64,
+    /// v10: where inside the target zone the 100 % TP limit sits:
+    /// `zone_near_edge` (conservative) | `zone_midpoint` | `zone_far_edge`.
+    pub tp_placement: String,
 }
 
 impl Default for TaeExecution {
@@ -2082,6 +2118,9 @@ impl Default for TaeExecution {
             spread_gate_bps: None,
             slippage_bps: 5.0,
             instant_fill_policy: "take_better".into(),
+            chase_max_atr: 0.5,
+            chase_score_floor: 75.0,
+            tp_placement: "zone_midpoint".into(),
         }
     }
 }
@@ -2090,12 +2129,35 @@ impl Default for TaeExecution {
 #[serde(default)]
 pub struct TaeRisk {
     pub invalidate_on: Vec<String>,
+    /// v10 — wired: close the position when the source-snapshot confidence
+    /// fell by ≥ pct (percentage points) vs the entry confidence.
     pub confidence_drop_pct: Option<f64>,
     pub breakeven_at_rr: Option<f64>,
     pub trailing: Option<TaeTrailing>,
     pub time_stop_bars: Option<u32>,
     /// `market` (today) | `pullback`.
     pub signal_exit: String,
+    /// v10 posture for setup-gone management (config + UI tri-state):
+    /// `balanced` (pending: keep until bar-expiry; open: hold behind
+    /// SL/TP/time-stop) | `strict` (cancel pending / close open at market,
+    /// `setup_gone`) | `risky` (pending: immortal; open: exit only on
+    /// opposite-direction flip). Default = `balanced`.
+    pub setup_gone_policy: String,
+    /// v10: TP refresh on an open position only when the fresh setup
+    /// improves net RR by ≥ this delta (0 = never refresh).
+    pub tp_refresh_min_rr_delta: f64,
+    /// v10 SL placement mode: `invalidation` (exact level) |
+    /// `invalidation_padded` (level ± `sl_padding_atr × ATR`) |
+    /// `atr_anchored` (entry ∓ `atr_anchor_mult × ATR`).
+    pub sl_mode: String,
+    /// v10: ATR padding applied to the invalidation level under
+    /// `sl_mode = invalidation_padded` (≥ 0; 0 = exact level).
+    pub sl_padding_atr: f64,
+    /// v10: ATR multiplier under `sl_mode = atr_anchored` (≥ 0.1).
+    pub atr_anchor_mult: f64,
+    /// v10 strict guard: skip the trade when the invalidation level sits
+    /// closer than `min_sl_atr × ATR` to the entry (null = never skip).
+    pub min_sl_atr: Option<f64>,
 }
 
 impl Default for TaeRisk {
@@ -2107,6 +2169,12 @@ impl Default for TaeRisk {
             trailing: None,
             time_stop_bars: None,
             signal_exit: "market".into(),
+            setup_gone_policy: "balanced".into(),
+            tp_refresh_min_rr_delta: 0.3,
+            sl_mode: "invalidation".into(),
+            sl_padding_atr: 0.0,
+            atr_anchor_mult: 1.5,
+            min_sl_atr: None,
         }
     }
 }
@@ -2507,6 +2575,69 @@ impl StrategyConfig {
         if !(1.0..=100.0).contains(&self.tae.sizing.allocation_pct) {
             problems.push("tae.sizing.allocation_pct must be 1..=100".into());
         }
+        // ── v10 TAE dial validation ──
+        const SETUP_GONE: &[&str] = &["balanced", "strict", "risky"];
+        const ENTRY_MODES: &[&str] =
+            &["zone_midpoint", "zone_edge", "zone_any", "market_on_ready", "chase"];
+        const FILL_POLICIES: &[&str] = &["take_better", "cancel"];
+        const REPLACE_POLICIES: &[&str] = &["cancel_and_adopt", "cancel"];
+        const SL_MODES: &[&str] = &["invalidation", "invalidation_padded", "atr_anchored"];
+        const TP_PLACEMENTS: &[&str] = &["zone_near_edge", "zone_midpoint", "zone_far_edge"];
+        if !SETUP_GONE.contains(&self.tae.risk.setup_gone_policy.as_str()) {
+            problems.push(format!(
+                "tae.risk.setup_gone_policy must be one of {SETUP_GONE:?}"
+            ));
+        }
+        if !ENTRY_MODES.contains(&self.tae.execution.entry_mode.as_str()) {
+            problems.push(format!(
+                "tae.execution.entry_mode must be one of {ENTRY_MODES:?}"
+            ));
+        }
+        if !FILL_POLICIES.contains(&self.tae.execution.instant_fill_policy.as_str()) {
+            problems.push(format!(
+                "tae.execution.instant_fill_policy must be one of {FILL_POLICIES:?}"
+            ));
+        }
+        if !REPLACE_POLICIES.contains(&self.tae.lifecycle.replace_policy.as_str()) {
+            problems.push(format!(
+                "tae.lifecycle.replace_policy must be one of {REPLACE_POLICIES:?}"
+            ));
+        }
+        if !SL_MODES.contains(&self.tae.risk.sl_mode.as_str()) {
+            problems.push(format!("tae.risk.sl_mode must be one of {SL_MODES:?}"));
+        }
+        if !TP_PLACEMENTS.contains(&self.tae.execution.tp_placement.as_str()) {
+            problems.push(format!(
+                "tae.execution.tp_placement must be one of {TP_PLACEMENTS:?}"
+            ));
+        }
+        if self.tae.risk.tp_refresh_min_rr_delta < 0.0 {
+            problems.push("tae.risk.tp_refresh_min_rr_delta must be ≥ 0".into());
+        }
+        if self.tae.risk.sl_padding_atr < 0.0 {
+            problems.push("tae.risk.sl_padding_atr must be ≥ 0".into());
+        }
+        if self.tae.risk.atr_anchor_mult < 0.1 {
+            problems.push("tae.risk.atr_anchor_mult must be ≥ 0.1".into());
+        }
+        if self.tae.risk.min_sl_atr.is_some_and(|k| k < 0.0) {
+            problems.push("tae.risk.min_sl_atr must be ≥ 0".into());
+        }
+        if self.tae.risk.confidence_drop_pct.is_some_and(|p| !(0.0..=100.0).contains(&p)) {
+            problems.push("tae.risk.confidence_drop_pct must be 0..=100".into());
+        }
+        if self.tae.execution.chase_max_atr <= 0.0 {
+            problems.push("tae.execution.chase_max_atr must be > 0".into());
+        }
+        if !(0.0..=100.0).contains(&self.tae.execution.chase_score_floor) {
+            problems.push("tae.execution.chase_score_floor must be 0..=100".into());
+        }
+        if self.tae.lifecycle.min_reprice_delta_atr < 0.0 {
+            problems.push("tae.lifecycle.min_reprice_delta_atr must be ≥ 0".into());
+        }
+        if self.tae.execution.spread_gate_bps.is_some_and(|b| b < 0.0) {
+            problems.push("tae.execution.spread_gate_bps must be ≥ 0".into());
+        }
         let alpha_pct = self.pae.verdict.alpha * 100.0;
         if !(0.0..=100.0).contains(&alpha_pct) || self.pae.verdict.alpha <= 0.0 {
             problems.push("pae.verdict.alpha must be in (0, 1]".into());
@@ -2599,5 +2730,75 @@ mod tests {
         assert!(s.l7.breadth_entry_floor.is_none());
         assert!(!s.pme.exposure.enforce.single_pair);
         assert!(!s.pme.enforce_systemic_veto);
+        // v10: the posture is the one deliberate semantic bump (balanced);
+        // every individual dial remains disable-friendly.
+        assert_eq!(s.tae.risk.setup_gone_policy, "balanced");
+        assert!(s.tae.risk.min_sl_atr.is_none());
+        assert!(s.tae.risk.confidence_drop_pct.is_none());
+    }
+
+    #[test]
+    fn v10_dial_defaults() {
+        let s = StrategyConfig::default();
+        assert_eq!(s.tae.execution.entry_mode, "zone_midpoint");
+        assert_eq!(s.tae.execution.instant_fill_policy, "take_better");
+        assert_eq!(s.tae.execution.chase_max_atr, 0.5);
+        assert_eq!(s.tae.execution.chase_score_floor, 75.0);
+        assert_eq!(s.tae.execution.tp_placement, "zone_midpoint");
+        assert_eq!(s.tae.lifecycle.replace_policy, "cancel_and_adopt");
+        assert_eq!(s.tae.lifecycle.min_reprice_delta_atr, 0.25);
+        assert_eq!(s.tae.risk.tp_refresh_min_rr_delta, 0.3);
+        assert_eq!(s.tae.risk.sl_mode, "invalidation");
+        assert_eq!(s.tae.risk.sl_padding_atr, 0.0);
+        assert_eq!(s.tae.risk.atr_anchor_mult, 1.5);
+    }
+
+    #[test]
+    fn v10_validation_rejects_bad_enums() {
+        let mut s = StrategyConfig::default();
+        s.tae.risk.setup_gone_policy = "wild".into();
+        s.tae.execution.entry_mode = "limit_at_moon".into();
+        s.tae.execution.instant_fill_policy = "maybe".into();
+        s.tae.lifecycle.replace_policy = "keep_both".into();
+        s.tae.risk.sl_mode = "vibes".into();
+        s.tae.execution.tp_placement = "anywhere".into();
+        let problems = s.validate();
+        assert!(problems.len() >= 6);
+        assert!(problems.iter().any(|p| p.contains("setup_gone_policy")));
+        assert!(problems.iter().any(|p| p.contains("entry_mode")));
+        assert!(problems.iter().any(|p| p.contains("instant_fill_policy")));
+        assert!(problems.iter().any(|p| p.contains("replace_policy")));
+        assert!(problems.iter().any(|p| p.contains("sl_mode")));
+        assert!(problems.iter().any(|p| p.contains("tp_placement")));
+    }
+
+    #[test]
+    fn v10_validation_rejects_bad_ranges() {
+        let mut s = StrategyConfig::default();
+        s.tae.risk.tp_refresh_min_rr_delta = -0.1;
+        s.tae.risk.sl_padding_atr = -1.0;
+        s.tae.risk.atr_anchor_mult = 0.0;
+        s.tae.execution.chase_max_atr = 0.0;
+        s.tae.execution.chase_score_floor = 250.0;
+        s.tae.lifecycle.min_reprice_delta_atr = -0.5;
+        let problems = s.validate();
+        assert!(problems.iter().any(|p| p.contains("tp_refresh_min_rr_delta")));
+        assert!(problems.iter().any(|p| p.contains("sl_padding_atr")));
+        assert!(problems.iter().any(|p| p.contains("atr_anchor_mult")));
+        assert!(problems.iter().any(|p| p.contains("chase_max_atr")));
+        assert!(problems.iter().any(|p| p.contains("chase_score_floor")));
+        assert!(problems.iter().any(|p| p.contains("min_reprice_delta_atr")));
+    }
+
+    #[test]
+    fn v10_knobs_round_trip_through_json() {
+        let s = StrategyConfig::default();
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(
+            json["tae"]["risk"]["setup_gone_policy"],
+            serde_json::json!("balanced")
+        );
+        let back: StrategyConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(back, s);
     }
 }

@@ -47,6 +47,19 @@ per-mode config fork. A backtest result therefore equals the paper result
   final replayed candle close with `exit_reason = "end_of_backtest"`, so
   backtest statistics cover every trade — no dangling unrealized
   positions.
+- **v10 — identical strategy dials**: historical and recorded replays
+  resolve the run's bound strategy JSON and pass it into the executor
+  tick (`recorded::run_backtest` gained the strategy param — previously
+  defaults). The lifecycle-hardening dials (posture, re-pricing, ratchet,
+  entry/exit strictness) replay exactly like paper.
+- **v10 — strategy intake gates in historical replay**: the historical
+  runner evaluates the same `evaluate_intake_gates` /
+  `evaluate_portfolio_gates` functions the daemon applies live, on the
+  simulated portfolio — breadth = the cross-symbol bias share, the
+  systemic veto is inert (no L7 synthesis in replay, documented), and
+  exposure/margin gates read the replayed engine ledger. The recorded
+  replay keeps gates off (replay parity — recorded decisions re-run
+  unchanged).
 
 ## 3. Documented boundaries
 
@@ -60,6 +73,10 @@ a backtest cannot model:
   snapshot per TF; the historical replay ticks once per completed candle
   of each symbol's smallest ladder TF, and fills evaluate at candle close
   (no intrabar path).
+- **Breadth semantics**: live breadth comes from the L7 Overview Matrix
+  (`breadth_pct`); the historical replay approximates it as the share of
+  run symbols with a directional bias — a single-symbol run is 100 % when
+  directional and 0 % when neutral.
 
 Paper↔backtest parity is exact; live is "same logic, real venue".
 
@@ -71,6 +88,10 @@ Paper↔backtest parity is exact; live is "same logic, real venue".
   multi-symbol timestamp ordering.
 - Parity fixtures: safety-ladder blocking, funding settle, end-of-run
   force-close, and paper↔backtest order-size identity.
+- **v10 gate fixtures**: breadth-floor and margin close-only strategies
+  block entries in the historical replay (`entry_blocked` logged,
+  deterministic under the gate); the executor-level market-filter block
+  unit test covers the reason-surfacing path.
 - The daemon loop body is the same `run_tick` call — the existing
   failover/liquidation/engine suites are the regression net for the
   refactor.

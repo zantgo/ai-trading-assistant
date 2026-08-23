@@ -5,6 +5,15 @@ use rust_decimal::Decimal;
 use sqlx::SqlitePool;
 
 pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
+    insert_snapshot_with_session(pool, snapshot, None).await;
+}
+
+/// v10: insert with an explicit session id (the live/paper telemetry path).
+pub async fn insert_snapshot_with_session(
+    pool: &SqlitePool,
+    snapshot: &MarketSnapshot,
+    session_id: Option<i64>,
+) {
     let sqz_on_db_val = snapshot.squeeze_on().map(|s| if s { 1 } else { 0 });
     let exchange_label = snapshot
         .exchange
@@ -92,8 +101,9 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             auxiliary_normalized_data,
             reconstructed,
             market_regime, opportunity_json, decision_context_json,
-            analysis_json, advisory_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95, ?96, ?97, ?98, ?99, ?100, ?101)"
+            analysis_json, advisory_json,
+            session_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83, ?84, ?85, ?86, ?87, ?88, ?89, ?90, ?91, ?92, ?93, ?94, ?95, ?96, ?97, ?98, ?99, ?100, ?101, ?102)"
     )
     .bind(&exchange_label)
     .bind(snapshot.timeframe_secs as i64)
@@ -222,6 +232,7 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     )
     .bind(snapshot.analysis.as_ref().and_then(|a| serde_json::to_string(a).ok()))
     .bind(snapshot.advisory.as_ref().and_then(|a| serde_json::to_string(a).ok()))
+    .bind(session_id)
     .execute(pool)
     .await
     {

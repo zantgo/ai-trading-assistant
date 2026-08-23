@@ -360,9 +360,21 @@
     to { transform: translateX(0); }
 }
 
+.sessionChip {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
 .sidebarBrand {
     display: flex;
     align-items: center;
+    gap: 10px;
     height: 52px;
     padding: 0 20px;
     font-size: 13px;

@@ -39,7 +39,7 @@ docs/
 └── operations-and-compliance/                      (9)   08-01 … 08-09
 ```
 
-**Total: 170 markdown files** = 167 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 155 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 154 spec files. The v7.2 parity release adds [01-10-cli-gui-parity.md](conceptual-foundations/01-10-cli-gui-parity.md) — the CLI ↔ GUI observe-mode parity contract (13 checks, §12.5 gate). The v7.3 release adds [07-07-engine-dashboard-vocabulary.md](ui-ux/07-07-engine-dashboard-vocabulary.md) — the engine dashboard vocabulary (tokens, layer tab order, per-mode tab maps, export contract).
+**Total: 174 markdown files** = 171 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). The 155 numbered docs include `ROADMAP.md` (introduced at v6.8) and the 154 spec files. The v7.2 parity release adds [01-10-cli-gui-parity.md](conceptual-foundations/01-10-cli-gui-parity.md) — the CLI ↔ GUI observe-mode parity contract (13 checks, §12.5 gate). The v7.3 release adds [07-07-engine-dashboard-vocabulary.md](ui-ux/07-07-engine-dashboard-vocabulary.md) — the engine dashboard vocabulary (tokens, layer tab order, per-mode tab maps, export contract).
 Engine specs: 40 = 8 DIE + 16 MME + 6 TAE + 5 PME + 5 PAE.
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer) → v6.4.2 = 142 (+03-02-14-mme-sub-min-tf-feasibility) → v6.5 = 147 → v6.6 = 147 (Bitget V2 derivatives + UI feed-state) → v6.7 = 147 (per-tab 1:1 export payload) → **v6.8 = 150** (+00-ROADMAP, +07-05-export-data-payload-schema, +01-08 corrections) (+01-08-candle-buffer-and-indicator-lifecycle, +03-01-06-die-candle-pipeline-states, +03-01-07-die-historical-fetch-policy, +03-02-15-mme-indicator-lifecycle-states, +08-08-candle-buffer-spec).
 
@@ -159,6 +159,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] `risk_control_events` table present with required columns (`event_id`, `gate_id`, `decision`, `operator_id`, `prior_state`, `resulting_state`, `timestamp_ms`, `retention_until_ms`).
 - [x] `order_fills` table active and consumed by PAE per-fill reconstruction (`03-05-02 §3`).
 - [x] `exit_reason`, `roi_pct` (canonical) vs `roi_percentage` (deprecated → v5.0), order-state vocabulary, `funding_rate_8h` (nullable: NULL = inherit global; `'0'` = disable) all canonical.
+- [x] **v10 exit-reason vocabulary:** `setup_gone` / `confidence_drop` added to the canonical set (`06-02` §3.2 comment, `03-03-07` exit-reason vocabulary, `scripts/e2e_backtest_verify.py` `EXIT_REASONS`, `scripts/ds-verification-loop.sh` vocab).
 - [x] `setup_type` (formerly `policy_id`) is a configuration string key, not a relational FK.
 - [x] SQLite DDL uses canonical notation (`INTEGER PRIMARY KEY AUTOINCREMENT`, `TEXT CHECK (value GLOB '[+-]?[0-9]*([.][0-9]*)?')`, `TEXT CHECK (json_valid(...))`, `TEXT NOT NULL CHECK (value IN (...))`).
 - [x] `liquidity_signals_json` always serialized as a JSON array (never omitted): `DEFAULT '[]' CHECK (json_valid(...))`.

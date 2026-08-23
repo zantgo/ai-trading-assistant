@@ -1036,6 +1036,9 @@ fn build_historical_snapshot(
         indicator_lifecycle: std::collections::HashMap::new(),
         context: Some(crate::market_context_synth::synthesize_market_context(
             &indicators,
+            // v9: warm snapshots are transient (replaced at the first live
+            // close) — the strategy's L1 section applies from then on.
+            None,
         )),
         // AUDIT-H5: the warm-up cycle has no L3/L4/L5 wiring — the previous
         // code fed empty Analysis/Risk matrices into `DecisionContext::compute`

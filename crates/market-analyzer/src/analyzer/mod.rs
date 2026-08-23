@@ -1057,6 +1057,14 @@ pub async fn run_single(
     let oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> = oi_history;
     let funding_history: Arc<RwLock<VecDeque<f64>>> = funding_history;
 
+    // v9: the strategy's `l1_5` section drives the liquidity pipeline
+    // (legacy `[workspace.liquidity]`/`[heatmap]` are the parse fallback).
+    let eff_liq = crate::liquidity_params::effective_liquidity(
+        liquidity_config.as_ref(),
+        heatmap_config.as_ref(),
+        &strategy.l1_5,
+    );
+
     // Phase 1: real liquidation event accumulator. Per-candle aggregation
     // produces a `LiquidityFlow` on every completed bar.
     //
@@ -1070,37 +1078,47 @@ pub async fn run_single(
     // optional `heatmap_config` (defaults to 0.1% / 24h). When the
     // heatmap is disabled in config, bucketing is a no-op but the
     // accumulator keeps the existing per-bar aggregation.
-    let mut liquidity_acc = match (liquidity_config.as_ref(), heatmap_config.as_ref()) {
+    let acc_tuning = core_domain::liquidity::AccumulatorTuning {
+        baseline_no_history_usd: eff_liq.accumulator.baseline_no_history_usd,
+        intensity_log_scale: eff_liq.accumulator.intensity_log_scale,
+        fallback_baseline_usd: eff_liq.accumulator.fallback_baseline_usd,
+        exhausted_intensity: eff_liq.accumulator.exhausted_intensity,
+    };
+    let mut liquidity_acc = match (Some(&eff_liq.cfg), eff_liq.heatmap.as_ref()) {
         (Some(cfg), Some(hc)) if hc.enabled => {
             core_domain::liquidity::LiquidityEventAccumulator::with_full_config(
                 &symbol,
-                1_000,
+                eff_liq.accumulator.max_buffered_events.max(1),
                 cfg.cascade_detected_zscore,
-                5,
+                eff_liq.accumulator.cascade_window_candles.max(1),
                 cfg.cascade_sustained_events,
                 hc.bucket_size_pct,
                 hc.retention_secs,
             )
+            .with_tuning(acc_tuning.clone())
         }
         (Some(cfg), _) => core_domain::liquidity::LiquidityEventAccumulator::with_config(
             &symbol,
-            1_000,
+            eff_liq.accumulator.max_buffered_events.max(1),
             cfg.cascade_detected_zscore,
-            5,
+            eff_liq.accumulator.cascade_window_candles.max(1),
             cfg.cascade_sustained_events,
-        ),
+        )
+        .with_tuning(acc_tuning.clone()),
         (None, Some(hc)) if hc.enabled => {
             core_domain::liquidity::LiquidityEventAccumulator::with_full_config(
                 &symbol,
-                1_000,
+                eff_liq.accumulator.max_buffered_events.max(1),
                 2.5,
-                5,
+                eff_liq.accumulator.cascade_window_candles.max(1),
                 3,
                 hc.bucket_size_pct,
                 hc.retention_secs,
             )
+            .with_tuning(acc_tuning.clone())
         }
-        (None, _) => core_domain::liquidity::LiquidityEventAccumulator::new(&symbol),
+        (None, _) => core_domain::liquidity::LiquidityEventAccumulator::new(&symbol)
+            .with_tuning(acc_tuning),
     };
 
     let mut candle_gen = CandleGenerator::new(
@@ -1544,6 +1562,14 @@ pub async fn run_single(
                         let max_fill = now_ms.saturating_sub(fill_cursor) / duration_ms;
                         let fill_n = max_fill.min(MAX_GAP_FILL_BARS);
                         for _ in 0..fill_n {
+                            // v9 `l1.ignore_reconstructed_candles`: the
+                            // strategy refuses to feed DIE-synthesized gap
+                            // candles into the indicator state machines.
+                            // Indicators freeze on the last real reading;
+                            // no synthetic snapshot is broadcast/persisted.
+                            if strategy.l1.ignore_reconstructed_candles {
+                                continue;
+                            }
                             let doji = core_domain::normalized::NormalizedCandle {
                                 exchange: forced.exchange,
                                 symbol: forced.symbol.clone(),
@@ -3289,6 +3315,9 @@ async fn synthesize_completed_candle(
     let mut indicators = indicators;
     *live_bar = live_bar.wrapping_add(1);
     stamp_signal_ages(&mut indicators, &mut *signal_age_tracker, *live_bar);
+    // v9: the strategy's `l1.signals` knobs — per-SignalKind confidence
+    // boost, stale-signal drop, strength-bucket classification.
+    apply_l1_signal_params(&mut indicators, &strategy.l1);
 
     // Inject Derivatives Data indicators (OI & Funding Rate).
     // Reads from the per-pair shared `oi_history` and
@@ -3361,7 +3390,8 @@ async fn synthesize_completed_candle(
     let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
     let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
 
-    let current_context = crate::market_context_synth::synthesize_market_context(&indicators);
+    let current_context =
+        crate::market_context_synth::synthesize_market_context(&indicators, Some(&strategy.l1));
 
     let current_state = derive_pipeline_state_with_staleness(
         (*bar_count) as usize,
@@ -3589,6 +3619,15 @@ async fn synthesize_completed_candle(
                 .as_ref()
                 .map(|c| c.min_cluster_notional_usd)
                 .unwrap_or(100_000.0),
+            thresholds: core_domain::liquidity::SignalThresholds {
+                sustained_events_this_bar: strategy.l2_5.signals.sustained_events_this_bar,
+                vacuum_dense_events: strategy.l2_5.signals.vacuum_dense_events,
+                vacuum_dense_usd: strategy.l2_5.signals.vacuum_dense_usd,
+                funding_extreme_strength_slope: strategy
+                    .l2_5
+                    .signals
+                    .funding_extreme_strength_slope,
+            },
             signal_confidences: liquidity_config
                 .as_ref()
                 .map(|c| {
@@ -3620,11 +3659,13 @@ async fn synthesize_completed_candle(
             Vec::new()
         };
 
-    let opportunity_params = crate::synthesis::OpportunityParams::from_strategy(&strategy.l4);
+    let mut opportunity_params = crate::synthesis::OpportunityParams::from_strategy(&strategy.l4);
+    opportunity_params.signal_weights = strategy.l1_5.signal_weights.clone();
     let decision_params = crate::strategy_params::decision_params_from_strategy(&strategy.l6);
     let analysis_params = crate::strategy_params::analysis_params_from_strategy(&strategy.l3);
     let alignment_params = crate::strategy_params::alignment_params_from_strategy(&strategy.l2);
-    let risk_params = crate::strategy_params::risk_params_from_strategy(&strategy.l5);
+    let mut risk_params = crate::strategy_params::risk_params_from_strategy(&strategy.l5);
+    risk_params.signal_weights = strategy.l1_5.signal_weights.clone();
     let synthesis = crate::synthesis::synthesize_cross_tf(
         symbol,
         &cross_refs,
@@ -4105,6 +4146,7 @@ pub fn inject_orderbook_indicators(
                         label: "BID_WALL".to_string(),
                         strength: 0.8,
                         age_bars: 0,
+                        strength_label: "STRONG".to_string(),
                         points: None,
                     });
                 }
@@ -4118,6 +4160,7 @@ pub fn inject_orderbook_indicators(
                         label: "ASK_WALL".to_string(),
                         strength: 0.8,
                         age_bars: 0,
+                        strength_label: "STRONG".to_string(),
                         points: None,
                     });
                 }
@@ -4303,6 +4346,51 @@ fn stamp_signal_ages(
     }
     // Evict trackers whose signal no longer fires so a re-appearance is "fresh".
     tracker.retain(|k, _| seen.contains(k));
+}
+
+/// v9 L1 signal post-pass: apply the strategy's `l1.signals` knobs after the
+/// normalizer + age tracker have run —
+///   - `max_age_bars`: drop signals older than N bars (None = keep forever);
+///   - `confidence_boost`: per-SignalKind multiplier on the entry's
+///     confidence (keys = the Rust `SignalKind` names, e.g. `"Crossover"`);
+///   - `strength_buckets`: `[weak, strong, extreme]` borders on
+///     `|normalized|`-derived strength → `strength_label` WEAK / MODERATE /
+///     STRONG / EXTREME.
+fn apply_l1_signal_params(
+    map: &mut std::collections::HashMap<String, crate::indicators::NormalizedIndicatorValue>,
+    l1: &config_models::L1Params,
+) {
+    let [b_weak, b_strong, b_extreme] = l1.signals.strength_buckets;
+    let max_age = l1.signals.max_age_bars;
+    for (key, entry) in map.iter_mut() {
+        if max_age.is_some() {
+            entry
+                .signals
+                .retain(|s| max_age.map(|m| s.age_bars <= m).unwrap_or(true));
+        }
+        let boosts = &l1.signals.confidence_boost;
+        let mut confidence_scale: f64 = 1.0;
+        for sig in entry.signals.iter_mut() {
+            let strength = sig.strength.clamp(0.0, 1.0);
+            sig.strength_label = if strength >= b_extreme {
+                "EXTREME"
+            } else if strength >= b_strong {
+                "STRONG"
+            } else if strength >= b_weak {
+                "MODERATE"
+            } else {
+                "WEAK"
+            }
+            .to_string();
+            if let Some(boost) = boosts.get(&format!("{:?}", sig.kind)) {
+                confidence_scale = confidence_scale.max(*boost);
+            }
+        }
+        if (confidence_scale - 1.0).abs() > 1e-9 {
+            entry.confidence = (entry.confidence * confidence_scale).clamp(0.0, 1.0);
+        }
+        let _ = key;
+    }
 }
 
 /// Per-candle indicator readings produced by

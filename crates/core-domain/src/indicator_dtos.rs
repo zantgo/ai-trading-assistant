@@ -65,6 +65,11 @@ pub struct IndicatorSignal {
     /// this bar). Stamped by the analyzer's stateful tracker.
     #[serde(default)]
     pub age_bars: u32,
+    /// v9: strength class of `|normalized|` against the strategy's
+    /// `l1.signals.strength_buckets` borders — `WEAK` / `MODERATE` /
+    /// `STRONG` / `EXTREME`. Stamped by the analyzer's L1 post-pass.
+    #[serde(default)]
+    pub strength_label: String,
     /// Pivot coordinates for divergence line drawing (future). Empty otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub points: Option<Vec<SignalPoint>>,
@@ -84,6 +89,7 @@ impl IndicatorSignal {
             label: label.into(),
             strength: 0.0,
             age_bars: 0,
+            strength_label: String::new(),
             points: None,
         }
     }

@@ -5,6 +5,8 @@ export class SessionStore {
     sessionCapital = $state(1000);
     sessionMode = $state<'observe' | 'paper' | 'live'>('observe');
     sessionInstanceCount = $state(0);
+    /** v10: persisted session number (monotonic). */
+    sessionId = $state<number | null>(null);
     sessionLoading = $state(false);
     sessionChecked = $state(false);
     sessionError = $state<string | null>(null);
@@ -26,6 +28,7 @@ export class SessionStore {
                     this.sessionMode = data.mode;
                 }
                 this.sessionInstanceCount = data.instance_count || 0;
+                if (data.session_id != null) this.sessionId = data.session_id;
             }
         } catch (_) { /* backend may not be ready yet */ } finally { this.sessionChecked = true; }
     }

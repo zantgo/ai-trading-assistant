@@ -3,6 +3,7 @@ use sqlx::SqlitePool;
 
 pub mod analyzer_normalize_fallback;
 pub mod crypto;
+pub mod ds_export;
 pub mod logger;
 pub mod queries;
 pub mod seed;
@@ -14,7 +15,8 @@ pub use logger::{run_telemetry_logger, TelemetryMsg};
 // ─── Query re-exports ──────────────────────────────────────────────
 
 pub use queries::analytics::{
-    insert_backtest_run, insert_optimization_report, insert_performance_matrix_snapshot,
+    insert_backtest_run, insert_backtest_run_with_session, insert_optimization_report,
+    insert_performance_matrix_snapshot,
     insert_performance_summary, insert_risk_analytics, insert_strategy_analytics,
     query_backtest_run, query_backtest_runs_list, query_optimization_reports,
     query_performance_matrix_latest, query_risk_analytics_latest, query_strategy_analytics_history,

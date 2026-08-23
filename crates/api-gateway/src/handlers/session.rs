@@ -13,6 +13,8 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
     let instance_count = state.instance_count().await;
     let mode = state.session.session_mode().await;
     let capital = state.session.session_capital().await;
+    // v10: the persisted session number.
+    let session_id = *state.session_id.read().await;
 
     Json(SessionStatusResponse {
         active,
@@ -21,7 +23,35 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
         instance_count,
         mode,
         capital,
+        session_id,
     })
+}
+
+/// v10: list persisted sessions (newest first).
+pub async fn serve_sessions_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match database_storage::queries::sessions::list_sessions(&state.pool).await {
+        Ok(rows) => Json(serde_json::json!({
+            "sessions": rows
+                .iter()
+                .map(|r| crate::types::SessionListRow {
+                    id: r.id,
+                    mode: r.mode.clone(),
+                    exchange: r.exchange.clone(),
+                    currency: r.currency.clone(),
+                    portfolio_capital_usd: r.portfolio_capital_usd,
+                    started_at_ms: r.started_at_ms,
+                    ended_at_ms: r.ended_at_ms,
+                    status: r.status.clone(),
+                })
+                .collect::<Vec<_>>(),
+        }))
+        .into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 pub async fn serve_session_init(
@@ -142,6 +172,14 @@ pub async fn serve_session_init(
 }
 
 pub async fn serve_session_quit(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // v10: close the persisted session row before tearing down.
+    if let Some(sid) = *state.session_id.read().await {
+        let ended = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let _ = database_storage::queries::sessions::close_session(&state.pool, sid, ended).await;
+    }
     match state.quit_session().await {
         Ok(()) => (
             axum::http::StatusCode::OK,

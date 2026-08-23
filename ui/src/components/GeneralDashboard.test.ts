@@ -3,7 +3,7 @@
 // GeneralDashboard — Market Overview operator dashboard.
 //
 // These tests cover the three hero states (TRADE / WAIT / STAND ASIDE),
-// the 4-up card row, the 9-column Asset Rankings table, and the
+// the 4-up card row, the 15-column Asset Rankings table, and the
 // Risk Distribution card's wire-side behaviour (reading from
 // OverviewMatrix.risk_distribution when available, falling back to local
 // aggregation when not).
@@ -285,7 +285,7 @@ describe('GeneralDashboard — hero states', () => {
 });
 
 describe('GeneralDashboard — asset rankings table', () => {
-    it('renders 11 columns (Symbol, Price, Bias, Signal, Direction, Risk/Reward, Score, Confidence, MTF Score, MTF Label, Risk, Updated)', () => {
+    it('renders 15 columns (Symbol, Price, Bias, Signal, Direction, Score, Confidence, MTF Score, MTF Label, Risk, Entry, Target, Stop, Risk/Reward, Updated)', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
         // Verify each column header is present (use getAllByText for
@@ -296,13 +296,60 @@ describe('GeneralDashboard — asset rankings table', () => {
         expect(screen.getAllByText('Bias').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Signal').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Risk/Reward').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
         expect(screen.getAllByText('MTF Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('MTF Label').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Risk').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Entry').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Target').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Stop').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Risk/Reward').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Updated').length).toBeGreaterThan(0);
+    });
+
+    it('renders the top-setup entry / target / stop levels', () => {
+        seedPair('BTC');
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        // The seeded profile carries long zones 60,000–62,000 /
+        // 65,000–68,000 / 59,000 → the ENTRY / TARGET / STOP cells render
+        // them (local warmup fallback through `topSetupSummary`).
+        expect(screen.getAllByText('60,000–62,000').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('65,000–68,000').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('59,000').length).toBeGreaterThan(0);
+    });
+
+    it('renders the server-computed setup levels from overview_rows', () => {
+        seedPair('BTC');
+        const app = useAppStore();
+        app.overviewMatrix = {
+            overview_rows: [
+                {
+                    symbol: 'BTC-USDT',
+                    price: 63505,
+                    bias: 'Bullish',
+                    signal: 'BUY',
+                    direction: 'LONG',
+                    rr: 2.5,
+                    score: 61,
+                    confidence: 75,
+                    mtf_score: 42,
+                    mtf_label: 'WEAK_BULL_MTF',
+                    risk: 45,
+                    entry_low: 63200,
+                    entry_high: 63400,
+                    target_low: 66000,
+                    target_high: 66500,
+                    invalidation: 62800,
+                    updated_ts: 1_700_000_000,
+                    active: true,
+                },
+            ],
+        } as OverviewMatrix;
+        render(GeneralDashboard, { props: { wssMap: {} } });
+        expect(screen.getAllByText('63,200–63,400').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('66,000–66,500').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('62,800').length).toBeGreaterThan(0);
     });
 
     it('renders one row per pair', () => {

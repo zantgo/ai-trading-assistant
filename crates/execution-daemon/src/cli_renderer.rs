@@ -270,7 +270,26 @@ async fn render_instances(out: &mut String, instances: &[Arc<Instance>]) {
     out.push('\n');
 }
 
-/// 12-column asset ranking — mirrors the GUI's AssetRankingsTable. Reads
+/// Compact price-level formatter for the setup columns — trims trailing
+/// zeros after up to 4 decimals ("63200.0000" → "63200", "0.1234" kept).
+fn fmt_level(v: f64) -> String {
+    if v <= 0.0 {
+        return "—".to_string();
+    }
+    let s = format!("{:.4}", v);
+    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+    trimmed.to_string()
+}
+
+/// Zone range renderer ("63200-63400"); "—" when the bracket is absent.
+fn fmt_zone(low: f64, high: f64) -> String {
+    if low <= 0.0 || high <= 0.0 {
+        return "—".to_string();
+    }
+    format!("{}-{}", fmt_level(low), fmt_level(high))
+}
+
+/// 15-column asset ranking — mirrors the GUI's AssetRankingsTable. Reads
 /// the server-computed `overview_rows` (single source); falls back to the
 /// L7 `asset_ranking` during warmup when rows are absent.
 fn render_asset_ranking(out: &mut String, om: &OverviewMatrix) {
@@ -282,18 +301,21 @@ fn render_asset_ranking(out: &mut String, om: &OverviewMatrix) {
     if !om.overview_rows.is_empty() {
         let rows = &om.overview_rows;
         out.push_str(&format!(
-            "  {:<12} {:>12} {:<9} {:<5} {:<8} {:>6} {:>6} {:>10} {:>7} {:<14} {:>5} {:>8}\n",
+            "  {:<12} {:>12} {:<9} {:<5} {:<8} {:>6} {:>6} {:>10} {:>7} {:<14} {:>5} {:>11} {:>11} {:>11} {:>6}\n",
             "SYMBOL",
             "PRICE",
             "BIAS",
             "SIGNAL",
             "DIR",
-            "R:R",
             "SCORE",
             "CONFIDENCE",
             "MTF",
             "MTF LABEL",
             "RISK",
+            "ENTRY",
+            "TARGET",
+            "STOP",
+            "R:R",
             "UPDATED"
         ));
         for row in rows {
@@ -313,18 +335,21 @@ fn render_asset_ranking(out: &mut String, om: &OverviewMatrix) {
                 "—".to_string()
             };
             out.push_str(&format!(
-                "  {:<12} {:>12.4} {:<9} {:<5} {:<8} {:>6} {:>6.1} {:>9.0}% {:>7.0} {:<14} {:>5.0} {:>8}\n",
+                "  {:<12} {:>12.4} {:<9} {:<5} {:<8} {:>6.1} {:>9.0}% {:>7.0} {:<14} {:>5.0} {:>11} {:>11} {:>11} {:>6} {:>8}\n",
                 row.symbol,
                 row.price,
                 row.bias,
                 row.signal,
                 row.direction,
-                fmt_rr(row.rr),
                 row.score,
                 row.confidence,
                 row.mtf_score,
                 row.mtf_label,
                 row.risk,
+                fmt_zone(row.entry_low, row.entry_high),
+                fmt_zone(row.target_low, row.target_high),
+                fmt_level(row.invalidation),
+                fmt_rr(row.rr),
                 updated,
             ));
         }
@@ -447,6 +472,12 @@ mod tests {
             mtf_score: 42.0,
             mtf_label: "WEAK_BULL_MTF".to_string(),
             risk: 45.0,
+            setup_side: "LONG".to_string(),
+            entry_low: 63200.0,
+            entry_high: 63400.0,
+            target_low: 66000.0,
+            target_high: 66500.0,
+            invalidation: 62800.0,
             updated_ts: 1_700_000_000,
             active: true,
         }];
@@ -544,17 +575,23 @@ mod tests {
         assert!(frame.contains("BIAS"));
         assert!(frame.contains("SIGNAL"));
         assert!(frame.contains("DIR"));
-        assert!(frame.contains("R:R"));
         assert!(frame.contains("SCORE"));
         assert!(frame.contains("CONFIDENCE"));
         assert!(frame.contains("MTF"));
         assert!(frame.contains("RISK"));
+        assert!(frame.contains("ENTRY"));
+        assert!(frame.contains("TARGET"));
+        assert!(frame.contains("STOP"));
+        assert!(frame.contains("R:R"));
         assert!(frame.contains("UPDATED"));
-        // Row values.
+        // Row values (incl. the top-setup ENTRY / TARGET / STOP levels).
         assert!(frame.contains("64497.5"));
         assert!(frame.contains("Bullish"));
         assert!(frame.contains("BUY"));
         assert!(frame.contains("WEAK_BULL_MTF"));
+        assert!(frame.contains("63200-63400"));
+        assert!(frame.contains("66000-66500"));
+        assert!(frame.contains("62800"));
 
         // Summary.
         assert!(frame.contains("MARKET SUMMARY"));

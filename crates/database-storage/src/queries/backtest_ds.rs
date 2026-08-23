@@ -39,6 +39,17 @@ pub struct DsTrade {
     pub size: f64,
     pub pnl: f64,
     pub exit_reason: String,
+    /// v10 enrichment.
+    #[serde(default)]
+    pub ts_entry_secs: i64,
+    #[serde(default)]
+    pub hold_secs: i64,
+    #[serde(default)]
+    pub mfe_pct: f64,
+    #[serde(default)]
+    pub mae_pct: f64,
+    #[serde(default)]
+    pub roi_pct: f64,
 }
 
 /// One DS metric (key/value — summary + NHST).
@@ -72,8 +83,9 @@ pub async fn insert_backtest_ds_rows(
     for (seq, t) in trades.iter().enumerate() {
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO backtest_trades
-                (run_id, seq, ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                (run_id, seq, ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
+                 ts_entry_secs, hold_secs, mfe_pct, mae_pct, roi_pct)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         )
         .bind(run_id)
         .bind(seq as i64)
@@ -84,6 +96,11 @@ pub async fn insert_backtest_ds_rows(
         .bind(t.size)
         .bind(t.pnl)
         .bind(&t.exit_reason)
+        .bind(t.ts_entry_secs)
+        .bind(t.hold_secs)
+        .bind(t.mfe_pct)
+        .bind(t.mae_pct)
+        .bind(t.roi_pct)
         .execute(&mut *tx)
         .await;
     }
@@ -171,8 +188,10 @@ pub async fn query_backtest_trades(
     limit: u32,
     offset: u32,
 ) -> Vec<DsTrade> {
-    sqlx::query_as::<_, (i64, String, f64, f64, f64, f64, String)>(
-        "SELECT ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason
+    sqlx::query_as::<_, (i64, String, f64, f64, f64, f64, String, i64, i64, f64, f64, f64)>(
+        "SELECT ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
+                COALESCE(ts_entry_secs, 0), COALESCE(hold_secs, 0),
+                COALESCE(mfe_pct, 0), COALESCE(mae_pct, 0), COALESCE(roi_pct, 0)
          FROM backtest_trades WHERE run_id = ?1 ORDER BY seq ASC LIMIT ?2 OFFSET ?3",
     )
     .bind(run_id)
@@ -182,7 +201,7 @@ pub async fn query_backtest_trades(
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|(ts, direction, entry, exit, size, pnl, reason)| DsTrade {
+    .map(|(ts, direction, entry, exit, size, pnl, reason, ts_entry, hold, mfe, mae, roi)| DsTrade {
         ts_close_secs: ts,
         direction,
         entry_price: entry,
@@ -190,6 +209,11 @@ pub async fn query_backtest_trades(
         size,
         pnl,
         exit_reason: reason,
+        ts_entry_secs: ts_entry,
+        hold_secs: hold,
+        mfe_pct: mfe,
+        mae_pct: mae,
+        roi_pct: roi,
     })
     .collect()
 }
@@ -302,7 +326,12 @@ mod tests {
                 size: 0.5,
                 pnl: 5.0,
                 exit_reason: "tp".into(),
-            }],
+            ts_entry_secs: 0,
+            hold_secs: 0,
+            mfe_pct: 0.0,
+            mae_pct: 0.0,
+            roi_pct: 0.0,
+        }],
             &[(1000, 1000.0), (1001, 1005.0)],
             &[DsPortfolioPoint {
                 ts_secs: 1001,

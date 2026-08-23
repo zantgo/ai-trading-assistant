@@ -53,7 +53,15 @@ One canonical write path per event, all through `database_storage` query functio
 | `paper_trades` | Position close | Closed trade record with PnL |
 | `portfolio_equity_history` | Periodic + close | Equity time-series for PAE drawdown/Sharpe |
 | `paper_balances` | Close + session | Peak equity, initial, session equity (via SafetyManager) |
-| `automation_activity` | Every executor event | Audit trail: setup accepted, order placed, filled, invalidated (level/signal/replaced), closed, blocked |
+| `automation_activity` | Every executor event | Audit trail: setup accepted, order placed, filled, invalidated (level/signal/replaced), re-priced, adopted, ratcheted, setup-gone, confidence drop, closed, blocked |
+
+**v10 activity events (added to the vocabulary):** `reprice_pending` (pending
+entry moved to a fresh same-direction geometry), `replaced_adopted`
+(replacement adopted same tick), `setup_gone_cancel` / `setup_gone_close`
+(strict posture), `bracket_refresh` (asymmetric ratchet — SL tighten-only /
+TP RR-improvement), `confidence_drop` (confidence-fall exit), `chase_entry`
+(chase-mode market order), `expired` (pending-entry bar expiry).
+`cancelled_replaced` remains for `replace_policy = "cancel"`.
 
 `trigger_source` carrying the setup type is what powers PAE's strategy stats regrouped by setup type/direction/timeframe.
 
@@ -83,6 +91,8 @@ Feeding a historical sequence of `MarketSnapshot`s through `extract_top_setup` +
 | End-of-run | N/A (session keeps running) | Open positions force-closed at the final replayed candle close, `exit_reason = "end_of_backtest"` |
 | Sizing | `equity × allocation_pct / 100` | Identical (shared engine ledger) |
 | Tick granularity | 1s executor ticks reading the latest snapshot per TF | One tick per completed candle of each symbol's smallest ladder TF (documented boundary) |
+| Strategy dials (v10) | The instance's bound strategy drives the executor tick | The run's bound strategy drives the identical tick — historical and recorded replays resolve the run's strategy JSON and pass it into the executor (recorded previously used defaults; v10 parity fix) |
+| Strategy gates (v10) | The daemon evaluates the breadth/systemic intake gates + PME portfolio gates and feeds `market_filter_allows_entry` | Historical replay evaluates the same `strategy_gates` functions on the simulated portfolio (breadth = cross-symbol bias share; systemic veto inert — no L7 in replay); recorded replay keeps gates off (replay parity) |
 
 ---
 

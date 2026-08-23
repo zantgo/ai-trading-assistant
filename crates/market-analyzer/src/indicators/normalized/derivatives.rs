@@ -18,6 +18,7 @@ pub fn normalize_open_interest(oi: f64) -> NormalizedIndicatorValue {
             label: "OI_ELEVATED".to_string(),
             strength: 0.5,
             age_bars: 0,
+            strength_label: String::new(),
             points: None,
         }]
     } else {
@@ -75,6 +76,7 @@ pub fn normalize_oi_delta(delta: f64, prev_delta: Option<f64>) -> NormalizedIndi
                     },
                     strength: (delta.abs() / 1000.0).min(1.0),
                     age_bars: 0,
+                    strength_label: String::new(),
                     points: None,
                 });
             }
@@ -90,6 +92,7 @@ pub fn normalize_oi_delta(delta: f64, prev_delta: Option<f64>) -> NormalizedIndi
                     label: "OI_DELTA_ZERO_CROSS".to_string(),
                     strength: 0.3,
                     age_bars: 0,
+                    strength_label: String::new(),
                     points: None,
                 });
             }
@@ -146,6 +149,7 @@ pub fn normalize_funding_rate(f: f64, extreme_threshold: f64) -> NormalizedIndic
                 label: "FUNDING_EXTREME".to_string(),
                 strength: 0.7,
                 age_bars: 0,
+                strength_label: String::new(),
                 points: None,
             }]
         } else {
@@ -186,6 +190,7 @@ pub fn normalize_oi_price_divergence(delta: f64, ema_bias: f64) -> NormalizedInd
                 label: "OI_PRICE_DIVERGENCE".to_string(),
                 strength: div.abs(),
                 age_bars: 0,
+                strength_label: String::new(),
                 points: None,
             }]
         } else {
@@ -225,6 +230,7 @@ pub fn normalize_mark_index_spread(spread: f64, mark_px: Option<f64>) -> Normali
             label: format!("MARK_INDEX_{}", label),
             strength: abs_spread.clamp(0.0, 1.0),
             age_bars: 0,
+            strength_label: String::new(),
             points: None,
         }]
     } else {
@@ -270,6 +276,7 @@ pub fn normalize_order_flow_imbalance(ofi: f64) -> NormalizedIndicatorValue {
                 label: sig_label.to_string(),
                 strength: ofi.abs(),
                 age_bars: 0,
+                strength_label: String::new(),
                 points: None,
             }]
         } else {
@@ -306,6 +313,7 @@ pub fn normalize_spread(spread: f64, wide_threshold_pct: f64) -> NormalizedIndic
                 label: "SPREAD_WIDE".to_string(),
                 strength: (spread / wide_threshold_pct).min(1.0),
                 age_bars: 0,
+                strength_label: String::new(),
                 points: None,
             }]
         } else {
@@ -346,6 +354,7 @@ pub fn normalize_depth_bias(depth_imbalance_ratio: f64) -> NormalizedIndicatorVa
                 },
                 strength: norm.abs(),
                 age_bars: 0,
+                strength_label: String::new(),
                 points: None,
             }]
         } else {

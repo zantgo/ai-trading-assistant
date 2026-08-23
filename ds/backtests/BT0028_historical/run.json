@@ -1,0 +1,44 @@
+{
+  "backtest_id": 28,
+  "mode": "historical",
+  "params": {
+    "from_secs": 1785119763,
+    "portfolio_capital_usd": 1000.0,
+    "symbol": "ETH-USDT",
+    "timeframe_secs": 60,
+    "to_secs": 1787441763
+  },
+  "stats": {
+    "alpha": 0.05,
+    "average_loss": 0.2279027175993525,
+    "average_win": 1.3847149455042074,
+    "avg_win_loss_ratio": 6.075903614008251,
+    "classification": "INSUFFICIENT_DATA",
+    "expectancy": 0.45435860140599976,
+    "gross_loss": 3.4185407639902867,
+    "gross_profit": 15.23186440054628,
+    "is_significant": true,
+    "loss_count": 15,
+    "monte_carlo_runs": 10000,
+    "p_mc": 0.015,
+    "p_value": 0.0006344795429900073,
+    "profit_factor": 4.455662650272717,
+    "setup_type": "BACKTEST",
+    "slippage_overhead": 0.0,
+    "t_statistic": 2.2811407249889526,
+    "total_trades": 26,
+    "win_count": 11,
+    "win_rate": 0.4230769230769231
+  },
+  "summary": {
+    "expectancy": 0.4543586014059997,
+    "gross_loss": 3.4185407639902867,
+    "gross_profit": 15.23186440054628,
+    "loss_count": 15,
+    "max_drawdown_pct": 0.18452274092903537,
+    "profit_factor": 4.455662650272717,
+    "total_trades": 26,
+    "win_count": 11,
+    "win_rate": 42.30769230769231
+  }
+}

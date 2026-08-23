@@ -313,7 +313,19 @@ detector defaults. `l2_5.oi_split.funding_anchor: null` = follow
 | F-07 | Erase per-instance `initial_capital_usd` → `portfolio_capital_usd` | config-models, daemon, API, CLI, UI |
 | F-08 | `max_position_size_usd` → `max_position_size_pct_of_equity` | config-models, executor, API, UI |
 
-## 5. Behavioral guarantees
+## 5. Layer wiring status (v9 — COMPLETED)
+
+| Layer | Knobs | Status |
+|---|---|---|
+| L1 | `indicator_weights`, `monitor_only`, `context.trend_momentum_blend`, `context.regime_gate_damp`, `context.regime_rule`, `context.volatility_sources`, `signals.confidence_boost` (per-SignalKind), `signals.max_age_bars`, `signals.strength_buckets` → `strength_label`, `ignore_reconstructed_candles`, `order_book` | ✅ `market_context_synth.rs`, `analyzer/mod.rs` (`apply_l1_signal_params`), pipeline spawn |
+| L1.5 | toggles (`enabled`/`liquidation_feed`/`cluster_estimation`/`signals`), poll/retention ms, `cluster_refresh_secs`, `maintenance_margin_rate`, cascade thresholds, `funding_extreme_pct`, magnet/vacuum/divergence, `min_cluster_notional_usd`, `signal_confidences`, `signal_weights` → L5 discrete-signal bonuses + L4 signal-strength factor, `accumulator` (baselines/log-scale/exhausted/window/buffer), `api_failover`, `per_tf_leverage` | ✅ `liquidity_params.rs` resolver + `registry/pipelines.rs` + `analyzer/mod.rs` |
+| L2.5 | `estimation` (swing window/lookback, bin size, peak half-width divisor, bound decay, TTL), `oi_split`, `confidence`, `funding_modulation.shift`, `signals` (sustained/vacuum/funding-slope thresholds) | ✅ `core-domain/src/liquidity/mod.rs` (`ClusterEstimateInput`) + `compute_cluster_for_tf` |
+| L2–L7 | analysis/alignment/risk/opportunity/decision/overview params | ✅ (v9 earlier phases) |
+
+Strategy wins per-field over the legacy `[workspace.liquidity]` /
+`[order_book]` sections (pre-v9 parse fallback only).
+
+## 6. Behavioral guarantees
 
 - **Default invariance:** the `default` strategy reproduces v8.2 outputs
   byte-for-byte (except F-01/F-02, both documented divergences from spec,
@@ -327,7 +339,7 @@ detector defaults. `l2_5.oi_split.funding_anchor: null` = follow
 - **Attribution:** snapshots, trades, and backtest runs carry
   `strategy_id + schema_version + config_version`.
 
-## 6. Cross-references
+## 7. Cross-references
 
 - [TAE Strategy Settings](../trade-automation-engine/03-03-07-tae-strategy-settings.md)
 - [PME Strategy Settings](../portfolio-management-engine/03-04-06-pme-strategy-settings.md)

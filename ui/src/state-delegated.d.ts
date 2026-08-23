@@ -10,6 +10,7 @@ declare module './state.svelte' {
     interface AppStore {
         sessionActive: boolean; sessionMode: string; sessionCurrency: string;
         sessionExchange: string; sessionCapital: number; sessionInstanceCount: number;
+        sessionId: number | null;
         sessionLoading: boolean; sessionChecked: boolean;
         sessionError: string | null;
 

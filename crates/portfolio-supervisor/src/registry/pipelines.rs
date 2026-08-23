@@ -170,12 +170,27 @@ pub async fn build_pipelines(
     // the `[liquidity] enabled` master switch folded in (CA-15). This is
     // the single production call-site — the pipeline structs below, the
     // run_single tasks, and the cluster-refresh spawn all read from it.
-    let active_set = market_analyzer::active_set::ActiveSet::from_config(
+    // v9: the strategy's `l1_5` section is the single source of truth for
+    // the liquidity pipeline (legacy `[workspace.liquidity]`/`[heatmap]`
+    // remain only as the parse fallback).
+    let eff_liq = market_analyzer::liquidity_params::effective_liquidity(
+        Some(&ctx.liquidity_config),
+        Some(&ctx.heatmap_config),
+        &ctx.strategy.l1_5,
+    );
+
+    let mut active_set = market_analyzer::active_set::ActiveSet::from_config(
         &ctx.activation,
         ctx.activation_instance.as_ref(),
         ctx.config_version,
-        ctx.liquidity_config.enabled,
+        eff_liq.cfg.enabled,
     );
+    // v9: the strategy's L1.5 sub-toggles override the legacy
+    // `[activation]`-derived state.
+    active_set.liquidity_enabled = eff_liq.cfg.enabled;
+    active_set.liquidation_feed = eff_liq.cfg.liquidation_feed;
+    active_set.cluster_estimation = eff_liq.cfg.cluster_estimation;
+    active_set.liquidity_signals_enabled = eff_liq.cfg.signals;
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
@@ -451,6 +466,17 @@ async fn spawn_tasks(
     // per-instance). `false` => the L2.5 refresh loop is not spawned.
     cluster_estimation: bool,
 ) {
+    // v9: the strategy's `l1_5` section is the single source of truth for
+    // the liquidity pipeline (legacy sections remain only as the fallback
+    // baked into the EffectiveLiquidity resolver).
+    let eff_liq = market_analyzer::liquidity_params::effective_liquidity(
+        Some(&liquidity_config),
+        Some(&heatmap_config),
+        &strategy.l1_5,
+    );
+    let liquidity_config = eff_liq.cfg.clone();
+    let _ = eff_liq;
+
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (slow_chan_tx, slow_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -666,8 +692,8 @@ async fn spawn_tasks(
         let a_oi_history: Arc<RwLock<VecDeque<(u64, f64)>>> =
             Arc::new(RwLock::new(active_pair.oi_history.read().await.clone()));
         let a_funding_history = active_pair.funding_history.clone();
-        let a_liquidity_config = liquidity_config.clone();
-        let a_heatmap_config = heatmap_config.clone();
+        let a_liquidity_config = eff_liq.cfg.clone();
+        let a_heatmap_config = eff_liq.heatmap.clone();
         // v9: capture the wired order-book config + strategy for the
         // moved closure.
         let a_ob_config = ob_config.clone();
@@ -807,7 +833,7 @@ async fn spawn_tasks(
                 a_funding_history,
                 a_cluster_matrix,
                 Some(a_liquidity_config),
-                Some(a_heatmap_config),
+                a_heatmap_config,
                 a_ob_config,
                 a_strategy,
                 ct_a,
@@ -1278,6 +1304,9 @@ async fn spawn_tasks(
             let status_handle = status_handle.clone();
             let active_pair_clone = active_pair.clone();
             let refresh_config = liquidity_config.clone();
+            // v9: strategy-derived estimator overrides (L2.5 + per-TF
+            // leverage). Frozen per spawned task.
+            let cluster_overrides = ClusterOverrides::from_strategy(&strategy);
             let cancel_for_refresh = cancel.clone();
             let exchange_for_refresh = exchange_choice;
             tokio::spawn(async move {
@@ -1297,6 +1326,7 @@ async fn spawn_tasks(
                     slot,
                     &refresh_config,
                     exchange_for_refresh,
+                    &cluster_overrides,
                 )
                 .await
                 {
@@ -1376,6 +1406,7 @@ async fn spawn_tasks(
                         slot,
                         &refresh_config,
                         exchange_for_refresh,
+                        &cluster_overrides,
                     )
                     .await
                     {
@@ -1496,6 +1527,61 @@ impl std::fmt::Display for ClusterRefreshError {
     }
 }
 
+/// v9: strategy-derived overrides for the cluster estimator (L2.5 +
+/// per-TF leverage). `Default` reproduces the v8.2 hardcoded geometry.
+#[derive(Debug, Clone)]
+pub struct ClusterOverrides {
+    pub estimation: core_domain::liquidity::ClusterEstimationParams,
+    pub oi_split: core_domain::liquidity::ClusterOiSplitParams,
+    pub confidence: core_domain::liquidity::ClusterConfidenceParams,
+    pub funding_mod_shift: f64,
+    /// Strategy `l1_5.per_tf_leverage` — when `enabled`, replaces the
+    /// pipeline's per-TF leverage config.
+    pub per_tf_leverage: Option<config_models::L1_5TfLeverageParams>,
+}
+
+impl Default for ClusterOverrides {
+    fn default() -> Self {
+        Self {
+            estimation: core_domain::liquidity::ClusterEstimationParams::default(),
+            oi_split: core_domain::liquidity::ClusterOiSplitParams::default(),
+            confidence: core_domain::liquidity::ClusterConfidenceParams::default(),
+            funding_mod_shift: 0.05,
+            per_tf_leverage: None,
+        }
+    }
+}
+
+impl ClusterOverrides {
+    /// Build from the bound strategy's `l2_5` + `l1_5` sections.
+    pub fn from_strategy(strategy: &config_models::StrategyConfig) -> Self {
+        let l2_5 = &strategy.l2_5;
+        Self {
+            estimation: core_domain::liquidity::ClusterEstimationParams {
+                swing_window_bars: l2_5.estimation.swing_window_bars,
+                swing_lookback: l2_5.estimation.swing_lookback,
+                bin_size_pct: l2_5.estimation.bin_size_pct,
+                peak_halfwidth_divisor: l2_5.estimation.peak_halfwidth_divisor,
+                bound_decay: l2_5.estimation.bound_decay,
+                ttl_secs: l2_5.estimation.ttl_secs,
+            },
+            oi_split: core_domain::liquidity::ClusterOiSplitParams {
+                funding_anchor: l2_5.oi_split.funding_anchor,
+                funding_bias_scale: l2_5.oi_split.funding_bias_scale,
+                price_anchor_pct: l2_5.oi_split.price_anchor_pct / 100.0,
+                price_bias_scale: l2_5.oi_split.price_bias_scale,
+                clamp: l2_5.oi_split.clamp,
+            },
+            confidence: core_domain::liquidity::ClusterConfidenceParams {
+                oi_adequacy_anchor_usd: l2_5.confidence.oi_adequacy_anchor_usd,
+                funding_penalty: l2_5.confidence.funding_penalty,
+            },
+            funding_mod_shift: l2_5.funding_modulation.shift,
+            per_tf_leverage: Some(strategy.l1_5.per_tf_leverage.clone()),
+        }
+    }
+}
+
 /// Compute a cluster matrix for one specific timeframe slot. Each TF sees
 /// the same OI/funding (shared at ActivePair level) but a different
 /// price-history lookback — the last 200 candles of its own TF. This gives
@@ -1509,6 +1595,7 @@ pub async fn compute_cluster_for_tf(
     slot: core_domain::models::TimeframeSlot,
     config: &config_models::LiquidityConfig,
     exchange: ExchangeChoice,
+    overrides: &ClusterOverrides,
 ) -> Result<core_domain::liquidity::LiquidationClusterMatrix, ClusterRefreshError> {
     use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
 
@@ -1544,10 +1631,11 @@ pub async fn compute_cluster_for_tf(
         None => return Err(ClusterRefreshError::NoSnapshotYet),
     };
     let history_handle = history_arc.read().await;
+    // v9: the window is the strategy's `l2_5.estimation.swing_window_bars`.
     let price_history: Vec<f64> = history_handle
         .iter()
         .rev()
-        .take(200)
+        .take(overrides.estimation.swing_window_bars.max(5))
         .filter_map(|c| c.close.to_f64())
         .collect::<Vec<_>>()
         .into_iter()
@@ -1564,10 +1652,20 @@ pub async fn compute_cluster_for_tf(
     // 4. Compute. v6.10 (Phase 2 / B5): pull leverage_buckets / leverage_weights
     //    / min_cluster_notional_usd from the per-TF `TfLeverageConfig` on the
     //    active pipeline, replacing the hardcoded legacy distribution.
+    //    v9: the strategy's `l1_5.per_tf_leverage` (when enabled) replaces
+    //    the pipeline config.
     let tf_cfg = active_pair
         .pipeline_for_slot(slot)
         .map(|p| p.tf_leverage_config.as_ref().clone())
         .unwrap_or_default();
+    let (buckets, weights, min_notional) = match overrides.per_tf_leverage.as_ref() {
+        Some(pl) if pl.enabled => (pl.buckets.clone(), pl.weights.clone(), pl.min_cluster_notional_usd),
+        _ => (
+            tf_cfg.buckets.clone(),
+            tf_cfg.weights.clone(),
+            tf_cfg.min_cluster_notional_usd,
+        ),
+    };
     let symbol = tf_snapshot.symbol.clone();
     let input = ClusterEstimateInput {
         symbol: &symbol,
@@ -1579,9 +1677,13 @@ pub async fn compute_cluster_for_tf(
         maintenance_margin_rate: config.maintenance_margin_rate,
         funding_extreme_pct: config.funding_extreme_pct,
         funding_modulation_active: true,
-        leverage_buckets: &tf_cfg.buckets,
-        leverage_weights: &tf_cfg.weights,
-        min_cluster_notional_usd: tf_cfg.min_cluster_notional_usd,
+        leverage_buckets: &buckets,
+        leverage_weights: &weights,
+        min_cluster_notional_usd: min_notional,
+        estimation: overrides.estimation.clone(),
+        oi_split: overrides.oi_split.clone(),
+        confidence: overrides.confidence.clone(),
+        funding_mod_shift: overrides.funding_mod_shift,
     };
     Ok(estimate_clusters(&input))
 }

@@ -47,14 +47,14 @@ describe('engineTabs v7.3 spec', () => {
 
     it('PAE navbar per mode (L1→L5, cross-cutting last)', () => {
         // v8: the Backtesting tab moved to the Backtesting Engine.
-        expect(keys('performance', 'observe')).toEqual(['overview', 'history', 'methodology', 'settings']);
-        expect(keys('performance', 'paper')).toEqual(['overview', 'trades', 'strategy', 'risk', 'performance', 'history', 'methodology', 'settings']);
-        expect(keys('performance', 'live')).toEqual(['overview', 'trades', 'strategy', 'risk', 'performance', 'history', 'methodology', 'settings']);
+        expect(keys('performance', 'observe')).toEqual(['overview', 'comparison', 'history', 'methodology', 'settings']);
+        expect(keys('performance', 'paper')).toEqual(['overview', 'trades', 'strategy', 'risk', 'performance', 'comparison', 'history', 'methodology', 'settings']);
+        expect(keys('performance', 'live')).toEqual(['overview', 'trades', 'strategy', 'risk', 'performance', 'comparison', 'history', 'methodology', 'settings']);
     });
 
     it('BTE navbar follows the layer order with cross-cutting last', () => {
         expect(ENGINE_TABS.backtesting.map((t) => t.key)).toEqual([
-            'overview', 'die', 'mme', 'tae', 'pme', 'pae', 'study', 'history', 'settings',
+            'overview', 'die', 'mme', 'tae', 'pme', 'pae', 'study', 'chart', 'history', 'settings',
         ]);
     });
 

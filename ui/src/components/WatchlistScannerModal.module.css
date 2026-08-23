@@ -83,6 +83,47 @@
     line-height: 1.5;
 }
 
+.inputWaitRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.inputWaitLabel {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-dim, #94a3b8);
+    white-space: nowrap;
+}
+
+.inputWaitField {
+    width: 64px;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.08));
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text, #e2e8f0);
+    font-family: var(--mono, monospace);
+    font-size: 12px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.inputWaitField:focus {
+    border-color: rgba(120, 180, 255, 0.45);
+}
+
+.inputWaitHint {
+    flex: 1 1 auto;
+    font-size: 10px;
+    color: var(--text-dim, #64748b);
+    line-height: 1.4;
+}
+
 .inputMeta {
     display: flex;
     justify-content: space-between;

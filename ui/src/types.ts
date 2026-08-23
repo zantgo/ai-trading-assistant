@@ -263,6 +263,8 @@ export interface IndicatorSignal {
     label: string;
     strength: number;
     age_bars?: number;
+    /** v9: WEAK / MODERATE / STRONG / EXTREME per the strategy's `l1.signals.strength_buckets`. */
+    strength_label?: string;
     points?: SignalPoint[] | null;
 }
 
@@ -639,8 +641,9 @@ export interface OverviewMatrix {
     /// STAND_ASIDE). Single source for the GUI + CLI overview panels.
     hero?: OverviewHero | null;
     /// v7.2 parity — per-instance asset-ranking rows (price, signal,
-    /// direction, R:R, confidence, MTF, risk, updated). The GUI's
-    /// 12-column table and the CLI renderer read the same rows.
+    /// direction, R:R, confidence, MTF, risk, updated + the top-setup
+    /// entry/target/stop columns). The GUI's 15-column table and the CLI
+    /// renderer read the same rows.
     overview_rows?: OverviewRow[];
     /// v7.2 parity — signal-quality buckets (strong/moderate/weak).
     signal_quality?: SignalQuality | null;
@@ -676,6 +679,18 @@ export interface OverviewRow {
     mtf_score: number;
     mtf_label: string;
     risk: number;
+    /// Top-setup of the Opportunity Layer — resolved side of the displayed
+    /// bracket (`LONG` / `SHORT` / `NEUTRAL`), server-computed once for the
+    /// GUI + CLI parity contract (01-10 §5).
+    setup_side?: string;
+    /// Top-setup entry zone low/high bound (0 = N/A).
+    entry_low?: number;
+    entry_high?: number;
+    /// Top-setup target (take-profit) zone low/high bound (0 = N/A).
+    target_low?: number;
+    target_high?: number;
+    /// Top-setup stop-loss (invalidation) level (0 = N/A).
+    invalidation?: number;
     updated_ts: number;
     active: boolean;
 }

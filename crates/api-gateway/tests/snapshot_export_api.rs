@@ -51,6 +51,7 @@ async fn setup_test_state() -> Arc<AppState> {
         recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
         snapshot_export: Arc::new(RwLock::new(SnapshotExportRuntime::default())),
         snapshot_export_manual_tick: Arc::new(tokio::sync::Notify::new()),
+        session_id: Arc::new(tokio::sync::RwLock::new(None)),
         backtest: Arc::new(backtesting_engine::registry::BacktestRegistry::new()),
     })
 }

@@ -18,7 +18,8 @@
     //      Opportunities, Risk Distribution, Signal Quality, Direction,
     //      Market Alignment, Regime Distribution
     //   5. Market Health card (full-width, 4 sub-dim bars)
-    //   6. Asset Rankings table (11-column leaderboard incl. MTF cols)
+    //   6. Asset Rankings table (15-column leaderboard incl. MTF cols + the
+    //      top-setup Entry / Target / Stop / Risk-Reward block)
     //   7. Bottom toolbar: [SCHEDULE SNAPSHOTS] [SCAN WATCHLIST] buttons
     //      grouped and centered; instructional copy lives inside the
     //      watchlist scanner modal

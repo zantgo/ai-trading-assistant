@@ -15,7 +15,7 @@ import json
 import sqlite3
 import sys
 
-EXIT_REASONS = {"tp", "sl", "invalidated_signal", "manual", "stop_flatten", "end_of_backtest"}
+EXIT_REASONS = {"tp", "sl", "invalidated_signal", "manual", "stop_flatten", "end_of_backtest", "setup_gone", "confidence_drop"}
 
 
 def trades(db: str, run_id: int) -> list[dict]:

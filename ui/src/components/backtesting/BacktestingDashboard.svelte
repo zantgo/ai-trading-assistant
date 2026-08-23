@@ -18,6 +18,7 @@
     import BacktestLauncher from './BacktestLauncher.svelte';
     import BteCoverageTab from './BteCoverageTab.svelte';
     import BteStudyTab from './BteStudyTab.svelte';
+    import BacktestChart from './BacktestChart.svelte';
     import BteExecutionsTab from './BteExecutionsTab.svelte';
     import BtePortfolioTab from './BtePortfolioTab.svelte';
     import BteStatsTab from './BteStatsTab.svelte';
@@ -338,6 +339,8 @@
             <BteStatsTab stats={btResult?.stats ?? null} summary={btResult?.summary ?? null} />
         {:else if safeSection === 'study'}
             <BteStudyTab result={btResult} portfolio={dsPortfolio?.portfolio ?? []} signals={dsSignals?.signals ?? []} />
+        {:else if safeSection === 'chart'}
+            <BacktestChart runId={btResult?.backtest_id ?? null} defaultSymbol={boundInstance?.symbol ?? null} />
         {:else if safeSection === 'history'}
             <BteHistoryTab {loadRun} activeRunId={btResult?.backtest_id ?? null} />
         {/if}

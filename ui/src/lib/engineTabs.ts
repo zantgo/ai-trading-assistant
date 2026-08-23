@@ -81,6 +81,7 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'strategy', label: 'Strategy' },
         { key: 'risk', label: 'Risk Metrics' },
         { key: 'performance', label: 'Performance' },
+        { key: 'comparison', label: 'Comparison' },
         { key: 'history', label: 'History' },
         { key: 'methodology', label: 'Methodology' },
         { key: 'settings', label: 'Settings' },
@@ -96,6 +97,7 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'pme', label: 'PME · Portfolio' },
         { key: 'pae', label: 'PAE · Statistics' },
         { key: 'study', label: 'Study Report' },
+        { key: 'chart', label: 'Chart' },
         { key: 'history', label: 'History' },
         { key: 'settings', label: 'Settings' },
     ],
@@ -146,6 +148,7 @@ const OBSERVE_TABS: Partial<Record<EngineKey, EngineTab[]>> = {
     // Backtesting surface moved to the Backtesting Engine).
     performance: [
         { key: 'overview', label: 'Overview' },
+        { key: 'comparison', label: 'Comparison' },
         { key: 'history', label: 'History' },
         { key: 'methodology', label: 'Methodology' },
         { key: 'settings', label: 'Settings' },

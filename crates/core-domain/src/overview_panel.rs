@@ -25,7 +25,7 @@
 //! - signal-quality buckets, direction counts, market-health bars.
 
 use crate::analysis::{
-    DirectionFamily, MarketBias, OpportunityProfile, OpportunityType, TradeViability,
+    DirectionFamily, MarketBias, OpportunityProfile, OpportunityType, PriceRange, TradeViability,
 };
 use crate::models::MarketSnapshot;
 use crate::risk_reward::{compute_side_rr_v2, Side};
@@ -95,6 +95,27 @@ pub struct OverviewRow {
     pub mtf_label: String,
     /// Micro-window L5 `overall_risk.score`.
     pub risk: f64,
+    /// Top-setup of the Opportunity Layer — resolved side of the
+    /// displayed bracket (`LONG` / `SHORT` / `NEUTRAL`). Computed once in
+    /// `build_overview_panel` so the GUI table and the CLI renderer never
+    /// disagree (parity contract 01-10 §5).
+    #[serde(default)]
+    pub setup_side: String,
+    /// Top-setup entry zone low bound (0.0 = N/A).
+    #[serde(default)]
+    pub entry_low: f64,
+    /// Top-setup entry zone high bound (0.0 = N/A).
+    #[serde(default)]
+    pub entry_high: f64,
+    /// Top-setup target (take-profit) zone low bound (0.0 = N/A).
+    #[serde(default)]
+    pub target_low: f64,
+    /// Top-setup target (take-profit) zone high bound (0.0 = N/A).
+    #[serde(default)]
+    pub target_high: f64,
+    /// Top-setup stop-loss (invalidation) level (0.0 = N/A).
+    #[serde(default)]
+    pub invalidation: f64,
     /// Micro-window snapshot timestamp (seconds since epoch).
     pub updated_ts: u64,
     /// Lifecycle-active (not stopped/cancelled).
@@ -436,15 +457,11 @@ fn hero_and_best(
     (verdict, best)
 }
 
-/// `resolveActiveRr` port — profile wire → matrix wire → zones fallback
-/// (canonical `compute_side_rr_v2`, 0.10 meaningfulness floor).
-fn resolve_active_rr(
-    opp: &crate::opportunity::OpportunityMatrix,
-    decision_bias: Option<&str>,
-    analysis_bias: Option<MarketBias>,
-    close: Option<f64>,
-) -> (f64, bool) {
-    let bias_market = decision_bias
+/// `bias_market` — the decision context's PascalCase bias string wins over
+/// the analysis matrix bias, exactly like the frontend's `macroBias =
+/// decisionContext?.bias ?? analysis?.bias`.
+fn bias_market(decision_bias: Option<&str>, analysis_bias: Option<MarketBias>) -> Option<MarketBias> {
+    decision_bias
         .and_then(|b| {
             let u = b.to_uppercase();
             if u.contains("BULLISH") {
@@ -455,7 +472,18 @@ fn resolve_active_rr(
                 None
             }
         })
-        .or(analysis_bias);
+        .or(analysis_bias)
+}
+
+/// `resolveActiveRr` port — profile wire → matrix wire → zones fallback
+/// (canonical `compute_side_rr_v2`, 0.10 meaningfulness floor).
+fn resolve_active_rr(
+    opp: &crate::opportunity::OpportunityMatrix,
+    decision_bias: Option<&str>,
+    analysis_bias: Option<MarketBias>,
+    close: Option<f64>,
+) -> (f64, bool) {
+    let bias_market = bias_market(decision_bias, analysis_bias);
     let top = top_qualifying_profile(opp);
     let side: &'static str = if let Some(t) = top {
         select_profile_side(t, bias_market)
@@ -558,6 +586,155 @@ fn f64_from_decimal(d: rust_decimal::Decimal) -> f64 {
     d.to_string().parse::<f64>().unwrap_or(0.0)
 }
 
+// ─── Top-setup of the Opportunity Layer (per-row zones) ──────────────
+
+/// The entry / take-profit / stop-loss geometry of a resolved setup.
+/// `0.0` bounds mean "no bracket for this side" (renders `—`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SetupZones {
+    side: &'static str,
+    entry_low: f64,
+    entry_high: f64,
+    target_low: f64,
+    target_high: f64,
+    invalidation: f64,
+}
+
+const NO_SETUP: SetupZones = SetupZones {
+    side: "NEUTRAL",
+    entry_low: 0.0,
+    entry_high: 0.0,
+    target_low: 0.0,
+    target_high: 0.0,
+    invalidation: 0.0,
+};
+
+/// `profileZones` port — per-profile per-side zone read with the
+/// non-positive bound guard (`decisionRank.ts`). Returns the
+/// (entry, target, invalidation) tuple; the R:R derivation is skipped
+/// because the table only renders the geometry.
+fn profile_zones<'a>(
+    profile: &'a OpportunityProfile,
+    side: &str,
+) -> Option<(&'a PriceRange, &'a PriceRange, f64)> {
+    let (entry, target, inv) = if side == "LONG" {
+        (
+            profile.long_entry_zone.as_ref(),
+            profile.long_target_zone.as_ref(),
+            profile.long_invalidation_level,
+        )
+    } else {
+        (
+            profile.short_entry_zone.as_ref(),
+            profile.short_target_zone.as_ref(),
+            profile.short_invalidation_level,
+        )
+    };
+    let (Some(entry), Some(target)) = (entry, target) else {
+        return None;
+    };
+    let Some(inv) = inv else {
+        return None;
+    };
+    if entry.low <= 0.0 || entry.high <= 0.0 || target.low <= 0.0 || target.high <= 0.0 || inv <= 0.0
+    {
+        return None;
+    }
+    Some((entry, target, inv))
+}
+
+/// `aggregateZones` port — matrix-level per-direction bracket, used as the
+/// fallback when per-profile zones are absent.
+fn aggregate_zones<'a>(
+    opp: &'a crate::opportunity::OpportunityMatrix,
+    side: &str,
+) -> Option<(&'a PriceRange, &'a PriceRange, f64)> {
+    let (entry, target, inv) = if side == "LONG" {
+        (
+            &opp.long_entry_zone,
+            &opp.long_target_zone,
+            opp.long_invalidation_level,
+        )
+    } else {
+        (
+            &opp.short_entry_zone,
+            &opp.short_target_zone,
+            opp.short_invalidation_level,
+        )
+    };
+    if entry.low <= 0.0 || entry.high <= 0.0 || target.low <= 0.0 || target.high <= 0.0 || inv <= 0.0
+    {
+        return None;
+    }
+    Some((entry, target, inv))
+}
+
+fn zones_from(triple: (&PriceRange, &PriceRange, f64), side: &'static str) -> SetupZones {
+    SetupZones {
+        side,
+        entry_low: triple.0.low,
+        entry_high: triple.0.high,
+        target_low: triple.1.low,
+        target_high: triple.1.high,
+        invalidation: triple.2,
+    }
+}
+
+/// `topSetupSummary` legacy zone chain port (`decisionRank.ts`): top
+/// qualifying profile → `select_profile_side` → per-profile zones →
+/// aggregated matrix-zone fallback (with the net-bias side fallback).
+/// This is the canonical "top setup of the Opportunity Layer" the Asset
+/// Rankings table's ENTRY / TARGET / STOP columns render.
+fn top_setup_zones(
+    opp: &crate::opportunity::OpportunityMatrix,
+    bias: Option<MarketBias>,
+    net_bias_pct: f64,
+) -> SetupZones {
+    let Some(top) = top_qualifying_profile(opp) else {
+        // No qualifying profile — the aggregated bracket path. The side
+        // resolves from the bias first, then `net_bias_pct`, then NEUTRAL.
+        let side: &'static str = match bias {
+            Some(b) if is_bullish(b) => "LONG",
+            Some(b) if is_bearish(b) => "SHORT",
+            _ => {
+                if net_bias_pct < 0.0 {
+                    "SHORT"
+                } else if net_bias_pct > 0.0 {
+                    "LONG"
+                } else {
+                    "NEUTRAL"
+                }
+            }
+        };
+        if side == "NEUTRAL" {
+            return NO_SETUP;
+        }
+        return match aggregate_zones(opp, side) {
+            Some(z) => zones_from(z, side),
+            None => NO_SETUP,
+        };
+    };
+    let side = select_profile_side(top, bias);
+    if let Some(z) = (side != "NEUTRAL").then(|| profile_zones(top, side)).flatten() {
+        return zones_from(z, side);
+    }
+    // No directional resolution — prefer the gauge direction (net_bias_pct)
+    // over a blind LONG default, mirroring the TS fallback.
+    let fallback_side: &'static str = if side == "NEUTRAL" {
+        if net_bias_pct < 0.0 {
+            "SHORT"
+        } else {
+            "LONG"
+        }
+    } else {
+        side
+    };
+    match aggregate_zones(opp, fallback_side) {
+        Some(z) => zones_from(z, fallback_side),
+        None => NO_SETUP,
+    }
+}
+
 // ─── Public builder ──────────────────────────────────────────────────
 
 /// Build the full panel payload from per-instance snapshots.
@@ -653,6 +830,18 @@ pub fn build_overview_panel(
             })
             .unwrap_or((0.0, false));
 
+        // Top-setup of the Opportunity Layer — entry / target / stop-loss
+        // geometry for the Asset Rankings table (GUI + CLI share the row).
+        let setup = opp
+            .map(|o| {
+                top_setup_zones(
+                    o,
+                    bias_market(decision.map(|d| d.bias.as_str()), analysis.map(|a| a.bias)),
+                    decision.map(|d| d.net_bias_pct).unwrap_or(0.0),
+                )
+            })
+            .unwrap_or(NO_SETUP);
+
         let mtf_score = alignment.map(|a| a.mtf_overall_score).unwrap_or(0.0);
         let mtf_label = alignment
             .map(|a| a.mtf_overall_label.clone())
@@ -672,6 +861,12 @@ pub fn build_overview_panel(
             mtf_score,
             mtf_label,
             risk: risk_score,
+            setup_side: setup.side.to_string(),
+            entry_low: setup.entry_low,
+            entry_high: setup.entry_high,
+            target_low: setup.target_low,
+            target_high: setup.target_high,
+            invalidation: setup.invalidation,
             updated_ts,
             active: inst.is_active,
         });
@@ -879,6 +1074,65 @@ mod tests {
         }
     }
 
+    fn profile_with_long_zones(
+        ot: OpportunityType,
+        score: f64,
+        pre: u32,
+        entry: (f64, f64),
+        target: (f64, f64),
+        inv: f64,
+    ) -> OpportunityProfile {
+        let mut p = profile(ot, score, pre, 2.5, Some(TradeViability::Actionable));
+        p.long_entry_zone = Some(PriceRange {
+            low: entry.0,
+            high: entry.1,
+        });
+        p.long_target_zone = Some(PriceRange {
+            low: target.0,
+            high: target.1,
+        });
+        p.long_invalidation_level = Some(inv);
+        p
+    }
+
+    fn opp_with_matrix_zones(symbol: &str, p: OpportunityProfile) -> OpportunityMatrix {
+        let mut o = opp_with_profile(symbol, p);
+        o.long_entry_zone = PriceRange {
+            low: 63000.0,
+            high: 63400.0,
+        };
+        o.long_target_zone = PriceRange {
+            low: 66000.0,
+            high: 66500.0,
+        };
+        o.long_invalidation_level = 62800.0;
+        o.short_entry_zone = PriceRange {
+            low: 64500.0,
+            high: 64900.0,
+        };
+        o.short_target_zone = PriceRange {
+            low: 62000.0,
+            high: 62500.0,
+        };
+        o.short_invalidation_level = 65200.0;
+        o
+    }
+
+    fn instance_with_net_bias(
+        symbol: &str,
+        opp: Option<OpportunityMatrix>,
+        net_bias_pct: f64,
+        readiness: &str,
+    ) -> PanelInstance {
+        let mut inst = instance_with(symbol, opp, None, readiness, 50.0);
+        if let Some(snap) = inst.snapshots.first_mut() {
+            if let Some(dc) = snap.decision_context.as_mut() {
+                dc.net_bias_pct = net_bias_pct;
+            }
+        }
+        inst
+    }
+
     #[test]
     fn empty_inputs_yield_stand_aside_and_no_rows() {
         let panel = build_overview_panel(&[], &HashMap::new());
@@ -1073,5 +1327,107 @@ mod tests {
         let dims = panel.market_health_dims.unwrap();
         assert_eq!(dims.bars[1].contributing_instances, 0);
         assert!(!dims.bars[1].available);
+    }
+
+    #[test]
+    fn row_carries_top_setup_zones_from_profile() {
+        let p = profile_with_long_zones(
+            OpportunityType::Scalp,
+            70.0,
+            4,
+            (63200.0, 63400.0),
+            (66000.0, 66500.0),
+            62800.0,
+        );
+        let inst = instance_with(
+            "BTC",
+            Some(opp_with_profile("BTC", p)),
+            Some(MarketBias::Bullish),
+            "READY",
+            80.0,
+        );
+        let panel = build_overview_panel(&[inst], &HashMap::new());
+        let row = &panel.rows[0];
+        assert_eq!(row.setup_side, "LONG");
+        assert_eq!(row.entry_low, 63200.0);
+        assert_eq!(row.entry_high, 63400.0);
+        assert_eq!(row.target_low, 66000.0);
+        assert_eq!(row.target_high, 66500.0);
+        assert_eq!(row.invalidation, 62800.0);
+    }
+
+    #[test]
+    fn row_top_setup_defaults_to_none_without_opportunity() {
+        let inst = instance_with("BTC", None, None, "STAND_ASIDE", 0.0);
+        let panel = build_overview_panel(&[inst], &HashMap::new());
+        let row = &panel.rows[0];
+        assert_eq!(row.setup_side, "NEUTRAL");
+        assert_eq!(row.entry_low, 0.0);
+        assert_eq!(row.entry_high, 0.0);
+        assert_eq!(row.target_low, 0.0);
+        assert_eq!(row.target_high, 0.0);
+        assert_eq!(row.invalidation, 0.0);
+    }
+
+    #[test]
+    fn row_top_setup_falls_back_to_matrix_zones() {
+        // Profile without per-profile zones → aggregated matrix bracket.
+        let p = profile(OpportunityType::Scalp, 70.0, 4, 2.5, Some(TradeViability::Actionable));
+        let inst = instance_with(
+            "BTC",
+            Some(opp_with_matrix_zones("BTC", p)),
+            Some(MarketBias::Bullish),
+            "READY",
+            80.0,
+        );
+        let panel = build_overview_panel(&[inst], &HashMap::new());
+        let row = &panel.rows[0];
+        assert_eq!(row.setup_side, "LONG");
+        assert_eq!(row.entry_low, 63000.0);
+        assert_eq!(row.entry_high, 63400.0);
+        assert_eq!(row.target_low, 66000.0);
+        assert_eq!(row.target_high, 66500.0);
+        assert_eq!(row.invalidation, 62800.0);
+    }
+
+    #[test]
+    fn row_top_setup_side_falls_back_to_net_bias() {
+        // Neutral bias + no profile zones → the gauge direction picks the
+        // side (net_bias_pct < 0 → SHORT aggregate bracket).
+        let p = profile(OpportunityType::Scalp, 70.0, 4, 2.5, Some(TradeViability::Actionable));
+        let inst = instance_with_net_bias(
+            "BTC",
+            Some(opp_with_matrix_zones("BTC", p)),
+            -5.0,
+            "READY",
+        );
+        let panel = build_overview_panel(&[inst], &HashMap::new());
+        let row = &panel.rows[0];
+        assert_eq!(row.setup_side, "SHORT");
+        assert_eq!(row.entry_low, 64500.0);
+        assert_eq!(row.entry_high, 64900.0);
+        assert_eq!(row.target_low, 62000.0);
+        assert_eq!(row.target_high, 62500.0);
+        assert_eq!(row.invalidation, 65200.0);
+    }
+
+    #[test]
+    fn top_setup_zones_ignore_positive_guard_violations() {
+        // A matrix entry zone with non-positive bounds must read N/A.
+        let p = profile(OpportunityType::Scalp, 70.0, 4, 2.5, Some(TradeViability::Actionable));
+        let mut opp = opp_with_matrix_zones("BTC", p);
+        opp.long_entry_zone = PriceRange { low: 0.0, high: 0.0 };
+        let inst = instance_with(
+            "BTC",
+            Some(opp),
+            Some(MarketBias::Bullish),
+            "READY",
+            80.0,
+        );
+        let panel = build_overview_panel(&[inst], &HashMap::new());
+        let row = &panel.rows[0];
+        assert_eq!(row.setup_side, "NEUTRAL");
+        assert_eq!(row.entry_low, 0.0);
+        assert_eq!(row.invalidation, 0.0);
     }
 }

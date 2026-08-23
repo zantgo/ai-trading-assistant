@@ -215,6 +215,42 @@ describe('TradeAutomationDashboard (v7 live)', () => {
         expect(screen.getByText('BRACKET ARMED')).toBeTruthy();
     });
 
+    it('renders the v10 lifecycle-hardening activity labels', async () => {
+        const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+        fetchMock.mockClear();
+        fetchMock.mockImplementation((url: string) => {
+            if (url === '/api/instances') {
+                return Promise.resolve(jsonResponse({ instances: [{ id: 'inst_btc', pair: 'BTC-USDC', status: 'running' }] }));
+            }
+            if (typeof url === 'string' && url.includes('/automation')) {
+                return Promise.resolve(
+                    jsonResponse({
+                        ...automationPayload,
+                        activity_log: [
+                            { ts: 1700000000000, event: 'setup_accepted', detail: 'LONG TrendContinuation entry=95' },
+                            { ts: 1700000001000, event: 'reprice_pending', detail: 'entry re-priced 95 → 105' },
+                            { ts: 1700000002000, event: 'entry_filled', detail: 'filled' },
+                            { ts: 1700000003000, event: 'bracket_armed', detail: 'TP 125 / SL 85' },
+                            { ts: 1700000004000, event: 'bracket_refresh', detail: 'ratchet — SL 85 → 90' },
+                            { ts: 1700000005000, event: 'replaced_adopted', detail: 'adopting Breakout' },
+                            { ts: 1700000006000, event: 'setup_gone_close', detail: 'closed at market' },
+                            { ts: 1700000007000, event: 'confidence_drop', detail: 'confidence fell 30 pts' },
+                        ],
+                    }),
+                );
+            }
+            return Promise.resolve(jsonResponse([]));
+        });
+
+        render(TradeAutomationDashboard, { props: { section: 'activity' } });
+
+        await waitFor(() => expect(screen.getByText('ENTRY RE-PRICED')).toBeTruthy());
+        expect(screen.getByText('BRACKET REFRESHED')).toBeTruthy();
+        expect(screen.getByText('REPLACED — ADOPTED')).toBeTruthy();
+        expect(screen.getByText('CLOSED — SETUP GONE')).toBeTruthy();
+        expect(screen.getByText('CLOSED — CONFIDENCE DROP')).toBeTruthy();
+    });
+
     it('renders the invalidation explainer banner', async () => {
         render(TradeAutomationDashboard);
 

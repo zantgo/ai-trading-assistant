@@ -47,6 +47,11 @@ pub struct PaperPosition {
     pub realized_pnl: Decimal,
     /// v7: entry timestamp (ms) — powers hold-time analytics and persistence.
     pub opened_at_ms: u64,
+    /// v10: max favorable excursion (percent of entry price, signed by
+    /// direction) during the hold — updated on every mark-to-market.
+    pub mfe_pct: f64,
+    /// v10: max adverse excursion (percent of entry price) during the hold.
+    pub mae_pct: f64,
 }
 
 /// Mock snapshot builder used by backtest/replay tooling.

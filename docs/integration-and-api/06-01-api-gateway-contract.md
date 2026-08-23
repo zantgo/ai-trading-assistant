@@ -80,6 +80,10 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/session/status` | — | `{ active: bool, currency: string, exchange: string, instance_count: u32, mode?: "observe"\|"paper"\|"live", capital?: number }` — `mode` + `capital` are the session defaults (the frontend reads `data.active`; corrected 2026-08-17) |
 | `POST` | `/api/session/init` | `{ exchange: "Hyperliquid"\|"Bitget", currency: "USDT"\|"USDC", mode?: "observe"\|"paper"\|"live", initial_capital_usd?: number }` — `mode` + `initial_capital_usd` are the session defaults for instances created during the session. `observe` = monitoring only (no orders), `live` requires an active API key for the chosen exchange (otherwise `400` with a clear message). | `{ success: bool, message: string, mode?: string, capital?: number }` |
 | `POST` | `/api/session/quit` | — | `200 OK` + JSON (cleanup result) → cleans all instances (corrected 2026-08-17 — the handler returns `200` with a body, not `204`) |
+| `GET` | `/api/sessions` | — | `{ sessions: [...] }` — persisted sessions, newest first (v10) |
+| `GET` | `/api/sessions/:id/analytics` | — | `{ session_id, counts, stats }` — session-scoped PAE payloads (v10) |
+| `GET` | `/api/analytics/comparison` | — | `{ rows: [...] }` — sessions + backtest runs side by side (v10) |
+| `GET` | `/api/backtest/:id/input_bars` | `?symbol=&timeframe_secs=` | `{ run_id, bars: [...] }` — the exact input candles a run consumed (v10) |
 
 ### 2.2 Configuration
 
@@ -428,7 +432,18 @@ The `operator_id` field on internal `execution.*` and `safety.*` control frames 
 
 ---
 
-## 6. Cross-References
+## 6. v10 Data-Science endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/sessions` | list persisted sessions (newest first) |
+| GET | `/api/sessions/:id/analytics` | session-scoped PAE payloads (counts + stats) |
+| GET | `/api/analytics/comparison` | sessions + backtest runs side by side (comparison table) |
+| GET | `/api/backtest/:id/input_bars?symbol=&timeframe_secs=` | the exact input candles a run consumed |
+| GET | `/api/backtest/:id/trades` | enriched trades — now carries `ts_entry_secs`, `hold_secs`, `mfe_pct`, `mae_pct`, `roi_pct` |
+| GET | `/api/session/status` | now carries `session_id` (v10) |
+
+## 7. Cross-References
 
 - [Database Schema](06-02-database-schema-spec.md) — Persistent state; persistent `risk_control_events` table (§3.10); encrypted `exchange_keys` table (§3.5); canonical `order_fills` table (§3.7); `open_orders` lifecycle (§3.2).
 - [UI Overview](../ui-ux/07-01-ui-overview-spec.md) — Frontend consumption and the `microTerm` / `fastTerm` / `slowTerm` / `macroTerm` demux shape (07-01 §2.3).

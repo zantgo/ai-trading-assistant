@@ -415,7 +415,7 @@
                                 {row.signal.direction}
                             </span>
                             <span class={styles.status}>{row.signal.status}</span>
-                            <span class={styles.strength}>str {(row.signal.strength * 100).toFixed(0)}</span>
+                            <span class={styles.strength}>{row.signal.strength_label ?? 'str ' + (row.signal.strength * 100).toFixed(0)}</span>
                             <span class={styles.conf}>conf {confidenceOf(row.indicatorKey)}%</span>
                             <span class={styles.age}>age {ageLabel(row.signal.age_bars)}</span>
                         </div>

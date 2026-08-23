@@ -11,6 +11,10 @@ use std::sync::Arc;
 pub struct AnalyticsQuery {
     pub policy_id: Option<String>,
     pub limit: Option<u32>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub timeframe_secs: Option<i64>,
 }
 
 pub async fn serve_strategy_analytics(
@@ -762,6 +766,12 @@ pub async fn serve_backtest_run(
     let task_fees = fees;
     let task_analytics = analytics_params;
     let task_leverage = cross_leverage;
+    // v10: the recorded replay inherits the run's bound strategy — the TAE
+    // lifecycle dials replay exactly as the historical runner does.
+    let task_strategy = match &payload.strategy_id {
+        Some(name) => workspace.resolve_strategy(name).unwrap_or_default(),
+        None => workspace.default_strategy().unwrap_or_default(),
+    };
     let task_symbol_for_input_bars: Option<(String, Vec<u64>)> =
         task_historical.as_ref().map(|cfg| {
             (
@@ -817,6 +827,7 @@ pub async fn serve_backtest_run(
                 &task_fees,
                 task_leverage,
                 task_analytics,
+                &task_strategy,
             )
             .await
         };
@@ -895,13 +906,23 @@ pub async fn persist_backtest_run(
     let trades_json = serde_json::to_string(&result.trades).unwrap_or_default();
     let equity_curve_json = serde_json::to_string(&result.equity_curve).unwrap_or_default();
 
-    let backtest_id = database_storage::insert_backtest_run(
+    // v10: bind the run to the current session when instance-bound;
+    // standalone headless runs stay NULL.
+    let run_session_id = if bound_instance.is_some() {
+        database_storage::queries::sessions::current_session_id(pool)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+    let backtest_id = database_storage::insert_backtest_run_with_session(
         pool,
         &params_json,
         &summary_json,
         &stats_json,
         &trades_json,
         &equity_curve_json,
+        run_session_id,
     )
     .await;
     let _ = run_id;
@@ -917,8 +938,24 @@ pub async fn persist_backtest_run(
             size: t.size,
             pnl: t.pnl,
             exit_reason: t.exit_reason.clone(),
+            ts_entry_secs: t.ts_entry_secs,
+            hold_secs: t.hold_secs,
+            mfe_pct: t.mfe_pct,
+            mae_pct: t.mae_pct,
+            roi_pct: t.roi_pct,
         })
         .collect();
+    // v10: per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES/dd
+    // duration) over the backtest equity curve — the same pure function
+    // the live PAE path uses.
+    let risk_row = {
+        let equity_ms: Vec<(i64, f64)> = result
+            .equity_curve
+            .iter()
+            .map(|(ts, v)| (*ts * 1000, *v))
+            .collect();
+        performance_analytics::risk_analytics::compute_risk_metrics_from_curve(&equity_ms)
+    };
     let ds_metrics: Vec<database_storage::queries::backtest_ds::DsMetric> = vec![
         ("mode".to_string(), mode.to_string()),
         ("total_trades".to_string(), result.total_trades.to_string()),
@@ -946,6 +983,25 @@ pub async fn persist_backtest_run(
         (
             "instance_id".to_string(),
             payload.instance_id.clone().unwrap_or_default(),
+        ),
+        (
+            "sharpe".to_string(),
+            risk_row.sharpe_ratio.map(|v| format!("{v:.4}")).unwrap_or_default(),
+        ),
+        (
+            "sortino".to_string(),
+            risk_row.sortino_ratio.map(|v| format!("{v:.4}")).unwrap_or_default(),
+        ),
+        (
+            "calmar".to_string(),
+            risk_row.calmar_ratio.map(|v| format!("{v:.4}")).unwrap_or_default(),
+        ),
+        ("ulcer".to_string(), format!("{:.4}", risk_row.ulcer_index)),
+        ("var95".to_string(), format!("{:.4}", risk_row.value_at_risk_95)),
+        ("es95".to_string(), format!("{:.4}", risk_row.expected_shortfall_95)),
+        (
+            "max_dd_duration_days".to_string(),
+            format!("{:.2}", risk_row.max_drawdown_duration_days),
         ),
     ]
     .into_iter()
@@ -1030,6 +1086,89 @@ pub async fn persist_backtest_run(
                 let _ = tx.commit().await;
             }
         }
+    }
+
+    // v10: DS export — mirror the run into ./ds/backtests/BTxxxx_mode/
+    // (web and CLI runs share this path).
+    if workspace.data_science.enabled {
+        let root = std::path::PathBuf::from(&workspace.data_science.output_path);
+        // v10: canonical 06-04 schema keys (the wire struct serializes
+        // `timestamp` — the DS files carry `ts_close_secs`).
+        let trades_json: Vec<serde_json::Value> = result
+            .trades
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "ts_close_secs": t.timestamp,
+                    "ts_entry_secs": t.ts_entry_secs,
+                    "direction": t.direction,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "size": t.size,
+                    "pnl": t.pnl,
+                    "exit_reason": t.exit_reason,
+                    "hold_secs": t.hold_secs,
+                    "mfe_pct": t.mfe_pct,
+                    "mae_pct": t.mae_pct,
+                    "roi_pct": t.roi_pct,
+                })
+            })
+            .collect();
+        let equity_json: Vec<serde_json::Value> = result
+            .equity_curve
+            .iter()
+            .map(|(ts, v)| serde_json::json!({ "ts_secs": ts, "equity": v }))
+            .collect();
+        let portfolio_json: Vec<serde_json::Value> = result
+            .portfolio
+            .iter()
+            .map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null))
+            .collect();
+        let signals_json: Vec<serde_json::Value> = result
+            .signals
+            .iter()
+            .map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null))
+            .collect();
+        let mut input_bars: std::collections::HashMap<String, Vec<serde_json::Value>> =
+            std::collections::HashMap::new();
+        if let Ok(rows) = sqlx::query(
+            "SELECT symbol, timeframe_secs, ts_secs, open, high, low, close, volume
+             FROM backtest_input_bars WHERE run_id = ?1 ORDER BY ts_secs",
+        )
+        .bind(backtest_id)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                use sqlx::Row as _;
+                let symbol: String = row.try_get("symbol").unwrap_or_default();
+                let tf: i64 = row.try_get("timeframe_secs").unwrap_or(0);
+                let key = format!("{symbol}.{tf}");
+                let value = serde_json::json!({
+                    "ts_secs": row.try_get::<i64, _>("ts_secs").unwrap_or(0),
+                    "open": row.try_get::<String, _>("open").unwrap_or_default(),
+                    "high": row.try_get::<String, _>("high").unwrap_or_default(),
+                    "low": row.try_get::<String, _>("low").unwrap_or_default(),
+                    "close": row.try_get::<String, _>("close").unwrap_or_default(),
+                    "volume": row.try_get::<String, _>("volume").unwrap_or_default(),
+                });
+                input_bars.entry(key).or_default().push(value);
+            }
+        }
+        database_storage::ds_export::write_backtest_ds(
+            &root,
+            backtest_id,
+            mode,
+            &params_json,
+            &summary_json,
+            &stats_json,
+            &trades_json,
+            &equity_json,
+            &portfolio_json,
+            &signals_json,
+            &input_bars,
+        )
+        .await;
     }
     Ok(backtest_id)
 }
@@ -1161,6 +1300,157 @@ pub async fn serve_backtest_trades(
             "size": t.size,
             "pnl": t.pnl,
             "exit_reason": t.exit_reason,
+            "ts_entry_secs": t.ts_entry_secs,
+            "hold_secs": t.hold_secs,
+            "mfe_pct": t.mfe_pct,
+            "mae_pct": t.mae_pct,
+            "roi_pct": t.roi_pct,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+/// v10: GET /api/analytics/comparison — sessions + backtests side by side
+/// (the data → information → learning table).
+pub async fn serve_analytics_comparison(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    // Sessions.
+    if let Ok(sessions) = database_storage::queries::sessions::list_sessions(&state.pool).await {
+        for s in sessions {
+            let trades = database_storage::queries::stats::query_all_closed_trades(&state.pool)
+                .await;
+            let wins = trades.iter().filter(|t| t.realized_pnl > 0.0).count();
+            let pf = {
+                let gp: f64 = trades.iter().filter(|t| t.realized_pnl > 0.0).map(|t| t.realized_pnl).sum();
+                let gl: f64 = trades.iter().filter(|t| t.realized_pnl < 0.0).map(|t| t.realized_pnl.abs()).sum();
+                if gl > 0.0 { Some(gp / gl) } else { None }
+            };
+            let wr = if trades.is_empty() { 0.0 } else { wins as f64 / trades.len() as f64 * 100.0 };
+            let expectancy: f64 = if trades.is_empty() {
+                0.0
+            } else {
+                trades.iter().map(|t| t.realized_pnl).sum::<f64>() / trades.len() as f64
+            };
+            let risk = database_storage::query_risk_analytics_latest(&state.pool).await;
+            rows.push(serde_json::json!({
+                "kind": "session",
+                "id": s.id,
+                "label": format!("SESSION #{:04} ({})", s.id, s.mode),
+                "mode": s.mode,
+                "trades": trades.len(),
+                "win_rate": wr,
+                "profit_factor": pf,
+                "expectancy": expectancy,
+                "sharpe": risk.as_ref().and_then(|r| r.sharpe_ratio),
+                "max_drawdown_pct": risk.as_ref().map(|r| r.maximum_drawdown_pct).unwrap_or(0.0),
+                "verdict": null,
+            }));
+        }
+    }
+    // Backtests.
+    let runs = database_storage::query_backtest_runs_list(&state.pool, 200).await;
+    {
+        let runs = runs;
+        for r in runs {
+            let summary: serde_json::Value =
+                serde_json::from_str(&r.summary_json).unwrap_or(serde_json::Value::Null);
+            // NHST stats come from the run's backtest_metrics (key/value).
+            let stats: serde_json::Value = serde_json::Value::Null;
+            let metrics =
+                database_storage::queries::backtest_ds::query_backtest_metrics(&state.pool, r.id)
+                    .await;
+            let get = |k: &str| -> Option<f64> {
+                metrics.iter().find(|m| m.key == k).and_then(|m| m.value.parse::<f64>().ok())
+            };
+            let verdict: Option<serde_json::Value> = metrics
+                .iter()
+                .find(|m| m.key == "classification")
+                .map(|m| serde_json::Value::String(m.value.clone()));
+            rows.push(serde_json::json!({
+                "kind": "backtest",
+                "id": r.id,
+                "label": format!("BT{:04}", r.id),
+                "mode": "backtest",
+                "trades": summary.get("total_trades").and_then(|v| v.as_u64()).unwrap_or(0),
+                "win_rate": summary.get("win_rate").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                "profit_factor": summary.get("profit_factor").and_then(|v| v.as_f64()),
+                "expectancy": summary.get("expectancy").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                "sharpe": get("sharpe"),
+                "max_drawdown_pct": summary.get("max_drawdown_pct").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                "verdict": verdict,
+            }));
+        }
+    }
+    Json(serde_json::json!({ "rows": rows }))
+}
+
+/// v10: GET /api/sessions/:id/analytics — the PAE payloads, session-scoped.
+pub async fn serve_session_analytics(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> impl IntoResponse {
+    let stats = performance_analytics::stats_compiler::compile_dashboard_stats(
+        &state.pool,
+        state.workspace.config().await.portfolio_capital_usd,
+    )
+    .await;
+    let snap: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+    let trades_count: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM paper_trades WHERE session_id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+    Json(serde_json::json!({
+        "session_id": id,
+        "counts": {
+            "market_snapshots": snap.map(|r| r.0).unwrap_or(0),
+            "trades": trades_count.map(|r| r.0).unwrap_or(0),
+        },
+        "stats": stats,
+    }))
+}
+
+/// GET /api/backtest/:id/input_bars — the exact input candles the run
+/// consumed (symbol × timeframe). Powers the Chart tab.
+pub async fn serve_backtest_input_bars(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    Query(query): Query<AnalyticsQuery>,
+) -> impl IntoResponse {
+    let symbol_filter = query.symbol.clone();
+    let tf_filter = query.timeframe_secs;
+    let rows: Vec<(String, i64, i64, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT symbol, timeframe_secs, ts_secs, open, high, low, close, volume
+         FROM backtest_input_bars
+         WHERE run_id = ?1
+           AND (?2 IS NULL OR symbol = ?2)
+           AND (?3 IS NULL OR timeframe_secs = ?3)
+         ORDER BY timeframe_secs ASC, ts_secs ASC",
+    )
+    .bind(id)
+    .bind(symbol_filter)
+    .bind(tf_filter)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+    Json(serde_json::json!({
+        "run_id": id,
+        "bars": rows.into_iter().map(|(symbol, tf, ts, o, h, l, c, v)| serde_json::json!({
+            "symbol": symbol,
+            "timeframe_secs": tf,
+            "ts_secs": ts,
+            "open": o.parse::<f64>().unwrap_or(0.0),
+            "high": h.parse::<f64>().unwrap_or(0.0),
+            "low": l.parse::<f64>().unwrap_or(0.0),
+            "close": c.parse::<f64>().unwrap_or(0.0),
+            "volume": v.parse::<f64>().unwrap_or(0.0),
         })).collect::<Vec<_>>(),
     }))
 }

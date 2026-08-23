@@ -27,6 +27,7 @@
     import PerformanceTab from './performance/PerformanceTab.svelte';
     import HistoryTab from './performance/HistoryTab.svelte';
     import MethodologyTab from './performance/MethodologyTab.svelte';
+    import ComparisonTab from './performance/ComparisonTab.svelte';
     import NoInstanceState from './NoInstanceState.svelte';
     import PerformanceSettings from './PerformanceSettings.svelte';
 
@@ -207,6 +208,8 @@
             <HistoryTab />
         {:else if safeSection === 'methodology'}
             <MethodologyTab />
+        {:else if safeSection === 'comparison'}
+            <ComparisonTab />
         {/if}
     </div>
 </div>

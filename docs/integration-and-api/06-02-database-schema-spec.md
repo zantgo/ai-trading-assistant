@@ -493,8 +493,9 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
   direction TEXT NOT NULL, entry_price REAL NOT NULL, exit_price REAL NOT NULL,
   size REAL NOT NULL, pnl REAL NOT NULL, exit_reason TEXT NOT NULL DEFAULT ''
 );
--- exit_reason vocabulary (v8.2): 'tp' | 'sl' | 'invalidated_signal' |
--- 'manual' | 'stop_flatten' | 'end_of_backtest' (v8.2 end-of-run force-close)
+-- exit_reason vocabulary (v10): 'tp' | 'sl' | 'invalidated_signal' |
+-- 'manual' | 'stop_flatten' | 'end_of_backtest' (v8.2 end-of-run force-close) |
+-- 'setup_gone' | 'confidence_drop' (v10 posture/confidence exits)
 
 CREATE TABLE IF NOT EXISTS backtest_equity (
   run_id INTEGER NOT NULL, ts_secs INTEGER NOT NULL, equity REAL NOT NULL,
@@ -613,3 +614,7 @@ The canonical v4.0 migration set adds eight changes:
 - [`08-02-pre-trade-risk-controls.md`](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — gate ordering and `risk_control_events` provenance.
 - [`08-04-candle-reconstruction.md`](../operations-and-compliance/08-04-candle-reconstruction.md) — reconstruction methods.
 - [`08-05-connection-quality.md`](../operations-and-compliance/08-05-connection-quality.md) — `connection_quality_samples` data model.
+
+## v10 Sessions & enrichment
+
+- `sessions` table … session_id on 7 tables … enriched `backtest_trades` … per-run risk metrics in `backtest_metrics`.
