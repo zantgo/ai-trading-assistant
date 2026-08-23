@@ -60,7 +60,7 @@ pub async fn ws_handler(
         .get(axum::http::header::ORIGIN)
         .and_then(|v| v.to_str().ok())
     {
-        if !crate::origin_allowed(origin) {
+        if !crate::origin_allowed(origin, &state.allowed_origins) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }

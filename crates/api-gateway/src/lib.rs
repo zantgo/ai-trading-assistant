@@ -1,5 +1,5 @@
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Redirect},
@@ -72,6 +72,10 @@ pub struct AppState {
     pub latency_tracker: core_domain::SharedLatencyTracker,
     pub ws_url: String,
     pub bitget_ws_url: String,
+    /// v10.1: browser-origin allowlist for the served HTTP/WS surface —
+    /// built from the resolved bind/port (per-folder sessions) plus the
+    /// Vite dev origins. K1 boundary: any other origin is refused.
+    pub allowed_origins: Vec<String>,
     /// L7 cross-symbol market overview, refreshed periodically.
     pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
     pub execution_engine: Arc<ExecutionEngine>,
@@ -646,7 +650,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             // the Vite dev proxy working.
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(
-                    ALLOWED_ORIGINS.map(axum::http::HeaderValue::from_static),
+                    state
+                        .allowed_origins
+                        .iter()
+                        .filter_map(|o| axum::http::HeaderValue::from_str(o).ok())
+                        .collect::<Vec<_>>(),
                 ))
                 .allow_methods(Any)
                 .allow_headers(Any),
@@ -657,24 +665,33 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // `cross-site` value (or a foreign `Origin` header) is refused
         // outright. Same-origin dashboard fetches and Vite-dev proxied
         // requests carry `same-origin`/the app origin and pass.
-        .layer(middleware::from_fn(reject_cross_site))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            reject_cross_site,
+        ))
         .fallback_service(ServeDir::new("ui/dist"))
         .with_state(state)
 }
 
-/// Origins the dashboard itself can be served from. The UI is served
-/// same-origin on `127.0.0.1:3000`; `localhost` variants and the Vite dev
-/// server (5173) are allowed so operator bookmarks and `bun run dev` keep
-/// working. Any other origin is refused.
-pub const ALLOWED_ORIGINS: [&str; 4] = [
-    "http://127.0.0.1:3000",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-];
+/// Origins the dashboard itself can be served from — built from the
+/// resolved bind/port (v10.1, per-folder sessions) plus the Vite dev
+/// server origins so operator bookmarks and `bun run dev` keep working
+/// on any port. Any other origin is refused.
+pub fn default_allowed_origins(bind: &str, port: u16) -> Vec<String> {
+    let mut out = vec![
+        format!("http://{bind}:{port}"),
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+        "http://127.0.0.1:5173".to_string(),
+        "http://localhost:5173".to_string(),
+    ];
+    out.sort();
+    out.dedup();
+    out
+}
 
-fn origin_allowed(origin: &str) -> bool {
-    ALLOWED_ORIGINS.contains(&origin)
+pub fn origin_allowed(origin: &str, allowed: &[String]) -> bool {
+    allowed.iter().any(|a| a == origin)
 }
 
 /// K1 (production audit): the API is unauthenticated and binds loopback
@@ -682,7 +699,11 @@ fn origin_allowed(origin: &str) -> bool {
 /// browser's same-origin policy. `Sec-Fetch-Site` is present on every
 /// browser-originated cross-site request; `Origin` is present on all
 /// browser POSTs. Either header proving a foreign site → 403.
-async fn reject_cross_site(req: Request, next: Next) -> axum::response::Response {
+async fn reject_cross_site(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: Next,
+) -> axum::response::Response {
     let headers = req.headers();
     if let Some(fetch_site) = headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
         if fetch_site != "same-origin" && fetch_site != "same-site" && fetch_site != "none" {
@@ -693,7 +714,7 @@ async fn reject_cross_site(req: Request, next: Next) -> axum::response::Response
         .get(axum::http::header::ORIGIN)
         .and_then(|v| v.to_str().ok())
     {
-        if !origin_allowed(origin) {
+        if !origin_allowed(origin, &state.allowed_origins) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }

@@ -96,3 +96,6 @@ ds/
 # 📸 Snapshot-export tree (periodic per-tab JSON dumps for offline inspection)
 # ==============================================================================
 snapshots/
+
+# Multi-session experiment folders (per-folder configs + results)
+experiments/

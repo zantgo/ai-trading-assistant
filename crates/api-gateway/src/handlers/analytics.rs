@@ -889,7 +889,32 @@ pub async fn persist_backtest_run(
     bound_instance: Option<&Arc<portfolio_supervisor::instance::Instance>>,
     input_bars_target: Option<&(String, Vec<u64>)>,
 ) -> Result<i64, String> {
-    let params_json = serde_json::to_string(&result.params).unwrap_or_default();
+    let mut params_obj = serde_json::to_value(&result.params)
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+    // v10.1: self-describing run.json — carry the exchange + bound strategy
+    // so cross-folder comparison (`--compare-folders`) works DB-free.
+    if let Some(obj) = params_obj.as_object_mut() {
+        let exchange = payload
+            .exchange
+            .clone()
+            .or_else(|| bound_instance.map(|inst| inst.exchange.as_str().to_string()));
+        if let Some(ex) = exchange {
+            obj.insert("exchange".to_string(), serde_json::json!(ex));
+        }
+        let strategy_id = payload.strategy_id.clone().or_else(|| {
+            bound_instance.as_ref().and_then(|inst| {
+                workspace
+                    .instances
+                    .iter()
+                    .find(|e| e.symbol == inst.symbol())
+                    .and_then(|e| e.strategy.clone())
+            })
+        });
+        if let Some(sid) = strategy_id {
+            obj.insert("strategy_id".to_string(), serde_json::json!(sid));
+        }
+    }
+    let params_json = serde_json::to_string(&params_obj).unwrap_or_default();
     let summary_json = serde_json::to_string(&serde_json::json!({
         "total_trades": result.total_trades,
         "win_count": result.win_count,
@@ -1385,7 +1410,6 @@ pub async fn serve_analytics_comparison(State(state): State<Arc<AppState>>) -> i
             let summary: serde_json::Value =
                 serde_json::from_str(&r.summary_json).unwrap_or(serde_json::Value::Null);
             // NHST stats come from the run's backtest_metrics (key/value).
-            let stats: serde_json::Value = serde_json::Value::Null;
             let metrics =
                 database_storage::queries::backtest_ds::query_backtest_metrics(&state.pool, r.id)
                     .await;

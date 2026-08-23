@@ -35,7 +35,7 @@ pub async fn account_summary(State(state): State<Arc<AppState>>) -> impl IntoRes
     let equity = state.execution_engine.get_equity().await;
     // Daily PnL + safety state from the instances (shared-ledger mirror).
     let instances = state.workspace.list().await;
-    let mut daily_pnl = 0.0;
+    let daily_pnl = 0.0;
     let mut worst_safety = "NORMAL".to_string();
     for inst in &instances {
         let safety = *inst.safety.safety_state.read().await;

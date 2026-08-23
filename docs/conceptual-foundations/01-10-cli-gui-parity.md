@@ -73,6 +73,7 @@ must extend both surfaces through the same server-produced payload.
 | C15 | DS headless reports (v10) | PAE tabs (`/api/sessions/:id/analytics`, `/api/analytics/comparison`) | `--session-report <id>` / `--sessions` — same server-computed payloads | `cli_ds.rs` mirrors the handlers |
 | C16 | Backtest deep view (v10) | Study Report + Chart tab (`input_bars` + enriched trades) | `--backtest-show <id>` — run.json + trades/equity + ds/ file paths | same `persist_backtest_run` artifacts |
 | C17 | Top-setup columns (entry/target/stop) | `OverviewRow` `entry_low/entry_high` + `target_low/target_high` + `invalidation` | same `overview_rows` fields in the ASSET RANKINGS table | server-computed once in `build_overview_panel` |
+| C18 | Cross-folder comparison (v10.1) | PAE Comparison tab (within-folder: `/api/analytics/comparison`) | `--compare-folders <rootA> <rootB> …` — the same columns across folders, DB-free from each `ds/` tree | `cli_compare.rs` reads the identical NDJSON artifacts the GUI renders |
 
 **Enforcement:**
 

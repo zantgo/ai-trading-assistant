@@ -490,7 +490,7 @@ pub async fn run_historical_backtest(
             {
                 let [w_l2, w_l3, w_l4] =
                     core_domain::decision_params::DecisionParams::default().confluence_weights;
-                (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score)
+                w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score
             }
             .clamp(0.0, 100.0)
         };

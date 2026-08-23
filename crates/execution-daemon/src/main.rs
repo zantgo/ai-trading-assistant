@@ -62,6 +62,7 @@ use portfolio_supervisor::{
 // its types without the daemon's CLI surface.
 
 mod cli_backtest;
+mod cli_compare;
 mod cli_ds;
 mod cli_ops;
 
@@ -94,6 +95,14 @@ struct CliArgs {
     account_ops: Vec<cli_ops::AccountOp>,
     lifecycle_op: Option<(String, String)>,
     instance_bind: Option<(String, String)>,
+    /// v10.1: HTTP bind override — `--port`/`--bind` beat `PLATFORM_PORT`/
+    /// `PLATFORM_BIND` env, which beat `[server]` in config.toml. Per-folder
+    /// sessions run side by side on one machine via distinct ports.
+    port: Option<u16>,
+    bind: Option<String>,
+    /// v10.1: cross-folder comparison — one or more folder roots whose
+    /// `ds/` trees (backtests + sessions) are aggregated into one table.
+    compare_folders: Vec<String>,
 }
 
 enum LaunchMode {
@@ -123,6 +132,9 @@ fn parse_args() -> CliArgs {
     let mut account_ops: Vec<cli_ops::AccountOp> = Vec::new();
     let mut lifecycle_op = None;
     let mut instance_bind = None;
+    let mut port: Option<u16> = None;
+    let mut bind: Option<String> = None;
+    let mut compare_folders: Vec<String> = Vec::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -296,6 +308,31 @@ fn parse_args() -> CliArgs {
             "--web" | "--gui" => {
                 mode = LaunchMode::Web;
             }
+            "--port" => {
+                i += 1;
+                if i < args.len() {
+                    port = args[i].parse::<u16>().ok();
+                    if port.is_none() {
+                        eprintln!("⚠️  Invalid --port value '{}' — ignoring.", args[i]);
+                    }
+                }
+            }
+            "--bind" => {
+                i += 1;
+                if i < args.len() {
+                    bind = Some(args[i].clone());
+                }
+            }
+            "--compare-folders" => {
+                // Consume every following non-flag arg (shell glob expands
+                // `experiments/*` into one arg per folder).
+                i += 1;
+                while i < args.len() && !args[i].starts_with("--") {
+                    compare_folders.push(args[i].clone());
+                    i += 1;
+                }
+                i -= 1;
+            }
             _ => { /* ignore unknown args */ }
         }
         i += 1;
@@ -319,6 +356,9 @@ fn parse_args() -> CliArgs {
         account_ops,
         lifecycle_op,
         instance_bind,
+        port,
+        bind,
+        compare_folders,
         sessions,
         session_report,
         backtest_show,
@@ -733,6 +773,23 @@ async fn main() {
         .expect("❌ Configuration Error: failed to parse platform config from config.toml");
     let workspace = load_workspace()
         .expect("❌ Configuration Error: failed to parse workspace config from config.toml");
+
+    // v10.1: resolve the HTTP bind/port — CLI flag → env → [server] config
+    // → defaults. Per-folder sessions run side by side on one machine via
+    // distinct ports (each folder carries its own config.toml + telemetry.db).
+    let server_bind = cli.bind.clone().unwrap_or_else(|| {
+        std::env::var("PLATFORM_BIND")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| platform.server.bind.clone())
+    });
+    let server_port = cli.port.unwrap_or_else(|| {
+        std::env::var("PLATFORM_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(platform.server.port)
+    });
+    let allowed_origins = api_gateway::default_allowed_origins(&server_bind, server_port);
     println!(
         "✅ Configuration Loaded: platform + workspace ({} instance{})",
         workspace.instances.len(),
@@ -757,6 +814,9 @@ async fn main() {
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
     // ── v10: headless data-science commands (read-only, then exit) ──
+    if !cli.compare_folders.is_empty() {
+        std::process::exit(cli_compare::compare_folders(&cli.compare_folders));
+    }
     if cli.sessions {
         std::process::exit(cli_ds::print_sessions(&db_pool).await);
     }
@@ -999,6 +1059,7 @@ async fn main() {
         latency_tracker: latency_tracker.clone(),
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
+        allowed_origins: allowed_origins.clone(),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: execution_engine.clone(),
         automation: if workspace.minimal_tae.enabled {
@@ -1893,11 +1954,18 @@ async fn main() {
         ));
     } else {
         let app = build_router(app_state.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        let bind_addr = format!("{server_bind}:{server_port}");
+        let listener = tokio::net::TcpListener::bind(&bind_addr)
             .await
-            .expect("❌ Web Server Setup: Failed to bind port 3000");
+            .unwrap_or_else(|e| {
+                panic!(
+                    "❌ Web Server Setup: Failed to bind {bind_addr} ({e}). \
+                     Another session may already use this port — set a distinct \
+                     `[server] port` (or PLATFORM_PORT / --port) per folder."
+                )
+            });
 
-        println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
+        println!("🌐 Web Server Setup: Dashboard live at http://{bind_addr}");
 
         let server_handle = tokio::spawn(async move {
             axum::serve(listener, app)

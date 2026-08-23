@@ -18,6 +18,18 @@ LOG_FILE="engine.log"
 FRONTEND_DIR="ui"
 PID_FILE=".engine.pid"
 
+# v10.1: per-folder sessions — the HTTP port resolves as
+# PLATFORM_PORT env → `[server] port` in config.toml → 3000. Each folder
+# runs its own daemon on its own port; `stop`/`status` target the folder's
+# own port as a fallback when the PID file is missing.
+resolve_port() {
+    local cfg_port
+    cfg_port=$(sed -n '/^\[server\]/,/^\[/p' config.toml 2>/dev/null | grep -E '^\s*port\s*=' | head -1 | grep -oE '[0-9]+' || true)
+    echo "${PLATFORM_PORT:-${cfg_port:-3000}}"
+}
+PORT="$(resolve_port)"
+export PLATFORM_PORT="${PLATFORM_PORT:-$PORT}"
+
 show_help() {
     echo "Trading Platform - CLI Management Tool"
     echo "Usage: ./manage.sh [command]"
@@ -151,9 +163,9 @@ stop_instance() {
         fi
     else
         # Fallback to kill cargo/engine processes on this port if no pid file is present
-        PORT_PID=$(lsof -t -i:3000 || true)
+        PORT_PID=$(lsof -t -i:"$PORT" || true)
         if [ -n "$PORT_PID" ]; then
-            echo "🛑 Found engine running on port 3000 (PID: $PORT_PID). Stopping..."
+            echo "🛑 Found engine running on port $PORT (PID: $PORT_PID). Stopping..."
             # `lsof -t` may return multiple PIDs separated by newlines; expand them so
             # `kill` receives each PID as a separate argument instead of a single
             # newline-containing string which `kill` would reject.
@@ -175,9 +187,9 @@ check_status() {
         fi
     fi
 
-    PORT_PID=$(lsof -t -i:3000 || true)
+    PORT_PID=$(lsof -t -i:"$PORT" || true)
     if [ -n "$PORT_PID" ]; then
-        echo "🟢 Engine status: RUNNING on port 3000 (PID: $PORT_PID)"
+        echo "🟢 Engine status: RUNNING on port $PORT (PID: $PORT_PID)"
         return 0
     fi
 

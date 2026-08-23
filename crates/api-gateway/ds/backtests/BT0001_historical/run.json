@@ -2,6 +2,7 @@
   "backtest_id": 1,
   "mode": "historical",
   "params": {
+    "exchange": "Hyperliquid",
     "from_secs": 1759978400,
     "portfolio_capital_usd": 1000.0,
     "symbol": "BTC-USDC",

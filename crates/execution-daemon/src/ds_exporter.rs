@@ -185,7 +185,7 @@ async fn append_db_table(
 }
 
 fn sqlite_row_to_json(row: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
-    use sqlx::{Column as _, Row as _, ValueRef as _};
+    use sqlx::{Column as _, Row as _};
     let mut map = serde_json::Map::new();
     for col in row.columns() {
         let name = col.name().to_string();

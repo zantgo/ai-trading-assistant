@@ -11,9 +11,10 @@
 | Property | Value |
 |----------|-------|
 | Framework | Axum (Rust) on a Tokio runtime |
-| Base URL | `http://127.0.0.1:3000` (localhost only) |
+| Base URL | `http://127.0.0.1:3000` by default — **per-folder configurable** via `[server]` in `config.toml`, `PLATFORM_PORT`/`PLATFORM_BIND` env, or `--port`/`--bind` flags (flag > env > config > default). Loopback-only by default (K1); each folder runs an isolated session, so give each a distinct port to run several side by side |
 | Authentication | **Single-operator local deployment.** The Trading Platform is built for a single operator and their team: one workspace, one operator identity (`operator_id = "local"`), no per-route authentication, no caller-supplied identity, and no multi-client model. Every audit event (`risk_control_events.operator_id`, see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)) and WebSocket control frame carries `operator_id = "local"`. |
 | Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
+| Origin allowlist (K1) | Built at boot from the resolved bind/port (`http://{bind}:{port}`, `http://127.0.0.1:{port}`, `http://localhost:{port}`) plus the Vite dev origins (`127.0.0.1:5173`, `localhost:5173`); any other origin is refused by CORS and the cross-site middleware |
 
 ### 1.0 Canonical glossary (Market Instance identifier)
 

@@ -137,7 +137,7 @@ bun run check        # svelte-check + tsc typecheck
 
 ## Runtime details
 
-- Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
+- Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0; **configurable per folder** — `[server]` in `config.toml`, `PLATFORM_PORT`/`PLATFORM_BIND` env, or `--port`/`--bind` flags; flag > env > config > default 3000. Each folder runs its own isolated session (own config.toml, telemetry.db, `./ds/`); give each folder a distinct port to run several sessions side by side)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
 - Config API: `GET /api/config` (returns parsed `config.toml`)
 - Platform config API: `GET /api/system/platform-config` (returns the serialized `PlatformConfig` — exchange endpoints, clock monitor, quality, reconnect, candle buffer; DIE has no Settings tab — export `config.toml` via Profile → Share Config)
@@ -151,6 +151,7 @@ bun run check        # svelte-check + tsc typecheck
 - **DS export layer (v10):** `[workspace.data_science]` writes NDJSON mirrors of every GUI artifact to `./ds/` (`sessions/Sxxxx_mode/…`, `backtests/BTxxxx_mode/…`); pandas/DuckDB-ready. Backtest DS files are written inside `persist_backtest_run` (web + CLI share the path)
 - **DS APIs (v10):** `GET /api/sessions`, `GET /api/sessions/:id/analytics`, `GET /api/analytics/comparison`, `GET /api/backtest/:id/input_bars`; enriched backtest trades (`ts_entry_secs`, `hold_secs`, `mfe_pct`, `mae_pct`, `roi_pct`) + per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR95/ES95)
 - **DS CLI (v10):** `--sessions`, `--session-report <id>`, `--backtest-show <id>` — headless JSON payloads matching the PAE tabs / Study Report
+- **Cross-folder comparison (v10.1):** `--compare-folders <rootA> <rootB> …` aggregates each folder's `ds/` tree (backtests + paper sessions) into one comparison table (DB-free; risk metrics recomputed from the equity NDJSON). Pair with `scripts/multi-session-compare.sh` — parallel per-folder experiments across exchanges/strategies → `experiments/COMPARISON.md`
 - **Verification loop:** `scripts/ds-verification-loop.sh` — 12 headless backtests (3 strategies × 2 symbols × 2 depths) + DS invariants (identifiers, equity conservation, trade ordering, vocabulary, burn-in, cross-strategy sanity)
 - Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`) and Bitget WebSocket (`wss://ws.bitget.com/v2/ws/public`)
 - Static assets served from `ui/dist`

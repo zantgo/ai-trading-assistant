@@ -143,7 +143,6 @@ pub async fn add_instance(
         .cloned();
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
-    let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
 
     let micro_cfg = pair_cfg
@@ -189,9 +188,6 @@ pub async fn add_instance(
     let activation_first = config_guard.activation.clone();
     let activation_instance_first = pair_cfg.as_ref().and_then(|p| p.activation.clone());
     let config_version_first = config_guard.config_version;
-    // v9 (F-04): the `[order_book]` surface + the effective default
-    // strategy (patch-resolved).
-    let ob_config_first = config_guard.order_book.clone();
     // v9: instances launch bound to the default strategy; an explicit
     // per-instance binding overrides it.
     let bound_name = pair_cfg

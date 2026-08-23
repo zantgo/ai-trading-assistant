@@ -88,6 +88,11 @@ struct OnDiskConfig {
     /// `SnapshotExportConfig::default()` (disabled) is used.
     #[serde(default)]
     snapshot_export: Option<SnapshotExportConfig>,
+    /// HTTP server bind address + port (per-folder sessions). Defaults to
+    /// loopback `127.0.0.1:3000` when the `[platform.server]` section is
+    /// absent.
+    #[serde(default)]
+    server: Option<ServerConfig>,
     workspace: WorkspaceConfig,
 }
 
@@ -103,9 +108,31 @@ impl OnDiskConfig {
                 reconnect: self.reconnect,
                 candle_buffer: self.candle_buffer,
                 snapshot_export: self.snapshot_export.unwrap_or_default(),
+                server: self.server.unwrap_or_default(),
             },
             self.workspace,
         )
+    }
+}
+
+/// The HTTP server the daemon serves the dashboard + WS from. One process
+/// per folder ⇒ each session needs its own port. Precedence:
+/// `--port/--bind` CLI flag → `PLATFORM_PORT`/`PLATFORM_BIND` env →
+/// `[platform.server]` in `config.toml` → defaults `127.0.0.1:3000`.
+/// Loopback-only by default (K1 security boundary).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerConfig {
+    pub bind: String,
+    pub port: u16,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            bind: "127.0.0.1".to_string(),
+            port: 3000,
+        }
     }
 }
 
@@ -140,6 +167,11 @@ pub struct PlatformConfig {
     /// the `[snapshot_export]` section is absent from `config.toml`.
     #[serde(default)]
     pub snapshot_export: SnapshotExportConfig,
+    /// HTTP server bind address + port — see `ServerConfig`. The platform
+    /// stays loopback-bound by default; a per-folder `port` lets several
+    /// sessions run side by side on one machine.
+    #[serde(default)]
+    pub server: ServerConfig,
 }
 
 /// Status of a single trading-pair instance. Persisted in the workspace file
@@ -858,6 +890,16 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
             });
         }
     }
+    if platform.server.port == 0 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: "[platform.server].port = 0 (must be 1..=65535)".into(),
+        });
+    }
+    if platform.server.bind.trim().is_empty() {
+        return Err(ConfigError::InvalidNumeric {
+            detail: "[platform.server].bind must not be empty".into(),
+        });
+    }
     Ok(())
 }
 
@@ -888,6 +930,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         reconnect: on_disk.reconnect,
         candle_buffer: on_disk.candle_buffer,
         snapshot_export: on_disk.snapshot_export,
+        server: on_disk.server,
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;
@@ -929,6 +972,36 @@ candles = { duration_seconds = 180 }
         assert_eq!(workspace.instances[0].symbol, "BTC-USDT");
         assert_eq!(workspace.candles.duration_seconds, 60); // default
         assert!(platform.clock_monitor.is_none());
+        // Server defaults: loopback + 3000 when [platform.server] is absent.
+        assert_eq!(platform.server.bind, "127.0.0.1");
+        assert_eq!(platform.server.port, 3000);
+    }
+
+    #[test]
+    fn platform_server_section_overrides_defaults() {
+        let toml = r#"
+[server]
+bind = "0.0.0.0"
+port = 8080
+
+[workspace]
+id = "main"
+name = "Test"
+default_currency = "USDC"
+default_exchange = "Hyperliquid"
+"#;
+        let cfg: OnDiskConfig = toml::from_str(toml).expect("parse");
+        let (platform, _workspace) = cfg.split();
+        assert_eq!(platform.server.bind, "0.0.0.0");
+        assert_eq!(platform.server.port, 8080);
+        assert!(validate_platform(&platform).is_ok());
+    }
+
+    #[test]
+    fn platform_server_port_zero_rejected() {
+        let mut platform = PlatformConfig::default();
+        platform.server.port = 0;
+        assert!(validate_platform(&platform).is_err());
     }
 
     #[test]
