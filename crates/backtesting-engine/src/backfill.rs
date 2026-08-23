@@ -149,7 +149,10 @@ async fn page_timeframe(
         let requested = cfg.depth_days as i64 * 86400;
         if requested > exchange_limit {
             let exchange_label = if cfg.exchange.eq_ignore_ascii_case("Bitget") {
-                format!("Bitget's {tf_secs}s history (retention ≈ {} days)", exchange_limit / 86400)
+                format!(
+                    "Bitget's {tf_secs}s history (retention ≈ {} days)",
+                    exchange_limit / 86400
+                )
             } else {
                 format!(
                     "Hyperliquid's {}-candle ceiling for the {tf_secs}s timeframe (max ≈ {} days)",
@@ -522,13 +525,7 @@ mod retention_tests {
     #[test]
     fn exchange_ceilings() {
         let cfg = config_models::BacktestConfig::default();
-        assert_eq!(
-            exchange_max_depth_secs("Hyperliquid", 60, &cfg),
-            5000 * 60
-        );
-        assert_eq!(
-            exchange_max_depth_secs("Bitget", 60, &cfg),
-            30 * 86400
-        );
+        assert_eq!(exchange_max_depth_secs("Hyperliquid", 60, &cfg), 5000 * 60);
+        assert_eq!(exchange_max_depth_secs("Bitget", 60, &cfg), 30 * 86400);
     }
 }

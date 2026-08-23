@@ -50,20 +50,18 @@ pub async fn print_session_report(pool: &SqlitePool, session_id: i64) -> i32 {
 
     // Session-scoped D-tier counts.
     let (snapshots, trades): (i64, i64) = {
-        let snap: Option<(i64,)> = sqlx::query_as(
-            "SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1",
-        )
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
-        let trades_count: Option<(i64,)> = sqlx::query_as(
-            "SELECT COUNT(*) FROM paper_trades WHERE session_id = ?1",
-        )
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
+        let snap: Option<(i64,)> =
+            sqlx::query_as("SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1")
+                .bind(session_id)
+                .fetch_optional(pool)
+                .await
+                .unwrap_or(None);
+        let trades_count: Option<(i64,)> =
+            sqlx::query_as("SELECT COUNT(*) FROM paper_trades WHERE session_id = ?1")
+                .bind(session_id)
+                .fetch_optional(pool)
+                .await
+                .unwrap_or(None);
         (
             snap.map(|r| r.0).unwrap_or(0),
             trades_count.map(|r| r.0).unwrap_or(0),
@@ -97,7 +95,8 @@ pub async fn print_backtest_show(pool: &SqlitePool, workspace: &WorkspaceConfig,
         return 1;
     };
     let metrics = database_storage::queries::backtest_ds::query_backtest_metrics(pool, id).await;
-    let trades = database_storage::queries::backtest_ds::query_backtest_trades(pool, id, 5000, 0).await;
+    let trades =
+        database_storage::queries::backtest_ds::query_backtest_trades(pool, id, 5000, 0).await;
     let ds_root = std::path::PathBuf::from(&workspace.data_science.output_path);
     let ds_dir = database_storage::ds_export::backtest_dir(&ds_root, id, "historical");
     let out = serde_json::json!({

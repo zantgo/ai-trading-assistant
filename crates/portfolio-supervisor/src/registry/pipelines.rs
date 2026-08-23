@@ -1659,7 +1659,11 @@ pub async fn compute_cluster_for_tf(
         .map(|p| p.tf_leverage_config.as_ref().clone())
         .unwrap_or_default();
     let (buckets, weights, min_notional) = match overrides.per_tf_leverage.as_ref() {
-        Some(pl) if pl.enabled => (pl.buckets.clone(), pl.weights.clone(), pl.min_cluster_notional_usd),
+        Some(pl) if pl.enabled => (
+            pl.buckets.clone(),
+            pl.weights.clone(),
+            pl.min_cluster_notional_usd,
+        ),
         _ => (
             tf_cfg.buckets.clone(),
             tf_cfg.weights.clone(),

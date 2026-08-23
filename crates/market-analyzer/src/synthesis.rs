@@ -2391,10 +2391,7 @@ fn nearest_sr_distance_atr(
         }
     }
     // Fibonacci: every positive level value (gp_top/gp_bottom/fib_*/ext_*).
-    if let Some(fib) = indicators
-        .get("fibonacci")
-        .and_then(|v| v.values.as_ref())
-    {
+    if let Some(fib) = indicators.get("fibonacci").and_then(|v| v.values.as_ref()) {
         for &level in fib.values() {
             consider(level);
         }
@@ -3718,8 +3715,16 @@ mod tests {
 
         // Range regime → MeanReversion qualifies (2/2 preconditions).
         analysis.market_regime = MarketRegime::Range;
-        let opp_range = compute_opportunity(&analysis, &alignment, &indicators, None, None, 100.0, &OpportunityParams::default())
-            .expect("range opportunity");
+        let opp_range = compute_opportunity(
+            &analysis,
+            &alignment,
+            &indicators,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("range opportunity");
         assert_eq!(
             opp_range.primary_opportunity,
             OpportunityType::MeanReversion
@@ -3735,9 +3740,16 @@ mod tests {
         // MeanReversion with 0/2 preconditions (B2). Falls through to
         // NoClearOpportunity.
         analysis.market_regime = MarketRegime::Expansion;
-        let opp_expansion =
-            compute_opportunity(&analysis, &alignment, &indicators, None, None, 100.0, &OpportunityParams::default())
-                .expect("expansion opportunity");
+        let opp_expansion = compute_opportunity(
+            &analysis,
+            &alignment,
+            &indicators,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("expansion opportunity");
         assert_ne!(
             opp_expansion.primary_opportunity,
             OpportunityType::MeanReversion,
@@ -3869,8 +3881,16 @@ mod tests {
             "zscore".into(),
             NormalizedIndicatorValue::scalar(1.2, 0.6, "EXTENDED"),
         );
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::MeanReversion);
         let p = find_profile(&opp, OpportunityType::MeanReversion);
         assert!(
@@ -3896,8 +3916,16 @@ mod tests {
             "zscore".into(),
             NormalizedIndicatorValue::scalar(-1.4, 0.6, "EXTENDED"),
         );
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         let p = find_profile(&opp, OpportunityType::MeanReversion);
         assert!(
             p.short_entry_zone.is_none(),
@@ -3923,8 +3951,16 @@ mod tests {
             "zscore".into(),
             NormalizedIndicatorValue::scalar(0.0, 0.6, "NEUTRAL"),
         );
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         let p = find_profile(&opp, OpportunityType::MeanReversion);
         assert!(
             p.long_entry_zone.is_some(),
@@ -4042,8 +4078,16 @@ mod tests {
         }
 
         let ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::Breakout);
         let p = find_profile(&opp, OpportunityType::Breakout);
         assert!(
@@ -4078,8 +4122,16 @@ mod tests {
         }
 
         let ind: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::Breakout);
         let p = find_profile(&opp, OpportunityType::Breakout);
         let short_inv = p
@@ -4138,8 +4190,16 @@ mod tests {
         );
 
         let close = 100.0;
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, close, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            close,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::NoClearOpportunity);
         let bracket = opp
             .neutral_reference_bracket
@@ -4189,8 +4249,16 @@ mod tests {
         // bracket (a real setup exists — the frame is only for NoClear).
         analysis.market_regime = MarketRegime::Range;
         alignment.mtf_volatility_alignment = -0.5;
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::MeanReversion);
         assert!(
             opp.neutral_reference_bracket.is_none(),
@@ -4201,8 +4269,16 @@ mod tests {
         // regime is NOT a range: no neutral bracket.
         analysis.market_regime = MarketRegime::TrendingBull;
         alignment.mtf_volatility_alignment = 0.0;
-        let opp = compute_opportunity(&analysis, &alignment, &ind, None, None, 100.0, &OpportunityParams::default())
-            .expect("opportunity");
+        let opp = compute_opportunity(
+            &analysis,
+            &alignment,
+            &ind,
+            None,
+            None,
+            100.0,
+            &OpportunityParams::default(),
+        )
+        .expect("opportunity");
         assert_eq!(opp.primary_opportunity, OpportunityType::NoClearOpportunity);
         assert!(
             opp.neutral_reference_bracket.is_none(),

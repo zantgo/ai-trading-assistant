@@ -473,7 +473,9 @@ pub async fn serve_backtest_coverage(
     }
     // v8.2: per-TF max depth ceiling (Hyperliquid 5,000-candle endpoint
     // window; Bitget per-granularity retention).
-    let ceiling_exchange = exchange_name.clone().unwrap_or_else(|| "Hyperliquid".to_string());
+    let ceiling_exchange = exchange_name
+        .clone()
+        .unwrap_or_else(|| "Hyperliquid".to_string());
     let burn_in_secs = ws.backtest.warmup_bars as i64
         * bound_ladder
             .as_ref()

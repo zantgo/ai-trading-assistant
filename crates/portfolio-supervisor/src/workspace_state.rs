@@ -71,7 +71,7 @@ impl WorkspaceState {
     /// Read the current workspace config.
     pub async fn config(&self) -> WorkspaceConfig {
         self.inner.config.read().await.clone()
-        }
+    }
 
     /// Replace the entire workspace config. Does NOT touch live instances —
     /// callers must reconcile the diff (e.g. via `reconcile_instances`).

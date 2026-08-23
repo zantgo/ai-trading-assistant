@@ -585,11 +585,7 @@ pub const BIAS_LEAN_CONFIDENCE_FACTOR: f64 = 0.8;
 /// every directional bias (e.g. plain Bullish at composite 21.77 →
 /// fraction 0.2177) satisfied `|0.2177| <= 20` and was wrongly treated
 /// as margin-lifted, silently disabling the §3.1 risk gate.
-pub fn bias_lifted(
-    bias: MarketBias,
-    market_bias_score: f64,
-    params: &AnalysisParams,
-) -> bool {
+pub fn bias_lifted(bias: MarketBias, market_bias_score: f64, params: &AnalysisParams) -> bool {
     matches!(bias, MarketBias::Bullish | MarketBias::Bearish)
         && (market_bias_score.abs() * 100.0) <= params.grace_band_max
 }
@@ -632,8 +628,8 @@ fn directional_vote_lean(
     alignment: &AlignmentMatrix,
     params: &AnalysisParams,
 ) -> Option<MarketBias> {
-    let required = ((alignment.timeframes_present as f64 * 0.75).ceil() as usize)
-        .max(params.grace_vote_min);
+    let required =
+        ((alignment.timeframes_present as f64 * 0.75).ceil() as usize).max(params.grace_vote_min);
     vote_lean_with(alignment, required, 1, params)
 }
 
@@ -697,12 +693,18 @@ pub fn derive_analysis(
             }
             match pb {
                 MarketBias::Bullish
-                    if matches!(directional_vote_hold(alignment, params), Some(MarketBias::Bullish)) =>
+                    if matches!(
+                        directional_vote_hold(alignment, params),
+                        Some(MarketBias::Bullish)
+                    ) =>
                 {
                     Some(MarketBias::Bullish)
                 }
                 MarketBias::Bearish
-                    if matches!(directional_vote_hold(alignment, params), Some(MarketBias::Bearish)) =>
+                    if matches!(
+                        directional_vote_hold(alignment, params),
+                        Some(MarketBias::Bearish)
+                    ) =>
                 {
                     Some(MarketBias::Bearish)
                 }
@@ -729,7 +731,10 @@ pub fn derive_analysis(
         && score <= params.grace_band_max
         && alignment.trend_agreement_pct >= params.grace_agreement_min
         && alignment.signal_cross_tf_count >= params.grace_signals_min
-        && matches!(directional_vote_lean(alignment, params), Some(MarketBias::Bullish))
+        && matches!(
+            directional_vote_lean(alignment, params),
+            Some(MarketBias::Bullish)
+        )
     {
         // v6.10.16 grace band: a composite just below the ±20 line is
         // rescued ONLY when the per-timeframe vote is directionally
@@ -743,14 +748,20 @@ pub fn derive_analysis(
     } else if (-params.grace_band_max..-params.grace_band_min).contains(&score)
         && alignment.trend_agreement_pct >= params.grace_agreement_min
         && alignment.signal_cross_tf_count >= params.grace_signals_min
-        && matches!(directional_vote_lean(alignment, params), Some(MarketBias::Bearish))
+        && matches!(
+            directional_vote_lean(alignment, params),
+            Some(MarketBias::Bearish)
+        )
     {
         graced = true;
         MarketBias::Bearish
     } else if (-params.lean_tolerance..=params.grace_band_min).contains(&score)
         && alignment.trend_agreement_pct >= params.grace_agreement_min
         && alignment.signal_cross_tf_count >= params.grace_signals_min
-        && matches!(directional_vote_lean(alignment, params), Some(MarketBias::Bullish))
+        && matches!(
+            directional_vote_lean(alignment, params),
+            Some(MarketBias::Bullish)
+        )
     {
         // v6.10.17 LEAN tier: the composite sits below the grace band
         // (|score| ≤ 15) yet the per-timeframe vote is decisively bullish
@@ -764,7 +775,10 @@ pub fn derive_analysis(
     } else if (-params.grace_band_min..=params.lean_tolerance).contains(&score)
         && alignment.trend_agreement_pct >= params.grace_agreement_min
         && alignment.signal_cross_tf_count >= params.grace_signals_min
-        && matches!(directional_vote_lean(alignment, params), Some(MarketBias::Bearish))
+        && matches!(
+            directional_vote_lean(alignment, params),
+            Some(MarketBias::Bearish)
+        )
     {
         // v6.10.17 LEAN tier — bearish mirror (composite may oppose the
         // bearish vote by at most +BIAS_LEAN_COMPOSITE_TOLERANCE).
@@ -1181,7 +1195,16 @@ mod tests {
     #[test]
     fn strong_bullish_mtf_produces_bullish() {
         let c = simple_alignment(4, 75.0, 100.0, 4);
-        let d = derive_analysis(&c, Some(60.0), Some(28.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(60.0),
+            Some(28.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert!(matches!(
             d.bias,
             MarketBias::Bullish | MarketBias::StrongBullish
@@ -1192,7 +1215,16 @@ mod tests {
     #[test]
     fn neutral_score_neutral() {
         let c = simple_alignment(4, 10.0, 40.0, 0);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
@@ -1203,7 +1235,16 @@ mod tests {
         // The user's live capture shape: composite 19.1, 4/4 TFs positive,
         // 100% agreement, 33 cross-TF signals → Bullish, not HOLD.
         let c = simple_alignment(4, 19.0, 100.0, 33);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Bullish);
         // Never Strong from the grace path.
         assert!(!matches!(d.bias, MarketBias::StrongBullish));
@@ -1214,7 +1255,16 @@ mod tests {
     #[test]
     fn grace_band_rescues_bearish_vote() {
         let c = simple_alignment(4, -19.0, 100.0, 33);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Bearish);
     }
 
@@ -1227,21 +1277,48 @@ mod tests {
                 tf.overall_score = -tf.overall_score;
             }
         }
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn grace_band_requires_agreement() {
         let c = simple_alignment(4, 19.0, 60.0, 33);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn grace_band_requires_signal_breadth() {
         let c = simple_alignment(4, 19.0, 100.0, 1);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
@@ -1252,9 +1329,22 @@ mod tests {
         // same vote/agreement/signal gates). The user's 03:40 capture
         // (composite 2.6, 3:1 bearish vote) is the canonical case.
         let c = simple_alignment(4, 14.9, 100.0, 33);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Bullish);
-        assert!(bias_lifted(d.bias, d.market_bias_score, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            d.bias,
+            d.market_bias_score,
+            &AnalysisParams::default()
+        ));
         // Heavier ×0.8 haircut: base 0.149 + 0.15 + 0.1 = 0.399 → 0.3192.
         assert!((d.state_confidence - 0.3192).abs() < 1e-9);
     }
@@ -1265,9 +1355,22 @@ mod tests {
         // −58 / −51 / −11 / +42 → a 3:1 bearish vote (agreement 75,
         // 37 cross-TF signals) → LEAN Bearish, never a flat HOLD.
         let c = capture_alignment(2.6, 75.0, 37, &[-58, -51, -11, 42]);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Bearish);
-        assert!(bias_lifted(d.bias, d.market_bias_score, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            d.bias,
+            d.market_bias_score,
+            &AnalysisParams::default()
+        ));
         // base 0.026 + 0.15 + 0.1 = 0.276 → ×0.8 = 0.2208
         assert!((d.state_confidence - 0.2208).abs() < 1e-9);
     }
@@ -1278,7 +1381,16 @@ mod tests {
         // flat → Neutral (the flat state keeps its 96% HOLD — HOLD is
         // reserved for real no-direction).
         let c = capture_alignment(2.6, 75.0, 37, &[-58, 51, -11, 42]);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
@@ -1287,7 +1399,16 @@ mod tests {
         // 3:1 bearish vote but composite +12 (opposition beyond the ±10
         // tolerance) → the vote and the composite conflict → Neutral.
         let c = capture_alignment(12.0, 75.0, 37, &[-58, -51, -11, 42]);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
@@ -1295,14 +1416,32 @@ mod tests {
     fn lean_tier_requires_agreement() {
         // 3:1 bullish vote but agreement 60 < 75 → no lean → Neutral.
         let c = capture_alignment(6.0, 60.0, 33, &[58, 51, 11, -42]);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn lean_tier_requires_signal_breadth() {
         let c = capture_alignment(6.0, 100.0, 2, &[58, 51, 11, -42]);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
@@ -1312,19 +1451,55 @@ mod tests {
         // FRACTION (`mtf_overall_score / 100`) — the lift predicate
         // compares on the 0–100 composite scale.
         // Plain Bullish at composite 21.77 → fraction 0.2177 → NOT lifted.
-        assert!(!bias_lifted(MarketBias::Bullish, 0.2177, &AnalysisParams::default()));
-        assert!(!bias_lifted(MarketBias::Bearish, -0.2177, &AnalysisParams::default()));
+        assert!(!bias_lifted(
+            MarketBias::Bullish,
+            0.2177,
+            &AnalysisParams::default()
+        ));
+        assert!(!bias_lifted(
+            MarketBias::Bearish,
+            -0.2177,
+            &AnalysisParams::default()
+        ));
         // Graced at 19.9 → 0.199 → lifted.
-        assert!(bias_lifted(MarketBias::Bullish, 0.199, &AnalysisParams::default()));
-        assert!(bias_lifted(MarketBias::Bearish, -0.199, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            MarketBias::Bullish,
+            0.199,
+            &AnalysisParams::default()
+        ));
+        assert!(bias_lifted(
+            MarketBias::Bearish,
+            -0.199,
+            &AnalysisParams::default()
+        ));
         // LEAN at 2.6 → 0.026 → lifted.
-        assert!(bias_lifted(MarketBias::Bullish, 0.026, &AnalysisParams::default()));
-        assert!(bias_lifted(MarketBias::Bearish, -0.026, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            MarketBias::Bullish,
+            0.026,
+            &AnalysisParams::default()
+        ));
+        assert!(bias_lifted(
+            MarketBias::Bearish,
+            -0.026,
+            &AnalysisParams::default()
+        ));
         // Strong biases are never lifted.
-        assert!(!bias_lifted(MarketBias::StrongBullish, 0.5, &AnalysisParams::default()));
-        assert!(!bias_lifted(MarketBias::StrongBearish, -0.5, &AnalysisParams::default()));
+        assert!(!bias_lifted(
+            MarketBias::StrongBullish,
+            0.5,
+            &AnalysisParams::default()
+        ));
+        assert!(!bias_lifted(
+            MarketBias::StrongBearish,
+            -0.5,
+            &AnalysisParams::default()
+        ));
         // Neutral is never lifted.
-        assert!(!bias_lifted(MarketBias::Neutral, 0.0, &AnalysisParams::default()));
+        assert!(!bias_lifted(
+            MarketBias::Neutral,
+            0.0,
+            &AnalysisParams::default()
+        ));
     }
 
     #[test]
@@ -1333,9 +1508,22 @@ mod tests {
         // composite −2.6) → LEAN Bullish — longs and shorts are generated
         // with equal possibility (sign-symmetric).
         let c = capture_alignment(-2.6, 75.0, 37, &[58, 51, 11, -42]);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Bullish);
-        assert!(bias_lifted(d.bias, d.market_bias_score, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            d.bias,
+            d.market_bias_score,
+            &AnalysisParams::default()
+        ));
     }
 
     #[test]
@@ -1346,7 +1534,16 @@ mod tests {
         for tf in c.timeframe_alignments.iter_mut() {
             tf.overall_score = 8;
         }
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
@@ -1354,7 +1551,16 @@ mod tests {
     fn grace_band_does_not_affect_scores_above_band() {
         // 25 → normal Bullish path, no haircut.
         let c = simple_alignment(4, 25.0, 100.0, 33);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Bullish);
         assert!((d.state_confidence - 0.5).abs() < 1e-9); // 0.25 + 0.15 + 0.1 = 0.5, no ×0.9
     }
@@ -1365,7 +1571,16 @@ mod tests {
     fn grace_band_holds_bias_across_band_reentry() {
         // Frame 1: 19.0 with a 4:0 vote fires Bullish.
         let c1 = simple_alignment(4, 19.0, 100.0, 33);
-        let d1 = derive_analysis(&c1, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d1 = derive_analysis(
+            &c1,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d1.bias, MarketBias::Bullish);
         // Frame 2: composite drifts to 13.8 — still a 4:0 vote. Without
         // hysteresis this flipped Bullish→Neutral on a sub-point move; the
@@ -1405,7 +1620,11 @@ mod tests {
             &AnalysisParams::default(),
         );
         assert_eq!(d.bias, MarketBias::Bullish);
-        assert!(bias_lifted(d.bias, d.market_bias_score, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            d.bias,
+            d.market_bias_score,
+            &AnalysisParams::default()
+        ));
         // base 0.11 + 0.15 + 0.1 = 0.36 → ×0.8 = 0.288
         assert!((d.state_confidence - 0.288).abs() < 1e-9);
     }
@@ -1451,7 +1670,11 @@ mod tests {
             &AnalysisParams::default(),
         );
         assert_eq!(d.bias, MarketBias::Bullish);
-        assert!(bias_lifted(d.bias, d.market_bias_score, &AnalysisParams::default()));
+        assert!(bias_lifted(
+            d.bias,
+            d.market_bias_score,
+            &AnalysisParams::default()
+        ));
         // base 0.138 + 0.15 + 0.1 = 0.388 → ×0.8 = 0.3104
         assert!((d.state_confidence - 0.3104).abs() < 1e-9);
     }
@@ -1485,13 +1708,31 @@ mod tests {
                 tf.regime = "COMPRESSION".into();
             }
         }
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
 
         // 3 TRENDING + 1 COMPRESSION → 3:0 vote → still fires.
         let mut c2 = simple_alignment(4, 19.0, 100.0, 33);
         c2.timeframe_alignments[3].regime = "COMPRESSION".into();
-        let d2 = derive_analysis(&c2, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d2 = derive_analysis(
+            &c2,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d2.bias, MarketBias::Bullish);
     }
 
@@ -1501,18 +1742,45 @@ mod tests {
         // → 3:0 fires. 2 decisive TFs of 2 present → required 3 → a 2-TF
         // warmup window can never grace.
         let c3 = simple_alignment(3, 19.0, 100.0, 33);
-        let d3 = derive_analysis(&c3, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d3 = derive_analysis(
+            &c3,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d3.bias, MarketBias::Bullish);
 
         let c2 = simple_alignment(2, 19.0, 100.0, 33);
-        let d2 = derive_analysis(&c2, Some(50.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d2 = derive_analysis(
+            &c2,
+            Some(50.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d2.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn empty_returns_empty() {
         let c = AlignmentMatrix::empty("BTC-USD");
-        let d = derive_analysis(&c, None, None, None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.bias, MarketBias::Neutral);
         assert_eq!(d.timeframes_considered, 0);
     }
@@ -1520,42 +1788,96 @@ mod tests {
     #[test]
     fn expansion_regime_from_high_bbwp() {
         let c = simple_alignment(4, 50.0, 60.0, 2);
-        let d = derive_analysis(&c, Some(90.0), Some(22.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(90.0),
+            Some(22.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::Expansion);
     }
 
     #[test]
     fn contraction_regime_from_low_bbwp() {
         let c = simple_alignment(4, 0.0, 50.0, 1);
-        let d = derive_analysis(&c, Some(5.0), Some(20.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(5.0),
+            Some(20.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::Contraction);
     }
 
     #[test]
     fn trending_bull_from_adx_and_score() {
         let c = simple_alignment(4, 55.0, 70.0, 3);
-        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(40.0),
+            Some(30.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::TrendingBull);
     }
 
     #[test]
     fn trending_bear_from_adx_and_negative_score() {
         let c = simple_alignment(4, -55.0, 70.0, 3);
-        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(40.0),
+            Some(30.0),
+            None,
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::TrendingBear);
     }
 
     #[test]
     fn accumulation_from_rising_score() {
         let c = simple_alignment(4, 15.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(5.0),
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::Accumulation);
     }
 
     #[test]
     fn distribution_from_falling_score() {
         let c = simple_alignment(4, -15.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(-5.0), None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(20.0),
+            Some(-5.0),
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::Distribution);
     }
 
@@ -1578,7 +1900,16 @@ mod tests {
     #[test]
     fn range_fallback_when_nothing_matches() {
         let c = simple_alignment(4, 5.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None, None, None, &AnalysisParams::default());
+        let d = derive_analysis(
+            &c,
+            Some(50.0),
+            Some(30.0),
+            Some(5.0),
+            None,
+            None,
+            None,
+            &AnalysisParams::default(),
+        );
         assert_eq!(d.market_regime, MarketRegime::Range);
     }
 

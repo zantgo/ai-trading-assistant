@@ -393,7 +393,7 @@ pub async fn add_instance(
                 strategy: None,
                 allocation_pct: None,
                 weight_overrides: weight_overrides.clone(),
-                        activation: None,
+                activation: None,
                 custom_pipelines: std::collections::HashMap::new(),
             };
             config.instances.push(entry);
@@ -410,10 +410,7 @@ pub async fn add_instance(
     // trading.portfolio_capital / safety.portfolio_capital /
     // starting_session_equity stay 0, so /portfolio and /safety report
     // portfolio_capital 0 and daily_pnl = full equity instead of 0.
-    artifacts
-        .instance
-        .set_portfolio_capital(base_capital)
-        .await;
+    artifacts.instance.set_portfolio_capital(base_capital).await;
 
     sync_exchange_status_active_pairs(state).await;
 
@@ -672,7 +669,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         let st = config_guard
             .resolve_strategy(&bound_name)
             .unwrap_or_else(|_| config_models::StrategyConfig::default());
-        st.pme.safety.to_safety_config(config_guard.safety.systemic_risk_threshold)
+        st.pme
+            .safety
+            .to_safety_config(config_guard.safety.systemic_risk_threshold)
     };
     let intervals_config = config_guard.intervals.clone();
     let exchange_choice =

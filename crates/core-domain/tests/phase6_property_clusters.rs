@@ -46,11 +46,11 @@ fn arb_input(prices: Vec<f64>) -> ClusterEstimateInput<'static> {
         leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 0.0,
-            estimation: Default::default(),
-            oi_split: Default::default(),
-            confidence: Default::default(),
-            funding_mod_shift: 0.05,
-        }
+        estimation: Default::default(),
+        oi_split: Default::default(),
+        confidence: Default::default(),
+        funding_mod_shift: 0.05,
+    }
 }
 
 proptest! {

@@ -60,7 +60,8 @@ pub async fn run_ds_exporter(
     );
 
     // Offset bookkeeping for the DB-driven I-tier appends.
-    let mut last_ids: std::collections::HashMap<&'static str, i64> = std::collections::HashMap::new();
+    let mut last_ids: std::collections::HashMap<&'static str, i64> =
+        std::collections::HashMap::new();
 
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(
         cfg.flush_interval_secs.max(1),
@@ -125,7 +126,10 @@ pub async fn run_ds_exporter(
         }
     }
     w.flush_all();
-    println!("🧪 DS Export: session S{:04} exporter stopped", meta.session_id);
+    println!(
+        "🧪 DS Export: session S{:04} exporter stopped",
+        meta.session_id
+    );
 }
 
 /// Append rows newer than the recorded offset from the I-tier tables
@@ -149,9 +153,7 @@ async fn append_db_table(
     for (key, table, session_scoped) in tables {
         let since = *last_ids.get(key).unwrap_or(&0);
         let sql = if session_scoped {
-            format!(
-                "SELECT * FROM {table} WHERE id > ?1 AND session_id = ?2 ORDER BY id"
-            )
+            format!("SELECT * FROM {table} WHERE id > ?1 AND session_id = ?2 ORDER BY id")
         } else {
             format!("SELECT * FROM {table} WHERE id > ?1 ORDER BY id")
         };
@@ -191,7 +193,10 @@ fn sqlite_row_to_json(row: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
         let parsed = v
             .as_deref()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-            .unwrap_or_else(|| v.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+            .unwrap_or_else(|| {
+                v.map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null)
+            });
         map.insert(name, parsed);
     }
     serde_json::Value::Object(map)

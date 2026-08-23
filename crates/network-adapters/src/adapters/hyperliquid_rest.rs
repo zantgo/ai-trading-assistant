@@ -72,12 +72,7 @@ pub async fn fetch_historical_candles(
     let mut last_err: Option<String> = None;
     let mut response = None;
     for attempt in 1..=MAX_ATTEMPTS {
-        match client
-            .post(rest_url)
-            .json(&request_body)
-            .send()
-            .await
-        {
+        match client.post(rest_url).json(&request_body).send().await {
             Ok(res) => {
                 response = Some(res);
                 last_err = None;
@@ -89,10 +84,8 @@ pub async fn fetch_historical_candles(
                     symbol, interval, e
                 ));
                 if attempt < MAX_ATTEMPTS {
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        400 * attempt as u64,
-                    ))
-                    .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64))
+                        .await;
                 }
             }
         }

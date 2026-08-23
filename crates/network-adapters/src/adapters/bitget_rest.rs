@@ -76,10 +76,8 @@ pub async fn fetch_historical_candles_page(
                     symbol, interval, e
                 ));
                 if attempt < MAX_ATTEMPTS {
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        400 * attempt as u64,
-                    ))
-                    .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64))
+                        .await;
                 }
             }
         }

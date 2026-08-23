@@ -11,9 +11,9 @@ use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use config_models::FibonacciConfig;
-use config_models::StrategyConfig;
 use config_models::OrderBookConfig;
 use config_models::QualityConfig;
+use config_models::StrategyConfig;
 use config_models::TimeframeConfig;
 use config_models::{HeatmapConfig, LiquidityConfig};
 use network_adapters::pipeline_reliability::ReliabilityTracker;
@@ -1117,8 +1117,9 @@ pub async fn run_single(
             )
             .with_tuning(acc_tuning.clone())
         }
-        (None, _) => core_domain::liquidity::LiquidityEventAccumulator::new(&symbol)
-            .with_tuning(acc_tuning),
+        (None, _) => {
+            core_domain::liquidity::LiquidityEventAccumulator::new(&symbol).with_tuning(acc_tuning)
+        }
     };
 
     let mut candle_gen = CandleGenerator::new(
@@ -3719,8 +3720,7 @@ async fn synthesize_completed_candle(
             .as_ref()
             .map(|o| o.opportunity_score)
             .unwrap_or(0.0);
-        (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score)
-            .clamp(0.0, 100.0)
+        (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score).clamp(0.0, 100.0)
     };
 
     let l4_opportunity = synthesis.opportunity.clone();

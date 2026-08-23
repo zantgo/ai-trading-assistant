@@ -292,10 +292,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/session/status",
             get(handlers::session::serve_session_status),
         )
-        .route(
-            "/api/sessions",
-            get(handlers::session::serve_sessions_list),
-        )
+        .route("/api/sessions", get(handlers::session::serve_sessions_list))
         .route(
             "/api/sessions/:id/analytics",
             get(handlers::analytics::serve_session_analytics),
@@ -416,8 +413,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/strategies",
-            get(handlers::strategies::list_strategies)
-                .post(handlers::strategies::create_strategy),
+            get(handlers::strategies::list_strategies).post(handlers::strategies::create_strategy),
         )
         .route(
             "/api/strategies/:name",

@@ -155,7 +155,8 @@ pub fn synthesize_market_context(
     let src_bbwp = ((bbwp - 50.0) / 50.0).clamp(-1.0, 1.0);
     let src_hv = finite(map.get("hv").map(|v| v.normalized).unwrap_or(0.0), 0.0).abs();
     let src_atr = finite(map.get("atr").map(|v| v.normalized).unwrap_or(0.0), 0.0).abs();
-    let vol_score = ((src_bbwp * w_bbwp + src_hv * w_hv + src_atr * w_atr) / w_sum).clamp(-1.0, 1.0);
+    let vol_score =
+        ((src_bbwp * w_bbwp + src_hv * w_hv + src_atr * w_atr) / w_sum).clamp(-1.0, 1.0);
     let conf_bbwp = (bbwp / 100.0).clamp(0.0, 1.0);
     let vol_confidence =
         ((conf_bbwp * w_bbwp + src_hv * w_hv + src_atr * w_atr) / w_sum).clamp(0.0, 1.0);
@@ -251,7 +252,12 @@ pub fn synthesize_market_context(
     // dampened when the regime is range/compression.
     // v9: blend + gate come from the strategy's `l1.context`.
     let (w_trend, w_momentum) = l1
-        .map(|c| (c.context.trend_momentum_blend[0], c.context.trend_momentum_blend[1]))
+        .map(|c| {
+            (
+                c.context.trend_momentum_blend[0],
+                c.context.trend_momentum_blend[1],
+            )
+        })
         .unwrap_or((0.6, 0.4));
     let damp = l1.map(|c| &c.context.regime_gate_damp);
     let regime_gate = match regime.as_str() {
@@ -398,7 +404,10 @@ mod tests {
         assert_eq!(legacy.overall_score, with_default.overall_score);
         assert_eq!(legacy.regime, with_default.regime);
         assert_eq!(legacy.volatility.score, with_default.volatility.score);
-        assert_eq!(legacy.volatility.confidence, with_default.volatility.confidence);
+        assert_eq!(
+            legacy.volatility.confidence,
+            with_default.volatility.confidence
+        );
         assert_eq!(legacy.trend.score, with_default.trend.score);
         assert_eq!(legacy.momentum.score, with_default.momentum.score);
     }

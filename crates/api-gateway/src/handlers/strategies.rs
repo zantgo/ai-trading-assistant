@@ -41,18 +41,15 @@ fn strategy_summary(s: &StrategyConfig) -> serde_json::Value {
     })
 }
 
-pub async fn list_strategies(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn list_strategies(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut workspace = state.workspace.config().await;
     workspace.ensure_default_strategy();
     state.workspace.set_config(workspace.clone()).await;
-    let list: Vec<serde_json::Value> = workspace
-        .strategies
-        .iter()
-        .map(strategy_summary)
-        .collect();
-    (StatusCode::OK, Json(serde_json::json!({ "strategies": list })))
+    let list: Vec<serde_json::Value> = workspace.strategies.iter().map(strategy_summary).collect();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "strategies": list })),
+    )
 }
 
 pub async fn get_strategy(
@@ -61,7 +58,10 @@ pub async fn get_strategy(
 ) -> impl IntoResponse {
     let workspace = state.workspace.config().await;
     match workspace.resolve_strategy(&name) {
-        Ok(resolved) => (StatusCode::OK, Json(serde_json::to_value(&resolved).unwrap())),
+        Ok(resolved) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(&resolved).unwrap()),
+        ),
         Err(e) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": e })),
@@ -119,7 +119,11 @@ async fn upsert_impl(state: Arc<AppState>, payload: StrategyUpsert) -> impl Into
         entry.description = d;
     }
 
-    if let Some(existing) = workspace.strategies.iter_mut().find(|s| s.name == payload.name) {
+    if let Some(existing) = workspace
+        .strategies
+        .iter_mut()
+        .find(|s| s.name == payload.name)
+    {
         *existing = entry;
     } else {
         workspace.strategies.push(entry);
@@ -209,10 +213,7 @@ pub async fn delete_strategy(
         );
     }
     state.workspace.set_config(workspace).await;
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "success": true })),
-    )
+    (StatusCode::OK, Json(serde_json::json!({ "success": true })))
 }
 
 pub async fn clone_strategy(
@@ -237,7 +238,9 @@ pub async fn clone_strategy(
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("strategy '{}' already exists", payload.new_name) })),
+            Json(
+                serde_json::json!({ "error": format!("strategy '{}' already exists", payload.new_name) }),
+            ),
         );
     }
     let mut entry = source;

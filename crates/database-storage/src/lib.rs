@@ -16,11 +16,10 @@ pub use logger::{run_telemetry_logger, TelemetryMsg};
 
 pub use queries::analytics::{
     insert_backtest_run, insert_backtest_run_with_session, insert_optimization_report,
-    insert_performance_matrix_snapshot,
-    insert_performance_summary, insert_risk_analytics, insert_strategy_analytics,
-    query_backtest_run, query_backtest_runs_list, query_optimization_reports,
-    query_performance_matrix_latest, query_risk_analytics_latest, query_strategy_analytics_history,
-    BacktestRunRow,
+    insert_performance_matrix_snapshot, insert_performance_summary, insert_risk_analytics,
+    insert_strategy_analytics, query_backtest_run, query_backtest_runs_list,
+    query_optimization_reports, query_performance_matrix_latest, query_risk_analytics_latest,
+    query_strategy_analytics_history, BacktestRunRow,
 };
 pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,

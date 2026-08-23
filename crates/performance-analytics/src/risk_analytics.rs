@@ -84,7 +84,8 @@ pub fn compute_risk_metrics_from_curve(equity: &[(i64, f64)]) -> RiskAnalyticsRo
 /// Compute risk-adjusted performance metrics from the equity history.
 /// Implements docs:03-05-04-pae-layer3-risk-analytics.md
 pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
-    let equity = portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
+    let equity =
+        portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
     compute_risk_metrics_from_curve(&equity)
 }
 

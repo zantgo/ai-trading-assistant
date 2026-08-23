@@ -83,7 +83,7 @@ fn sample_workspace() -> config_models::WorkspaceConfig {
         weight_overrides: None,
         activation: None,
         custom_pipelines: Default::default(),
-        });
+    });
     ws.api_failover = config_models::ApiFailoverConfig {
         max_retries_per_call: 7,
         retry_delay_seconds: 12,

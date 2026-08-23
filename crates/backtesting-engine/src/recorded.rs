@@ -166,7 +166,9 @@ pub async fn run_backtest(
 
     let engine = ExecutionEngine::new(fees.clone());
     engine
-        .set_initial_equity(Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)))
+        .set_initial_equity(
+            Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)),
+        )
         .await;
     engine.set_cross_leverage(cross_leverage).await;
     let engine = std::sync::Arc::new(engine);
@@ -203,8 +205,8 @@ pub async fn run_backtest(
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: rec.timestamp as u64,
                 safety: None,
                 dispatch: true,
@@ -242,7 +244,11 @@ pub async fn run_backtest(
             // Fallback: a position opened and closed within THIS bar was
             // never observed by the per-tick tracker — stamp the current bar.
             let ts_entry = entry_ts.remove(&params.symbol).unwrap_or(rec.timestamp);
-            let hold_secs = if ts_entry > 0 { rec.timestamp - ts_entry } else { 0 };
+            let hold_secs = if ts_entry > 0 {
+                rec.timestamp - ts_entry
+            } else {
+                0
+            };
             let roi_pct = if entry > 0.0 && size > 0.0 {
                 close.pnl.to_f64().unwrap_or(0.0) / (entry * size) * 100.0
             } else {
@@ -726,11 +732,8 @@ mod tests {
         let mut neutral = long_snapshot(1002, 94.0);
         neutral.analysis.as_mut().unwrap().bias = MarketBias::Neutral;
         neutral.opportunity.as_mut().unwrap().profiles = vec![];
-        neutral
-            .opportunity
-            .as_mut()
-            .unwrap()
-            .primary_opportunity = OpportunityType::NoClearOpportunity;
+        neutral.opportunity.as_mut().unwrap().primary_opportunity =
+            OpportunityType::NoClearOpportunity;
         database_storage::insert_snapshot_internal(&pool, &neutral).await;
 
         let params = BacktestParams {
@@ -752,7 +755,10 @@ mod tests {
             &strategy,
         )
         .await;
-        assert_eq!(result.total_trades, 1, "strict posture closes the open position");
+        assert_eq!(
+            result.total_trades, 1,
+            "strict posture closes the open position"
+        );
         assert_eq!(result.trades[0].exit_reason, "setup_gone");
     }
 }

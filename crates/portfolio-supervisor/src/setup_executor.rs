@@ -15,7 +15,9 @@
 //!
 //! Neutral / STAND_ASIDE never invalidates an open position.
 
-use config_models::{Direction, MinimalTaeConfig, OrderPacket, OrderSide, OrderType, StrategyConfig};
+use config_models::{
+    Direction, MinimalTaeConfig, OrderPacket, OrderSide, OrderType, StrategyConfig,
+};
 use core_domain::analysis::{MarketBias, OpportunityType, TradeViability};
 use core_domain::models::MarketSnapshot;
 use rust_decimal::prelude::ToPrimitive;
@@ -106,7 +108,12 @@ pub struct FrozenEntryParams {
 }
 
 impl FrozenEntryParams {
-    pub fn from_strategy(st: &StrategyConfig, candle_ts: u64, vol_factor: f64, confidence: f64) -> Self {
+    pub fn from_strategy(
+        st: &StrategyConfig,
+        candle_ts: u64,
+        vol_factor: f64,
+        confidence: f64,
+    ) -> Self {
         Self {
             breakeven_at_rr: st.tae.risk.breakeven_at_rr,
             trailing_activate_rr: st.tae.risk.trailing.as_ref().and_then(|t| t.activate_at_rr),
@@ -191,16 +198,16 @@ pub struct TickContext {
 /// strategy's `tae` dials (defaults when no strategy is bound).
 #[derive(Debug, Clone)]
 pub(crate) struct StrategyPolicy {
-    pub setup_gone: String,          // balanced | strict | risky
-    pub replace_policy: String,      // cancel_and_adopt | cancel
+    pub setup_gone: String,     // balanced | strict | risky
+    pub replace_policy: String, // cancel_and_adopt | cancel
     pub min_reprice_delta_atr: f64,
-    pub entry_mode: String,          // zone_midpoint | zone_edge | zone_any | market_on_ready | chase
+    pub entry_mode: String, // zone_midpoint | zone_edge | zone_any | market_on_ready | chase
     pub chase_max_atr: f64,
     pub chase_score_floor: f64,
     pub instant_fill_policy: String, // take_better | cancel
     pub spread_gate_bps: Option<f64>,
-    pub tp_placement: String,        // zone_near_edge | zone_midpoint | zone_far_edge
-    pub sl_mode: String,             // invalidation | invalidation_padded | atr_anchored
+    pub tp_placement: String, // zone_near_edge | zone_midpoint | zone_far_edge
+    pub sl_mode: String,      // invalidation | invalidation_padded | atr_anchored
     pub sl_padding_atr: f64,
     pub atr_anchor_mult: f64,
     pub min_sl_atr: Option<f64>,
@@ -296,24 +303,46 @@ fn rr_units(direction: &str, entry: Decimal, tp: Decimal, sl: Decimal) -> f64 {
 impl SetupPlan {
     /// v10 effective plan: entry/SL/TP re-derived from the strategy dials.
     /// `entry` is `None` for market-on-* modes (market order at dispatch).
-    pub(crate) fn effective(&self, policy: &StrategyPolicy, atr: f64, mid: Decimal) -> (SetupPlan, Option<Decimal>) {
+    pub(crate) fn effective(
+        &self,
+        policy: &StrategyPolicy,
+        atr: f64,
+        mid: Decimal,
+    ) -> (SetupPlan, Option<Decimal>) {
         let mut eff = self.clone();
         let is_long = self.direction == "LONG";
         let mut market_entry = false;
 
         let resting = match policy.entry_mode.as_str() {
-            "zone_edge" => if is_long { self.entry_zone_low } else { self.entry_zone_high },
-            "zone_any" => if is_long { self.entry_zone_high } else { self.entry_zone_low },
+            "zone_edge" => {
+                if is_long {
+                    self.entry_zone_low
+                } else {
+                    self.entry_zone_high
+                }
+            }
+            "zone_any" => {
+                if is_long {
+                    self.entry_zone_high
+                } else {
+                    self.entry_zone_low
+                }
+            }
             "market_on_ready" => {
                 market_entry = true;
                 self.entry_mid
             }
             "chase" => {
-                let near = if is_long { self.entry_zone_high } else { self.entry_zone_low };
+                let near = if is_long {
+                    self.entry_zone_high
+                } else {
+                    self.entry_zone_low
+                };
                 let beyond = if is_long { mid > near } else { mid < near };
                 if beyond && atr > 0.0 && self.score >= policy.chase_score_floor {
                     let distance = if is_long { mid - near } else { near - mid };
-                    let tol = Decimal::from_f64_retain(policy.chase_max_atr * atr).unwrap_or(dec!(0));
+                    let tol =
+                        Decimal::from_f64_retain(policy.chase_max_atr * atr).unwrap_or(dec!(0));
                     if distance <= tol {
                         market_entry = true;
                     }
@@ -337,7 +366,8 @@ impl SetupPlan {
                 }
             }
             "atr_anchored" => {
-                let span = Decimal::from_f64_retain(policy.atr_anchor_mult * atr).unwrap_or(dec!(0));
+                let span =
+                    Decimal::from_f64_retain(policy.atr_anchor_mult * atr).unwrap_or(dec!(0));
                 if is_long {
                     (entry - span).max(dec!(0))
                 } else {
@@ -351,10 +381,18 @@ impl SetupPlan {
         // TP placement dial (target-zone edge selection).
         eff.tp = match policy.tp_placement.as_str() {
             "zone_near_edge" => {
-                if is_long { self.target_zone_low } else { self.target_zone_high }
+                if is_long {
+                    self.target_zone_low
+                } else {
+                    self.target_zone_high
+                }
             }
             "zone_far_edge" => {
-                if is_long { self.target_zone_high } else { self.target_zone_low }
+                if is_long {
+                    self.target_zone_high
+                } else {
+                    self.target_zone_low
+                }
             }
             _ => self.tp,
         };
@@ -548,16 +586,43 @@ impl SetupExecutor {
 
         match entry.phase {
             ExecutorPhase::Idle => {
-                self.tick_idle(instance_id, symbol, &top, &snapshots, mid, ctx, &policy, entry)
-                    .await
+                self.tick_idle(
+                    instance_id,
+                    symbol,
+                    &top,
+                    &snapshots,
+                    mid,
+                    ctx,
+                    &policy,
+                    entry,
+                )
+                .await
             }
             ExecutorPhase::PendingEntry => {
-                self.tick_pending(instance_id, symbol, &top, &snapshots, mid, ctx, &policy, entry)
-                    .await
+                self.tick_pending(
+                    instance_id,
+                    symbol,
+                    &top,
+                    &snapshots,
+                    mid,
+                    ctx,
+                    &policy,
+                    entry,
+                )
+                .await
             }
             ExecutorPhase::PositionOpen => {
-                self.tick_position(instance_id, symbol, &top, &snapshots, mid, ctx, &policy, entry)
-                    .await
+                self.tick_position(
+                    instance_id,
+                    symbol,
+                    &top,
+                    &snapshots,
+                    mid,
+                    ctx,
+                    &policy,
+                    entry,
+                )
+                .await
             }
         }
     }
@@ -605,30 +670,52 @@ impl SetupExecutor {
             if let Some(min_score) = intake.min_score {
                 if plan.score < min_score {
                     self.log(
-                        instance_id, symbol, "entry_blocked",
-                        &format!("strategy min_score {:.0} — setup scored {:.0}", min_score, plan.score),
-                    ).await;
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
+                        &format!(
+                            "strategy min_score {:.0} — setup scored {:.0}",
+                            min_score, plan.score
+                        ),
+                    )
+                    .await;
                     return;
                 }
             }
             if let Some(min_conf) = intake.min_confidence {
                 if plan.confidence < min_conf {
                     self.log(
-                        instance_id, symbol, "entry_blocked",
-                        &format!("strategy min_confidence {:.2} — setup confidence {:.2}", min_conf, plan.confidence),
-                    ).await;
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
+                        &format!(
+                            "strategy min_confidence {:.2} — setup confidence {:.2}",
+                            min_conf, plan.confidence
+                        ),
+                    )
+                    .await;
                     return;
                 }
             }
             match intake.direction_policy.as_str() {
                 "long_only" if plan.direction == "SHORT" => {
-                    self.log(instance_id, symbol, "entry_blocked",
-                        "strategy direction_policy=long_only rejected a SHORT setup").await;
+                    self.log(
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
+                        "strategy direction_policy=long_only rejected a SHORT setup",
+                    )
+                    .await;
                     return;
                 }
                 "short_only" if plan.direction == "LONG" => {
-                    self.log(instance_id, symbol, "entry_blocked",
-                        "strategy direction_policy=short_only rejected a LONG setup").await;
+                    self.log(
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
+                        "strategy direction_policy=short_only rejected a LONG setup",
+                    )
+                    .await;
                     return;
                 }
                 _ => {}
@@ -636,8 +723,13 @@ impl SetupExecutor {
             if intake.execution_veto.iter().any(|v| v == "risk_blocked")
                 && plan.readiness == "STAND_ASIDE"
             {
-                self.log(instance_id, symbol, "entry_blocked",
-                    "strategy execution_veto=risk_blocked — source snapshot is STAND_ASIDE").await;
+                self.log(
+                    instance_id,
+                    symbol,
+                    "entry_blocked",
+                    "strategy execution_veto=risk_blocked — source snapshot is STAND_ASIDE",
+                )
+                .await;
                 return;
             }
             // v9 re-entry cooldown: refuse entries within N bars of the
@@ -665,11 +757,16 @@ impl SetupExecutor {
         // ── v10 policy gates (entry dial) ──
         let atr = source_atr(snapshots, plan.source_tf_secs);
         if let Some(age_bars) = policy.max_setup_age_bars {
-            if ctx.candle_ts > 0 && plan.source_tf_secs > 0 && ctx.candle_ts >= plan.source_candle_ts {
+            if ctx.candle_ts > 0
+                && plan.source_tf_secs > 0
+                && ctx.candle_ts >= plan.source_candle_ts
+            {
                 let age = (ctx.candle_ts - plan.source_candle_ts) / plan.source_tf_secs;
                 if age >= age_bars as u64 {
                     self.log(
-                        instance_id, symbol, "entry_blocked",
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
                         &format!("setup too old — {age} bars (max {age_bars})"),
                     )
                     .await;
@@ -693,7 +790,9 @@ impl SetupExecutor {
                 });
             if spread_bps.is_some_and(|s| s > gate_bps) {
                 self.log(
-                    instance_id, symbol, "entry_blocked",
+                    instance_id,
+                    symbol,
+                    "entry_blocked",
                     &format!(
                         "spread {:.1} bps exceeds gate {gate_bps} bps",
                         spread_bps.unwrap_or(0.0)
@@ -717,7 +816,9 @@ impl SetupExecutor {
                 };
                 if distance.to_f64().unwrap_or(0.0) < k * atr {
                     self.log(
-                        instance_id, symbol, "entry_blocked",
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
                         &format!("stop distance {distance} < min_sl_atr {k}×ATR"),
                     )
                     .await;
@@ -736,7 +837,9 @@ impl SetupExecutor {
                 };
                 if beyond_zone && marketable(&eff_plan.direction, limit, mid) {
                     self.log(
-                        instance_id, symbol, "entry_blocked",
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
                         "instant_fill_policy=cancel — price beyond zone at dispatch",
                     )
                     .await;
@@ -746,9 +849,9 @@ impl SetupExecutor {
         }
 
         // ── v9 sizing: strategy `tae.sizing` is the source of truth ──
-        let Some((projection, vol_factor)) =
-            self.resolve_projection(instance_id, symbol, &eff_plan, snapshots, &ctx)
-                .await
+        let Some((projection, vol_factor)) = self
+            .resolve_projection(instance_id, symbol, &eff_plan, snapshots, &ctx)
+            .await
         else {
             return;
         };
@@ -787,10 +890,17 @@ impl SetupExecutor {
         // strategy the platform defaults apply, so the balanced posture's
         // expiry and confidence-drop baselines work identically.
         let frozen = match &ctx.strategy {
-            Some(st) => FrozenEntryParams::from_strategy(st, ctx.candle_ts, vol_factor, eff_plan.confidence),
+            Some(st) => {
+                FrozenEntryParams::from_strategy(st, ctx.candle_ts, vol_factor, eff_plan.confidence)
+            }
             None => {
                 let def = StrategyConfig::default();
-                FrozenEntryParams::from_strategy(&def, ctx.candle_ts, vol_factor, eff_plan.confidence)
+                FrozenEntryParams::from_strategy(
+                    &def,
+                    ctx.candle_ts,
+                    vol_factor,
+                    eff_plan.confidence,
+                )
             }
         };
         entry.frozen = Some(frozen);
@@ -826,7 +936,11 @@ impl SetupExecutor {
                 ),
             )
             .await;
-        } else if entry.frozen.as_ref().is_some_and(|f| f.pending_confirmation_bars_left > 0) {
+        } else if entry
+            .frozen
+            .as_ref()
+            .is_some_and(|f| f.pending_confirmation_bars_left > 0)
+        {
             // v9 confirmation hold: the strategy demands N completed bars
             // before dispatch — tick_pending submits once the countdown
             // elapses.
@@ -841,7 +955,13 @@ impl SetupExecutor {
                 "setup_accepted",
                 &format!(
                     "CONFIRMING {} {} — dispatch after {} bar(s)",
-                    eff_plan.direction, eff_plan.setup_type, entry.frozen.as_ref().unwrap().pending_confirmation_bars_left
+                    eff_plan.direction,
+                    eff_plan.setup_type,
+                    entry
+                        .frozen
+                        .as_ref()
+                        .unwrap()
+                        .pending_confirmation_bars_left
                 ),
             )
             .await;
@@ -851,7 +971,7 @@ impl SetupExecutor {
                     entry.phase = ExecutorPhase::PendingEntry;
                     entry.fingerprint = eff_plan.fingerprint.clone();
                     entry.tracked_setup = Some(eff_plan.clone());
-            entry.entry_is_market = entry_price.is_none();
+                    entry.entry_is_market = entry_price.is_none();
                     entry.projection = Some(projection);
                     entry.entry_order_id = Some(order_id);
                     self.log(
@@ -898,14 +1018,12 @@ impl SetupExecutor {
             .cloned()
             .unwrap_or_default();
         // Per-instance override wins; then the strategy; then the global.
-        let mut allocation = ctx
-            .allocation_pct
-            .unwrap_or_else(|| {
-                ctx.strategy
-                    .as_ref()
-                    .map(|st| st.tae.sizing.allocation_pct)
-                    .unwrap_or(self.default_allocation_pct)
-            });
+        let mut allocation = ctx.allocation_pct.unwrap_or_else(|| {
+            ctx.strategy
+                .as_ref()
+                .map(|st| st.tae.sizing.allocation_pct)
+                .unwrap_or(self.default_allocation_pct)
+        });
         // Per-setup-type multiplier (default 1.0).
         if let Some(mult) = sizing.per_setup_type_multipliers.get(&plan.setup_type) {
             allocation *= *mult;
@@ -940,14 +1058,22 @@ impl SetupExecutor {
                         let atr_pct = |tf_secs: Option<u64>| -> Option<f64> {
                             snapshots
                                 .iter()
-                                .find(|s| s.is_completed == Some(true)
-                                    && tf_secs.map(|t| s.timeframe_secs == t).unwrap_or(true))
+                                .find(|s| {
+                                    s.is_completed == Some(true)
+                                        && tf_secs.map(|t| s.timeframe_secs == t).unwrap_or(true)
+                                })
                                 .and_then(|s| {
-                                    let atr = s.indicators.get("atr")
+                                    let atr = s
+                                        .indicators
+                                        .get("atr")
                                         .and_then(|v| v.values.as_ref())
                                         .and_then(|m| m.get("atr_14").copied())?;
                                     let mid = s.mid_price.to_f64()?;
-                                    if mid > 0.0 && atr > 0.0 { Some(atr / mid) } else { None }
+                                    if mid > 0.0 && atr > 0.0 {
+                                        Some(atr / mid)
+                                    } else {
+                                        None
+                                    }
                                 })
                         };
                         let src = atr_pct(Some(plan.source_tf_secs));
@@ -989,7 +1115,9 @@ impl SetupExecutor {
                 };
                 if prospective / equity * dec!(100) > cap_dec {
                     self.log(
-                        instance_id, symbol, "entry_blocked",
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
                         &format!("max_total_exposure_pct {cap_pct} would be exceeded"),
                     )
                     .await;
@@ -1032,10 +1160,7 @@ impl SetupExecutor {
                                 OrderSide::Sell
                             };
                             let mut metadata = std::collections::HashMap::new();
-                            metadata.insert(
-                                "trigger_source".to_string(),
-                                plan.setup_type.clone(),
-                            );
+                            metadata.insert("trigger_source".to_string(), plan.setup_type.clone());
                             let packet = OrderPacket {
                                 client_order_id: format!("setup_entry_{}", symbol),
                                 symbol: symbol.to_string(),
@@ -1196,8 +1321,17 @@ impl SetupExecutor {
                             .await;
                             self.reset(entry);
                             // Adopt the replacement now (gates re-run).
-                            self.tick_idle(instance_id, symbol, top, snapshots, mid, ctx, policy, entry)
-                                .await;
+                            self.tick_idle(
+                                instance_id,
+                                symbol,
+                                top,
+                                snapshots,
+                                mid,
+                                ctx,
+                                policy,
+                                entry,
+                            )
+                            .await;
                         }
                     }
                     return;
@@ -1205,8 +1339,17 @@ impl SetupExecutor {
                 // Same direction + type: re-price the pending entry behind
                 // the min-delta gate on fresh candles.
                 if plan.fingerprint != tracked.fingerprint {
-                    self.reprice_pending(instance_id, symbol, plan, snapshots, mid, &ctx, policy, entry)
-                        .await;
+                    self.reprice_pending(
+                        instance_id,
+                        symbol,
+                        plan,
+                        snapshots,
+                        mid,
+                        &ctx,
+                        policy,
+                        entry,
+                    )
+                    .await;
                 }
             }
             None => {
@@ -1256,9 +1399,9 @@ impl SetupExecutor {
         }
 
         // Fresh sizing/projection — the same cascade a fresh accept runs.
-        let Some((projection, _vol)) =
-            self.resolve_projection(instance_id, symbol, &eff, snapshots, ctx)
-                .await
+        let Some((projection, _vol)) = self
+            .resolve_projection(instance_id, symbol, &eff, snapshots, ctx)
+            .await
         else {
             return;
         };
@@ -1374,14 +1517,12 @@ impl SetupExecutor {
                 if tf_secs > 0 && ctx.candle_ts >= f.entry_candle_ts {
                     let age_bars = (ctx.candle_ts - f.entry_candle_ts) / tf_secs;
                     if age_bars >= bars as u64 {
-                        match self
-                            .engine
-                            .close_position(symbol, mid, "time_stop")
-                            .await
-                        {
+                        match self.engine.close_position(symbol, mid, "time_stop").await {
                             Ok(_) => {
                                 self.log(
-                                    instance_id, symbol, "time_stop",
+                                    instance_id,
+                                    symbol,
+                                    "time_stop",
                                     &format!("position closed at market after {age_bars} bars"),
                                 )
                                 .await;
@@ -1395,9 +1536,7 @@ impl SetupExecutor {
 
             // breakeven: move the SL to the entry price once unrealized R
             // reaches the frozen threshold.
-            if let (Some(plan), Some(rr_at)) =
-                (entry.tracked_setup.clone(), f.breakeven_at_rr)
-            {
+            if let (Some(plan), Some(rr_at)) = (entry.tracked_setup.clone(), f.breakeven_at_rr) {
                 let rr_now = if plan.direction == "LONG" {
                     ((mid - plan.entry_mid) / (plan.entry_mid - plan.sl))
                         .to_f64()
@@ -1439,7 +1578,9 @@ impl SetupExecutor {
                             Ok(id) => {
                                 entry.sl_order_id = Some(id);
                                 self.log(
-                                    instance_id, symbol, "breakeven",
+                                    instance_id,
+                                    symbol,
+                                    "breakeven",
                                     &format!("stop moved to entry {}", plan.entry_mid),
                                 )
                                 .await;
@@ -1498,10 +1639,7 @@ impl SetupExecutor {
                                 };
                                 let mut meta = std::collections::HashMap::new();
                                 meta.insert("exit_reason".to_string(), "trailing_stop".to_string());
-                                meta.insert(
-                                    "trigger_source".to_string(),
-                                    plan.setup_type.clone(),
-                                );
+                                meta.insert("trigger_source".to_string(), plan.setup_type.clone());
                                 let tr_packet = OrderPacket {
                                     client_order_id: format!("trailing_sl_{}", symbol),
                                     symbol: symbol.to_string(),
@@ -1518,7 +1656,9 @@ impl SetupExecutor {
                                     Ok(id) => {
                                         entry.sl_order_id = Some(id);
                                         self.log(
-                                            instance_id, symbol, "trailing_stop",
+                                            instance_id,
+                                            symbol,
+                                            "trailing_stop",
                                             &format!("trailing stop at {}", trail_price),
                                         )
                                         .await;
@@ -1536,9 +1676,11 @@ impl SetupExecutor {
 
         // ── v10 confidence-drop exit (same-direction setup) ──
         if let Some(drop_pct) = policy.confidence_drop_pct {
-            if let (Some(f), Some(plan), Some(tracked)) =
-                (entry.frozen.as_ref(), top.as_ref(), entry.tracked_setup.as_ref())
-            {
+            if let (Some(f), Some(plan), Some(tracked)) = (
+                entry.frozen.as_ref(),
+                top.as_ref(),
+                entry.tracked_setup.as_ref(),
+            ) {
                 if plan.direction == tracked.direction {
                     let dropped = (f.entry_confidence - plan.confidence) * 100.0;
                     if dropped >= drop_pct {
@@ -1568,11 +1710,7 @@ impl SetupExecutor {
 
         // ── v10 setup-gone posture while open ──
         if top.is_none() && policy.setup_gone == "strict" {
-            match self
-                .engine
-                .close_position(symbol, mid, "setup_gone")
-                .await
-            {
+            match self.engine.close_position(symbol, mid, "setup_gone").await {
                 Ok(_) => {
                     self.log(
                         instance_id,
@@ -1660,14 +1798,20 @@ impl SetupExecutor {
         let sl_now = match &entry.sl_order_id {
             Some(id) => {
                 let orders = self.engine.orders.read().await;
-                orders.get(id).and_then(|o| o.packet.price).unwrap_or(tracked.sl)
+                orders
+                    .get(id)
+                    .and_then(|o| o.packet.price)
+                    .unwrap_or(tracked.sl)
             }
             None => tracked.sl,
         };
         let tp_now = match &entry.tp_order_id {
             Some(id) => {
                 let orders = self.engine.orders.read().await;
-                orders.get(id).and_then(|o| o.packet.price).unwrap_or(tracked.tp)
+                orders
+                    .get(id)
+                    .and_then(|o| o.packet.price)
+                    .unwrap_or(tracked.tp)
             }
             None => tracked.tp,
         };
@@ -1680,7 +1824,11 @@ impl SetupExecutor {
         let mut tp_changed = false;
 
         // SL ratchet: tighten only.
-        let sl_improves = if is_long { eff.sl > sl_now } else { eff.sl < sl_now };
+        let sl_improves = if is_long {
+            eff.sl > sl_now
+        } else {
+            eff.sl < sl_now
+        };
         if sl_improves && (eff.sl - sl_now).abs() >= min_delta {
             if let Some(sl_id) = entry.sl_order_id.clone() {
                 let _ = self.engine.cancel_order(&sl_id, symbol).await;
@@ -2258,7 +2406,11 @@ mod tests {
         let mut s = snapshot(tf_secs, bias, profiles, rr, ts, mid);
         s.indicators.insert(
             "atr".to_string(),
-            core_domain::indicator_dtos::NormalizedIndicatorValue::scalar(atr, 0.5, "ELEVATED_RANGE"),
+            core_domain::indicator_dtos::NormalizedIndicatorValue::scalar(
+                atr,
+                0.5,
+                "ELEVATED_RANGE",
+            ),
         );
         s
     }
@@ -2594,10 +2746,7 @@ mod tests {
         // adopted in the same tick — still pending, now tracking Breakout.
         let st = ex.state("BTC-USDC").await;
         assert_eq!(st.phase, ExecutorPhase::PendingEntry);
-        assert_eq!(
-            st.tracked_setup.as_ref().unwrap().setup_type,
-            "Breakout"
-        );
+        assert_eq!(st.tracked_setup.as_ref().unwrap().setup_type, "Breakout");
         assert!(st.entry_order_id.is_some());
         let activity = engine.activity_for("i1").await;
         assert!(activity.iter().any(|a| a.event == "replaced_adopted"));
@@ -2802,7 +2951,9 @@ mod tests {
             safety_allows_entry: true,
             lifecycle_running: true,
             market_filter_allows_entry: false,
-            entry_block_reason: Some("MARKET FILTER BLOCKED — breadth 0% below the strategy floor (50%)".into()),
+            entry_block_reason: Some(
+                "MARKET FILTER BLOCKED — breadth 0% below the strategy floor (50%)".into(),
+            ),
             candle_ts: 1000,
             safety: None,
             dispatch: true,
@@ -2967,16 +3118,21 @@ mod tests {
         let mut strategy = config_models::StrategyConfig::default();
         strategy.tae.sizing.vol_scale.mode = "fixed".to_string();
         strategy.tae.sizing.vol_scale.override_factor = Some(2.0);
-        strategy.tae.sizing.per_setup_type_multipliers.insert(
-            "TrendContinuation".to_string(),
-            0.5,
-        );
+        strategy
+            .tae
+            .sizing
+            .per_setup_type_multipliers
+            .insert("TrendContinuation".to_string(), 0.5);
         let mut c = ctx(1000);
         c.strategy = Some(strategy);
         let mut s = snap.clone();
         s.indicators.insert(
             "atr".to_string(),
-            core_domain::indicator_dtos::NormalizedIndicatorValue::scalar(2.0, 0.5, "ELEVATED_RANGE"),
+            core_domain::indicator_dtos::NormalizedIndicatorValue::scalar(
+                2.0,
+                0.5,
+                "ELEVATED_RANGE",
+            ),
         );
         ex.tick("i1", "BTC-USDC", snap_refs(&[&s]), dec!(100), c)
             .await;
@@ -3041,19 +3197,15 @@ mod tests {
         let fresh = snapshot(
             60,
             MarketBias::Bullish,
-            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 120.0, 130.0, 90.0)],
+            vec![long_profile_with_geometry(
+                80.0, 100.0, 110.0, 120.0, 130.0, 90.0,
+            )],
             2.0,
             1001,
             105.0,
         );
-        ex.tick(
-            "i1",
-            "BTC-USDC",
-            snap_refs(&[&fresh]),
-            dec!(105),
-            ctx(1001),
-        )
-        .await;
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&fresh]), dec!(105), ctx(1001))
+            .await;
 
         let st = ex.state("BTC-USDC").await;
         assert_eq!(st.phase, ExecutorPhase::PendingEntry);
@@ -3272,24 +3424,28 @@ mod tests {
         let fresh = snapshot(
             60,
             MarketBias::Bullish,
-            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 130.0, 140.0, 90.0)],
+            vec![long_profile_with_geometry(
+                80.0, 100.0, 110.0, 130.0, 140.0, 90.0,
+            )],
             2.0,
             1001,
             105.0,
         );
-        ex.tick(
-            "i1",
-            "BTC-USDC",
-            snap_refs(&[&fresh]),
-            dec!(105),
-            ctx(1001),
-        )
-        .await;
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&fresh]), dec!(105), ctx(1001))
+            .await;
 
         let st = ex.state("BTC-USDC").await;
         let orders = engine.orders.read().await;
-        let sl_price = orders.get(st.sl_order_id.as_ref().unwrap()).unwrap().packet.price;
-        let tp_price = orders.get(st.tp_order_id.as_ref().unwrap()).unwrap().packet.price;
+        let sl_price = orders
+            .get(st.sl_order_id.as_ref().unwrap())
+            .unwrap()
+            .packet
+            .price;
+        let tp_price = orders
+            .get(st.tp_order_id.as_ref().unwrap())
+            .unwrap()
+            .packet
+            .price;
         // SL tightened 85 → 90; TP refreshed 125 → 135 (RR 3.4 → 10.3).
         assert_eq!(sl_price, Some(dec!(90)));
         assert_eq!(tp_price, Some(dec!(135)));
@@ -3317,8 +3473,16 @@ mod tests {
         let (sl0, tp0) = {
             let orders = engine.orders.read().await;
             (
-                orders.get(st0.sl_order_id.as_ref().unwrap()).unwrap().packet.price,
-                orders.get(st0.tp_order_id.as_ref().unwrap()).unwrap().packet.price,
+                orders
+                    .get(st0.sl_order_id.as_ref().unwrap())
+                    .unwrap()
+                    .packet
+                    .price,
+                orders
+                    .get(st0.tp_order_id.as_ref().unwrap())
+                    .unwrap()
+                    .packet
+                    .price,
             )
         };
 
@@ -3326,24 +3490,28 @@ mod tests {
         let fresh = snapshot(
             60,
             MarketBias::Bullish,
-            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 120.0, 130.0, 80.0)],
+            vec![long_profile_with_geometry(
+                80.0, 100.0, 110.0, 120.0, 130.0, 80.0,
+            )],
             2.0,
             1001,
             105.0,
         );
-        ex.tick(
-            "i1",
-            "BTC-USDC",
-            snap_refs(&[&fresh]),
-            dec!(105),
-            ctx(1001),
-        )
-        .await;
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&fresh]), dec!(105), ctx(1001))
+            .await;
 
         let st = ex.state("BTC-USDC").await;
         let orders = engine.orders.read().await;
-        let sl1 = orders.get(st.sl_order_id.as_ref().unwrap()).unwrap().packet.price;
-        let tp1 = orders.get(st.tp_order_id.as_ref().unwrap()).unwrap().packet.price;
+        let sl1 = orders
+            .get(st.sl_order_id.as_ref().unwrap())
+            .unwrap()
+            .packet
+            .price;
+        let tp1 = orders
+            .get(st.tp_order_id.as_ref().unwrap())
+            .unwrap()
+            .packet
+            .price;
         assert_eq!(sl1, sl0, "SL must never widen");
         assert_eq!(tp1, tp0);
         let activity = engine.activity_for("i1").await;
@@ -3456,7 +3624,9 @@ mod tests {
         let micro = snapshot_with_atr(
             60,
             MarketBias::Bullish,
-            vec![long_profile_with_geometry(80.0, 90.0, 100.0, 120.0, 130.0, 92.0)],
+            vec![long_profile_with_geometry(
+                80.0, 90.0, 100.0, 120.0, 130.0, 92.0,
+            )],
             2.0,
             1000,
             105.0,
@@ -3498,7 +3668,12 @@ mod tests {
         )
         .await;
         assert_eq!(
-            ex.state("BTC-USDC").await.tracked_setup.as_ref().unwrap().tp,
+            ex.state("BTC-USDC")
+                .await
+                .tracked_setup
+                .as_ref()
+                .unwrap()
+                .tp,
             dec!(120)
         );
 
@@ -3521,7 +3696,12 @@ mod tests {
         )
         .await;
         assert_eq!(
-            ex.state("BTC-USDC").await.tracked_setup.as_ref().unwrap().tp,
+            ex.state("BTC-USDC")
+                .await
+                .tracked_setup
+                .as_ref()
+                .unwrap()
+                .tp,
             dec!(130)
         );
         let _ = engine;
@@ -3608,7 +3788,12 @@ mod tests {
         )
         .await;
         assert_eq!(
-            ex.state("BTC-USDC").await.tracked_setup.as_ref().unwrap().sl,
+            ex.state("BTC-USDC")
+                .await
+                .tracked_setup
+                .as_ref()
+                .unwrap()
+                .sl,
             dec!(83)
         );
     }
@@ -3755,8 +3940,8 @@ mod safety_ladder_tests {
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
         )
         .await;
         engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
@@ -3774,8 +3959,8 @@ mod safety_ladder_tests {
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
         )
         .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
@@ -3796,8 +3981,8 @@ mod safety_ladder_tests {
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
         )
         .await;
 
@@ -3839,10 +4024,10 @@ mod safety_ladder_tests {
                     safety: Some(safety.clone()),
                     dispatch: true,
                     allocation_pct: None,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
-            strategy: None,
-        },
+                    market_filter_allows_entry: true,
+                    entry_block_reason: None,
+                    strategy: None,
+                },
             )
             .await;
             engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
@@ -3858,10 +4043,10 @@ mod safety_ladder_tests {
                     safety: Some(safety.clone()),
                     dispatch: true,
                     allocation_pct: None,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
-            strategy: None,
-        },
+                    market_filter_allows_entry: true,
+                    entry_block_reason: None,
+                    strategy: None,
+                },
             )
             .await;
             engine.evaluate_order_fills("BTC-USDC", dec!(80)).await;
@@ -3877,10 +4062,10 @@ mod safety_ladder_tests {
                     safety: Some(safety.clone()),
                     dispatch: true,
                     allocation_pct: None,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
-            strategy: None,
-        },
+                    market_filter_allows_entry: true,
+                    entry_block_reason: None,
+                    strategy: None,
+                },
             )
             .await;
         }
@@ -3904,10 +4089,10 @@ mod safety_ladder_tests {
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
-            strategy: None,
-        },
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
+                strategy: None,
+            },
         )
         .await;
         assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::Idle);

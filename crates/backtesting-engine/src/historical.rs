@@ -284,7 +284,9 @@ pub async fn run_historical_backtest(
     // multi-instance architecture) + simulated safety managers. ──
     let engine = Arc::new(ExecutionEngine::new(fees.clone()));
     engine
-        .set_initial_equity(Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)))
+        .set_initial_equity(
+            Decimal::from_f64_retain(params.portfolio_capital_usd).unwrap_or(dec!(1000)),
+        )
         .await;
     engine.set_cross_leverage(cross_leverage).await;
     let executor = SetupExecutor::new(engine.clone(), tae_cfg);
@@ -486,11 +488,11 @@ pub async fn run_historical_backtest(
                 .map(|o| o.opportunity_score)
                 .unwrap_or(0.0);
             {
-            let [w_l2, w_l3, w_l4] =
-                core_domain::decision_params::DecisionParams::default().confluence_weights;
-            (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score)
-        }
-                .clamp(0.0, 100.0)
+                let [w_l2, w_l3, w_l4] =
+                    core_domain::decision_params::DecisionParams::default().confluence_weights;
+                (w_l2 * tradability_dim + w_l3 * market_quality_score + w_l4 * opp_score)
+            }
+            .clamp(0.0, 100.0)
         };
 
         let close_f = snap.close.as_ref().and_then(|d| d.to_f64()).unwrap_or(0.0);
@@ -580,9 +582,7 @@ pub async fn run_historical_backtest(
         let rec_ts = snap.timestamp;
         // v10: track entry timestamps runner-side (the engine's
         // `opened_at_ms` is wall-clock during replay).
-        if !entry_ts.contains_key(&ev.symbol)
-            && engine.get_position(&ev.symbol).await.is_some()
-        {
+        if !entry_ts.contains_key(&ev.symbol) && engine.get_position(&ev.symbol).await.is_some() {
             entry_ts.insert(ev.symbol.clone(), rec_ts as i64);
         }
         let outcome = run_tick(
@@ -637,7 +637,11 @@ pub async fn run_historical_backtest(
             // Fallback: a position opened and closed within THIS bar was
             // never observed by the per-tick tracker — stamp the current bar.
             let ts_entry = entry_ts.remove(&ev.symbol).unwrap_or(rec_ts as i64);
-            let hold_secs = if ts_entry > 0 { snap.timestamp as i64 - ts_entry } else { 0 };
+            let hold_secs = if ts_entry > 0 {
+                snap.timestamp as i64 - ts_entry
+            } else {
+                0
+            };
             let roi_pct = if entry > 0.0 && size > 0.0 {
                 close.pnl.to_f64().unwrap_or(0.0) / (entry * size) * 100.0
             } else {
@@ -746,7 +750,11 @@ pub async fn run_historical_backtest(
             // Fallback: a position opened on the FINAL bar was never
             // observed by the per-tick tracker — stamp the final bar.
             let ts_entry = entry_ts.remove(&symbol).unwrap_or(last_ts as i64);
-            let hold_secs = if ts_entry > 0 { last_ts as i64 - ts_entry } else { 0 };
+            let hold_secs = if ts_entry > 0 {
+                last_ts as i64 - ts_entry
+            } else {
+                0
+            };
             let roi_pct = if entry > 0.0 && size > 0.0 {
                 pnl / (entry * size) * 100.0
             } else {
@@ -1178,7 +1186,11 @@ mod tests {
     fn breadth_from_biases_counts_directional_share() {
         use std::collections::HashMap;
         let mut b: HashMap<String, Option<MarketBias>> = HashMap::new();
-        assert_eq!(breadth_from_biases(&b, 4), 0.0, "unseen symbols are neutral");
+        assert_eq!(
+            breadth_from_biases(&b, 4),
+            0.0,
+            "unseen symbols are neutral"
+        );
         b.insert("A".into(), Some(MarketBias::Bullish));
         b.insert("B".into(), Some(MarketBias::Neutral));
         b.insert("C".into(), Some(MarketBias::StrongBearish));

@@ -7,7 +7,10 @@
 //! knobs (signal weights, accumulator, api failover, per-TF leverage) to
 //! the consumers.
 
-use config_models::{HeatmapConfig, L1_5AccumulatorParams, L1_5FailoverParams, L1_5Params, L1_5TfLeverageParams, LiquidityConfig};
+use config_models::{
+    HeatmapConfig, L1_5AccumulatorParams, L1_5FailoverParams, L1_5Params, L1_5TfLeverageParams,
+    LiquidityConfig,
+};
 
 /// The resolved liquidity configuration for one instance.
 #[derive(Debug, Clone)]

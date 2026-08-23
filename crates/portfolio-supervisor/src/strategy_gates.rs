@@ -59,9 +59,7 @@ pub fn evaluate_portfolio_gates(
     margin_usage_ratio: f64,
 ) -> (bool, Option<String>) {
     let ex = &strategy.pme.exposure;
-    if ex.enforce.single_pair
-        && prospective_single_pair_pct > ex.max_single_pair_exposure_pct
-    {
+    if ex.enforce.single_pair && prospective_single_pair_pct > ex.max_single_pair_exposure_pct {
         return (
             false,
             Some(format!(

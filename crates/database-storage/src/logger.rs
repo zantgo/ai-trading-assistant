@@ -140,9 +140,7 @@ pub async fn run_telemetry_logger(
             TelemetryMsg::InsertSnapshot(snapshot) => {
                 // v10: stamp the session id on every persisted snapshot.
                 crate::queries::snapshots::insert_snapshot_with_session(
-                    &pool,
-                    &snapshot,
-                    session_id,
+                    &pool, &snapshot, session_id,
                 )
                 .await;
             }

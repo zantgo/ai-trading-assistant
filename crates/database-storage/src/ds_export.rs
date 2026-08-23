@@ -129,6 +129,11 @@ pub async fn write_backtest_ds(
     input_bars: &std::collections::HashMap<String, Vec<serde_json::Value>>,
 ) {
     let bdir = crate::ds_export::backtest_dir(root, backtest_id, mode);
+    // v10.1 robustness: a backtest id maps to exactly one run per DB
+    // lifetime. If the directory already holds artifacts (a DB reset
+    // reused ids, or an interrupted run), truncate it — appending would
+    // mix old rows into the new run and break the DS invariants.
+    let _ = std::fs::remove_dir_all(&bdir);
     let run: serde_json::Value = serde_json::json!({
         "backtest_id": backtest_id,
         "mode": mode,
@@ -158,7 +163,6 @@ pub async fn write_backtest_ds(
     w.flush_all();
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,9 +173,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         let mut w = DsWriter::new();
         for i in 0..5 {
-            w.write_line(&tmp, "market/BTC-USDC.60.ndjson", &serde_json::json!({
-                "i": i, "price": 100.0 + i as f64,
-            }));
+            w.write_line(
+                &tmp,
+                "market/BTC-USDC.60.ndjson",
+                &serde_json::json!({
+                    "i": i, "price": 100.0 + i as f64,
+                }),
+            );
         }
         w.flush_all();
         let content = std::fs::read_to_string(tmp.join("market/BTC-USDC.60.ndjson")).unwrap();
@@ -195,5 +203,64 @@ mod tests {
             backtest_dir(root, 42, "historical"),
             PathBuf::from("/tmp/ds/backtests/BT0042_historical")
         );
+    }
+
+    #[tokio::test]
+    async fn backtest_writer_overwrites_on_rerun() {
+        let tmp = std::env::temp_dir().join(format!("ds_bt_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let trades = |n: i64| {
+            (0..n)
+                .map(|i| serde_json::json!({ "seq": i, "pnl": 1.0 }))
+                .collect::<Vec<_>>()
+        };
+        let eq = |n: i64| {
+            (0..n)
+                .map(|i| serde_json::json!({ "ts_secs": i, "equity": 1000.0 }))
+                .collect::<Vec<_>>()
+        };
+        // First write: 5 trades, 3 equity points.
+        write_backtest_ds(
+            &tmp,
+            1,
+            "historical",
+            "{}",
+            "{\"total_trades\":5}",
+            "{}",
+            &trades(5),
+            &eq(3),
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        // Rerun with the same id (DB reset scenario): 2 trades, 2 equity.
+        write_backtest_ds(
+            &tmp,
+            1,
+            "historical",
+            "{}",
+            "{\"total_trades\":2}",
+            "{}",
+            &trades(2),
+            &eq(2),
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let bdir = backtest_dir(&tmp, 1, "historical");
+        let trades_lines = std::fs::read_to_string(bdir.join("trades.ndjson")).unwrap();
+        let eq_lines = std::fs::read_to_string(bdir.join("equity.ndjson")).unwrap();
+        assert_eq!(trades_lines.lines().count(), 2, "rerun truncates trades");
+        assert_eq!(eq_lines.lines().count(), 2, "rerun truncates equity");
+        assert_eq!(
+            std::fs::read_to_string(bdir.join("run.json"))
+                .unwrap()
+                .contains("\"total_trades\": 2"),
+            true,
+            "run.json reflects the rerun"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

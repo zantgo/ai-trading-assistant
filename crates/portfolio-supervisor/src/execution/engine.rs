@@ -274,9 +274,7 @@ impl ExecutionEngine {
             let orders = self.orders.read().await;
             orders
                 .iter()
-                .filter(|(_, o)| {
-                    o.status == OrderStatus::Open && o.packet.symbol == symbol
-                })
+                .filter(|(_, o)| o.status == OrderStatus::Open && o.packet.symbol == symbol)
                 .map(|(id, o)| (id.clone(), o.clone()))
                 .collect()
         };
@@ -476,9 +474,9 @@ impl ExecutionEngine {
                     unrealized_pnl: dec!(0),
                     realized_pnl: dec!(0),
                     opened_at_ms: now_ms,
-                mfe_pct: 0.0,
-                mae_pct: 0.0,
-            },
+                    mfe_pct: 0.0,
+                    mae_pct: 0.0,
+                },
             );
             *equity -= fee;
         }
@@ -503,12 +501,12 @@ impl ExecutionEngine {
             // direction so favorable is always positive).
             if pos.entry_price > dec!(0) {
                 let move_pct = match pos.direction {
-                    config_models::Direction::Long => {
-                        ((mid - pos.entry_price) / pos.entry_price).to_f64().unwrap_or(0.0)
-                    }
-                    config_models::Direction::Short => {
-                        ((pos.entry_price - mid) / pos.entry_price).to_f64().unwrap_or(0.0)
-                    }
+                    config_models::Direction::Long => ((mid - pos.entry_price) / pos.entry_price)
+                        .to_f64()
+                        .unwrap_or(0.0),
+                    config_models::Direction::Short => ((pos.entry_price - mid) / pos.entry_price)
+                        .to_f64()
+                        .unwrap_or(0.0),
                 };
                 pos.mfe_pct = pos.mfe_pct.max(move_pct * 100.0);
                 pos.mae_pct = pos.mae_pct.min(move_pct * 100.0);

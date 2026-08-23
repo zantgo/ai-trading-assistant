@@ -142,7 +142,10 @@ pub struct MonthlySummary {
     pub trade_count: usize,
 }
 
-pub async fn compile_dashboard_stats(pool: &SqlitePool, portfolio_capital_usd: f64) -> DashboardStats {
+pub async fn compile_dashboard_stats(
+    pool: &SqlitePool,
+    portfolio_capital_usd: f64,
+) -> DashboardStats {
     let compounded_curve =
         portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
 
@@ -626,7 +629,10 @@ fn compute_direction_breakdown(trades: &[TradeDetailRow]) -> DirectionBreakdown 
     }
 }
 
-fn compute_compounded_curve(trades: &[TradeDetailRow], portfolio_capital_usd: f64) -> Vec<(i64, f64)> {
+fn compute_compounded_curve(
+    trades: &[TradeDetailRow],
+    portfolio_capital_usd: f64,
+) -> Vec<(i64, f64)> {
     let mut balance = portfolio_capital_usd;
     trades
         .iter()

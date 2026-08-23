@@ -460,7 +460,10 @@ fn hero_and_best(
 /// `bias_market` — the decision context's PascalCase bias string wins over
 /// the analysis matrix bias, exactly like the frontend's `macroBias =
 /// decisionContext?.bias ?? analysis?.bias`.
-fn bias_market(decision_bias: Option<&str>, analysis_bias: Option<MarketBias>) -> Option<MarketBias> {
+fn bias_market(
+    decision_bias: Option<&str>,
+    analysis_bias: Option<MarketBias>,
+) -> Option<MarketBias> {
     decision_bias
         .and_then(|b| {
             let u = b.to_uppercase();
@@ -636,7 +639,11 @@ fn profile_zones<'a>(
     let Some(inv) = inv else {
         return None;
     };
-    if entry.low <= 0.0 || entry.high <= 0.0 || target.low <= 0.0 || target.high <= 0.0 || inv <= 0.0
+    if entry.low <= 0.0
+        || entry.high <= 0.0
+        || target.low <= 0.0
+        || target.high <= 0.0
+        || inv <= 0.0
     {
         return None;
     }
@@ -662,7 +669,11 @@ fn aggregate_zones<'a>(
             opp.short_invalidation_level,
         )
     };
-    if entry.low <= 0.0 || entry.high <= 0.0 || target.low <= 0.0 || target.high <= 0.0 || inv <= 0.0
+    if entry.low <= 0.0
+        || entry.high <= 0.0
+        || target.low <= 0.0
+        || target.high <= 0.0
+        || inv <= 0.0
     {
         return None;
     }
@@ -715,7 +726,10 @@ fn top_setup_zones(
         };
     };
     let side = select_profile_side(top, bias);
-    if let Some(z) = (side != "NEUTRAL").then(|| profile_zones(top, side)).flatten() {
+    if let Some(z) = (side != "NEUTRAL")
+        .then(|| profile_zones(top, side))
+        .flatten()
+    {
         return zones_from(z, side);
     }
     // No directional resolution — prefer the gauge direction (net_bias_pct)
@@ -1372,7 +1386,13 @@ mod tests {
     #[test]
     fn row_top_setup_falls_back_to_matrix_zones() {
         // Profile without per-profile zones → aggregated matrix bracket.
-        let p = profile(OpportunityType::Scalp, 70.0, 4, 2.5, Some(TradeViability::Actionable));
+        let p = profile(
+            OpportunityType::Scalp,
+            70.0,
+            4,
+            2.5,
+            Some(TradeViability::Actionable),
+        );
         let inst = instance_with(
             "BTC",
             Some(opp_with_matrix_zones("BTC", p)),
@@ -1394,13 +1414,15 @@ mod tests {
     fn row_top_setup_side_falls_back_to_net_bias() {
         // Neutral bias + no profile zones → the gauge direction picks the
         // side (net_bias_pct < 0 → SHORT aggregate bracket).
-        let p = profile(OpportunityType::Scalp, 70.0, 4, 2.5, Some(TradeViability::Actionable));
-        let inst = instance_with_net_bias(
-            "BTC",
-            Some(opp_with_matrix_zones("BTC", p)),
-            -5.0,
-            "READY",
+        let p = profile(
+            OpportunityType::Scalp,
+            70.0,
+            4,
+            2.5,
+            Some(TradeViability::Actionable),
         );
+        let inst =
+            instance_with_net_bias("BTC", Some(opp_with_matrix_zones("BTC", p)), -5.0, "READY");
         let panel = build_overview_panel(&[inst], &HashMap::new());
         let row = &panel.rows[0];
         assert_eq!(row.setup_side, "SHORT");
@@ -1414,16 +1436,19 @@ mod tests {
     #[test]
     fn top_setup_zones_ignore_positive_guard_violations() {
         // A matrix entry zone with non-positive bounds must read N/A.
-        let p = profile(OpportunityType::Scalp, 70.0, 4, 2.5, Some(TradeViability::Actionable));
-        let mut opp = opp_with_matrix_zones("BTC", p);
-        opp.long_entry_zone = PriceRange { low: 0.0, high: 0.0 };
-        let inst = instance_with(
-            "BTC",
-            Some(opp),
-            Some(MarketBias::Bullish),
-            "READY",
-            80.0,
+        let p = profile(
+            OpportunityType::Scalp,
+            70.0,
+            4,
+            2.5,
+            Some(TradeViability::Actionable),
         );
+        let mut opp = opp_with_matrix_zones("BTC", p);
+        opp.long_entry_zone = PriceRange {
+            low: 0.0,
+            high: 0.0,
+        };
+        let inst = instance_with("BTC", Some(opp), Some(MarketBias::Bullish), "READY", 80.0);
         let panel = build_overview_panel(&[inst], &HashMap::new());
         let row = &panel.rows[0];
         assert_eq!(row.setup_side, "NEUTRAL");

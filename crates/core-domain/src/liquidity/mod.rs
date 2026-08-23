@@ -1118,7 +1118,12 @@ impl BinsByLeverage {
 
 /// Apply funding-rate modulation to the leverage weights. Extreme funding
 /// → heavier high-leverage tail (because crowded trades = high leverage).
-fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct: f64, shift_frac: f64) {
+fn apply_funding_modulation(
+    weights: &mut [f64],
+    funding_rate: f64,
+    extreme_pct: f64,
+    shift_frac: f64,
+) {
     if extreme_pct <= 0.0 {
         return;
     }
@@ -1389,8 +1394,8 @@ pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatr
     // v9 (L2.5 `confidence`): OI-adequacy anchor + funding penalty.
     let anchor = input.confidence.oi_adequacy_anchor_usd.max(1.0);
     let oi_adequacy = (input.total_oi_usd / anchor).min(1.0);
-    let confidence = (oi_adequacy * (1.0 - input.confidence.funding_penalty * funding_mag_norm))
-        .clamp(0.0, 1.0);
+    let confidence =
+        (oi_adequacy * (1.0 - input.confidence.funding_penalty * funding_mag_norm)).clamp(0.0, 1.0);
 
     LiquidationClusterMatrix {
         symbol: input.symbol.to_string(),

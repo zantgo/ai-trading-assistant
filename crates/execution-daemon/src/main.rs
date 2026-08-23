@@ -281,9 +281,7 @@ fn parse_args() -> CliArgs {
                 }
             }
             "--instance-start" | "--instance-pause" | "--instance-terminate" => {
-                let action = args[i]
-                    .trim_start_matches("--instance-")
-                    .to_string();
+                let action = args[i].trim_start_matches("--instance-").to_string();
                 i += 1;
                 if i < args.len() {
                     lifecycle_op = Some((args[i].clone(), action));
@@ -851,7 +849,11 @@ async fn main() {
     }
 
     // v9: headless strategy / account / instance ops (GUI parity).
-    if !cli.ops.is_empty() || !cli.account_ops.is_empty() || cli.lifecycle_op.is_some() || cli.instance_bind.is_some() {
+    if !cli.ops.is_empty()
+        || !cli.account_ops.is_empty()
+        || cli.lifecycle_op.is_some()
+        || cli.instance_bind.is_some()
+    {
         let mut ws = config_models::load_workspace().unwrap_or_else(|e| {
             eprintln!("config load failed: {e}");
             std::process::exit(1);
@@ -859,19 +861,27 @@ async fn main() {
         let mut code = 0;
         for op in cli.ops {
             let c = cli_ops::run_strategy_op(&mut ws, &op);
-            if c != 0 { code = c; }
+            if c != 0 {
+                code = c;
+            }
         }
         for op in cli.account_ops {
             let c = cli_ops::run_account_op(&mut ws, &op);
-            if c != 0 { code = c; }
+            if c != 0 {
+                code = c;
+            }
         }
         if let Some((id, strategy)) = cli.instance_bind {
             let c = cli_ops::run_instance_bind(&mut ws, &id, &strategy);
-            if c != 0 { code = c; }
+            if c != 0 {
+                code = c;
+            }
         }
         if let Some((id, action)) = cli.lifecycle_op {
             let c = cli_ops::run_lifecycle_op(&id, &action);
-            if c != 0 { code = c; }
+            if c != 0 {
+                code = c;
+            }
         }
         std::process::exit(code);
     }
@@ -1796,7 +1806,9 @@ async fn main() {
                 let overview_params = {
                     let ws = workspace.config().await;
                     ws.default_strategy()
-                        .map(|st| market_analyzer::strategy_params::overview_params_from_strategy(&st.l7))
+                        .map(|st| {
+                            market_analyzer::strategy_params::overview_params_from_strategy(&st.l7)
+                        })
                         .unwrap_or_default()
                 };
                 let mut overview = core_domain::overview::compute_overview(
@@ -1973,7 +1985,8 @@ async fn main() {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0);
-            let _ = database_storage::queries::sessions::close_session(&shutdown_pool, sid, ended).await;
+            let _ = database_storage::queries::sessions::close_session(&shutdown_pool, sid, ended)
+                .await;
         }
         eprintln!("✅ Exiting cleanly");
         std::process::exit(0);

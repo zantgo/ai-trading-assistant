@@ -45,7 +45,11 @@ pub async fn create_session(
 }
 
 /// Close the active session (graceful shutdown / quit).
-pub async fn close_session(pool: &SqlitePool, id: i64, ended_at_ms: i64) -> Result<(), sqlx::Error> {
+pub async fn close_session(
+    pool: &SqlitePool,
+    id: i64,
+    ended_at_ms: i64,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE sessions SET ended_at_ms = ?2, status = 'closed' WHERE id = ?1")
         .bind(id)
         .bind(ended_at_ms)
@@ -56,11 +60,10 @@ pub async fn close_session(pool: &SqlitePool, id: i64, ended_at_ms: i64) -> Resu
 
 /// The current active session id (highest `active` row), if any.
 pub async fn current_session_id(pool: &SqlitePool) -> Result<Option<i64>, sqlx::Error> {
-    let row: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM sessions WHERE status = 'active' ORDER BY id DESC LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await?;
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM sessions WHERE status = 'active' ORDER BY id DESC LIMIT 1")
+            .fetch_optional(pool)
+            .await?;
     Ok(row.map(|r| r.0))
 }
 
@@ -76,7 +79,16 @@ pub async fn list_sessions(pool: &SqlitePool) -> Result<Vec<SessionRow>, sqlx::E
     Ok(rows
         .into_iter()
         .map(
-            |(id, mode, exchange, currency, portfolio_capital_usd, started_at_ms, ended_at_ms, status)| {
+            |(
+                id,
+                mode,
+                exchange,
+                currency,
+                portfolio_capital_usd,
+                started_at_ms,
+                ended_at_ms,
+                status,
+            )| {
                 SessionRow {
                     id,
                     mode,

@@ -43,6 +43,8 @@
 - **CLI parity (v10):** `--sessions`, `--session-report <id>`, `--backtest-show <id>` (same server-computed payloads as the GUI).
 - **Comparison (v10):** `GET /api/analytics/comparison` + PAE **Comparison tab** (sessions + backtests, verdict badges); `GET /api/sessions/:id/analytics`.
 - **Ontology + gates:** new docs `01-11-data-science-layer.md`, `01-12-data-information-learning-ontology.md` (D/I/L tiers + invariants), `06-04-ds-export-schema.md`, `07-10-data-science-surfaces.md`; parity contract C14–C16; new `test-doc` gates G18/G19/G20; `scripts/ds-verification-loop.sh` (12-run strategy matrix + DS invariants + cross-strategy sanity).
+- **DS writer robustness:** `write_backtest_ds` now truncates the run's directory before writing — a backtest id maps to one run per DB lifetime; appending to stale on-disk artifacts (DB reset reusing ids) previously mixed old rows into new runs and broke the DS invariants (trades-count, equity monotonicity, conservation). Regression test `backtest_writer_overwrites_on_rerun`.
+- **Verification green (2026-08-23):** `scripts/ds-verification-loop.sh` → **DS LOOP GREEN** (12 runs, all invariants, cross-strategy sanity, `--sessions`/`--backtest-show`); `./manage.sh e2e-backtest` → **26 PASS / 0 FAIL** incl. negatives + determinism double-run; runtime artifacts (`.e2e-*.stderr`, `ds/`, `snapshots/`, `config.toml`) untracked via `.gitignore` (local-only, `config.default.toml` remains the tracked template); workspace `cargo fmt --all` applied.
 
 ## Unreleased (2026-08-21) — v9: Strategy Platform (Phase 0 — fixes & erasures)
 

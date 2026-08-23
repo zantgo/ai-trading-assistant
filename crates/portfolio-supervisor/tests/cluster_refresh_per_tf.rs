@@ -182,7 +182,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         TimeframeSlot::Micro,
         &cfg,
         ExchangeChoice::Hyperliquid,
-     &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
+        &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .expect("micro should compute");
@@ -193,7 +193,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         TimeframeSlot::Fast,
         &cfg,
         ExchangeChoice::Hyperliquid,
-     &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
+        &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .expect("fast should compute");
@@ -204,7 +204,7 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         TimeframeSlot::Macro,
         &cfg,
         ExchangeChoice::Hyperliquid,
-     &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
+        &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .expect("macro should compute");
@@ -441,7 +441,7 @@ async fn cluster_refresh_skip_reason_templates_on_active_exchange() {
         TimeframeSlot::Micro,
         &test_config(),
         ExchangeChoice::Hyperliquid,
-     &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
+        &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .unwrap_err();
@@ -463,7 +463,7 @@ async fn cluster_refresh_skip_reason_templates_on_active_exchange() {
         TimeframeSlot::Micro,
         &test_config(),
         ExchangeChoice::Bitget,
-     &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
+        &portfolio_supervisor::registry::pipelines::ClusterOverrides::default(),
     )
     .await
     .unwrap_err();

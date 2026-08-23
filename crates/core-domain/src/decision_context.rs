@@ -154,8 +154,8 @@ impl DecisionContext {
         let opportunity_score = opportunity
             .map(|o| o.opportunity_score)
             .unwrap_or(params.opportunity_fallback);
-        let entry_danger_score = ((quality_penalty + (100.0 - opportunity_score)) / 2.0)
-            .clamp(0.0, 100.0);
+        let entry_danger_score =
+            ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
         let entry_danger = RiskDimension::from_score_with_confidence(
             entry_danger_score,
             analysis.state_confidence,
@@ -211,7 +211,11 @@ impl DecisionContext {
         // risk gate, so a minimal bullish/bearish confirmation produces a
         // graded directional probability split instead of a 96% HOLD. The
         // risk gate still applies to plain directional biases (unchanged).
-        let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score, analysis_params);
+        let lifted = crate::analysis::bias_lifted(
+            analysis.bias,
+            analysis.market_bias_score,
+            analysis_params,
+        );
         let (direction_is_long, direction_is_short) = if stance_is_avoid {
             (false, false) // AvoidDirectionalExposure — no directional lean
         } else {
@@ -271,22 +275,21 @@ impl DecisionContext {
             })
             .unwrap_or(false);
 
-        let trade_readiness = if stance_is_avoid
-            || confidence_assessment < params.readiness_aside_max
-        {
-            "STAND_ASIDE"
-        } else if directional_is_non_neutral
-            && confidence_assessment >= params.readiness_ready_min
-            && stance_is_aggressive_or_constructive
-            && !entry_guidance_is_wait
-        {
-            "READY"
-        } else if directional_is_non_neutral && has_qualifying_profile {
-            "FORMING"
-        } else {
-            "WATCH"
-        }
-        .to_string();
+        let trade_readiness =
+            if stance_is_avoid || confidence_assessment < params.readiness_aside_max {
+                "STAND_ASIDE"
+            } else if directional_is_non_neutral
+                && confidence_assessment >= params.readiness_ready_min
+                && stance_is_aggressive_or_constructive
+                && !entry_guidance_is_wait
+            {
+                "READY"
+            } else if directional_is_non_neutral && has_qualifying_profile {
+                "FORMING"
+            } else {
+                "WATCH"
+            }
+            .to_string();
 
         // v9: the risk-ceiling soft-block — when the strategy's
         // `l6.risk_ceiling.max_overall_risk` is breached, readiness floors
@@ -576,8 +579,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            30.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Bullish");
         assert!((ctx.score - 30.0).abs() < 1e-9);
         assert!((ctx.expected_reward_risk_ratio - 2.0).abs() < 1e-9);
@@ -609,8 +621,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 50.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            50.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Bearish");
         assert!((ctx.score - -50.0).abs() < 1e-9);
         // active side is Bearish → reads short_expected_rr_internal
@@ -638,8 +659,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            30.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Neutral");
         assert!((ctx.score - 0.0).abs() < 1e-9);
         // Neutral bias with no directional offset should produce a balanced distribution
@@ -676,8 +706,17 @@ mod tests {
         // Unsigned blend ≈ 0.5×75 + 0.3×quality + 0.2×60 ≈ 63 (as the
         // capture's L6). With a Bullish bias the signed score must be
         // positive, not zeroed.
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 63.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            63.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Bullish");
         assert!((ctx.score - 63.0).abs() < 1e-9);
         assert!(ctx.long_probability > ctx.hold_probability);
@@ -704,8 +743,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            90.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "StrongBullish");
         assert!((ctx.score - 90.0).abs() < 1e-9);
         assert!(ctx.long_probability > ctx.short_probability);
@@ -729,8 +777,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 65.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            65.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "StrongBearish");
         assert!((ctx.score - -65.0).abs() < 1e-9);
         assert!(ctx.short_probability > ctx.long_probability);
@@ -753,8 +810,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            30.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!((ctx.expected_reward_risk_ratio - 0.5).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
         assert!(ctx.long_probability > 0.0);
@@ -778,8 +844,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            30.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!((ctx.entry_danger.score - 70.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
         assert!(ctx.long_probability > 0.0);
@@ -809,8 +884,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            55.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Bearish");
         assert!(ctx.short_probability > ctx.long_probability);
         assert!(ctx.short_probability > ctx.hold_probability);
@@ -846,10 +930,28 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx_bear =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bear, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
-        let ctx_bull =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &bull, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx_bear = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            55.0,
+            &bear,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
+        let ctx_bull = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            55.0,
+            &bull,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx_bear.long_probability, ctx_bull.short_probability);
         assert_eq!(ctx_bear.short_probability, ctx_bull.long_probability);
         assert_eq!(ctx_bear.hold_probability, ctx_bull.hold_probability);
@@ -876,8 +978,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            55.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Neutral");
         assert!(ctx.hold_probability >= 90.0);
         assert!(ctx.long_probability >= 2.0);
@@ -909,8 +1020,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 55.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            55.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         // 0.5 × (1 − 0.4187) = 0.2907 < 1.0 → penalty applies: the short
         // arm is compressed, so HOLD overtakes it while the split stays
         // graded (hold ≤ 60, short ≥ 15).
@@ -945,8 +1065,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            30.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!(
             ctx.lean_floor_applied,
             "floors must be flagged when they adjust the split"
@@ -977,8 +1106,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            90.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!(!ctx.lean_floor_applied);
     }
 
@@ -1005,8 +1143,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            40.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.trade_readiness, "WATCH");
     }
 
@@ -1050,8 +1197,17 @@ mod tests {
             time_horizon: "SCALP".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 40.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            40.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.trade_readiness, "FORMING");
     }
 
@@ -1078,8 +1234,17 @@ mod tests {
             time_horizon: "SCALP".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 71.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            71.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(ctx.bias, "Bullish");
         // The split stays GRADED with the penalty: long ≈ 57, hold ≈ 41,
         // net ≈ +55 — versus ~75/23 unpenalized (the 0.55 R:R must cap).
@@ -1107,8 +1272,17 @@ mod tests {
             time_horizon: "INTRADAY".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 0.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            0.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!((ctx.expected_reward_risk_ratio - 0.0).abs() < 1e-9);
         assert!(ctx.long_probability + ctx.short_probability + ctx.hold_probability > 0.0);
     }
@@ -1130,8 +1304,17 @@ mod tests {
             time_horizon: "SWING".to_string(),
             ..Default::default()
         };
-        let ctx =
-            DecisionContext::compute(&indicators, 100.0, 1.0, 90.0, &analysis, Some(&opp), &risk, &crate::decision_params::DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let ctx = DecisionContext::compute(
+            &indicators,
+            100.0,
+            1.0,
+            90.0,
+            &analysis,
+            Some(&opp),
+            &risk,
+            &crate::decision_params::DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         let total = ctx.long_probability + ctx.short_probability + ctx.hold_probability;
         assert!(
             (total - 100.0).abs() < 1e-9,

@@ -2,12 +2,7 @@
 //! (`portfolio_capital_usd`), mode-gated writes, and the paper reset.
 
 use crate::AppState;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -47,10 +42,7 @@ pub async fn account_summary(State(state): State<Arc<AppState>>) -> impl IntoRes
         let s = safety.as_str().to_string();
         let order = ["NORMAL", "WARN", "CAUTIOUS", "SUSPENDED", "DRAWDOWN_STOP"];
         if order.iter().position(|x| *x == s).unwrap_or(0)
-            > order
-                .iter()
-                .position(|x| *x == worst_safety)
-                .unwrap_or(0)
+            > order.iter().position(|x| *x == worst_safety).unwrap_or(0)
         {
             worst_safety = s;
         }
@@ -87,7 +79,9 @@ pub async fn set_account_capital(
     if mode != "paper" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("portfolio capital writes are paper-only (mode is {mode})") })),
+            Json(
+                serde_json::json!({ "error": format!("portfolio capital writes are paper-only (mode is {mode})") }),
+            ),
         );
     }
     if !payload.portfolio_capital_usd.is_finite()
@@ -125,20 +119,20 @@ pub async fn set_account_capital(
     )
 }
 
-pub async fn reset_account(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn reset_account(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mode = session_mode(&state).await;
     if mode != "paper" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("portfolio reset is paper-only (mode is {mode})") })),
+            Json(
+                serde_json::json!({ "error": format!("portfolio reset is paper-only (mode is {mode})") }),
+            ),
         );
     }
     let workspace = state.workspace.config().await;
     let capital = workspace.portfolio_capital_usd;
-    let dec = rust_decimal::Decimal::from_f64_retain(capital)
-        .unwrap_or(rust_decimal_macros::dec!(1000));
+    let dec =
+        rust_decimal::Decimal::from_f64_retain(capital).unwrap_or(rust_decimal_macros::dec!(1000));
 
     state.execution_engine.set_initial_equity(dec).await;
     for inst in state.workspace.list().await {

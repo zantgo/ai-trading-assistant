@@ -188,7 +188,23 @@ pub async fn query_backtest_trades(
     limit: u32,
     offset: u32,
 ) -> Vec<DsTrade> {
-    sqlx::query_as::<_, (i64, String, f64, f64, f64, f64, String, i64, i64, f64, f64, f64)>(
+    sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            f64,
+            f64,
+            f64,
+            f64,
+            String,
+            i64,
+            i64,
+            f64,
+            f64,
+            f64,
+        ),
+    >(
         "SELECT ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
                 COALESCE(ts_entry_secs, 0), COALESCE(hold_secs, 0),
                 COALESCE(mfe_pct, 0), COALESCE(mae_pct, 0), COALESCE(roi_pct, 0)
@@ -201,20 +217,22 @@ pub async fn query_backtest_trades(
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|(ts, direction, entry, exit, size, pnl, reason, ts_entry, hold, mfe, mae, roi)| DsTrade {
-        ts_close_secs: ts,
-        direction,
-        entry_price: entry,
-        exit_price: exit,
-        size,
-        pnl,
-        exit_reason: reason,
-        ts_entry_secs: ts_entry,
-        hold_secs: hold,
-        mfe_pct: mfe,
-        mae_pct: mae,
-        roi_pct: roi,
-    })
+    .map(
+        |(ts, direction, entry, exit, size, pnl, reason, ts_entry, hold, mfe, mae, roi)| DsTrade {
+            ts_close_secs: ts,
+            direction,
+            entry_price: entry,
+            exit_price: exit,
+            size,
+            pnl,
+            exit_reason: reason,
+            ts_entry_secs: ts_entry,
+            hold_secs: hold,
+            mfe_pct: mfe,
+            mae_pct: mae,
+            roi_pct: roi,
+        },
+    )
     .collect()
 }
 
@@ -326,12 +344,12 @@ mod tests {
                 size: 0.5,
                 pnl: 5.0,
                 exit_reason: "tp".into(),
-            ts_entry_secs: 0,
-            hold_secs: 0,
-            mfe_pct: 0.0,
-            mae_pct: 0.0,
-            roi_pct: 0.0,
-        }],
+                ts_entry_secs: 0,
+                hold_secs: 0,
+                mfe_pct: 0.0,
+                mae_pct: 0.0,
+                roi_pct: 0.0,
+            }],
             &[(1000, 1000.0), (1001, 1005.0)],
             &[DsPortfolioPoint {
                 ts_secs: 1001,

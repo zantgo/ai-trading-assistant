@@ -1022,7 +1022,12 @@ mod tests {
                 risk_windows: vec![],
             },
         ];
-        let o = compute_overview(&[adv_low, adv_high], &instances, &[], &OverviewParams::default());
+        let o = compute_overview(
+            &[adv_low, adv_high],
+            &instances,
+            &[],
+            &OverviewParams::default(),
+        );
         // Despite cascade 10 on BOTH symbols, the split follows overall:
         // BTC low (20), SOL high (85).
         assert_eq!(o.risk_distribution.low_pct, 50.0);

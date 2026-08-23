@@ -199,14 +199,14 @@ mod tests {
                     TickContext {
                         safety_allows_entry: true,
                         lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                        market_filter_allows_entry: true,
+                        entry_block_reason: None,
                         candle_ts: ts,
                         safety: None,
                         dispatch: true,
                         allocation_pct: None,
-            strategy: None,
-        },
+                        strategy: None,
+                    },
                     None,
                     true,
                 )
@@ -236,14 +236,14 @@ mod tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 1,
                 safety: None,
                 dispatch: false,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
             None,
             false,
         )
@@ -321,14 +321,14 @@ mod flip_tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 1,
                 safety: None,
                 dispatch: true,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
             None,
             true,
         )
@@ -336,7 +336,9 @@ mod flip_tests {
 
         // Close the position AT MARKET between ticks (the flip path's
         // mechanics) — a LOSS, so the safety ladder must record it.
-        let _ = engine.close_position("BTC-USDC", dec!(98), "invalidated_signal").await;
+        let _ = engine
+            .close_position("BTC-USDC", dec!(98), "invalidated_signal")
+            .await;
 
         // Tick 2: the capture must pick up the market close WITH the
         // pre-tick position context and feed the safety ladder.
@@ -358,14 +360,14 @@ mod flip_tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 2,
                 safety: Some(safety.clone()),
                 dispatch: true,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
             None,
             true,
         )
@@ -397,14 +399,14 @@ mod flip_tests {
             TickContext {
                 safety_allows_entry: true,
                 lifecycle_running: true,
-            market_filter_allows_entry: true,
-            entry_block_reason: None,
+                market_filter_allows_entry: true,
+                entry_block_reason: None,
                 candle_ts: 3,
                 safety: None,
                 dispatch: true,
                 allocation_pct: None,
-            strategy: None,
-        },
+                strategy: None,
+            },
             None,
             true,
         )

@@ -159,10 +159,7 @@ impl DecisionParams {
     /// Quality penalty for a `QualityLevel` index into
     /// `[EXCELLENT, GOOD, AVERAGE, WEAK, POOR]`.
     pub fn quality_penalty(&self, idx: usize) -> f64 {
-        self.quality_penalties
-            .get(idx)
-            .copied()
-            .unwrap_or(50.0)
+        self.quality_penalties.get(idx).copied().unwrap_or(50.0)
     }
 
     /// `confidence_assessment = state_confidence × (1 − k·risk/100) × 100`.
@@ -227,7 +224,9 @@ mod tests {
 
     #[test]
     fn default_params_have_no_ceiling() {
-        assert!(DecisionParams::default().risk_ceiling_max_overall_risk.is_none());
+        assert!(DecisionParams::default()
+            .risk_ceiling_max_overall_risk
+            .is_none());
     }
 
     #[test]

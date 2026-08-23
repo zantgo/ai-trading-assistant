@@ -448,7 +448,16 @@ pub async fn insert_backtest_run(
     trades_json: &str,
     equity_curve_json: &str,
 ) -> i64 {
-    insert_backtest_run_with_session(pool, params_json, summary_json, stats_json, trades_json, equity_curve_json, None).await
+    insert_backtest_run_with_session(
+        pool,
+        params_json,
+        summary_json,
+        stats_json,
+        trades_json,
+        equity_curve_json,
+        None,
+    )
+    .await
 }
 
 /// v10: persist with an explicit session id (NULL = standalone headless run).

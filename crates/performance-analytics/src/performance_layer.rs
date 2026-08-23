@@ -292,11 +292,7 @@ fn compute_policy_drawdown(trades: &[&TradeAnalyticsRecord]) -> f64 {
     let mut max_dd_pct = 0.0f64;
 
     let base_equity = sorted[0].entry_price * sorted[0].size;
-    let base = if base_equity > 0.0 {
-        base_equity
-    } else {
-        1.0
-    };
+    let base = if base_equity > 0.0 { base_equity } else { 1.0 };
 
     for t in &sorted {
         cumulative += t.net_pnl;

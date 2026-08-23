@@ -608,7 +608,8 @@ pub async fn serve_get_portfolio(
                 )
             };
             let capital = portfolio_supervisor::capital_layer::compute_capital_matrix(
-                rust_decimal::Decimal::from_f64_retain(trading.portfolio_capital).unwrap_or_default(),
+                rust_decimal::Decimal::from_f64_retain(trading.portfolio_capital)
+                    .unwrap_or_default(),
                 dec!(0),
                 &positions,
                 rust_decimal::Decimal::from(*engine.cross_leverage.read().await),
@@ -1188,26 +1189,20 @@ pub async fn serve_instance_lifecycle(
     Path(instance_id): Path<String>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let action = payload
-        .get("action")
-        .and_then(|a| a.as_str())
-        .unwrap_or("");
+    let action = payload.get("action").and_then(|a| a.as_str()).unwrap_or("");
     let result = match action {
-        "pause" => portfolio_supervisor::registry::pause_instance(
-            &state.registry_context(),
-            &instance_id,
-        )
-        .await,
-        "terminate" => portfolio_supervisor::registry::stop_instance(
-            &state.registry_context(),
-            &instance_id,
-        )
-        .await,
-        "start" => portfolio_supervisor::registry::start_instance(
-            &state.registry_context(),
-            &instance_id,
-        )
-        .await,
+        "pause" => {
+            portfolio_supervisor::registry::pause_instance(&state.registry_context(), &instance_id)
+                .await
+        }
+        "terminate" => {
+            portfolio_supervisor::registry::stop_instance(&state.registry_context(), &instance_id)
+                .await
+        }
+        "start" => {
+            portfolio_supervisor::registry::start_instance(&state.registry_context(), &instance_id)
+                .await
+        }
         other => Err(format!(
             "unknown lifecycle action '{other}' — use start | pause | terminate"
         )),

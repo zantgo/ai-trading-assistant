@@ -986,19 +986,34 @@ pub async fn persist_backtest_run(
         ),
         (
             "sharpe".to_string(),
-            risk_row.sharpe_ratio.map(|v| format!("{v:.4}")).unwrap_or_default(),
+            risk_row
+                .sharpe_ratio
+                .map(|v| format!("{v:.4}"))
+                .unwrap_or_default(),
         ),
         (
             "sortino".to_string(),
-            risk_row.sortino_ratio.map(|v| format!("{v:.4}")).unwrap_or_default(),
+            risk_row
+                .sortino_ratio
+                .map(|v| format!("{v:.4}"))
+                .unwrap_or_default(),
         ),
         (
             "calmar".to_string(),
-            risk_row.calmar_ratio.map(|v| format!("{v:.4}")).unwrap_or_default(),
+            risk_row
+                .calmar_ratio
+                .map(|v| format!("{v:.4}"))
+                .unwrap_or_default(),
         ),
         ("ulcer".to_string(), format!("{:.4}", risk_row.ulcer_index)),
-        ("var95".to_string(), format!("{:.4}", risk_row.value_at_risk_95)),
-        ("es95".to_string(), format!("{:.4}", risk_row.expected_shortfall_95)),
+        (
+            "var95".to_string(),
+            format!("{:.4}", risk_row.value_at_risk_95),
+        ),
+        (
+            "es95".to_string(),
+            format!("{:.4}", risk_row.expected_shortfall_95),
+        ),
         (
             "max_dd_duration_days".to_string(),
             format!("{:.2}", risk_row.max_drawdown_duration_days),
@@ -1316,15 +1331,31 @@ pub async fn serve_analytics_comparison(State(state): State<Arc<AppState>>) -> i
     // Sessions.
     if let Ok(sessions) = database_storage::queries::sessions::list_sessions(&state.pool).await {
         for s in sessions {
-            let trades = database_storage::queries::stats::query_all_closed_trades(&state.pool)
-                .await;
+            let trades =
+                database_storage::queries::stats::query_all_closed_trades(&state.pool).await;
             let wins = trades.iter().filter(|t| t.realized_pnl > 0.0).count();
             let pf = {
-                let gp: f64 = trades.iter().filter(|t| t.realized_pnl > 0.0).map(|t| t.realized_pnl).sum();
-                let gl: f64 = trades.iter().filter(|t| t.realized_pnl < 0.0).map(|t| t.realized_pnl.abs()).sum();
-                if gl > 0.0 { Some(gp / gl) } else { None }
+                let gp: f64 = trades
+                    .iter()
+                    .filter(|t| t.realized_pnl > 0.0)
+                    .map(|t| t.realized_pnl)
+                    .sum();
+                let gl: f64 = trades
+                    .iter()
+                    .filter(|t| t.realized_pnl < 0.0)
+                    .map(|t| t.realized_pnl.abs())
+                    .sum();
+                if gl > 0.0 {
+                    Some(gp / gl)
+                } else {
+                    None
+                }
             };
-            let wr = if trades.is_empty() { 0.0 } else { wins as f64 / trades.len() as f64 * 100.0 };
+            let wr = if trades.is_empty() {
+                0.0
+            } else {
+                wins as f64 / trades.len() as f64 * 100.0
+            };
             let expectancy: f64 = if trades.is_empty() {
                 0.0
             } else {
@@ -1359,7 +1390,10 @@ pub async fn serve_analytics_comparison(State(state): State<Arc<AppState>>) -> i
                 database_storage::queries::backtest_ds::query_backtest_metrics(&state.pool, r.id)
                     .await;
             let get = |k: &str| -> Option<f64> {
-                metrics.iter().find(|m| m.key == k).and_then(|m| m.value.parse::<f64>().ok())
+                metrics
+                    .iter()
+                    .find(|m| m.key == k)
+                    .and_then(|m| m.value.parse::<f64>().ok())
             };
             let verdict: Option<serde_json::Value> = metrics
                 .iter()
@@ -1393,20 +1427,18 @@ pub async fn serve_session_analytics(
         state.workspace.config().await.portfolio_capital_usd,
     )
     .await;
-    let snap: Option<(i64,)> = sqlx::query_as(
-        "SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
-    let trades_count: Option<(i64,)> = sqlx::query_as(
-        "SELECT COUNT(*) FROM paper_trades WHERE session_id = ?1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    let snap: Option<(i64,)> =
+        sqlx::query_as("SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+    let trades_count: Option<(i64,)> =
+        sqlx::query_as("SELECT COUNT(*) FROM paper_trades WHERE session_id = ?1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
     Json(serde_json::json!({
         "session_id": id,
         "counts": {

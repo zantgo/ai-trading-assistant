@@ -923,8 +923,15 @@ pub fn compute_risk(
     }
 
     let market = assess_market_risk(analysis, indicators, &params.market);
-    let volatility = assess_volatility_risk(analysis, indicators, close, tf_volatility, &params.volatility);
-    let liquidity = assess_execution_liquidity_risk(analysis, indicators, &params.execution_liquidity);
+    let volatility = assess_volatility_risk(
+        analysis,
+        indicators,
+        close,
+        tf_volatility,
+        &params.volatility,
+    );
+    let liquidity =
+        assess_execution_liquidity_risk(analysis, indicators, &params.execution_liquidity);
     let structure = assess_structure_risk(analysis, indicators, &params.structure);
     let momentum = assess_momentum_risk(analysis, &params.momentum);
     let signal = assess_signal_risk(analysis, &params.signal);
@@ -1120,8 +1127,8 @@ mod tests {
             &[],
             None,
             &tf_volatility,
-        &RiskParams::default(),
-    );
+            &RiskParams::default(),
+        );
         let vol = &risk.volatility_risk;
         // (30 + 15) blended with 0.7×83.25 + 0.3×97.2 = 87.4 → 66.2 → HIGH.
         assert!(
@@ -1168,8 +1175,8 @@ mod tests {
             &[],
             None,
             &tf_volatility,
-        &RiskParams::default(),
-    );
+            &RiskParams::default(),
+        );
         let vol = &risk.volatility_risk;
         // (30 + 0) blended with 0.7×83.25 + 0.3×97.2 = 87.435 → 58.72.
         let expected = (30.0 + 0.7 * 83.25 + 0.3 * 97.2) / 2.0;
@@ -1444,7 +1451,12 @@ mod tests {
         // under the 0.08 moderate-spread threshold, so only the ratio rule
         // fires.)
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.05, 0.04), 100.0, &RiskParams::default().execution);
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(0.05, 0.04),
+            100.0,
+            &RiskParams::default().execution,
+        );
         assert_eq!(dim.score, 40.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(1.25));
         assert!(
@@ -1459,7 +1471,12 @@ mod tests {
     #[test]
     fn execution_risk_moderate_vol_to_spread_adds_small_penalty() {
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.06, 0.03), 100.0, &RiskParams::default().execution);
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(0.06, 0.03),
+            100.0,
+            &RiskParams::default().execution,
+        );
         assert_eq!(dim.score, 30.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(2.0));
     }
@@ -1468,7 +1485,12 @@ mod tests {
     fn execution_risk_high_vol_to_spread_reduces_score() {
         // Ratio 12.5 > 10.0 → −5 on the baseline 25.
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.5, 0.04), 100.0, &RiskParams::default().execution);
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(0.5, 0.04),
+            100.0,
+            &RiskParams::default().execution,
+        );
         assert_eq!(dim.score, 20.0);
         assert_eq!(dim.volatility_to_spread_ratio, Some(12.5));
     }
@@ -1476,7 +1498,12 @@ mod tests {
     #[test]
     fn execution_risk_missing_spread_yields_none_ratio() {
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(12.0, 0.0), 100.0, &RiskParams::default().execution);
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(12.0, 0.0),
+            100.0,
+            &RiskParams::default().execution,
+        );
         assert_eq!(dim.volatility_to_spread_ratio, None);
         assert_eq!(dim.score, 25.0);
     }
@@ -1484,7 +1511,12 @@ mod tests {
     #[test]
     fn execution_risk_zero_atr_yields_none_ratio() {
         let analysis = make_analysis_with_timeframes();
-        let dim = assess_execution_risk(&analysis, &execution_indicators(0.0, 1.0), 100.0, &RiskParams::default().execution);
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(0.0, 1.0),
+            100.0,
+            &RiskParams::default().execution,
+        );
         assert_eq!(dim.volatility_to_spread_ratio, None);
     }
 
@@ -1496,8 +1528,12 @@ mod tests {
         // ratio must be ≈ 4.22 — NOT 1.5107/0.000568 ≈ 2659 (the legacy
         // percent-vs-price unit bug).
         let analysis = make_analysis_with_timeframes();
-        let dim =
-            assess_execution_risk(&analysis, &execution_indicators(1.5107, 0.000568), 63_040.0, &RiskParams::default().execution);
+        let dim = assess_execution_risk(
+            &analysis,
+            &execution_indicators(1.5107, 0.000568),
+            63_040.0,
+            &RiskParams::default().execution,
+        );
         let ratio = dim.volatility_to_spread_ratio.expect("ratio must compute");
         assert!(
             (ratio - 4.22).abs() < 0.05,

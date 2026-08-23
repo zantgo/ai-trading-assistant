@@ -396,11 +396,9 @@ impl AlignmentParams {
     pub fn tf_weight(&self, label: &str, secs: u64, divisor: f64) -> f64 {
         match self.tf_weight_mode.as_str() {
             "equal" => 1.0,
-            "custom" => self
-                .tf_weights
-                .get(label)
-                .copied()
-                .unwrap_or((secs as f64 / divisor).clamp(self.tf_weight_floor, self.tf_weight_ceil)),
+            "custom" => self.tf_weights.get(label).copied().unwrap_or(
+                (secs as f64 / divisor).clamp(self.tf_weight_floor, self.tf_weight_ceil),
+            ),
             _ => (secs as f64 / divisor).clamp(self.tf_weight_floor, self.tf_weight_ceil),
         }
     }
@@ -475,9 +473,17 @@ pub fn compute_alignment(
         volatility_sum += ctx.volatility.score * weight;
 
         if ctx.overall_score > 0 {
-            positive_tf_count += if params.trend_agreement_weighted { weight as u32 } else { 1 };
+            positive_tf_count += if params.trend_agreement_weighted {
+                weight as u32
+            } else {
+                1
+            };
         } else if ctx.overall_score < 0 {
-            negative_tf_count += if params.trend_agreement_weighted { weight as u32 } else { 1 };
+            negative_tf_count += if params.trend_agreement_weighted {
+                weight as u32
+            } else {
+                1
+            };
         }
 
         regimes.push(ctx.regime.clone());
@@ -520,10 +526,26 @@ pub fn compute_alignment(
     // v9: the dimension mask mutes a dimension — the signed consensus and
     // the blend see zero; the masked dimension rides on the wire at 0/NoData.
     let masked = |key: &str| !params.dim_enabled(key);
-    let mtf_trend_alignment = if masked("trend") { 0.0 } else { mtf_trend_alignment };
-    let mtf_momentum_alignment = if masked("momentum") { 0.0 } else { mtf_momentum_alignment };
-    let mtf_volume_alignment = if masked("volume") { 0.0 } else { mtf_volume_alignment };
-    let mtf_volatility_alignment = if masked("volatility") { 0.0 } else { mtf_volatility_alignment };
+    let mtf_trend_alignment = if masked("trend") {
+        0.0
+    } else {
+        mtf_trend_alignment
+    };
+    let mtf_momentum_alignment = if masked("momentum") {
+        0.0
+    } else {
+        mtf_momentum_alignment
+    };
+    let mtf_volume_alignment = if masked("volume") {
+        0.0
+    } else {
+        mtf_volume_alignment
+    };
+    let mtf_volatility_alignment = if masked("volatility") {
+        0.0
+    } else {
+        mtf_volatility_alignment
+    };
 
     // v6.10.16 (FIX-H2, thin-participation reweight): when the volume
     // dimension reads THIN/VERY_THIN (score < 25) the volume vote is a
@@ -605,20 +627,56 @@ pub fn compute_alignment(
         state: AlignState::NoData,
         confidence: 0.0,
     };
-    let dim_1_trend = if masked("trend") { zero_dim() } else { AlignmentDimension::from_signed(mtf_trend_alignment) };
-    let dim_2_momentum = if masked("momentum") { zero_dim() } else { AlignmentDimension::from_signed(mtf_momentum_alignment) };
-    let volume_dim = if masked("volume") { zero_dim() } else { volume_dim };
-    let dim_4_volatility = if masked("volatility") { zero_dim() } else { AlignmentDimension::from_signed(mtf_volatility_alignment) };
-    let dim_5_structure = if masked("structure") { zero_dim() } else { AlignmentMatrix::compute_structure_alignment(&tf_maps) };
+    let dim_1_trend = if masked("trend") {
+        zero_dim()
+    } else {
+        AlignmentDimension::from_signed(mtf_trend_alignment)
+    };
+    let dim_2_momentum = if masked("momentum") {
+        zero_dim()
+    } else {
+        AlignmentDimension::from_signed(mtf_momentum_alignment)
+    };
+    let volume_dim = if masked("volume") {
+        zero_dim()
+    } else {
+        volume_dim
+    };
+    let dim_4_volatility = if masked("volatility") {
+        zero_dim()
+    } else {
+        AlignmentDimension::from_signed(mtf_volatility_alignment)
+    };
+    let dim_5_structure = if masked("structure") {
+        zero_dim()
+    } else {
+        AlignmentMatrix::compute_structure_alignment(&tf_maps)
+    };
     let dim_6_signal = if masked("signal") {
         zero_dim()
     } else {
         AlignmentMatrix::compute_signal_alignment(cross_tf_count, tf_data.len() as u32)
     };
-    let dim_7_regime = if masked("regime") { zero_dim() } else { AlignmentMatrix::compute_regime_alignment(&regimes) };
-    let dim_8_confidence = if masked("confidence") { zero_dim() } else { AlignmentMatrix::compute_confidence_alignment(&confidences) };
-    let dim_9_liquidity = if masked("liquidity") { zero_dim() } else { AlignmentMatrix::compute_liquidity_alignment(&tf_maps) };
-    let dim_10_opportunity = if masked("tradability") { zero_dim() } else { AlignmentMatrix::compute_opportunity_alignment(&ctxs) };
+    let dim_7_regime = if masked("regime") {
+        zero_dim()
+    } else {
+        AlignmentMatrix::compute_regime_alignment(&regimes)
+    };
+    let dim_8_confidence = if masked("confidence") {
+        zero_dim()
+    } else {
+        AlignmentMatrix::compute_confidence_alignment(&confidences)
+    };
+    let dim_9_liquidity = if masked("liquidity") {
+        zero_dim()
+    } else {
+        AlignmentMatrix::compute_liquidity_alignment(&tf_maps)
+    };
+    let dim_10_opportunity = if masked("tradability") {
+        zero_dim()
+    } else {
+        AlignmentMatrix::compute_opportunity_alignment(&ctxs)
+    };
 
     AlignmentMatrix {
         symbol: symbol.to_string(),
@@ -756,7 +814,11 @@ mod tests {
     #[test]
     fn single_tf_has_10_dims() {
         let map = build_map(40.0, 0.6, 30.0, 55.0, 1.2);
-        let c = compute_alignment("BTC-USD", &[("fast180", 180, 64000.0, &map, &empty_ctx())], &AlignmentParams::default());
+        let c = compute_alignment(
+            "BTC-USD",
+            &[("fast180", 180, 64000.0, &map, &empty_ctx())],
+            &AlignmentParams::default(),
+        );
         assert_eq!(c.timeframes_present, 1);
         assert_eq!(c.dimensions.len(), 10);
     }

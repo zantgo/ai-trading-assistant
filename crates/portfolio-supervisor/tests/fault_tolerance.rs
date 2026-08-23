@@ -35,7 +35,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             strategies: vec![config_models::StrategyConfig::default()],
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
-        },
+            },
             indicators: Default::default(),
             fast_timeframe: Default::default(),
             slow_timeframe: Default::default(),

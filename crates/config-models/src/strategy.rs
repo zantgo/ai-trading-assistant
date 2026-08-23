@@ -730,9 +730,18 @@ pub struct L3Confidence {
 impl Default for L3Confidence {
     fn default() -> Self {
         Self {
-            agreement: L3ConfPair { bonus: 0.15, min: 75.0 },
-            conflict: L3ConfPair { bonus: 0.5, min: 50.0 },
-            signals: L3ConfPair { bonus: 0.10, min: 3.0 },
+            agreement: L3ConfPair {
+                bonus: 0.15,
+                min: 75.0,
+            },
+            conflict: L3ConfPair {
+                bonus: 0.5,
+                min: 50.0,
+            },
+            signals: L3ConfPair {
+                bonus: 0.10,
+                min: 3.0,
+            },
             single_tf_cap: 0.5,
         }
     }
@@ -981,8 +990,14 @@ macro_rules! pc_struct {
 }
 
 pc_struct!(L4PcTrendContinuation { trend_min: f64 });
-pc_struct!(L4PcBreakout { vol_min: f64, struct_min: f64 });
-pc_struct!(L4PcReversal { momentum_exhausted_max: f64, structure_broken_max: f64 });
+pc_struct!(L4PcBreakout {
+    vol_min: f64,
+    struct_min: f64
+});
+pc_struct!(L4PcReversal {
+    momentum_exhausted_max: f64,
+    structure_broken_max: f64
+});
 pc_struct!(L4PcPullback { trend_min: f64 });
 pc_struct!(L4PcMeanReversion { vol_max: f64, regimes: Vec<String> });
 pc_struct!(L4PcScalp { bbwp_range: [f64; 2], struct_min: f64, regimes: Vec<String> });
@@ -1720,7 +1735,9 @@ pub struct L6RiskCeiling {
 
 impl Default for L6RiskCeiling {
     fn default() -> Self {
-        Self { max_overall_risk: None }
+        Self {
+            max_overall_risk: None,
+        }
     }
 }
 
@@ -2471,7 +2488,9 @@ pub struct PaeRiskMath {
 
 impl Default for PaeRiskMath {
     fn default() -> Self {
-        Self { risk_free_rate_pct: 0.0 }
+        Self {
+            risk_free_rate_pct: 0.0,
+        }
     }
 }
 
@@ -2544,7 +2563,10 @@ impl StrategyConfig {
     /// Deep-merge a base strategy's JSON under a child's raw JSON
     /// (explicit keys win; missing keys inherit), then parse. This is the
     /// patch-inheritance contract.
-    pub fn resolve(base_json: Option<&serde_json::Value>, child_json: &serde_json::Value) -> Result<Self, String> {
+    pub fn resolve(
+        base_json: Option<&serde_json::Value>,
+        child_json: &serde_json::Value,
+    ) -> Result<Self, String> {
         let merged = match base_json {
             Some(base) => deep_merge(base, child_json),
             None => child_json.clone(),
@@ -2577,8 +2599,13 @@ impl StrategyConfig {
         }
         // ── v10 TAE dial validation ──
         const SETUP_GONE: &[&str] = &["balanced", "strict", "risky"];
-        const ENTRY_MODES: &[&str] =
-            &["zone_midpoint", "zone_edge", "zone_any", "market_on_ready", "chase"];
+        const ENTRY_MODES: &[&str] = &[
+            "zone_midpoint",
+            "zone_edge",
+            "zone_any",
+            "market_on_ready",
+            "chase",
+        ];
         const FILL_POLICIES: &[&str] = &["take_better", "cancel"];
         const REPLACE_POLICIES: &[&str] = &["cancel_and_adopt", "cancel"];
         const SL_MODES: &[&str] = &["invalidation", "invalidation_padded", "atr_anchored"];
@@ -2623,7 +2650,12 @@ impl StrategyConfig {
         if self.tae.risk.min_sl_atr.is_some_and(|k| k < 0.0) {
             problems.push("tae.risk.min_sl_atr must be ≥ 0".into());
         }
-        if self.tae.risk.confidence_drop_pct.is_some_and(|p| !(0.0..=100.0).contains(&p)) {
+        if self
+            .tae
+            .risk
+            .confidence_drop_pct
+            .is_some_and(|p| !(0.0..=100.0).contains(&p))
+        {
             problems.push("tae.risk.confidence_drop_pct must be 0..=100".into());
         }
         if self.tae.execution.chase_max_atr <= 0.0 {
@@ -2714,7 +2746,10 @@ mod tests {
         // Explicit child key overrides; sibling key from base survives.
         assert_eq!(resolved.l6.stop.base_pct, 3.0);
         assert_eq!(resolved.l6.stop.final_clamp, [1.0, 10.0]);
-        assert_eq!(resolved.l4.setups.enabled, vec!["TrendContinuation".to_string()]);
+        assert_eq!(
+            resolved.l4.setups.enabled,
+            vec!["TrendContinuation".to_string()]
+        );
         // Untouched sections inherit the default.
         assert_eq!(resolved.l5.bands, [80.0, 60.0, 40.0, 20.0]);
     }
@@ -2782,7 +2817,9 @@ mod tests {
         s.tae.execution.chase_score_floor = 250.0;
         s.tae.lifecycle.min_reprice_delta_atr = -0.5;
         let problems = s.validate();
-        assert!(problems.iter().any(|p| p.contains("tp_refresh_min_rr_delta")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("tp_refresh_min_rr_delta")));
         assert!(problems.iter().any(|p| p.contains("sl_padding_atr")));
         assert!(problems.iter().any(|p| p.contains("atr_anchor_mult")));
         assert!(problems.iter().any(|p| p.contains("chase_max_atr")));

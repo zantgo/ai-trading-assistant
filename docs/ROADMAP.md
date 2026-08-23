@@ -25,7 +25,7 @@
 The platform is **not** in two categories ("done" vs. "not started"). It is in three:
 
 1. **Implemented** — wired end-to-end, exercised by integration tests, observable in the running system. **All six engines are in this bucket** (v8 + Unreleased v8.2/v9/v10).
-2. **WIP — code present, verification pending** — real code compiles and runs, but the final verification passes are outstanding. The remaining items here are the **live-REST verification harnesses**: `./manage.sh e2e-backtest` (exchange-aware matrix, needs live exchange REST) and `scripts/ds-verification-loop.sh` (12 headless runs + DS invariants), plus the corpus re-stamp sweep that releases the Unreleased v8.2/v9/v10 CHANGELOG sections.
+2. **WIP — code present, verification pending** — real code compiles and runs, but the final verification passes are outstanding. **This bucket is now effectively empty**: the live-REST harnesses (`./manage.sh e2e-backtest` — 26 PASS, `scripts/ds-verification-loop.sh` — DS LOOP GREEN) went green on 2026-08-23. The only remaining item is the corpus re-stamp sweep that releases the Unreleased v8.2/v9/v10 CHANGELOG sections.
 3. **Not yet started** — only the spec exists; no Rust code, no UI, no API surface. **This bucket is empty** (see §5 for the closed audit register).
 
 > **History.** The v7-era "WIP" labels on TAE/PME/PAE (mock dashboards, unwired veto machinery) were retired in 2026-08-18 when the v7 redesign shipped live-fetching dashboards and the unified execution engine. The v8.2 Backtesting Engine, v9 Strategy Platform and v10 Data-Science Layer are delivered in the Unreleased CHANGELOG sections.
@@ -324,8 +324,8 @@ Every item below must report `OK` before any "WIP" label can be removed from the
 - [x] **`cargo fmt --all -- --check`** passes
 - [x] **clippy (workspace, deny-lints)** passes
 - [x] **`bun run check`** (svelte-check + tsc) passes
-- [ ] **`./manage.sh e2e-backtest`** — live-REST matrix (24+ cases, exchange-aware) + determinism double-run
-- [ ] **`scripts/ds-verification-loop.sh`** — 12 headless runs + DS invariants (identifiers, equity conservation, trade ordering, vocabulary, burn-in, cross-strategy sanity)
+- [x] **`./manage.sh e2e-backtest`** — live-REST matrix: **26 PASS / 0 FAIL** (2026-08-23) incl. negatives + determinism double-run
+- [x] **`scripts/ds-verification-loop.sh`** — **DS LOOP GREEN** (2026-08-23): 12 headless runs, all invariants (identifiers, equity conservation, trade ordering, vocabulary, burn-in, cross-strategy sanity), `--sessions` / `--backtest-show` surfaces
 
 ### 6.5 Final sign-off
 

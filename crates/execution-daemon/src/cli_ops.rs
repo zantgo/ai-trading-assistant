@@ -80,11 +80,7 @@ pub fn run_strategy_op(workspace: &mut WorkspaceConfig, op: &StrategyOp) -> i32 
             let problems = resolved.validate();
             let mut entry = resolved;
             entry.name = name.clone();
-            match workspace
-                .strategies
-                .iter_mut()
-                .find(|s| s.name == *name)
-            {
+            match workspace.strategies.iter_mut().find(|s| s.name == *name) {
                 Some(existing) => *existing = entry,
                 None => workspace.strategies.push(entry),
             }
@@ -175,7 +171,11 @@ pub enum AccountOp {
 
 /// Bind an instance to a strategy (config-level; the running daemon
 /// recharges the instance at the next candle boundary).
-pub fn run_instance_bind(workspace: &mut WorkspaceConfig, instance_id: &str, strategy: &str) -> i32 {
+pub fn run_instance_bind(
+    workspace: &mut WorkspaceConfig,
+    instance_id: &str,
+    strategy: &str,
+) -> i32 {
     // Validate the strategy name resolves first.
     if let Err(e) = workspace.resolve_strategy(strategy) {
         return fail(&e);

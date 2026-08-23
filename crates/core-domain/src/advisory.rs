@@ -197,8 +197,7 @@ fn compute_environment_favorability(
         // Pre-warmup fallback (neutral sentinel, not optimistic).
         params.opportunity_fallback
     };
-    let score: f64 =
-        ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
+    let score: f64 = ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
     RiskDimension {
         score,
         ..RiskDimension::default()
@@ -314,7 +313,11 @@ pub fn compute_advisory(
         // `bias_lifted`) is always directional regardless of the risk gate,
         // mirroring `DecisionContext::compute` so the advisory guidance and
         // the probability split can never contradict each other.
-        let lifted = crate::analysis::bias_lifted(analysis.bias, analysis.market_bias_score, analysis_params);
+        let lifted = crate::analysis::bias_lifted(
+            analysis.bias,
+            analysis.market_bias_score,
+            analysis_params,
+        );
         match analysis.bias {
             crate::analysis::MarketBias::StrongBullish => {
                 if risk.overall_risk.score < params.direction_risk_strong {
@@ -482,7 +485,8 @@ pub fn compute_advisory(
     // Confidence: analysis.state_confidence × (1 - k·risk/100) —
     // v9 F-05: shared DecisionParams helper (same formula the
     // probability path uses).
-    let confidence = params.confidence_assessment(analysis.state_confidence, risk.overall_risk.score);
+    let confidence =
+        params.confidence_assessment(analysis.state_confidence, risk.overall_risk.score);
 
     // Stop-loss distance: percent-scale output for the TAE type-boundary
     // handoff, `[0.5, 15.0]` percent (e.g. `2.5` means 2.5%).
@@ -638,7 +642,15 @@ mod tests {
     fn empty_analysis_returns_empty_advisory() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let adv = compute_advisory(
+            &analysis,
+            &risk,
+            None,
+            None,
+            None,
+            &DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral
@@ -656,7 +668,15 @@ mod tests {
         analysis.timeframes_considered = 1;
         analysis.bias = MarketBias::Neutral;
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let adv = compute_advisory(
+            &analysis,
+            &risk,
+            None,
+            None,
+            None,
+            &DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral
@@ -688,7 +708,15 @@ mod tests {
         analysis.timeframes_considered = 1;
         analysis.bias = MarketBias::StrongBullish;
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let adv = compute_advisory(
+            &analysis,
+            &risk,
+            None,
+            None,
+            None,
+            &DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         // `RiskMatrix::empty` carries overall risk 50.0, so the StrongBullish
         // gate demotes to a plain LONG — the fragment shape is what matters.
         assert!(matches!(
@@ -715,7 +743,15 @@ mod tests {
         analysis.market_quality_score = 80.0;
         let mut risk = RiskMatrix::empty("BTC-USD");
         risk.overall_risk.score = 20.0;
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let adv = compute_advisory(
+            &analysis,
+            &risk,
+            None,
+            None,
+            None,
+            &DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(adv.quality_to_risk_ratio, Some(4.0));
     }
 
@@ -728,7 +764,15 @@ mod tests {
         analysis.market_quality_score = 90.0;
         let mut risk = RiskMatrix::empty("BTC-USD");
         risk.overall_risk.score = 0.0;
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let adv = compute_advisory(
+            &analysis,
+            &risk,
+            None,
+            None,
+            None,
+            &DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         assert_eq!(adv.quality_to_risk_ratio, None);
     }
 
@@ -736,7 +780,15 @@ mod tests {
     fn advisory_serde_skips_none_quality_to_risk_ratio() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk, None, None, None, &DecisionParams::default(), &crate::analysis::AnalysisParams::default());
+        let adv = compute_advisory(
+            &analysis,
+            &risk,
+            None,
+            None,
+            None,
+            &DecisionParams::default(),
+            &crate::analysis::AnalysisParams::default(),
+        );
         let json = serde_json::to_string(&adv).unwrap();
         assert!(!json.contains("quality_to_risk_ratio"));
         let back: AdvisoryMatrix = serde_json::from_str(&json).unwrap();

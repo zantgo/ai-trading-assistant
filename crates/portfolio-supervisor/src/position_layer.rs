@@ -177,4 +177,3 @@ pub fn apply_dynamic_stop(
 
     updated
 }
-

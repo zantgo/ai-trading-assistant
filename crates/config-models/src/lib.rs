@@ -377,24 +377,30 @@ impl WorkspaceConfig {
                 return Ok(current);
             };
             if base_name == current.name {
-                return Err(format!("strategy '{}' cannot inherit from itself", current.name));
+                return Err(format!(
+                    "strategy '{}' cannot inherit from itself",
+                    current.name
+                ));
             }
-            let base = if base_name == "default" && !self.strategies.iter().any(|s| s.name == "default")
-            {
-                StrategyConfig::default()
-            } else {
-                self.strategies
-                    .iter()
-                    .find(|s| s.name == base_name)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!("base strategy '{base_name}' (of '{}') not found", current.name)
-                    })?
-            };
+            let base =
+                if base_name == "default" && !self.strategies.iter().any(|s| s.name == "default") {
+                    StrategyConfig::default()
+                } else {
+                    self.strategies
+                        .iter()
+                        .find(|s| s.name == base_name)
+                        .cloned()
+                        .ok_or_else(|| {
+                            format!(
+                                "base strategy '{base_name}' (of '{}') not found",
+                                current.name
+                            )
+                        })?
+                };
             let child_json = serde_json::to_value(&current)
                 .map_err(|e| format!("serialize '{}': {e}", current.name))?;
-            let base_json = serde_json::to_value(&base)
-                .map_err(|e| format!("serialize '{base_name}': {e}"))?;
+            let base_json =
+                serde_json::to_value(&base).map_err(|e| format!("serialize '{base_name}': {e}"))?;
             current = StrategyConfig::resolve(Some(&base_json), &child_json)?;
         }
         #[allow(unreachable_code)]

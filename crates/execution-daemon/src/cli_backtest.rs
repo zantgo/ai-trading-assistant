@@ -256,13 +256,8 @@ async fn ensure_archive(
                     }
                 }
             });
-            backtesting_engine::backfill::run_backfill(
-                pool.clone(),
-                cfg,
-                progress.clone(),
-                cancel,
-            )
-            .await;
+            backtesting_engine::backfill::run_backfill(pool.clone(), cfg, progress.clone(), cancel)
+                .await;
             // Loud failures: a ceiling rejection or a fetch error must stop
             // the run — never silently continue with truncated data.
             let p = progress.lock().await.clone();
@@ -801,7 +796,8 @@ mod fetch_debug_tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let interval = network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(900);
+        let interval =
+            network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(900);
         let rows = network_adapters::adapters::hyperliquid_rest::fetch_historical_candles(
             "BTC",
             "BTC-USDC",
@@ -815,7 +811,10 @@ mod fetch_debug_tests {
             Ok(r) => {
                 eprintln!("DEBUG rows: {}", r.len());
                 if let Some(c) = r.first() {
-                    eprintln!("DEBUG first: start={} dur={} close={:?}", c.start_time_ms, c.duration_ms, c.close);
+                    eprintln!(
+                        "DEBUG first: start={} dur={} close={:?}",
+                        c.start_time_ms, c.duration_ms, c.close
+                    );
                 }
             }
             Err(e) => eprintln!("DEBUG err: {e}"),
