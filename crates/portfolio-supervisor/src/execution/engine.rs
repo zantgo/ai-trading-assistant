@@ -288,16 +288,19 @@ impl ExecutionEngine {
         };
 
         for (order_id, lifecycle) in orders_to_check {
-            if let Some(fill_price) = self
+            if self
                 .backend
                 .read()
                 .await
                 .evaluate_fill(&lifecycle, current_mid_price)
+                .is_some()
             {
                 let mut orders = self.orders.write().await;
                 if let Some(o) = orders.get_mut(&order_id) {
                     self.fill_market_order(o, current_mid_price).ok();
-                    fills.push((order_id.clone(), fill_price));
+                    if let Some(ledger_price) = o.fill_price {
+                        fills.push((order_id.clone(), ledger_price));
+                    }
                 }
             }
         }
@@ -323,8 +326,8 @@ impl ExecutionEngine {
         // — the bound strategy's `tae.execution.slippage_bps` dial. Resting
         // limit fills clamp at the limit price, so the cost only bites
         // market/stop fills and limits that cross deeper than the adjustment.
-        let slippage = Decimal::from_f64_retain(self.fee_config.slippage_bps / 10_000.0)
-            .unwrap_or(dec!(0));
+        let slippage =
+            Decimal::from_f64_retain(self.fee_config.slippage_bps / 10_000.0).unwrap_or(dec!(0));
         let total_cost = spread_half + slippage;
         let mut fill_price = if lifecycle.packet.side == OrderSide::Buy {
             mid_price * (dec!(1) + total_cost)
@@ -466,6 +469,7 @@ impl ExecutionEngine {
                     pos.size,
                     pnl,
                     fee,
+                    pos.funding_accrued,
                     &trigger_source,
                     pos.opened_at_ms,
                     now_ms,
@@ -580,14 +584,20 @@ impl ExecutionEngine {
     }
 
     pub async fn cancel_order(&self, order_id: &str, symbol: &str) -> Result<(), String> {
-        // Live mode: also cancel at the venue.
+        // Live mode: cancel at the venue first — local state only diverges on success.
+        // Venue rejection (rate-limit, invalid id) must NOT mark the order cancelled locally,
+        // otherwise poll_fills can later fill a locally-cancelled order and open a phantom position.
         if *self.mode.read().await == ExecutionMode::Live {
-            let _ = self
+            if let Err(e) = self
                 .backend
                 .read()
                 .await
                 .cancel_order(order_id, symbol)
-                .await;
+                .await
+            {
+                eprintln!("⚠️  cancel_order venue rejected {order_id} ({symbol}): {e}");
+                return Err(e);
+            }
         }
         let mut orders = self.orders.write().await;
         if let Some(o) = orders.get_mut(order_id) {
@@ -615,7 +625,10 @@ impl ExecutionEngine {
             let orders = self.orders.read().await;
             orders
                 .iter()
-                .filter(|(_, o)| o.packet.symbol == symbol && o.status == OrderStatus::Open)
+                .filter(|(_, o)| {
+                    o.packet.symbol == symbol
+                        && (o.status == OrderStatus::Open || o.status == OrderStatus::Submitted)
+                })
                 .map(|(id, _)| id.clone())
                 .collect()
         };
@@ -624,7 +637,26 @@ impl ExecutionEngine {
         }
     }
 
+    /// Cancel all resting orders across all symbols. Live mode delegates to the
+    /// venue for each order before clearing local state, so no orphan remains
+    /// on Hyperliquid/Bitget after FLATTENING or instance delete.
     pub async fn cancel_all_orders(&self) {
+        if *self.mode.read().await == ExecutionMode::Live {
+            let ids: Vec<(String, String)> = {
+                let orders = self.orders.read().await;
+                orders
+                    .iter()
+                    .filter(|(_, o)| {
+                        o.status == OrderStatus::Open || o.status == OrderStatus::Submitted
+                    })
+                    .map(|(id, o)| (id.clone(), o.packet.symbol.clone()))
+                    .collect()
+            };
+            for (id, sym) in ids {
+                let _ = self.cancel_order(&id, &sym).await;
+            }
+            return;
+        }
         let mut orders = self.orders.write().await;
         orders.clear();
     }
@@ -669,8 +701,9 @@ impl ExecutionEngine {
     pub async fn settle_funding_with_rate(&self, rate_override: Option<Decimal>) {
         let rate = match rate_override {
             Some(r) => r,
-            None => Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0)
-                .unwrap_or(dec!(0)),
+            None => {
+                Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0).unwrap_or(dec!(0))
+            }
         };
 
         let mut positions = self.positions.write().await;
@@ -758,6 +791,7 @@ impl ExecutionEngine {
         size: Decimal,
         pnl: Decimal,
         fee: Decimal,
+        funding_accrued: Decimal,
         trigger_source: &str,
         entry_ts_ms: u64,
         exit_ts_ms: i64,
@@ -791,7 +825,7 @@ impl ExecutionEngine {
             .bind(exit_price.to_string())
             .bind(size.to_string())
             .bind(fee.to_string())
-            .bind("0")
+            .bind(funding_accrued.to_string())
             .bind(pnl.to_string())
             .bind(roi.to_string())
             .bind(&source)
@@ -878,12 +912,75 @@ impl ExecutionEngine {
 
     // ── Open-state persistence (restart recovery) ─────────────────────
 
-    pub async fn persist_open_state(&self, instance_id: &str, payload: &str) {
+    pub async fn persist_open_state(&self, instance_id: &str, symbol: &str, payload: &str) {
         if let Some(ref pool) = self.pool {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as i64;
+            // Capture a best-effort snapshot of the live engine state so a restart
+            // can log/recover the equity ledger and diagnose leaked positions.
+            // Orders/positions are serialized as lightweight JSON (no Serialize trait).
+            let (entry_json, tp_json, sl_json, pos_json, equity_str) = {
+                let orders = self.orders.read().await;
+                // Heuristic: entry order is the first Open/Submitted non-reduce_only,
+                // TP/SL are reduce_only (brackets). Filter by symbol.
+                let mut entry: Option<String> = None;
+                let mut tp: Option<String> = None;
+                let mut sl: Option<String> = None;
+                for o in orders.values().filter(|o| o.packet.symbol == symbol) {
+                    if o.status == OrderStatus::Open || o.status == OrderStatus::Submitted {
+                        let j = serde_json::json!({
+                            "symbol": o.packet.symbol,
+                            "side": format!("{:?}", o.packet.side),
+                            "type": format!("{:?}", o.packet.order_type),
+                            "price": o.packet.price.map(|p| p.to_string()),
+                            "size": o.packet.size.to_string(),
+                            "status": format!("{:?}", o.status),
+                            "id": o.exchange_order_id,
+                        })
+                        .to_string();
+                        if o.packet.reduce_only {
+                            // Distinguish TP (take-profit limit) vs SL (stop).
+                            if o.packet.order_type == config_models::OrderType::Limit
+                                && tp.is_none()
+                            {
+                                tp = Some(j);
+                            } else if sl.is_none() {
+                                sl = Some(j);
+                            }
+                        } else if entry.is_none() {
+                            entry = Some(j);
+                        }
+                    }
+                }
+                drop(orders);
+                let positions = self.positions.read().await;
+                let pos = positions
+                    .get(symbol)
+                    .map(|p| {
+                        serde_json::json!({
+                            "symbol": p.symbol,
+                            "size": p.size.to_string(),
+                            "entry_price": p.entry_price.to_string(),
+                            "direction": format!("{:?}", p.direction),
+                            "unrealized_pnl": p.unrealized_pnl.to_string(),
+                            "funding_accrued": p.funding_accrued.to_string(),
+                            "opened_at_ms": p.opened_at_ms,
+                        })
+                        .to_string()
+                    })
+                    .unwrap_or_default();
+                drop(positions);
+                let equity = self.equity.read().await.to_string();
+                (
+                    entry.unwrap_or_default(),
+                    tp.unwrap_or_default(),
+                    sl.unwrap_or_default(),
+                    pos,
+                    equity,
+                )
+            };
             let _ = sqlx::query(
                 "INSERT OR REPLACE INTO tae_open_state \
                  (instance_id, symbol, saved_at_ms, tracked_setup_json, \
@@ -892,14 +989,14 @@ impl ExecutionEngine {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )
             .bind(instance_id)
-            .bind("")
+            .bind(symbol)
             .bind(now)
             .bind(payload)
-            .bind("")
-            .bind("")
-            .bind("")
-            .bind("")
-            .bind("")
+            .bind(entry_json)
+            .bind(tp_json)
+            .bind(sl_json)
+            .bind(pos_json)
+            .bind(equity_str)
             .bind("")
             .execute(pool.as_ref())
             .await;
@@ -1123,7 +1220,10 @@ mod tests {
             .map(|p| p.funding_accrued)
             .unwrap();
         assert!(long_funding < dec!(0), "long must pay positive funding");
-        assert!(short_funding > dec!(0), "short must receive positive funding");
+        assert!(
+            short_funding > dec!(0),
+            "short must receive positive funding"
+        );
     }
 
     #[tokio::test]
@@ -1273,8 +1373,8 @@ mod live_tests {
             self.cancels.fetch_add(1, AtomicOrdering::SeqCst);
             Ok(())
         }
-        async fn poll_fills(&self) -> Vec<Fill> {
-            self.fills.read().await.clone()
+        async fn poll_fills(&self) -> Result<Vec<Fill>, String> {
+            Ok(self.fills.read().await.clone())
         }
         async fn fetch_equity(&self) -> Result<f64, String> {
             Ok(10_000.0)
@@ -1345,7 +1445,7 @@ mod live_tests {
             price: dec!(94),
             size: dec!(1),
         }];
-        let fills = e.backend.read().await.poll_fills().await;
+        let fills = e.backend.read().await.poll_fills().await.unwrap();
         e.apply_external_fills(fills).await;
 
         let orders = e.orders.read().await;
@@ -1478,7 +1578,4 @@ mod live_tests {
             "BTC stop fills on its own symbol's tick"
         );
     }
-
-    
-
 }

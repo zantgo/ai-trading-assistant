@@ -2117,7 +2117,9 @@ impl SetupExecutor {
         if let Some(entry) = state.get(symbol) {
             if entry.phase != ExecutorPhase::Idle {
                 let payload = serde_json::to_string(&entry.tracked_setup).unwrap_or_default();
-                self.engine.persist_open_state(instance_id, &payload).await;
+                self.engine
+                    .persist_open_state(instance_id, symbol, &payload)
+                    .await;
                 return;
             }
         }

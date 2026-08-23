@@ -52,12 +52,9 @@ pub async fn run_full_analytics_pipeline(
     let risk = crate::risk_analytics::compute_risk_analytics(pool, risk_free_rate_pct).await;
     database_storage::insert_risk_analytics(pool, &risk).await;
 
-    let strategy_rows = crate::strategy_analytics::compute_strategy_analytics(
-        pool,
-        &trades,
-        analytics_params,
-    )
-    .await;
+    let strategy_rows =
+        crate::strategy_analytics::compute_strategy_analytics(pool, &trades, analytics_params)
+            .await;
     for row in &strategy_rows {
         database_storage::insert_strategy_analytics(pool, row).await;
     }

@@ -121,7 +121,27 @@ impl CandleGenerator {
             self.current_candle = Some(live.clone());
             (None, live)
         } else if interval_start > self.current_start_ms {
-            let completed = self.current_candle.take().unwrap();
+            let completed = match self.current_candle.take() {
+                Some(c) => c,
+                None => {
+                    // Raced with force_close() or prior take — treat as fresh start
+                    // at the new interval instead of panicking the task.
+                    eprintln!(
+                        "CandleGenerator[{}]: missing current_candle at interval rollover (start {} → {}), starting fresh",
+                        self.symbol, self.current_start_ms, interval_start
+                    );
+                    self.current_start_ms = interval_start;
+                    self.current_open = trade.price;
+                    self.current_high = trade.price;
+                    self.current_low = trade.price;
+                    self.current_close = trade.price;
+                    self.current_volume = trade.size;
+                    self.current_trades = 1;
+                    let live = self.make_live();
+                    self.current_candle = Some(live.clone());
+                    return (None, live);
+                }
+            };
 
             self.current_start_ms = interval_start;
             self.current_open = trade.price;

@@ -233,7 +233,23 @@ pub async fn query_backtest_trades(
     .unwrap_or_default()
     .into_iter()
     .map(
-        |(ts, direction, entry, exit, size, pnl, reason, ts_entry, hold, mfe, mae, roi, slippage, commission, funding)| DsTrade {
+        |(
+            ts,
+            direction,
+            entry,
+            exit,
+            size,
+            pnl,
+            reason,
+            ts_entry,
+            hold,
+            mfe,
+            mae,
+            roi,
+            slippage,
+            commission,
+            funding,
+        )| DsTrade {
             ts_close_secs: ts,
             direction,
             entry_price: entry,

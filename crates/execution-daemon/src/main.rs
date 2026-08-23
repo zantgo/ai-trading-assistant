@@ -673,7 +673,10 @@ fn cli_launch_plan(
     println!("Trading Platform — CLI Launch Summary");
     println!("──────────────────────────────────────────────");
     println!("  Mode                 : observe (monitoring only)");
-    println!("  TAE                  : {}", if tae_on { "ON" } else { "OFF" });
+    println!(
+        "  TAE                  : {}",
+        if tae_on { "ON" } else { "OFF" }
+    );
     println!("  Exchange             : {}", exchange);
     println!("  Settlement currency  : {}", currency);
     for inst in &instances {
@@ -786,10 +789,26 @@ async fn main() {
         }
     }
 
-    let platform = load_platform()
-        .expect("❌ Configuration Error: failed to parse platform config from config.toml");
-    let workspace = load_workspace()
-        .expect("❌ Configuration Error: failed to parse workspace config from config.toml");
+    let platform = match load_platform() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "❌ Configuration Error: failed to parse platform config from config.toml: {e}"
+            );
+            eprintln!("   Hint: copy config.default.toml → config.toml and retry, or fix the TOML syntax.");
+            std::process::exit(1);
+        }
+    };
+    let workspace = match load_workspace() {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!(
+                "❌ Configuration Error: failed to parse workspace config from config.toml: {e}"
+            );
+            eprintln!("   Hint: copy config.default.toml → config.toml and retry, or fix the TOML syntax.");
+            std::process::exit(1);
+        }
+    };
 
     // v10.1: resolve the HTTP bind/port — CLI flag → env → [server] config
     // → defaults. Per-folder sessions run side by side on one machine via
@@ -806,6 +825,19 @@ async fn main() {
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(platform.server.port)
     });
+    // K1 single-operator: final bind must be loopback even when supplied via
+    // --bind / PLATFORM_BIND env. Fail fast before binding the socket.
+    {
+        let bind_trim = server_bind.trim();
+        const ALLOWED_BINDS: &[&str] = &["127.0.0.1", "::1", "localhost"];
+        if !ALLOWED_BINDS.contains(&bind_trim) {
+            eprintln!(
+                "❌ Configuration Error: --bind / PLATFORM_BIND = '{bind_trim}' is not loopback — only {} allowed (single-operator local deployment; use ssh -L tunnel for remote access).",
+                ALLOWED_BINDS.join(", ")
+            );
+            std::process::exit(1);
+        }
+    }
     let allowed_origins = api_gateway::default_allowed_origins(&server_bind, server_port);
     println!(
         "✅ Configuration Loaded: platform + workspace ({} instance{})",
@@ -969,7 +1001,30 @@ async fn main() {
             database_storage::crypto::init_master_key(&secret);
         }
     }
-    verify_encryption_or_panic(&db_pool).await;
+    // K1 / observe-paper allowance: only hard-fail on missing master key
+    // when a live instance exists. Observe/paper sessions must boot even if
+    // stale encrypted rows remain and EXCHANGE_SECRET_KEY is not set (operator
+    // may be running read-only monitors).
+    let any_live_early = workspace
+        .instances
+        .iter()
+        .any(|i| i.mode == config_models::ExecutionMode::Live);
+    if any_live_early {
+        verify_encryption_or_panic(&db_pool).await;
+    } else if !database_storage::crypto::master_key_available() {
+        // Warn but do not block observe/paper boot — keys are inert.
+        if let Ok((count,)) = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM exchange_keys")
+            .fetch_one(&db_pool)
+            .await
+        {
+            if count > 0 {
+                eprintln!(
+                    "⚠️  {} encrypted exchange key(s) exist but EXCHANGE_SECRET_KEY is not set — live trading will fail until the key is provided (observe/paper continues).",
+                    count
+                );
+            }
+        }
+    }
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
     // v10 fan-out: one producer → DB logger + DS exporter (three sinks:
@@ -1357,53 +1412,80 @@ async fn main() {
         let (address_or_key, secret_enc, passphrase_opt) = match workspace.default_exchange.as_str()
         {
             "Hyperliquid" => {
-                let key_row = sqlx::query_as::<_, (String, String, String)>(
+                let key_row = match sqlx::query_as::<_, (String, String, String)>(
                     "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
                          WHERE exchange = 'Hyperliquid' AND is_active = 1 ORDER BY id DESC LIMIT 1",
                 )
                 .fetch_optional(&db_pool)
                 .await
-                .expect("live-mode key query");
+                {
+                    Ok(row) => row,
+                    Err(e) => {
+                        eprintln!("❌ Live-mode key query failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
                 match key_row {
                     Some((key, secret, _pass)) => (key, secret, None),
-                    None => panic!(
-                        "mode = \"live\" requires an active Hyperliquid API key \
+                    None => {
+                        eprintln!(
+                            "❌ mode = \"live\" requires an active Hyperliquid API key \
                              (POST /api/keys with EXCHANGE_SECRET_KEY set)"
-                    ),
+                        );
+                        std::process::exit(1);
+                    }
                 }
             }
             "Bitget" => {
-                let key_row = sqlx::query_as::<_, (String, String, String)>(
+                let key_row = match sqlx::query_as::<_, (String, String, String)>(
                     "SELECT api_key, api_secret, COALESCE(passphrase, '') FROM exchange_keys \
                          WHERE exchange = 'Bitget' AND is_active = 1 ORDER BY id DESC LIMIT 1",
                 )
                 .fetch_optional(&db_pool)
                 .await
-                .expect("live-mode key query");
+                {
+                    Ok(row) => row,
+                    Err(e) => {
+                        eprintln!("❌ Live-mode key query failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
                 match key_row {
                     Some((key, secret, pass)) => {
                         if pass.is_empty() {
-                            panic!(
-                                "mode = \"live\" (Bitget) requires a passphrase — \
+                            eprintln!(
+                                "❌ mode = \"live\" (Bitget) requires a passphrase — \
                                      re-add the key with a passphrase"
                             );
+                            std::process::exit(1);
                         }
                         (key, secret, Some(pass))
                     }
-                    None => panic!(
-                        "mode = \"live\" requires an active Bitget API key \
+                    None => {
+                        eprintln!(
+                            "❌ mode = \"live\" requires an active Bitget API key \
                              (POST /api/keys with EXCHANGE_SECRET_KEY set)"
-                    ),
+                        );
+                        std::process::exit(1);
+                    }
                 }
             }
-            other => panic!(
-                "mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
-                other
-            ),
+            other => {
+                eprintln!(
+                    "❌ mode = \"live\" is not supported for exchange '{}' (Hyperliquid and Bitget only)",
+                    other
+                );
+                std::process::exit(1);
+            }
         };
 
-        let secret = database_storage::crypto::decrypt_field(&secret_enc)
-            .expect("failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?)");
+        let secret = match database_storage::crypto::decrypt_field(&secret_enc) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("❌ Failed to decrypt the live API secret (is EXCHANGE_SECRET_KEY correct?): {e}");
+                std::process::exit(1);
+            }
+        };
 
         let broker: Box<dyn portfolio_supervisor::execution::ExecutionBackend> = if workspace
             .default_exchange
@@ -1630,14 +1712,13 @@ async fn main() {
                             let live_fills = if !is_observe
                                 && tae_engine.mode().await == config_models::ExecutionMode::Live
                             {
-                                Some(
-                                    tae_engine
-                                        .backend
-                                        .read()
-                                        .await
-                                        .poll_fills()
-                                        .await,
-                                )
+                                match tae_engine.backend.read().await.poll_fills().await {
+                                    Ok(fills) => Some(fills),
+                                    Err(e) => {
+                                        eprintln!("⚠️  LIVE poll_fills transient error (retry next tick): {e}");
+                                        None
+                                    }
+                                }
                             } else {
                                 None
                             };
@@ -1972,8 +2053,14 @@ async fn main() {
             "TAE: OFF"
         };
         let session_line = match session_number {
-            Some(n) => format!("SESSION #{:04} · observe · {tae_marker} · {} · {}", n, ex_label, cur_label),
-            None => format!("SESSION #---- · observe · {tae_marker} · {} · {}", ex_label, cur_label),
+            Some(n) => format!(
+                "SESSION #{:04} · observe · {tae_marker} · {} · {}",
+                n, ex_label, cur_label
+            ),
+            None => format!(
+                "SESSION #---- · observe · {tae_marker} · {} · {}",
+                ex_label, cur_label
+            ),
         };
         handles.push(tokio::spawn(
             execution_daemon::cli_renderer::run_terminal_monitor(
@@ -1988,22 +2075,25 @@ async fn main() {
     } else {
         let app = build_router(app_state.clone());
         let bind_addr = format!("{server_bind}:{server_port}");
-        let listener = tokio::net::TcpListener::bind(&bind_addr)
-            .await
-            .unwrap_or_else(|e| {
-                panic!(
+        let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!(
                     "❌ Web Server Setup: Failed to bind {bind_addr} ({e}). \
                      Another session may already use this port — set a distinct \
                      `[server] port` (or PLATFORM_PORT / --port) per folder."
-                )
-            });
+                );
+                std::process::exit(1);
+            }
+        };
 
         println!("🌐 Web Server Setup: Dashboard live at http://{bind_addr}");
 
         let server_handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+            if let Err(e) = axum::serve(listener, app).await {
+                eprintln!("❌ Web Server Setup: Fatal crash running Axum HTTP server: {e}");
+                std::process::exit(1);
+            }
         });
         handles.push(server_handle);
     }
@@ -2015,8 +2105,13 @@ async fn main() {
     // rate from the default strategy's `pae` section (was hardcoded defaults).
     // (Re-reads the config here — `workspace` was moved into earlier tasks.)
     let pae_analytics_params = {
-        let ws = load_workspace()
-            .unwrap_or_else(|e| panic!("❌ PAE: failed to reload workspace config: {e}"));
+        let ws = match load_workspace() {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("❌ PAE: failed to reload workspace config: {e}");
+                std::process::exit(1);
+            }
+        };
         performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(
             &ws.default_strategy().unwrap_or_default().pae,
         )

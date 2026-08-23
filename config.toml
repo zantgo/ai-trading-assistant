@@ -241,8 +241,8 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_n"
-symbol = "N-USDC"
+id = "btc"
+symbol = "BTC-USDC"
 quote = "USDC"
 status = "running"
 operational_mode = "advisory"
@@ -624,8 +624,8 @@ max_opposite_exit_signals = 5
 [workspace.instances.custom_pipelines]
 
 [[workspace.instances]]
-id = "inst_y"
-symbol = "Y-USDC"
+id = "eth"
+symbol = "ETH-USDC"
 quote = "USDC"
 status = "running"
 operational_mode = "advisory"

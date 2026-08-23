@@ -414,22 +414,14 @@ mod tests {
     fn boot_policy_is_mode_aware() {
         // v10.1: paper/live boot PAUSED (TAE not activated), observe boots
         // RUNNING (ghost radar), legacy None stays RUNNING.
-        let paper = LifecycleManager::new_for_mode(
-            None,
-            Some(config_models::ExecutionMode::Paper),
-        );
+        let paper = LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Paper));
         assert_eq!(paper.state, LifecycleState::LifecyclePaused);
 
-        let live = LifecycleManager::new_for_mode(
-            None,
-            Some(config_models::ExecutionMode::Live),
-        );
+        let live = LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Live));
         assert_eq!(live.state, LifecycleState::LifecyclePaused);
 
-        let observe = LifecycleManager::new_for_mode(
-            None,
-            Some(config_models::ExecutionMode::Observe),
-        );
+        let observe =
+            LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Observe));
         assert_eq!(observe.state, LifecycleState::Running);
 
         let legacy = LifecycleManager::new(None);
@@ -449,10 +441,7 @@ mod tests {
 
     #[test]
     fn paused_can_start_and_stop() {
-        let mgr = LifecycleManager::new_for_mode(
-            None,
-            Some(config_models::ExecutionMode::Paper),
-        );
+        let mgr = LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Paper));
         assert!(mgr.can_start().is_ok());
         assert!(mgr.can_stop().is_ok());
         assert!(mgr.can_pause().is_err(), "cannot pause from PAUSED");

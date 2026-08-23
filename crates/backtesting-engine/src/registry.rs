@@ -100,15 +100,58 @@ impl BacktestRegistry {
         false
     }
 
+    /// Atomically check and reserve a run slot. Returns `Some(id)` when no
+    /// running run exists (and the slot is now occupied), `None` when busy.
+    /// Holds the write lock across check+insert so concurrent POSTs cannot
+    /// both see `false` and insert.
+    pub async fn try_alloc_run(&self, run: Arc<TrackedRun>) -> Option<i64> {
+        let mut map = self.runs.write().await;
+        for existing in map.values() {
+            if *existing.status.lock().await == "running" {
+                return None;
+            }
+        }
+        let id = self.alloc_run_id();
+        map.insert(id, run);
+        Some(id)
+    }
+
     /// True when the instance already has a running backfill job.
     pub async fn instance_has_active_backfill(&self, instance_id: &str) -> bool {
         let map = self.backfills.read().await;
+        // Use try_lock but fail-closed: if the progress mutex is contended we
+        // assume the job is still active rather than allowing a duplicate.
         map.values().any(|t| {
             t.progress
                 .try_lock()
                 .map(|p| p.instance_id == instance_id && p.status == BackfillStatus::Running)
-                .unwrap_or(false)
+                .unwrap_or(true)
         })
+    }
+
+    /// Atomically check and reserve a backfill slot for `instance_id`.
+    /// Returns `true` when the slot was acquired, `false` when busy.
+    /// Holds the write lock across check+insert so concurrent POSTs cannot
+    /// both see `false` and insert. Fail-closed on contended progress lock.
+    pub async fn try_alloc_backfill(
+        &self,
+        job_id: i64,
+        instance_id: &str,
+        tracked: TrackedBackfill,
+    ) -> bool {
+        let mut map = self.backfills.write().await;
+        for v in map.values() {
+            match v.progress.try_lock() {
+                Ok(p) => {
+                    if p.instance_id == instance_id && p.status == BackfillStatus::Running {
+                        return false;
+                    }
+                }
+                Err(_) => return false, // contended → assume busy (fail closed)
+            }
+        }
+        map.insert(job_id, tracked);
+        true
     }
 
     /// Cancels a running job (if any) — used for cleanup.

@@ -84,11 +84,9 @@ pub async fn serve_risk_analytics(State(state): State<Arc<AppState>>) -> impl In
         .default_strategy()
         .map(|s| s.pae.risk_math.risk_free_rate_pct)
         .unwrap_or(0.0);
-    let risk = performance_analytics::performance_evaluator::compute_risk_on_demand(
-        &state.pool,
-        rf_pct,
-    )
-    .await;
+    let risk =
+        performance_analytics::performance_evaluator::compute_risk_on_demand(&state.pool, rf_pct)
+            .await;
     Json(risk)
 }
 
@@ -327,6 +325,7 @@ pub async fn serve_backtest_run(
     }
 
     // Single-run lock: one backtest at a time (409 when busy).
+    // Early fast-path check (racy). The atomic allocation below is the real gate.
     if state.backtest.has_running_run().await {
         return (
             axum::http::StatusCode::CONFLICT,
@@ -757,15 +756,18 @@ pub async fn serve_backtest_run(
         portfolio_capital_usd: payload.portfolio_capital_usd.unwrap_or(1000.0),
     };
 
-    // ── v8.2 async run: register + spawn ──
-    let run_id = state.backtest.alloc_run_id();
+    // ── v8.2 async run: register + spawn (atomic try_alloc) ──
     let tracked = Arc::new(backtesting_engine::registry::TrackedRun::new());
-    state
-        .backtest
-        .runs
-        .write()
-        .await
-        .insert(run_id, tracked.clone());
+    let Some(run_id) = state.backtest.try_alloc_run(tracked.clone()).await else {
+        return (
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "another backtest is already running",
+                "code": "backtest_busy",
+            })),
+        )
+            .into_response();
+    };
 
     let task_pool = state.pool.clone();
     let task_workspace = workspace.clone();
@@ -1009,8 +1011,7 @@ pub async fn persist_backtest_run(
                 .unwrap_or(0.0),
         };
         performance_analytics::risk_analytics::compute_risk_metrics_from_curve_with_rf(
-            &equity_ms,
-            rf_pct,
+            &equity_ms, rf_pct,
         )
     };
     let ds_metrics: Vec<database_storage::queries::backtest_ds::DsMetric> = vec![
@@ -1090,31 +1091,45 @@ pub async fn persist_backtest_run(
         let keys: Vec<(String, String)> = vec![
             (
                 "dir_long_count".to_string(),
-                sym.as_ref().map(|s| s.long_count.to_string()).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| s.long_count.to_string())
+                    .unwrap_or_default(),
             ),
             (
                 "dir_short_count".to_string(),
-                sym.as_ref().map(|s| s.short_count.to_string()).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| s.short_count.to_string())
+                    .unwrap_or_default(),
             ),
             (
                 "dir_long_exp".to_string(),
-                sym.as_ref().map(|s| format!("{:.4}", s.long_expectancy_usd)).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| format!("{:.4}", s.long_expectancy_usd))
+                    .unwrap_or_default(),
             ),
             (
                 "dir_short_exp".to_string(),
-                sym.as_ref().map(|s| format!("{:.4}", s.short_expectancy_usd)).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| format!("{:.4}", s.short_expectancy_usd))
+                    .unwrap_or_default(),
             ),
             (
                 "dir_t_stat".to_string(),
-                sym.as_ref().map(|s| format!("{:.4}", s.t_statistic)).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| format!("{:.4}", s.t_statistic))
+                    .unwrap_or_default(),
             ),
             (
                 "dir_df".to_string(),
-                sym.as_ref().map(|s| format!("{:.2}", s.degrees_of_freedom)).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| format!("{:.2}", s.degrees_of_freedom))
+                    .unwrap_or_default(),
             ),
             (
                 "dir_p_value".to_string(),
-                sym.as_ref().map(|s| format!("{:.6}", s.p_value)).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| format!("{:.6}", s.p_value))
+                    .unwrap_or_default(),
             ),
             (
                 "dir_verdict".to_string(),
@@ -1122,7 +1137,9 @@ pub async fn persist_backtest_run(
             ),
             (
                 "dir_significant".to_string(),
-                sym.as_ref().map(|s| s.significant.to_string()).unwrap_or_default(),
+                sym.as_ref()
+                    .map(|s| s.significant.to_string())
+                    .unwrap_or_default(),
             ),
         ];
         keys
@@ -1233,6 +1250,9 @@ pub async fn persist_backtest_run(
                     "mfe_pct": t.mfe_pct,
                     "mae_pct": t.mae_pct,
                     "roi_pct": t.roi_pct,
+                    "slippage_bps": t.slippage_bps,
+                    "commission_fees": t.commission_fees,
+                    "funding_fees": t.funding_fees,
                 })
             })
             .collect();

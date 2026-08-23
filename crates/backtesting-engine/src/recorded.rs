@@ -197,7 +197,10 @@ pub async fn run_backtest(
     // FUNDING_INTERVAL_SECS crossed by the replay clock (mirrors the
     // historical runner; direction-aware settlement accrues per position).
     const FUNDING_INTERVAL_SECS: i64 = 8 * 3600;
-    let first_ts = records.first().map(|r| r.timestamp).unwrap_or(params.from_secs);
+    let first_ts = records
+        .first()
+        .map(|r| r.timestamp)
+        .unwrap_or(params.from_secs);
     let mut next_funding = first_ts
         .div_euclid(FUNDING_INTERVAL_SECS)
         .saturating_mul(FUNDING_INTERVAL_SECS)
@@ -801,7 +804,12 @@ mod tests {
         // Entry accepts at 105 → fills at 94. Then a snapshot past the first
         // 8h boundary (28800) while the position is open → funding settles.
         // Then TP at 126 closes.
-        for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0), (30_000, 94.0), (30_001, 126.0)] {
+        for (ts, mid) in [
+            (1000u64, 105.0f64),
+            (1001, 94.0),
+            (30_000, 94.0),
+            (30_001, 126.0),
+        ] {
             database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
         }
 

@@ -47,8 +47,8 @@ pub trait ExecutionBackend: Send + Sync {
     }
 
     /// Poll the venue for fills (live only).
-    async fn poll_fills(&self) -> Vec<Fill> {
-        Vec::new()
+    async fn poll_fills(&self) -> Result<Vec<Fill>, String> {
+        Ok(Vec::new())
     }
 
     /// Fetch the account equity from the venue (live only).
@@ -191,21 +191,24 @@ impl ExecutionBackend for LiveBroker {
         self.client.cancel_orders(&[(idx, oid)]).await
     }
 
-    async fn poll_fills(&self) -> Vec<Fill> {
-        match self.client.fetch_fills().await {
-            Ok(fills) => fills
-                .into_iter()
-                .map(|f| Fill {
-                    order_id: f.order_id,
-                    price: Decimal::from_f64_retain(f.price).unwrap_or_default(),
-                    size: Decimal::ZERO,
-                })
-                .collect(),
-            Err(e) => {
+    async fn poll_fills(&self) -> Result<Vec<Fill>, String> {
+        self.client
+            .fetch_fills()
+            .await
+            .map(|fills| {
+                fills
+                    .into_iter()
+                    .map(|f| Fill {
+                        order_id: f.order_id,
+                        price: Decimal::from_f64_retain(f.price).unwrap_or_default(),
+                        size: Decimal::from_f64_retain(f.size).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .map_err(|e| {
                 eprintln!("LIVE: poll_fills failed: {}", e);
-                Vec::new()
-            }
-        }
+                e
+            })
     }
 
     async fn fetch_equity(&self) -> Result<f64, String> {
@@ -316,21 +319,24 @@ impl ExecutionBackend for BitgetLiveBroker {
         self.client.cancel_order(&symbol, order_id).await
     }
 
-    async fn poll_fills(&self) -> Vec<Fill> {
-        match self.client.fetch_fills().await {
-            Ok(fills) => fills
-                .into_iter()
-                .map(|(oid, px, sz)| Fill {
-                    order_id: oid,
-                    price: Decimal::from_f64_retain(px).unwrap_or_default(),
-                    size: Decimal::from_f64_retain(sz).unwrap_or_default(),
-                })
-                .collect(),
-            Err(e) => {
+    async fn poll_fills(&self) -> Result<Vec<Fill>, String> {
+        self.client
+            .fetch_fills()
+            .await
+            .map(|fills| {
+                fills
+                    .into_iter()
+                    .map(|(oid, px, sz)| Fill {
+                        order_id: oid,
+                        price: Decimal::from_f64_retain(px).unwrap_or_default(),
+                        size: Decimal::from_f64_retain(sz).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .map_err(|e| {
                 eprintln!("LIVE: Bitget poll_fills failed: {}", e);
-                Vec::new()
-            }
-        }
+                e
+            })
     }
 
     async fn fetch_equity(&self) -> Result<f64, String> {

@@ -1,6 +1,5 @@
 use core_domain::performance::{
-    DirectionSymmetryVerdict, PerformanceClassification, StrategyAnalyticsRow,
-    TradeAnalyticsRecord,
+    DirectionSymmetryVerdict, PerformanceClassification, StrategyAnalyticsRow, TradeAnalyticsRecord,
 };
 use sqlx::SqlitePool;
 
@@ -361,9 +360,8 @@ pub fn compare_direction_symmetry(
         let wins = v.iter().filter(|t| t.net_pnl > 0.0).count();
         wins as f64 / v.len() as f64 * 100.0
     };
-    let expectancy_usd = |v: &[&TradeAnalyticsRecord]| {
-        v.iter().map(|t| t.net_pnl).sum::<f64>() / v.len() as f64
-    };
+    let expectancy_usd =
+        |v: &[&TradeAnalyticsRecord]| v.iter().map(|t| t.net_pnl).sum::<f64>() / v.len() as f64;
 
     Some(DirectionSymmetryVerdict {
         long_count: longs.len() as u32,
@@ -402,7 +400,7 @@ fn beta_incomplete(a: f64, b: f64, x: f64) -> f64 {
     }
     let bt = x.powf(a) * (1.0 - x).powf(b) / a;
 
-    bt * beta_cf(a, b, x) / a
+    bt * beta_cf(a, b, x)
 }
 
 fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
@@ -760,9 +758,7 @@ mod tests {
         // 15 longs + 15 shorts with the same mean and similar variance.
         let trades: Vec<TradeAnalyticsRecord> = (0..15)
             .map(|i| make_trade_dir("LONG", 5.0 + i as f64, 5.0 + i as f64, "P"))
-            .chain((0..15).map(|i| {
-                make_trade_dir("SHORT", 5.0 + i as f64, 5.0 + i as f64, "P")
-            }))
+            .chain((0..15).map(|i| make_trade_dir("SHORT", 5.0 + i as f64, 5.0 + i as f64, "P")))
             .collect();
         let v = compare_direction_symmetry(&trades).unwrap();
         assert_eq!(v.long_count, 15);
@@ -776,9 +772,7 @@ mod tests {
         // Longs clearly better than shorts on roi.
         let trades: Vec<TradeAnalyticsRecord> = (0..20)
             .map(|i| make_trade_dir("LONG", 10.0, 10.0 + i as f64, "P"))
-            .chain((0..20).map(|i| {
-                make_trade_dir("SHORT", -10.0, -10.0 - i as f64, "P")
-            }))
+            .chain((0..20).map(|i| make_trade_dir("SHORT", -10.0, -10.0 - i as f64, "P")))
             .collect();
         let v = compare_direction_symmetry(&trades).unwrap();
         assert!(v.t_statistic > 3.0, "huge separation → large t");
@@ -793,9 +787,7 @@ mod tests {
     fn symmetry_direction_filtering_is_case_insensitive() {
         let trades: Vec<TradeAnalyticsRecord> = (0..12)
             .map(|i| make_trade_dir("long", 10.0, 10.0 + i as f64, "P"))
-            .chain((0..12).map(|i| {
-                make_trade_dir("short", -10.0, -10.0 - i as f64, "P")
-            }))
+            .chain((0..12).map(|i| make_trade_dir("short", -10.0, -10.0 - i as f64, "P")))
             .collect();
         let v = compare_direction_symmetry(&trades).unwrap();
         assert_eq!(v.long_count, 12);

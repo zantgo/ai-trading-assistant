@@ -209,6 +209,7 @@ pub async fn serve_backfill_start(
     }
 
     // One backfill per key (instance or exchange:symbol) at a time.
+    // Early fast-path (racy); atomic gate is try_alloc_backfill below.
     if state.backtest.instance_has_active_backfill(&job_key).await {
         return (
             StatusCode::CONFLICT,
@@ -317,15 +318,23 @@ pub async fn serve_backfill_start(
     ));
     let cancel = Arc::new(AtomicBool::new(false));
 
+    let tracked = backtesting_engine::registry::TrackedBackfill {
+        progress: progress.clone(),
+        cancel: cancel.clone(),
+    };
+    if !state
+        .backtest
+        .try_alloc_backfill(job_id, &job_key, tracked)
+        .await
     {
-        let mut map = state.backtest.backfills.write().await;
-        map.insert(
-            job_id,
-            backtesting_engine::registry::TrackedBackfill {
-                progress: progress.clone(),
-                cancel: cancel.clone(),
-            },
-        );
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!("'{job_key}' already has a running backfill"),
+                "code": "backfill_busy",
+            })),
+        )
+            .into_response();
     }
 
     let cfg = BackfillJobConfig {

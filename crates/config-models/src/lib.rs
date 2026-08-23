@@ -881,7 +881,8 @@ fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
 }
 
 /// M8: platform-level numeric guards (`load_platform` path) — the median
-/// filter window must be ≥ 1.
+/// filter window must be ≥ 1. K1: bind is loopback-only (single-operator
+/// local deployment, no LAN exposure).
 fn validate_platform(platform: &PlatformConfig) -> Result<()> {
     if let Some(q) = &platform.quality {
         if q.median_window_size == 0 {
@@ -895,9 +896,22 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
             detail: "[platform.server].port = 0 (must be 1..=65535)".into(),
         });
     }
-    if platform.server.bind.trim().is_empty() {
+    let bind = platform.server.bind.trim();
+    if bind.is_empty() {
         return Err(ConfigError::InvalidNumeric {
             detail: "[platform.server].bind must not be empty".into(),
+        });
+    }
+    // K1 single-operator: only loopback. Bare-metal manage.sh never needs
+    // LAN binding; operators reaching the daemon remotely use ssh -L tunnel
+    // per docs/01-02 §5. Any other bind is a misconfiguration, not a feature.
+    const ALLOWED_BINDS: &[&str] = &["127.0.0.1", "::1", "localhost"];
+    if !ALLOWED_BINDS.contains(&bind) {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "[platform.server].bind = '{bind}' is not loopback — only {} allowed (single-operator local deployment; use ssh -L tunnel for remote access)",
+                ALLOWED_BINDS.join(", ")
+            ),
         });
     }
     Ok(())
@@ -981,7 +995,7 @@ candles = { duration_seconds = 180 }
     fn platform_server_section_overrides_defaults() {
         let toml = r#"
 [server]
-bind = "0.0.0.0"
+bind = "127.0.0.1"
 port = 8080
 
 [workspace]
@@ -992,9 +1006,18 @@ default_exchange = "Hyperliquid"
 "#;
         let cfg: OnDiskConfig = toml::from_str(toml).expect("parse");
         let (platform, _workspace) = cfg.split();
-        assert_eq!(platform.server.bind, "0.0.0.0");
+        assert_eq!(platform.server.bind, "127.0.0.1");
         assert_eq!(platform.server.port, 8080);
         assert!(validate_platform(&platform).is_ok());
+    }
+
+    #[test]
+    fn platform_server_non_loopback_rejected() {
+        let mut platform = PlatformConfig::default();
+        platform.server.bind = "0.0.0.0".to_string();
+        assert!(validate_platform(&platform).is_err());
+        platform.server.bind = "192.168.1.10".to_string();
+        assert!(validate_platform(&platform).is_err());
     }
 
     #[test]

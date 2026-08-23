@@ -93,17 +93,21 @@ impl CandleAggregator {
     /// guarantees that a source candle that crosses multiple target intervals
     /// produces completed candles in chronological order.
     pub fn new(symbol: &str, target_durations_secs: &[u64]) -> Self {
+        Self::try_new(symbol, target_durations_secs)
+            .expect("CandleAggregator requires at least one target duration")
+    }
+
+    pub fn try_new(symbol: &str, target_durations_secs: &[u64]) -> Result<Self, String> {
         let mut targets: Vec<u64> = target_durations_secs.to_vec();
         targets.sort_unstable();
         targets.dedup();
-        assert!(
-            !targets.is_empty(),
-            "CandleAggregator requires at least one target duration"
-        );
-        Self {
+        if targets.is_empty() {
+            return Err("CandleAggregator requires at least one target duration".to_string());
+        }
+        Ok(Self {
             symbol: symbol.to_string(),
             targets: targets.into_iter().map(TargetAggregator::new).collect(),
-        }
+        })
     }
 
     /// Process a source candle. Returns zero or more completed
@@ -132,7 +136,16 @@ pub fn spawn_candle_aggregator(
     target_durations_secs: Vec<u64>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut aggregator = CandleAggregator::new(&symbol, &target_durations_secs);
+        let mut aggregator = match CandleAggregator::try_new(&symbol, &target_durations_secs) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!(
+                    "Candle Aggregator [{}]: misconfigured targets — {e}, shutting down",
+                    symbol
+                );
+                return;
+            }
+        };
         loop {
             match rx_candles.recv().await {
                 Ok(candle) => {

@@ -94,6 +94,12 @@ pub async fn init_db() -> SqlitePool {
     {
         eprintln!("Database: Failed to set PRAGMA synchronous=NORMAL: {}", e);
     }
+    if let Err(e) = sqlx::query("PRAGMA foreign_keys = ON;")
+        .execute(&pool)
+        .await
+    {
+        eprintln!("Database: Failed to set PRAGMA foreign_keys=ON: {}", e);
+    }
 
     run_migrations(&pool)
         .await

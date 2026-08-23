@@ -142,7 +142,11 @@ impl Instance {
             safe_config.systemic_risk_threshold,
         ));
 
-        let mut lifecycle_mgr = LifecycleManager::new(None);
+        // v10.1 harden: default to paper-paused (close-only) even before
+        // boot_lifecycle is called — if a call site forgets boot_lifecycle the
+        // instance never starts trading without explicit activation.
+        let mut lifecycle_mgr =
+            LifecycleManager::new_for_mode(None, Some(config_models::ExecutionMode::Paper));
         lifecycle_mgr.set_db(id.clone(), Arc::new(pool.clone()));
 
         Self {
@@ -342,7 +346,10 @@ impl Instance {
             fast: empty_buffers.clone(),
             slow: empty_buffers.clone(),
             r#macro: empty_buffers,
-            lifecycle: RwLock::new(LifecycleManager::new(None)),
+            lifecycle: RwLock::new(LifecycleManager::new_for_mode(
+                None,
+                Some(config_models::ExecutionMode::Paper),
+            )),
             execution_mode: RwLock::new(config_models::ExecutionMode::Paper),
         }
     }
