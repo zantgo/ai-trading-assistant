@@ -7,6 +7,7 @@
     import styles from '../../styles/engine-dashboard.module.css';
     import local from '../PerformanceDashboard.module.css';
     import { fmtNum, fmtPct, fmtSigned } from '../../lib/format';
+    import { linePath } from '../../lib/studyCharts';
     import type { ExecutionMode } from '../../lib/modePresentation';
     import type { RiskAnalyticsRow, StrategyAnalyticsRow } from '../../types/analytics';
 
@@ -86,7 +87,7 @@
         return map[c] ?? styles.badgeEmpty;
     }
 
-    function sharpeClass(v: number | null): string {
+    function sharpeClass(v: number | null | undefined): string {
         if (v == null) return local.statNeutral;
         if (v >= 1.0) return local.statPositive;
         if (v >= 0.5) return local.statNeutral;
@@ -255,7 +256,66 @@
                 { label: 'Daily Volatility', value: fmtNum(rd.daily_volatility * 100) + '%', sub: 'per day', color: undefined },
                 { label: 'VaR 95%', value: fmtNum(rd.value_at_risk_95 * 100) + '%', sub: 'worst daily in 95%', color: undefined },
                 { label: 'Exp. Shortfall 95%', value: fmtNum(rd.expected_shortfall_95 * 100) + '%', sub: 'beyond VaR', color: undefined },
+                { label: 'Log-Return Sharpe', value: fmtNum(rd.sharpe_ratio_log), sub: 'log daily returns', color: sharpeClass(rd.sharpe_ratio_log) },
             ]} />
+        </div>
+    {/if}
+
+    {@const symmetry = dashboardStats?.direction_symmetry as {
+        long_count: number; short_count: number; long_expectancy_usd: number;
+        short_expectancy_usd: number; long_win_rate: number; short_win_rate: number;
+        t_statistic: number; degrees_of_freedom: number; p_value: number;
+        significant: boolean; verdict: string;
+    } | null | undefined}
+    <div class={styles.card}>
+        <h3 class={styles.cardTitle}>Long / Short Symmetry</h3>
+        {#if symmetry}
+            <p class={styles.infoLine}>
+                Welch two-sample t-test on per-trade returns — H0: longs and shorts are statistically equal.
+            </p>
+            <table class={styles.table}>
+                <thead>
+                    <tr><th>Direction</th><th class={styles.tdRight}>Trades</th><th class={styles.tdRight}>Expectancy</th><th class={styles.tdRight}>Win Rate</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>LONG</td>
+                        <td class={styles.tdRight}>{symmetry.long_count}</td>
+                        <td class={styles.tdRight}>{fmtSigned(symmetry.long_expectancy_usd)}</td>
+                        <td class={styles.tdRight}>{fmtNum(symmetry.long_win_rate)}%</td>
+                    </tr>
+                    <tr>
+                        <td>SHORT</td>
+                        <td class={styles.tdRight}>{symmetry.short_count}</td>
+                        <td class={styles.tdRight}>{fmtSigned(symmetry.short_expectancy_usd)}</td>
+                        <td class={styles.tdRight}>{fmtNum(symmetry.short_win_rate)}%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class={styles.inlineGroup} style="margin-top:8px">
+                <span class={styles.metaChip}><span class={styles.metaChipLabel}>t</span><span class={styles.metaChipValue}>{fmtNum(symmetry.t_statistic, 2)}</span></span>
+                <span class={styles.metaChip}><span class={styles.metaChipLabel}>df</span><span class={styles.metaChipValue}>{fmtNum(symmetry.degrees_of_freedom, 1)}</span></span>
+                <span class={styles.metaChip}><span class={styles.metaChipLabel}>p</span><span class={styles.metaChipValue}>{fmtNum(symmetry.p_value, 4)}</span></span>
+                <span class="{styles.badge} {symmetry.verdict === 'SYMMETRIC' || !symmetry.significant ? styles.badgeNeutral : symmetry.verdict === 'LONG_BETTER' ? styles.badgeLong : styles.badgeError}">
+                    {symmetry.verdict.replaceAll('_', ' ')}
+                </span>
+            </div>
+        {:else}
+            <div class={styles.empty}>Insufficient data — the symmetry test needs at least 10 closed trades per direction.</div>
+        {/if}
+    </div>
+
+    {@const compounded = (dashboardStats?.compounded_curve ?? []) as [number, number][]}
+    {#if compounded.length >= 2}
+        {@const eq = linePath(compounded, 600, 160)}
+        <div class={styles.card}>
+            <h3 class={styles.cardTitle}>Live Equity Curve</h3>
+            <svg viewBox="0 0 640 180" width="100%" height="180" style="background:#0b0d12; border:1px solid rgba(255,255,255,0.08); border-radius:6px" role="img" aria-label="Live equity curve">
+                <line x1="10" y1="170" x2="630" y2="170" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+                <polyline points={eq.path} fill="none" stroke="#22c55e" stroke-width="1.5" />
+                <text x="16" y="16" fill="rgba(255,255,255,0.4)" font-size="9" font-family="monospace">max {eq.bounds.maxY.toFixed(0)}</text>
+                <text x="16" y="174" fill="rgba(255,255,255,0.4)" font-size="9" font-family="monospace">min {eq.bounds.minY.toFixed(0)}</text>
+            </svg>
         </div>
     {/if}
 {/if}

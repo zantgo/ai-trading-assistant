@@ -113,7 +113,7 @@ describe('TradeAutomationSettings — v10 lifecycle-hardening dials', () => {
                 (c: unknown[]) => String(c[0]) === '/api/strategies/default' && (c[1] as RequestInit | undefined)?.method === 'PUT',
             );
             expect(put).toBeTruthy();
-            const opts = put[1] as { body?: string } | undefined;
+            const opts = put?.[1] as { body?: string } | undefined;
             const body = JSON.parse(opts?.body ?? '{}') as {
                 strategy: { tae: { risk: { setup_gone_policy: string } } };
             };

@@ -26,6 +26,9 @@ pub struct InstanceSummary {
     /// from the session default and fixed for the instance's lifetime —
     /// there is no runtime mode toggle.
     pub mode: config_models::ExecutionMode,
+    /// v10.1: the instance lifecycle state (RUNNING | PAUSED | STOPPING |
+    /// STOPPED) — TAE activation is the lifecycle.
+    pub lifecycle: String,
 }
 
 /// Add a new instance to the state, starting all pipeline tasks.
@@ -306,6 +309,7 @@ pub async fn add_instance(
         pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
             .await;
     artifacts.instance.set_execution_mode(execution_mode).await;
+    artifacts.instance.boot_lifecycle(execution_mode).await;
 
     // Populates buffers directly if warmed states are present
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -785,6 +789,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
             .await;
     artifacts.instance.set_execution_mode(pair_cfg.mode).await;
+    artifacts.instance.boot_lifecycle(pair_cfg.mode).await;
 
     // Populate buffers from warmed states
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -845,7 +850,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         fast: artifacts.fast,
         slow: artifacts.slow,
         r#macro: artifacts.r#macro,
-        lifecycle: RwLock::new(LifecycleManager::new(None)),
+        lifecycle: RwLock::new(LifecycleManager::new_for_mode(None, Some(pair_cfg.mode))),
         execution_mode: tokio::sync::RwLock::new(pair_cfg.mode),
     });
 
@@ -884,6 +889,7 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             consecutive_losses: inst.safety.consecutive_losses.read().await.values().sum(),
             safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
             mode: inst.execution_mode().await,
+            lifecycle: inst.lifecycle.read().await.state.as_str().to_string(),
         });
     }
     summaries

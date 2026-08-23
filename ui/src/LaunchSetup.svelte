@@ -249,7 +249,14 @@
 <div class={styles.launchGate}>
     <div class={styles.launchCard}>
         <header class={styles.launchHeader}>
-            <h1 class={styles.launchTitle}>Trading Platform</h1>
+            <div class={styles.launchHeaderTop}>
+                <h1 class={styles.launchTitle}>Trading Platform</h1>
+                {#if app.sessionId}
+                    <span class={styles.sessionChip} title="This session's identity — stamped on every telemetry row">
+                        SESSION #{String(app.sessionId).padStart(4, '0')}
+                    </span>
+                {/if}
+            </div>
             <p class={styles.launchSubtitle}>Launch Setup — choose how you want to start</p>
             <nav class={styles.steps} aria-label="Setup steps">
                 {#each stepTitles as title, i (title)}

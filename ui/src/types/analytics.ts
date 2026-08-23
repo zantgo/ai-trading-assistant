@@ -35,6 +35,8 @@ export interface RiskAnalyticsRow {
     downside_deviation: number;
     value_at_risk_95: number;
     expected_shortfall_95: number;
+    /** v10.1: Sharpe over log daily returns. */
+    sharpe_ratio_log?: number | null;
 }
 
 export interface PerformanceMatrixRow {

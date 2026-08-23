@@ -1,5 +1,6 @@
 use core_domain::performance::{
-    PerformanceClassification, StrategyAnalyticsRow, TradeAnalyticsRecord,
+    DirectionSymmetryVerdict, PerformanceClassification, StrategyAnalyticsRow,
+    TradeAnalyticsRecord,
 };
 use sqlx::SqlitePool;
 
@@ -285,6 +286,100 @@ fn classify_performance_with_params(
     }
 }
 
+/// v10.1: long/short symmetry verdict — Welch two-sample t-test over
+/// per-trade `roi_pct` (size-normalized; USD expectancy is context only).
+/// H0: long and short returns are statistically equal.
+/// Returns `None` when either side has fewer than 10 trades (a Welch df
+/// estimate needs a real sample).
+pub fn compare_direction_symmetry(
+    trades: &[TradeAnalyticsRecord],
+) -> Option<DirectionSymmetryVerdict> {
+    const MIN_PER_SIDE: usize = 10;
+
+    let longs: Vec<&TradeAnalyticsRecord> = trades
+        .iter()
+        .filter(|t| t.direction.to_uppercase() == "LONG")
+        .collect();
+    let shorts: Vec<&TradeAnalyticsRecord> = trades
+        .iter()
+        .filter(|t| t.direction.to_uppercase() == "SHORT")
+        .collect();
+    if longs.len() < MIN_PER_SIDE || shorts.len() < MIN_PER_SIDE {
+        return None;
+    }
+
+    let long_roi: Vec<f64> = longs.iter().map(|t| t.roi_pct).collect();
+    let short_roi: Vec<f64> = shorts.iter().map(|t| t.roi_pct).collect();
+
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let var = |v: &[f64]| {
+        let m = mean(v);
+        v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (v.len() - 1) as f64
+    };
+
+    let mean_l = mean(&long_roi);
+    let mean_s = mean(&short_roi);
+    let n_l = long_roi.len() as f64;
+    let n_s = short_roi.len() as f64;
+    let var_l = var(&long_roi);
+    let var_s = var(&short_roi);
+
+    let se2 = var_l / n_l + var_s / n_s;
+    let t_statistic = if se2 > 0.0 {
+        (mean_l - mean_s) / se2.sqrt()
+    } else {
+        0.0
+    };
+
+    // Welch–Satterthwaite degrees of freedom.
+    let df = if se2 > 0.0 {
+        let num = se2.powi(2);
+        let den = (var_l / n_l).powi(2) / (n_l - 1.0) + (var_s / n_s).powi(2) / (n_s - 1.0);
+        if den > 0.0 {
+            num / den
+        } else {
+            n_l + n_s - 2.0
+        }
+    } else {
+        n_l + n_s - 2.0
+    };
+
+    // Two-tailed p from the existing one-tailed machinery.
+    let tail = one_tailed_t_pvalue(t_statistic.abs(), df.round() as u32);
+    let p_value = (2.0 * tail).min(1.0);
+
+    let significant = p_value < ALPHA;
+    let verdict = if !significant {
+        "SYMMETRIC"
+    } else if mean_l > mean_s {
+        "LONG_BETTER"
+    } else {
+        "SHORT_BETTER"
+    };
+
+    let win_rate = |v: &[&TradeAnalyticsRecord]| {
+        let wins = v.iter().filter(|t| t.net_pnl > 0.0).count();
+        wins as f64 / v.len() as f64 * 100.0
+    };
+    let expectancy_usd = |v: &[&TradeAnalyticsRecord]| {
+        v.iter().map(|t| t.net_pnl).sum::<f64>() / v.len() as f64
+    };
+
+    Some(DirectionSymmetryVerdict {
+        long_count: longs.len() as u32,
+        short_count: shorts.len() as u32,
+        long_expectancy_usd: expectancy_usd(&longs),
+        short_expectancy_usd: expectancy_usd(&shorts),
+        long_win_rate: win_rate(&longs),
+        short_win_rate: win_rate(&shorts),
+        t_statistic,
+        degrees_of_freedom: df,
+        p_value,
+        significant,
+        verdict: verdict.to_string(),
+    })
+}
+
 /// One-tailed Student t p-value.
 /// p = 1 − Φ_{t, df}(t) where Φ is the CDF of the t-distribution.
 fn one_tailed_t_pvalue(t: f64, df: u32) -> f64 {
@@ -426,11 +521,20 @@ mod tests {
     static TRADE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
     fn make_trade(net_pnl: f64, roi_pct: f64, trigger: &str) -> TradeAnalyticsRecord {
+        make_trade_dir("LONG", net_pnl, roi_pct, trigger)
+    }
+
+    fn make_trade_dir(
+        direction: &str,
+        net_pnl: f64,
+        roi_pct: f64,
+        trigger: &str,
+    ) -> TradeAnalyticsRecord {
         let id = TRADE_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
         TradeAnalyticsRecord {
             trade_id: format!("T-{id}"),
             symbol: "BTC-USDT".into(),
-            direction: "LONG".into(),
+            direction: direction.into(),
             entry_timestamp: 1000,
             exit_timestamp: 2000,
             hold_time_seconds: 1,
@@ -638,5 +742,63 @@ mod tests {
                 compute_setup_analytics(&setup_type, &setup_trades, AnalyticsParams::default())
             })
             .collect()
+    }
+
+    // ── v10.1 direction symmetry ─────────────────────────────────────
+
+    #[test]
+    fn symmetry_returns_none_below_min_per_side() {
+        let trades: Vec<TradeAnalyticsRecord> = (0..9)
+            .map(|_| make_trade_dir("LONG", 10.0, 5.0, "P"))
+            .chain((0..9).map(|_| make_trade_dir("SHORT", -5.0, -2.0, "P")))
+            .collect();
+        assert!(compare_direction_symmetry(&trades).is_none());
+    }
+
+    #[test]
+    fn symmetry_balanced_sample_is_symmetric() {
+        // 15 longs + 15 shorts with the same mean and similar variance.
+        let trades: Vec<TradeAnalyticsRecord> = (0..15)
+            .map(|i| make_trade_dir("LONG", 5.0 + i as f64, 5.0 + i as f64, "P"))
+            .chain((0..15).map(|i| {
+                make_trade_dir("SHORT", 5.0 + i as f64, 5.0 + i as f64, "P")
+            }))
+            .collect();
+        let v = compare_direction_symmetry(&trades).unwrap();
+        assert_eq!(v.long_count, 15);
+        assert_eq!(v.short_count, 15);
+        assert!(!v.significant, "equal means must read SYMMETRIC");
+        assert_eq!(v.verdict, "SYMMETRIC");
+    }
+
+    #[test]
+    fn symmetry_lopsided_sample_flags_direction() {
+        // Longs clearly better than shorts on roi.
+        let trades: Vec<TradeAnalyticsRecord> = (0..20)
+            .map(|i| make_trade_dir("LONG", 10.0, 10.0 + i as f64, "P"))
+            .chain((0..20).map(|i| {
+                make_trade_dir("SHORT", -10.0, -10.0 - i as f64, "P")
+            }))
+            .collect();
+        let v = compare_direction_symmetry(&trades).unwrap();
+        assert!(v.t_statistic > 3.0, "huge separation → large t");
+        assert!(v.p_value < 0.001);
+        assert!(v.significant);
+        assert_eq!(v.verdict, "LONG_BETTER");
+        assert!(v.long_expectancy_usd > 0.0);
+        assert!(v.short_expectancy_usd < 0.0);
+    }
+
+    #[test]
+    fn symmetry_direction_filtering_is_case_insensitive() {
+        let trades: Vec<TradeAnalyticsRecord> = (0..12)
+            .map(|i| make_trade_dir("long", 10.0, 10.0 + i as f64, "P"))
+            .chain((0..12).map(|i| {
+                make_trade_dir("short", -10.0, -10.0 - i as f64, "P")
+            }))
+            .collect();
+        let v = compare_direction_symmetry(&trades).unwrap();
+        assert_eq!(v.long_count, 12);
+        assert_eq!(v.short_count, 12);
     }
 }

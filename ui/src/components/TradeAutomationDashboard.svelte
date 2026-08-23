@@ -19,6 +19,7 @@
     import styles from '../styles/engine-dashboard.module.css';
     import local from './TradeAutomationDashboard.module.css';
     import { isExecutionMode, type ExecutionMode } from '../lib/modePresentation';
+    import { lifecyclePresentation, isActive } from '../lib/lifecyclePresentation';
 
     const app = useAppStore();
 
@@ -505,12 +506,21 @@
                     <ModeChip {mode} />
                 {/if}
                 {#if !ghost && selectedId}
-                    <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('start')} title="Resume entries">START</button>
-                    <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('pause')} title="Close-only: no new entries, open positions managed normally">PAUSE</button>
+                    {@const active = isActive(automation?.lifecycle)}
+                    {@const tae = lifecyclePresentation(automation?.lifecycle, mode)}
+                    <button
+                        class="{styles.select} {active ? styles.taeActive : styles.taePaused}"
+                        disabled={lifecycleBusy}
+                        onclick={() => void lifecycle(active ? 'pause' : 'start')}
+                        title={active ? 'TAE ACTIVE — pause: close-only (open positions keep their rules)' : 'TAE PAUSED — activate: open new setups'}
+                    >TAE: {active ? 'ACTIVE' : 'PAUSED'}</button>
                     <button class={styles.select} disabled={lifecycleBusy} onclick={() => void lifecycle('terminate')} title="Force-close all positions">TERMINATE</button>
                     {#if lifecycleFlash}
                         <span class={styles.badge}>{lifecycleFlash}</span>
                     {/if}
+                {:else if ghost && automation}
+                    {@const tae = lifecyclePresentation(automation.lifecycle, mode)}
+                    <span class="{styles.badge} {styles.badgeNeutral}">{tae.label}</span>
                 {/if}
                 {#if instances.length > 0}
                     <select class={styles.select} bind:value={selectedId} onchange={refresh}>
@@ -526,11 +536,10 @@
                 {/if}
                 {#if automation}
                     {#if automation.enabled}
-                        <span class="{styles.badge} {styles.badgeLong}">AUTOMATION ON</span>
+                        <span class="{styles.badge} {styles.badgeNeutral}" title="Global [workspace.minimal_tae] engine switch">ENGINE ON</span>
                     {:else}
-                        <span class="{styles.badge} {styles.badgeEmpty}">AUTOMATION OFF</span>
+                        <span class="{styles.badge} {styles.badgeEmpty}" title="Global [workspace.minimal_tae] engine switch">ENGINE OFF</span>
                     {/if}
-                    <span class="{styles.badge} {styles.badgeNeutral}">{automation.lifecycle ?? '—'}</span>
                     {#if automation.safety_gate?.blocked}
                         <span class="{styles.badge} {styles.badgeError}">SAFETY: {automation.safety_gate.reason}</span>
                     {/if}

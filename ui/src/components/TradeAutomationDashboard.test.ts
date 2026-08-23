@@ -170,7 +170,8 @@ describe('TradeAutomationDashboard (v7 live)', () => {
     it('renders the mode badge, setup card and projection', async () => {
         render(TradeAutomationDashboard);
 
-        await waitFor(() => expect(screen.getByText('AUTOMATION ON')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('ENGINE ON')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('TAE: ACTIVE')).toBeTruthy());
         await waitFor(() =>
             expect(screen.getAllByText('TrendContinuation').length).toBeGreaterThan(0),
         );
@@ -275,7 +276,7 @@ describe('TradeAutomationDashboard mode badge (v7.2)', () => {
         });
 
         render(TradeAutomationDashboard);
-        await waitFor(() => expect(screen.getByText('AUTOMATION ON')).toBeTruthy());
+        await waitFor(() => expect(screen.getByText('TAE: ACTIVE')).toBeTruthy());
         // Mode is displayed as a read-only badge — no switch affordance.
         await waitFor(() => expect(screen.getByText('LIVE')).toBeTruthy());
         expect(screen.queryByText(/Switch to/i)).toBeNull();

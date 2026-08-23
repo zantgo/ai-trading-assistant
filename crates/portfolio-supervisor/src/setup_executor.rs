@@ -1141,6 +1141,27 @@ impl SetupExecutor {
         policy: &StrategyPolicy,
         entry: &mut SymbolState,
     ) {
+        // ── v10.1 lifecycle gate: PAUSED (close-only) cancels any resting
+        // entry — a pending limit must not fill after the operator
+        // deactivated the TAE. Brackets/positions are never touched here
+        // (tick_position manages them in every lifecycle state).
+        if !ctx.lifecycle_running {
+            if let Some(id) = entry.entry_order_id.take() {
+                let _ = self.engine.cancel_order(&id, symbol).await;
+            }
+            if entry.frozen.is_some() || entry.entry_order_id.is_some() {
+                self.log(
+                    instance_id,
+                    symbol,
+                    "tae_paused",
+                    "TAE paused — pending entry cancelled (close-only)",
+                )
+                .await;
+                self.reset(entry);
+            }
+            return;
+        }
+
         // ── v9 confirmation hold: submit once the countdown elapses ──
         if entry.entry_order_id.is_none() {
             if let Some(f) = entry.frozen.as_mut() {
@@ -2526,6 +2547,56 @@ mod tests {
         assert_eq!(order.packet.order_type, OrderType::Limit);
         assert_eq!(order.packet.price, Some(dec!(95)));
         assert_eq!(order.status, OrderStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn paused_lifecycle_cancels_pending_entry_and_never_enters() {
+        // v10.1: PAUSED (close-only) — a resting entry order must be
+        // cancelled, and no new entry may be submitted.
+        let (engine, ex) = executor_with(1.0, 1);
+        let micro = snapshot(
+            60,
+            MarketBias::Bullish,
+            vec![long_profile(80.0, 2.0, TradeViability::Actionable)],
+            2.0,
+            1000,
+            105.0,
+        );
+
+        // 1. ACTIVE tick places the pending entry.
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
+            .await;
+        let st = ex.state("BTC-USDC").await;
+        assert_eq!(st.phase, ExecutorPhase::PendingEntry);
+        assert!(st.entry_order_id.is_some());
+
+        // 2. PAUSED tick cancels the resting entry and resets the state.
+        let mut paused = ctx(1000);
+        paused.lifecycle_running = false;
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), paused)
+            .await;
+        let st = ex.state("BTC-USDC").await;
+        assert_eq!(st.phase, ExecutorPhase::Idle);
+        assert_eq!(st.entry_order_id, None);
+
+        // 3. While paused, the price pulling into the zone must NOT fill
+        // (no order rests) and no new entry is submitted.
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
+        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), {
+            let mut p = ctx(1000);
+            p.lifecycle_running = false;
+            p
+        })
+        .await;
+        assert!(
+            engine.get_position("BTC-USDC").await.is_none(),
+            "paused TAE must not open a position"
+        );
+        assert_eq!(
+            ex.state("BTC-USDC").await.phase,
+            ExecutorPhase::Idle,
+            "paused TAE must not re-submit an entry"
+        );
     }
 
     #[tokio::test]

@@ -1063,6 +1063,30 @@
     color: #ff453a;
 }
 
+/* v10.1: TAE activation toggle — pause (amber) / start (green). */
+.wsPanelActionBtn.pause:hover {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+}
+
+.wsPanelActionBtn.start:hover {
+    background: rgba(34, 197, 94, 0.14);
+    color: #22c55e;
+}
+
+/* v10.1: lifecycle chip (ACTIVE / PAUSED / FLATTENING / TERMINATED /
+   MONITORING) — the single vocabulary for the instance state. */
+.lifecycleChip {
+    font-family: var(--font-mono, monospace);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 1px 6px;
+    border: 1px solid;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 .wsPanelEmpty {
     padding: 28px 16px;
     text-align: center;

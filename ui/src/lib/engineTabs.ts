@@ -26,7 +26,6 @@ export const PROFILE_TABS: EngineTab[] = [
     { key: 'fee', label: 'Fees & Leverage' },
     { key: 'exchange', label: 'Exchange' },
     { key: 'share', label: 'Share Config' },
-    { key: 'settings', label: 'Settings' },
 ];
 
 export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
@@ -34,10 +33,9 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
     exchange_settings: PROFILE_TABS,
     // v7.3: DIE tabs follow the layer order — Overview (landing) → L1 raw
     // ingestion → L2 market data → L3 data quality → L4 distribution →
-    // cross-cutting (clock contract) last. v7.4: the Settings tab was
-    // removed — DIE is read-only platform config; live health/quality/clock
-    // data lives on Overview and the raw config.toml is exported from
-    // Profile → Share Config.
+    // cross-cutting (clock contract) last. v10.1: Connection Settings
+    // (the [workspace.api_failover] editor, moved from the profile
+    // settings tab) sits at the far right.
     data_infra: [
         { key: 'overview', label: 'Overview' },
         { key: 'exchange_status', label: 'Exchange Status' },
@@ -46,6 +44,7 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'clock_monitor', label: 'NTP Clock Monitor' },
         { key: 'data_quality', label: 'Data Quality' },
         { key: 'distribution', label: 'Distribution' },
+        { key: 'settings', label: 'Connection Settings' },
     ],
     market_monitor: [
         { key: 'overview', label: 'Overview' },
@@ -59,16 +58,13 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'history', label: 'Trade History' },
         { key: 'settings', label: 'Settings' },
     ],
-    // v8.2: PME tabs follow L1 Position → L2 Exposure → L3 Capital →
-    // L4 Overview Layer (renamed from "Portfolio Layer"; the matrix is
-    // `PortfolioOverviewMatrix`), with the cross-cutting Safety ladder and
-    // Settings last.
+    // v10.1: PME tabs — the Portfolio Overview layer merged into
+    // Overview (one money picture per landing page).
     portfolio: [
         { key: 'overview', label: 'Overview' },
         { key: 'positions', label: 'Positions' },
         { key: 'exposure', label: 'Exposure' },
         { key: 'capital', label: 'Capital' },
-        { key: 'portfolio', label: 'Portfolio Overview' },
         { key: 'safety', label: 'Safety' },
         { key: 'settings', label: 'Settings' },
     ],
@@ -86,19 +82,20 @@ export const ENGINE_TABS: Record<EngineKey, EngineTab[]> = {
         { key: 'methodology', label: 'Methodology' },
         { key: 'settings', label: 'Settings' },
     ],
-    // v8 BTE: one tab per simulated engine (DIE data → MME signals → TAE
-    // executions → PME portfolio → PAE statistics), the Study Report
-    // (the finished data-science presentation), History + Settings last.
+    // v10.1 BTE: trader flow first (launch → study → chart → history),
+    // the per-engine data-science breakdowns demoted after History, and
+    // Settings last per convention. Labels simplified — the engine prefix
+    // was redundant inside the Backtesting shell.
     backtesting: [
         { key: 'overview', label: 'Overview' },
-        { key: 'die', label: 'DIE · Data' },
-        { key: 'mme', label: 'MME · Signals' },
-        { key: 'tae', label: 'TAE · Executions' },
-        { key: 'pme', label: 'PME · Portfolio' },
-        { key: 'pae', label: 'PAE · Statistics' },
         { key: 'study', label: 'Study Report' },
         { key: 'chart', label: 'Chart' },
         { key: 'history', label: 'History' },
+        { key: 'die', label: 'Data' },
+        { key: 'mme', label: 'Signals' },
+        { key: 'tae', label: 'Trades' },
+        { key: 'pme', label: 'Portfolio' },
+        { key: 'pae', label: 'Stats' },
         { key: 'settings', label: 'Settings' },
     ],
 };
@@ -114,7 +111,7 @@ export const BTE_TABS_NO_INSTANCE: EngineTab[] = [
 
 export const ENGINE_DEFAULT_TAB: Record<EngineKey, string> = {
     profile: 'account',
-    exchange_settings: 'settings',
+    exchange_settings: 'share',
     data_infra: 'connectivity',
     market_monitor: 'overview',
     trade_automation: 'overview',
@@ -159,13 +156,18 @@ export type ExecutionMode = 'observe' | 'paper' | 'live';
 
 /** Resolves the tab list for an engine given the instance's execution
  *  mode. Observe collapses to the data-bearing tabs; paper/live return
- *  the full set. */
+ *  the full set. v10.1: the Exchange (credentials) tab exists only in
+ *  live mode — DEX/CEX keys are meaningless before real dispatch. */
 export function tabsForMode(engine: EngineKey, mode: ExecutionMode | string | undefined): EngineTab[] {
     if (mode === 'observe') {
         const collapsed = OBSERVE_TABS[engine];
         if (collapsed) return collapsed;
     }
-    return ENGINE_TABS[engine];
+    const tabs = ENGINE_TABS[engine] ?? [];
+    if ((engine === 'profile' || engine === 'exchange_settings') && mode !== 'live') {
+        return tabs.filter((t) => t.key !== 'exchange');
+    }
+    return tabs;
 }
 
 /** Resolves an arbitrary `middleTab` value to a known tab of the engine,

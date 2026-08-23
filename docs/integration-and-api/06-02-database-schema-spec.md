@@ -491,8 +491,13 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL,
   seq INTEGER NOT NULL, ts_close_secs INTEGER NOT NULL,
   direction TEXT NOT NULL, entry_price REAL NOT NULL, exit_price REAL NOT NULL,
-  size REAL NOT NULL, pnl REAL NOT NULL, exit_reason TEXT NOT NULL DEFAULT ''
+  size REAL NOT NULL, pnl REAL NOT NULL, exit_reason TEXT NOT NULL DEFAULT '',
+  ts_entry_secs INTEGER, hold_secs INTEGER, mfe_pct REAL, mae_pct REAL, roi_pct REAL,
+  slippage_bps REAL, commission_fees REAL, funding_fees REAL
 );
+-- v10.1 cost attribution: slippage_bps = entry+exit fill-vs-mid bps;
+-- commission_fees = exit commission; funding_fees = direction-aware
+-- 8h settlement accrued on the position (negative = paid).
 -- exit_reason vocabulary (v10): 'tp' | 'sl' | 'invalidated_signal' |
 -- 'manual' | 'stop_flatten' | 'end_of_backtest' (v8.2 end-of-run force-close) |
 -- 'setup_gone' | 'confidence_drop' (v10 posture/confidence exits)

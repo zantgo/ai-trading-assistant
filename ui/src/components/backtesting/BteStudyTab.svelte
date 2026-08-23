@@ -14,12 +14,35 @@
         result: BteResult | null;
         portfolio: any[];
         signals: any[];
+        metrics?: Record<string, string> | null;
     }
 
-    let { result, portfolio, signals }: Props = $props();
+    let { result, portfolio, signals, metrics = null }: Props = $props();
 
     const summary = $derived(result?.summary ?? null);
     const stats = $derived(result?.stats ?? null);
+
+    // v10.1: per-run risk metrics from the DS key/value table.
+    const risk = $derived.by(() => {
+        const m = metrics ?? {};
+        const f = (k: string): string | null => (m[k] && m[k] !== '' ? m[k] : null);
+        return {
+            sharpe: f('sharpe'),
+            sharpeLog: f('sharpe_log'),
+            sortino: f('sortino'),
+            calmar: f('calmar'),
+            ulcer: f('ulcer'),
+            var95: f('var95'),
+            es95: f('es95'),
+            maxDdDays: f('max_dd_duration_days'),
+            has: Object.keys(m).length > 0,
+        };
+    });
+
+    // v10.1: long/short symmetry verdict from the summary block.
+    const symmetry = $derived(
+        (result?.summary as any)?.direction_symmetry ?? null,
+    );
 
     const kpis = $derived.by(() => {
         const s = summary;
@@ -31,6 +54,7 @@
             { label: 'Net P&L', value: fmtSigned(s.gross_profit - s.gross_loss), sub: 'total realized', color: s.gross_profit - s.gross_loss >= 0 ? '#22c55e' : '#ef4444' },
             { label: 'Max Drawdown', value: '-' + fmtNum(s.max_drawdown_pct) + '%', sub: 'from equity peak' },
             { label: 'Expectancy', value: fmtSigned(s.expectancy), sub: 'avg per trade', color: s.expectancy >= 0 ? '#22c55e' : '#ef4444' },
+            { label: 'Avg R:R', value: fmtNum(stats?.avg_win_loss_ratio ?? (s as any).avg_win_loss_ratio), sub: 'avg win / avg loss', color: (stats?.avg_win_loss_ratio ?? 0) >= 1 ? '#22c55e' : '#f59e0b' },
         ];
     });
 
@@ -105,6 +129,56 @@
                     Not significant at α = {fmtNum(stats.alpha, 2)} — t-test p = {fmtNum(stats.p_value, 4)},
                     Monte Carlo p = {fmtNum(stats.p_mc, 4)} ({stats.monte_carlo_runs?.toLocaleString() ?? '10,000'} runs) — this result could be luck.
                 {/if}
+            </div>
+        {/if}
+
+        {#if risk.has}
+            <div class={styles.card} style="margin-top:16px">
+                <h4 class={styles.cardTitle}>Risk-Adjusted Metrics</h4>
+                <KpiStrip items={[
+                    { label: 'Sharpe', value: risk.sharpe ?? '—', sub: 'annualized, simple returns' },
+                    { label: 'Sharpe (log)', value: risk.sharpeLog ?? '—', sub: 'log daily returns' },
+                    { label: 'Sortino', value: risk.sortino ?? '—', sub: 'downside only' },
+                    { label: 'Calmar', value: risk.calmar ?? '—', sub: 'return / max DD' },
+                    { label: 'Ulcer', value: risk.ulcer ?? '—', sub: 'drawdown depth' },
+                    { label: 'VaR 95%', value: risk.var95 ?? '—', sub: 'worst daily, 95%' },
+                    { label: 'ES 95%', value: risk.es95 ?? '—', sub: 'expected shortfall' },
+                    { label: 'Max DD Days', value: risk.maxDdDays ?? '—', sub: 'peak-to-trough' },
+                ]} />
+            </div>
+        {/if}
+
+        {#if symmetry}
+            <div class={styles.card} style="margin-top:16px">
+                <h4 class={styles.cardTitle}>Long / Short Symmetry</h4>
+                <p class={styles.infoLine}>
+                    Welch two-sample t-test on per-trade returns — H0: longs and shorts are statistically equal.
+                </p>
+                <table class={styles.table}>
+                    <thead>
+                        <tr><th>Direction</th><th class={styles.tdRight}>Trades</th><th class={styles.tdRight}>Expectancy</th><th class={styles.tdRight}>Win Rate</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>LONG</td>
+                            <td class={styles.tdRight}>{symmetry.long_count}</td>
+                            <td class={styles.tdRight}>{fmtSigned(symmetry.long_expectancy_usd)}</td>
+                            <td class={styles.tdRight}>{fmtNum(symmetry.long_win_rate)}%</td>
+                        </tr>
+                        <tr>
+                            <td>SHORT</td>
+                            <td class={styles.tdRight}>{symmetry.short_count}</td>
+                            <td class={styles.tdRight}>{fmtSigned(symmetry.short_expectancy_usd)}</td>
+                            <td class={styles.tdRight}>{fmtNum(symmetry.short_win_rate)}%</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div style="display:flex; align-items:center; gap:12px; margin-top:8px">
+                    <span class={styles.infoLine}>t = {fmtNum(symmetry.t_statistic, 2)} · df = {fmtNum(symmetry.degrees_of_freedom, 1)} · p = {fmtNum(symmetry.p_value, 4)}</span>
+                    <span class="{styles.badge} {symmetry.verdict === 'SYMMETRIC' || !symmetry.significant ? styles.badgeNeutral : symmetry.verdict === 'LONG_BETTER' ? styles.badgeLong : styles.badgeError}">
+                        {String(symmetry.verdict).replaceAll('_', ' ')}
+                    </span>
+                </div>
             </div>
         {/if}
 

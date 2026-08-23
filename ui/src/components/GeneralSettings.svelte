@@ -12,17 +12,25 @@
     const app = useAppStore();
 
     // Section pages are driven by the engine navbar (profile /
-    // exchange_settings tab rows). Falls back to `settings` for any
-    // middleTab value that is not one of the Home page's sections.
+    // exchange_settings tab rows). v10.1: the Exchange (credentials)
+    // section only exists in live mode; the old Settings section moved
+    // to DIE → Connection Settings. Fallback = 'fee'.
+    const sessionMode = $derived(
+        app.sessionMode === 'observe' || app.sessionMode === 'paper' || app.sessionMode === 'live'
+            ? app.sessionMode
+            : 'paper',
+    );
     let section = $derived(
-        ['fee', 'exchange', 'share', 'settings'].includes(app.middleTab) ? app.middleTab : 'settings',
+        ['fee', 'exchange', 'share'].includes(app.middleTab)
+            && (app.middleTab !== 'exchange' || sessionMode === 'live')
+            ? app.middleTab
+            : 'fee',
     );
 
     const sectionTitles: Record<string, string> = {
         fee: 'Fees, Leverage & Cost Projection',
         exchange: 'Exchange Settings',
         share: 'Share Configuration',
-        settings: 'General Settings',
     };
 
     const sectionTabLabel = $derived(
@@ -172,71 +180,6 @@
         reader.readAsText(file);
     }
 
-    // ─── API Failover settings (lazy-loaded on the Settings tab) ─────────
-    let failoverDraft = $state({ retries: 5, delay: 30, max: 10 });
-    let failoverBaseline = $state('');
-    let loaded = $state(false);
-    let failoverSaveState = $state<SettingsSaveState>('idle');
-    let failoverError: string | null = $state(null);
-
-    async function loadFailover() {
-        try {
-            const res = await fetch('/api/config');
-            const config = await res.json();
-            if (config.api_failover) {
-                failoverDraft = {
-                    retries: config.api_failover.max_retries_per_call ?? 5,
-                    delay: config.api_failover.retry_delay_seconds ?? 30,
-                    max: config.api_failover.max_consecutive_failures ?? 30,
-                };
-                failoverBaseline = JSON.stringify(failoverDraft);
-            }
-            loaded = true;
-        } catch (e) {
-            console.error('Failed to load settings:', e);
-        }
-    }
-
-    $effect(() => {
-        if (section === 'settings' && !loaded) void loadFailover();
-    });
-
-    const failoverDirty = $derived(failoverBaseline !== '' && JSON.stringify(failoverDraft) !== failoverBaseline);
-
-    $effect(() => {
-        if (failoverDirty && failoverSaveState !== 'saving' && failoverSaveState !== 'error') failoverSaveState = 'dirty';
-    });
-
-    async function saveFailover() {
-        if (failoverSaveState !== 'dirty' && failoverSaveState !== 'error') return;
-        failoverError = null;
-        failoverSaveState = 'saving';
-        try {
-            const res = await fetch('/api/config');
-            const config = await res.json();
-            config.api_failover = {
-                max_retries_per_call: Number(failoverDraft.retries),
-                retry_delay_seconds: Number(failoverDraft.delay),
-                max_consecutive_failures: Number(failoverDraft.max),
-            };
-            const saveRes = await fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config),
-            });
-            if (saveRes.ok) {
-                failoverBaseline = JSON.stringify(failoverDraft);
-                failoverSaveState = 'saved';
-                setTimeout(() => { failoverSaveState = 'idle'; }, 2000);
-            } else {
-                failoverError = (await saveRes.text()) || 'Save failed';
-                failoverSaveState = 'error';
-            }
-        } catch (e) {
-            failoverError = e instanceof Error ? e.message : 'Save failed';
-            failoverSaveState = 'error';
-        }
-    }
 </script>
 
 <div class={styles.profileLayout}>
@@ -249,8 +192,6 @@
                 <span class={engine.tabLabel}>{sectionTabLabel}</span>
                 {#if section === 'fee'}
                     <SettingsSaveButton state={feeSaveState} onsave={saveFee} />
-                {:else if section === 'settings'}
-                    <SettingsSaveButton state={failoverSaveState} onsave={saveFailover} />
                 {/if}
             </div>
         </div>
@@ -372,39 +313,6 @@
                     <p class="{engine.neg} {engine.infoLine}" style="margin-top:0.75rem;">{importMessage}</p>
                 {/if}
             </div>
-        {:else}
-            {#if failoverError}
-                <div class="{engine.alertBanner} {engine.alertError}">{failoverError}</div>
-            {/if}
-            {#if !loaded}
-                <div class={styles.loadingMsg}>Loading settings...</div>
-            {:else}
-                <div class={engine.card}>
-                    <div class={engine.cardHead}>
-                        <h3 class={engine.cardTitle}>API Failover</h3>
-                        <ConfigSourceChip source="[workspace.api_failover]" apply="NEW_PIPELINES" />
-                    </div>
-                    <p class={engine.infoLine}>
-                        REST call resilience policy. Read when pipelines are built — changes apply to
-                        newly launched instances.
-                    </p>
-                    <div class={engine.formRow}>
-                        <div class={engine.field}>
-                            <label class={engine.fieldLabel} for="failover-retries">Max Retries Per Call</label>
-                            <input class={engine.fieldInput} id="failover-retries" type="number" bind:value={failoverDraft.retries} min="1" max="20" />
-                        </div>
-                        <div class={engine.field}>
-                            <label class={engine.fieldLabel} for="failover-delay">Retry Delay (seconds)</label>
-                            <input class={engine.fieldInput} id="failover-delay" type="number" bind:value={failoverDraft.delay} min="1" max="300" />
-                        </div>
-                        <div class={engine.field}>
-                            <label class={engine.fieldLabel} for="failover-max">Max Consecutive Failures</label>
-                            <input class={engine.fieldInput} id="failover-max" type="number" bind:value={failoverDraft.max} min="1" max="50" />
-                            <span class={styles.fieldHint}>halt workspace after this many</span>
-                        </div>
-                    </div>
-                </div>
-            {/if}
         {/if}
     </div>
 </div>

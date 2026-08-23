@@ -40,9 +40,18 @@ per-mode config fork. A backtest result therefore equals the paper result
   simulated `SafetyManager` per instance fed by replayed equity, so
   `DRAWDOWN_STOP`/`SUSPENDED` block new entries in the backtest exactly
   like paper.
-- **v8.2 — identical funding**: funding settles at simulated 8h
-  boundaries of replay time (`funding_rate_8h × notional`), the same
-  debit paper applies every 8h of wall-clock.
+- **v8.2/v10.1 — identical funding**: funding settles at simulated 8h
+  boundaries of replay time in BOTH runners (the recorded replay gained
+  the clock in v10.1). Direction-aware perp convention:
+  `settlement = −dir_sign × notional × rate` (positive rate → longs pay,
+  shorts receive), the same settlement paper applies every 8h of
+  wall-clock. Backtests use the config rate; live may override with the
+  ingested venue rate (`settle_funding_with_rate`).
+- **v10.1 — identical slippage**: every simulated fill prices at
+  `mid × (1 ± (half-spread + slippage_bps))`, limit-clamped — the bound
+  strategy's `tae.execution.slippage_bps` dial, shared by paper, live,
+  historical and recorded. Per-trade costs persist to
+  `backtest_trades.slippage_bps / commission_fees / funding_fees`.
 - **v8.2 — complete ledger**: open positions are force-closed at the
   final replayed candle close with `exit_reason = "end_of_backtest"`, so
   backtest statistics cover every trade — no dangling unrealized

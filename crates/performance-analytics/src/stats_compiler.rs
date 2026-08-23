@@ -11,6 +11,12 @@ pub struct DashboardStats {
     pub win_rate_by_hour: Vec<HourlyWinRate>,
     pub win_rate_by_weekday: Vec<WeekdayWinRate>,
     pub direction_breakdown: DirectionBreakdown,
+    /// v10.1: Welch long/short symmetry verdict (`None` when either side
+    /// has fewer than 10 trades).
+    pub direction_symmetry: Option<core_domain::performance::DirectionSymmetryVerdict>,
+    /// v10.1: log-return series `ln(v_t / v_{t-1})` over the compounded
+    /// curve (non-positive points skipped).
+    pub log_returns: Vec<(i64, f64)>,
     pub trader_style: TraderStyleBreakdown,
     pub winning_streaks: StreakMetrics,
     pub losing_streaks: StreakMetrics,
@@ -180,6 +186,14 @@ pub async fn compile_dashboard_stats(
         compute_commission_stats(&trades);
     let monthly_summary = compute_monthly_summary(&trades);
 
+    // v10.1: long/short symmetry verdict (Welch on roi_pct) + the log-return
+    // series over the compounded curve.
+    let direction_symmetry = {
+        let records = trade_rows_to_records(&trades);
+        crate::strategy_analytics::compare_direction_symmetry(&records)
+    };
+    let log_returns = compute_log_returns(&compounded_curve);
+
     DashboardStats {
         core_stats,
         equity_curve,
@@ -189,6 +203,8 @@ pub async fn compile_dashboard_stats(
         win_rate_by_hour,
         win_rate_by_weekday,
         direction_breakdown,
+        direction_symmetry,
+        log_returns,
         trader_style,
         winning_streaks,
         losing_streaks,
@@ -242,6 +258,8 @@ fn empty_dashboard() -> DashboardStats {
             short_avg_gain: 0.0,
             short_avg_loss: 0.0,
         },
+        direction_symmetry: None,
+        log_returns: vec![],
         trader_style: TraderStyleBreakdown {
             scalper: StyleSegment {
                 count: 0,
@@ -282,6 +300,47 @@ fn empty_dashboard() -> DashboardStats {
 }
 
 use database_storage::TradeDetailRow;
+
+/// v10.1: map closed-trade rows onto the analytics records the symmetry
+/// test consumes (direction + roi + realized PnL only).
+fn trade_rows_to_records(
+    trades: &[TradeDetailRow],
+) -> Vec<core_domain::performance::TradeAnalyticsRecord> {
+    trades
+        .iter()
+        .map(|t| core_domain::performance::TradeAnalyticsRecord {
+            trade_id: String::new(),
+            symbol: t.symbol.clone(),
+            direction: t.direction.clone(),
+            entry_timestamp: t.entry_timestamp,
+            exit_timestamp: t.exit_timestamp,
+            hold_time_seconds: 0,
+            entry_price: 0.0,
+            exit_price: 0.0,
+            size: 0.0,
+            gross_pnl: t.realized_pnl,
+            net_pnl: t.realized_pnl,
+            roi_pct: t.roi_pct,
+            execution_slippage: 0.0,
+            mfe: 0.0,
+            mae: 0.0,
+            trigger_source: String::new(),
+            exit_reason: String::new(),
+            flat_trade: t.realized_pnl.abs() < 1e-10,
+        })
+        .collect()
+}
+
+/// v10.1: live long/short symmetry verdict over the recorded closed trades
+/// (CLI parity — the terminal monitor renders the same verdict the PAE
+/// Overview card shows).
+pub async fn compute_direction_symmetry_live(
+    pool: &SqlitePool,
+) -> Option<core_domain::performance::DirectionSymmetryVerdict> {
+    let trades = database_storage::dash_trade_detail(pool).await;
+    let records = trade_rows_to_records(&trades);
+    crate::strategy_analytics::compare_direction_symmetry(&records)
+}
 
 // Paper trades query removed — paper trading is eliminated.
 
@@ -642,6 +701,19 @@ fn compute_compounded_curve(
             (t.exit_timestamp, balance)
         })
         .collect()
+}
+
+/// v10.1: log-return series `ln(v_t / v_{t-1})` over an equity curve.
+/// Non-positive values are skipped (log undefined).
+fn compute_log_returns(curve: &[(i64, f64)]) -> Vec<(i64, f64)> {
+    let mut out = Vec::new();
+    for w in curve.windows(2) {
+        let (prev_v, v) = (w[0].1, w[1].1);
+        if prev_v > 0.0 && v > 0.0 {
+            out.push((w[1].0, (v / prev_v).ln()));
+        }
+    }
+    out
 }
 
 fn compute_trader_style(trades: &[TradeDetailRow]) -> TraderStyleBreakdown {

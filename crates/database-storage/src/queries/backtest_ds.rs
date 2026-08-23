@@ -50,6 +50,14 @@ pub struct DsTrade {
     pub mae_pct: f64,
     #[serde(default)]
     pub roi_pct: f64,
+    /// v10.1 cost attribution (entry + exit slippage bps, commission,
+    /// funding accrued on the position).
+    #[serde(default)]
+    pub slippage_bps: f64,
+    #[serde(default)]
+    pub commission_fees: f64,
+    #[serde(default)]
+    pub funding_fees: f64,
 }
 
 /// One DS metric (key/value — summary + NHST).
@@ -84,8 +92,8 @@ pub async fn insert_backtest_ds_rows(
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO backtest_trades
                 (run_id, seq, ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
-                 ts_entry_secs, hold_secs, mfe_pct, mae_pct, roi_pct)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                 ts_entry_secs, hold_secs, mfe_pct, mae_pct, roi_pct, slippage_bps, commission_fees, funding_fees)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         )
         .bind(run_id)
         .bind(seq as i64)
@@ -101,6 +109,9 @@ pub async fn insert_backtest_ds_rows(
         .bind(t.mfe_pct)
         .bind(t.mae_pct)
         .bind(t.roi_pct)
+        .bind(t.slippage_bps)
+        .bind(t.commission_fees)
+        .bind(t.funding_fees)
         .execute(&mut *tx)
         .await;
     }
@@ -203,11 +214,15 @@ pub async fn query_backtest_trades(
             f64,
             f64,
             f64,
+            f64,
+            f64,
+            f64,
         ),
     >(
         "SELECT ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
                 COALESCE(ts_entry_secs, 0), COALESCE(hold_secs, 0),
-                COALESCE(mfe_pct, 0), COALESCE(mae_pct, 0), COALESCE(roi_pct, 0)
+                COALESCE(mfe_pct, 0), COALESCE(mae_pct, 0), COALESCE(roi_pct, 0),
+                COALESCE(slippage_bps, 0), COALESCE(commission_fees, 0), COALESCE(funding_fees, 0)
          FROM backtest_trades WHERE run_id = ?1 ORDER BY seq ASC LIMIT ?2 OFFSET ?3",
     )
     .bind(run_id)
@@ -218,7 +233,7 @@ pub async fn query_backtest_trades(
     .unwrap_or_default()
     .into_iter()
     .map(
-        |(ts, direction, entry, exit, size, pnl, reason, ts_entry, hold, mfe, mae, roi)| DsTrade {
+        |(ts, direction, entry, exit, size, pnl, reason, ts_entry, hold, mfe, mae, roi, slippage, commission, funding)| DsTrade {
             ts_close_secs: ts,
             direction,
             entry_price: entry,
@@ -231,6 +246,9 @@ pub async fn query_backtest_trades(
             mfe_pct: mfe,
             mae_pct: mae,
             roi_pct: roi,
+            slippage_bps: slippage,
+            commission_fees: commission,
+            funding_fees: funding,
         },
     )
     .collect()
@@ -349,6 +367,9 @@ mod tests {
                 mfe_pct: 0.0,
                 mae_pct: 0.0,
                 roi_pct: 0.0,
+                slippage_bps: 5.0,
+                commission_fees: 0.01,
+                funding_fees: -0.02,
             }],
             &[(1000, 1000.0), (1001, 1005.0)],
             &[DsPortfolioPoint {
@@ -377,6 +398,9 @@ mod tests {
         let trades = query_backtest_trades(&pool, run_id, 10, 0).await;
         assert_eq!(trades.len(), 1);
         assert_eq!(trades[0].exit_reason, "tp");
+        assert_eq!(trades[0].slippage_bps, 5.0);
+        assert_eq!(trades[0].commission_fees, 0.01);
+        assert_eq!(trades[0].funding_fees, -0.02);
 
         let equity = query_backtest_equity(&pool, run_id).await;
         assert_eq!(equity.len(), 2);

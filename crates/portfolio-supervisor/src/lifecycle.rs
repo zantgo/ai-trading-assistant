@@ -63,6 +63,23 @@ pub struct LifecycleManager {
 
 impl LifecycleManager {
     pub fn new(automation: Option<AutomationState>) -> Self {
+        Self::new_for_mode(automation, None)
+    }
+
+    /// v10.1 boot policy — the initial state follows the instance's
+    /// execution mode:
+    ///   - `Observe` → RUNNING (ghost radar always evaluates; the mode
+    ///     itself forbids dispatch).
+    ///   - `Paper`/`Live` → PAUSED (close-only: the instance runs but the
+    ///     TAE does not open new setups until the operator starts it —
+    ///     "never start trading unless explicitly activated").
+    ///   - automation with start-at triggers → STOPPED (waits for the
+    ///     trigger; unchanged legacy rule).
+    /// `mode = None` keeps the legacy RUNNING default (tests, ad-hoc).
+    pub fn new_for_mode(
+        automation: Option<AutomationState>,
+        mode: Option<config_models::ExecutionMode>,
+    ) -> Self {
         let now = current_time_ms();
         let initial_state = match &automation {
             Some(auto)
@@ -72,7 +89,11 @@ impl LifecycleManager {
             {
                 LifecycleState::Stopped
             }
-            _ => LifecycleState::Running,
+            _ => match mode {
+                Some(config_models::ExecutionMode::Observe) => LifecycleState::Running,
+                Some(_) => LifecycleState::LifecyclePaused,
+                None => LifecycleState::Running,
+            },
         };
 
         Self {
@@ -383,4 +404,57 @@ fn current_time_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boot_policy_is_mode_aware() {
+        // v10.1: paper/live boot PAUSED (TAE not activated), observe boots
+        // RUNNING (ghost radar), legacy None stays RUNNING.
+        let paper = LifecycleManager::new_for_mode(
+            None,
+            Some(config_models::ExecutionMode::Paper),
+        );
+        assert_eq!(paper.state, LifecycleState::LifecyclePaused);
+
+        let live = LifecycleManager::new_for_mode(
+            None,
+            Some(config_models::ExecutionMode::Live),
+        );
+        assert_eq!(live.state, LifecycleState::LifecyclePaused);
+
+        let observe = LifecycleManager::new_for_mode(
+            None,
+            Some(config_models::ExecutionMode::Observe),
+        );
+        assert_eq!(observe.state, LifecycleState::Running);
+
+        let legacy = LifecycleManager::new(None);
+        assert_eq!(legacy.state, LifecycleState::Running);
+    }
+
+    #[test]
+    fn automation_start_triggers_boot_stopped_regardless_of_mode() {
+        let mut cond = AutomationConditions::default();
+        cond.start_at_time = Some("2026-01-01T00:00:00Z".to_string());
+        let mgr = LifecycleManager::new_for_mode(
+            Some(AutomationState::new(cond)),
+            Some(config_models::ExecutionMode::Paper),
+        );
+        assert_eq!(mgr.state, LifecycleState::Stopped);
+    }
+
+    #[test]
+    fn paused_can_start_and_stop() {
+        let mgr = LifecycleManager::new_for_mode(
+            None,
+            Some(config_models::ExecutionMode::Paper),
+        );
+        assert!(mgr.can_start().is_ok());
+        assert!(mgr.can_stop().is_ok());
+        assert!(mgr.can_pause().is_err(), "cannot pause from PAUSED");
+    }
 }

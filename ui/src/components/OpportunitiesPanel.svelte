@@ -295,28 +295,23 @@
         });
     }
 
-    function oppClass(o: string): string {
-        switch (o) {
-            case 'TrendContinuation': return styles.oppTrend;
-            case 'Breakout': return styles.oppBreakout;
-            case 'Pullback': return styles.oppPullback;
-            case 'MeanReversion': return styles.oppDefault;
-            case 'Reversal': return styles.oppReversal;
-            case 'LiquiditySqueeze': return styles.oppReversal;
-            case 'Scalp': return styles.oppTrend;
-            case 'NoClearOpportunity': return styles.oppNone;
-            default: return styles.oppNone;
-        }
+    // v10.1: profile cards are tinted by RESOLVED SIDE (green = LONG,
+    // red = SHORT, grey = NEUTRAL) — the setup kind stays a text label.
+    // Direction is the eye-scan signal; kind is read.
+    function profileSideCls(p: unknown): string {
+        const side = selectProfileSide(p as never, analysis?.bias ?? null);
+        if (side === 'LONG') return styles.oppSideLong;
+        if (side === 'SHORT') return styles.oppSideShort;
+        return styles.oppSideNeutral;
     }
     function oppLabel(o: string): string {
         return o.replace(/([A-Z])/g, ' $1').trim();
     }
+    // v10.1: 3-band scores — red is reserved for SHORT only.
     function scoreColor(s: number): string {
         if (s >= 85) return '#22c55e';
-        if (s >= 70) return '#4ade80';
         if (s >= 50) return '#f59e0b';
-        if (s >= 30) return '#94a3b8';
-        return '#ef4444';
+        return '#94a3b8';
     }
     function setupQuality(s: number): { label: string; cls: string } {
         if (s >= 85) return { label: 'PRIME', cls: styles.prime };
@@ -325,13 +320,14 @@
         if (s >= 30) return { label: 'MARGINAL', cls: styles.marginal };
         return { label: 'NONE', cls: styles.none };
     }
+    // v10.1: confluence tags must not wear direction colors.
     function sourceColor(s: string): string {
         switch (s) {
             case 'FIBONACCI': return '#ff9800';
             case 'VOLUME_PROFILE': return '#00bcd4';
             case 'PIVOT_POINTS': return '#ab47bc';
-            case 'SUPPORT_RESISTANCE': return '#66bb6a';
-            case 'LIQUIDITY_CLUSTER': return '#ef5350';
+            case 'SUPPORT_RESISTANCE': return '#94a3b8';
+            case 'LIQUIDITY_CLUSTER': return '#f59e0b';
             default: return '#78909c';
         }
     }
@@ -443,7 +439,7 @@
         if (rr == null) return styles.rrNone ?? '';
         if (rr >= 2.0) return styles.green;
         if (rr >= 1.0) return styles.amber;
-        return styles.red;
+        return styles.amber;
     }
 
     // ── v6.10.21: unified state-driven card language ────────────────────
@@ -468,10 +464,15 @@
             return { text: 'GEOMETRY INVERTED', cls: styles.setupBadgeInverted };
         }
         switch (setup.viability) {
-            case 'Actionable':
+            case 'Actionable': {
+                // v10.1: the actionable badge wears the card's side tint.
+                const cls = setup.side === 'SHORT'
+                    ? styles.setupBadgeActionableShort
+                    : styles.setupBadgeActionable;
                 return setup.rankIdx === firstActionableIdx
-                    ? { text: 'TOP · ACTIONABLE', cls: styles.setupBadgeActionable }
-                    : { text: 'ACTIONABLE', cls: styles.setupBadgeActionable };
+                    ? { text: 'TOP · ACTIONABLE', cls }
+                    : { text: 'ACTIONABLE', cls };
+            }
             case 'Qualifying':
                 return { text: 'QUALIFYING', cls: styles.setupBadgeAmber };
             case 'DirectionalNeutral':
@@ -483,6 +484,19 @@
 
     // State D coordinate red-flagging — keyed on the shared resolver's
     // N/A reason so the operator sees WHICH part of the bracket is broken.
+    // v10.1: the STOP-LOSS row wears red only on actionable cards;
+    // amber on qualifying/State D, grey on references.
+    function stopRowCls(setup: ActiveSetup): string {
+        if (!setup.geometry_consistent || setup.viability === 'GeometryInverted') {
+            return styles.setupRowStopAmber ?? '';
+        }
+        if (setup.viability === 'Actionable') return styles.setupRowStop ?? '';
+        if (setup.viability === 'Qualifying' || setup.viability === 'DirectionalNeutral') {
+            return styles.setupRowStopAmber ?? '';
+        }
+        return styles.setupRowStopGrey ?? '';
+    }
+
     function flaggedRowKeys(reason: string | null): Set<'entry' | 'tp' | 'sl' | 'rr'> {
         const out = new Set<'entry' | 'tp' | 'sl' | 'rr'>();
         if (!reason) return out;
@@ -613,7 +627,7 @@
                                         </div>
                                         <div class={styles.setupRow}>
                                             <span class={styles.setupRowLabel}>STOP-LOSS</span>
-                                            <span class="{styles.setupRowValue} {styles.setupRowStop} {flagged.has('sl') ? styles.setupRowFlagged : ''}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
+                                            <span class="{styles.setupRowValue} {stopRowCls(setup)} {flagged.has('sl') ? styles.setupRowFlagged : ''}">{setup.invalidation > 0 ? fmtPxDecimal(setup.invalidation, markPrice) : '—'}</span>
                                         </div>
                                         <div class={styles.setupRow}>
                                             <span class={styles.setupRowLabel}>REWARD-TO-RISK RATIO</span>
@@ -637,12 +651,12 @@
                             {#if section.reference}
                                 {@const refWarn = referenceIsWarn(section.reference)}
                                 {@const refFlagged = flaggedRowKeys(section.reference.rr_reason)}
-                                <div class="{styles.setupCard} {refWarn ? styles.setupCardInverted : styles.setupCardReference}">
-                                    <div class="{styles.setupHeader} {refWarn ? styles.setupHeaderInverted : styles.setupHeaderReference}">
+                                <div class="{styles.setupCard} {refWarn ? styles.setupCardReferenceWarn : styles.setupCardReference}">
+                                    <div class="{styles.setupHeader} {refWarn ? styles.setupHeaderReferenceWarn : styles.setupHeaderReference}">
                                         <span class={styles.setupHeaderTitle}>{`Reference Bracket · ${section.reference.direction === 'NEUTRAL' ? 'RANGE' : section.reference.direction}`}</span>
                                         <span class={styles.setupScoreInline}>REFERENCE</span>
                                     </div>
-                                    <div class={refWarn ? styles.setupBadgeInverted : styles.setupBadgeReference}>
+                                    <div class={refWarn ? styles.setupBadgeReferenceWarn : styles.setupBadgeReference}>
                                         {refWarn ? 'BELOW ACTIONABLE FLOOR' : 'INFORMATIONAL'}
                                     </div>
                                     <div class={styles.setupBody}>
@@ -660,7 +674,7 @@
                                         </div>
                                         <div class={styles.setupRow}>
                                             <span class={styles.setupRowLabel}>STOP-LOSS</span>
-                                            <span class="{styles.setupRowValue} {styles.setupRowStop} {refFlagged.has('sl') ? styles.setupRowFlagged : ''}">
+                                            <span class="{styles.setupRowValue} {styles.setupRowStopGrey} {refFlagged.has('sl') ? styles.setupRowFlagged : ''}">
                                                 {section.reference.zones ? fmtPxDecimal(section.reference.zones.invalidation, markPrice) : '—'}
                                             </span>
                                         </div>
@@ -791,7 +805,7 @@
                             const br = b.preconditions_total > 0 ? b.preconditions_met / b.preconditions_total : 0;
                             return br - ar;
                         }) as profile (profile.opportunity_type)}
-                        <div class="{styles.profileCard} {oppClass(profile.opportunity_type)}">
+                        <div class="{styles.profileCard} {profileSideCls(profile)}">
                             <div class={styles.profileHeader}>
                                 <span class={styles.profileType}>{oppLabel(profile.opportunity_type)}</span>
                                 <span class={styles.profileScore} style="color: {scoreColor(wireDisplayScore(profile))}; {profile.preconditions_met === 0 ? 'opacity: 0.45' : ''}">{fmtScore(wireDisplayScore(profile))}</span>

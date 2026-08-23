@@ -408,6 +408,7 @@ fn fmt_rr(rr: f64) -> String {
 pub async fn run_terminal_monitor(
     overview_ref: Arc<RwLock<Option<OverviewMatrix>>>,
     workspace: portfolio_supervisor::workspace_state::WorkspaceState,
+    pool: sqlx::SqlitePool,
     interval_secs: u64,
     session_line: String,
     cancel: CancellationToken,
@@ -423,9 +424,28 @@ pub async fn run_terminal_monitor(
             _ = interval.tick() => {
                 let overview = overview_ref.read().await.clone();
                 let instances = workspace.list().await;
+                // v10.1: long/short symmetry verdict (CLI↔GUI parity — the
+                // same computation the PAE Overview card renders).
+                let symmetry =
+                    performance_analytics::stats_compiler::compute_direction_symmetry_live(&pool)
+                        .await;
                 let frame = render_frame(&overview, &instances, &session_line).await;
                 print!("\x1b[2J\x1b[H");
                 print!("{}", frame);
+                if let Some(s) = &symmetry {
+                    println!(
+                        "\n  ── LONG/SHORT SYMMETRY ──────────────────────────────────────────────\n  longs {} (exp {:.2} · WR {:.0}%) vs shorts {} (exp {:.2} · WR {:.0}%) · t {:.2} · p {:.4} · {}",
+                        s.long_count,
+                        s.long_expectancy_usd,
+                        s.long_win_rate,
+                        s.short_count,
+                        s.short_expectancy_usd,
+                        s.short_win_rate,
+                        s.t_statistic,
+                        s.p_value,
+                        s.verdict,
+                    );
+                }
                 std::io::Write::flush(&mut std::io::stdout()).ok();
             }
         }

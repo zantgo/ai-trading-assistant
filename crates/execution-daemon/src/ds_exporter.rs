@@ -21,6 +21,8 @@ pub struct DsSessionMeta {
     pub capital: f64,
     pub started_at_ms: i64,
     pub config_snapshot: serde_json::Value,
+    /// v10.1: TAE-activation intent at launch (`--tae-on` / CLI prompt).
+    pub tae_activated: bool,
 }
 
 /// Run the exporter until the channel closes or the task is aborted.
@@ -49,6 +51,7 @@ pub async fn run_ds_exporter(
             "currency": meta.currency,
             "portfolio_capital_usd": meta.capital,
             "started_at_ms": meta.started_at_ms,
+            "tae_activated": meta.tae_activated,
             "config_snapshot": meta.config_snapshot,
         }),
     )

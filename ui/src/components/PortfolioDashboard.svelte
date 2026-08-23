@@ -300,7 +300,6 @@
             positions: 'Positions',
             exposure: 'Exposure',
             capital: 'Capital',
-            portfolio: 'Portfolio Overview',
             safety: 'Safety',
             settings: 'Portfolio Settings',
         };
@@ -377,18 +376,6 @@
                     capital: portfolio?.capital ?? null,
                 };
                 break;
-            case 'portfolio':
-                data = {
-                    mode,
-                    ghost,
-                    starting_session_equity: portfolio?.starting_session_equity ?? null,
-                    current_equity: portfolio?.current_equity ?? null,
-                    peak_equity: portfolio?.peak_equity ?? null,
-                    max_drawdown_pct: portfolio?.max_drawdown_pct ?? null,
-                    daily_pnl: portfolio?.daily_pnl ?? null,
-                    systemic_risk_score: portfolio?.systemic_risk_score ?? null,
-                };
-                break;
             case 'safety':
                 data = {
                     mode,
@@ -411,6 +398,12 @@
                     safety_state: portfolio?.safety_state ?? null,
                     allocation_pct: allocationPct,
                     safety_blueprint: safetyCfg,
+                    // v10.1: the merged Portfolio Overview Matrix fields.
+                    starting_session_equity: portfolio?.starting_session_equity ?? null,
+                    peak_equity: portfolio?.peak_equity ?? null,
+                    max_drawdown_pct: portfolio?.max_drawdown_pct ?? null,
+                    daily_pnl: portfolio?.daily_pnl ?? null,
+                    systemic_risk_score: portfolio?.systemic_risk_score ?? null,
                 };
         }
         return buildEngineExport('portfolio', safeSection, mode ?? null, data);
@@ -514,19 +507,24 @@
                         No capital engaged — account metrics (equity, margin, exposure, P&L) appear when this instance runs in paper or live mode.
                     </div>
                 {:else}
-                    <!-- ── Paper / Live: Account Overview ── -->
+                    <!-- ── Paper / Live: Overview (merged with the L4
+                         Portfolio Overview Matrix — v10.1) ── -->
                     <div class={styles.card}>
-                        <h3 class={styles.cardTitle}>Account Overview</h3>
+                        <h3 class={styles.cardTitle}>Portfolio Overview Matrix</h3>
                         <p class={styles.infoLine}>
                             PME reports current portfolio state. It never executes: the automation executor is the only thing that trades, and it blocks new entries in DRAWDOWN_STOP / SUSPENDED.
                         </p>
                         <div class={styles.grid2}>
-                            <div class={local.overviewStat}><span class={local.overviewLabel}>Session</span><span class={local.overviewValue}>${fmtUsd(portfolio.starting_session_equity)}</span></div>
-                            <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class={local.overviewValue}>{fmtNum(portfolio.systemic_risk_score)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Session Start</span><span class={local.overviewValue}>${fmtUsd(portfolio.starting_session_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Current Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.current_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Peak Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.peak_equity)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Daily PnL</span><span class="{local.overviewValue} {pnlClass(portfolio.daily_pnl)}">{signedUsd(portfolio.daily_pnl)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Max Drawdown</span><span class="{local.overviewValue} {styles.neg}">{fmtPct(portfolio.max_drawdown_pct)}</span></div>
+                            <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class="{local.overviewValue} {Number(portfolio.systemic_risk_score) > 50 ? styles.warn : ''}">{fmtNum(portfolio.systemic_risk_score)}</span></div>
                         </div>
                         <div class={local.sessionBar}>
                             <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting || ghost}>
-                                {resetting ? 'Resetting…' : 'Reset session'}
+                                {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
                             </button>
                         </div>
                     </div>
@@ -616,29 +614,6 @@
                             MARGIN ALERT: {portfolio.capital.margin_alert}
                         </div>
                     {/if}
-                </div>
-
-            {:else if safeSection === 'portfolio'}
-                <!-- ── PME L4: Overview Layer (PortfolioOverviewMatrix) ── -->
-                <div class={styles.card}>
-                    <h3 class={styles.cardTitle}>Portfolio Overview Matrix</h3>
-                    <p class={styles.infoLine}>
-                        L4 Overview Layer — the aggregate money picture across the instance:
-                        session accounting, drawdown trajectory and systemic risk.
-                    </p>
-                    <div class={styles.grid2}>
-                        <div class={local.overviewStat}><span class={local.overviewLabel}>Session Start</span><span class={local.overviewValue}>${fmtUsd(portfolio.starting_session_equity)}</span></div>
-                        <div class={local.overviewStat}><span class={local.overviewLabel}>Current Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.current_equity)}</span></div>
-                        <div class={local.overviewStat}><span class={local.overviewLabel}>Peak Equity</span><span class={local.overviewValue}>${fmtUsd(portfolio.peak_equity)}</span></div>
-                        <div class={local.overviewStat}><span class={local.overviewLabel}>Daily PnL</span><span class="{local.overviewValue} {pnlClass(portfolio.daily_pnl)}">{signedUsd(portfolio.daily_pnl)}</span></div>
-                        <div class={local.overviewStat}><span class={local.overviewLabel}>Max Drawdown</span><span class="{local.overviewValue} {styles.neg}">{fmtPct(portfolio.max_drawdown_pct)}</span></div>
-                        <div class={local.overviewStat}><span class={local.overviewLabel}>Systemic Risk</span><span class="{local.overviewValue} {Number(portfolio.systemic_risk_score) > 50 ? styles.warn : ''}">{fmtNum(portfolio.systemic_risk_score)}</span></div>
-                    </div>
-                    <div class={local.sessionBar}>
-                        <button class="{styles.btn} {styles.btnGhost}" onclick={sessionReset} disabled={resetting}>
-                            {resetting ? 'Resetting…' : 'Reset session (rebaseline peak + daily)'}
-                        </button>
-                    </div>
                 </div>
 
             {:else if safeSection === 'safety'}

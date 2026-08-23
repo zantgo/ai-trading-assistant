@@ -11,7 +11,7 @@
 
     interface Props {
         /** Engine key drives the guidance copy. */
-        engine: 'trade_automation' | 'portfolio' | 'performance' | 'backtesting';
+        engine: 'trade_automation' | 'portfolio' | 'performance' | 'backtesting' | 'market_monitor';
     }
 
     let { engine }: Props = $props();
@@ -32,6 +32,10 @@
         backtesting: {
             title: 'No instance selected',
             body: 'The Backtesting Engine binds to one running instance (exchange, base currency, timeframe ladder). Select an instance from the right-side Instances panel or the Market Monitor Workspace tab to backfill history and run backtests.',
+        },
+        market_monitor: {
+            title: 'No active instance',
+            body: 'Select a workspace instance from the top-right panel to configure timeframes, indicators, and visual overlays.',
         },
     };
 </script>

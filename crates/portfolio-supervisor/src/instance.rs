@@ -174,6 +174,15 @@ impl Instance {
         *self.execution_mode.write().await = mode;
     }
 
+    /// v10.1: boot the lifecycle for the instance's execution mode —
+    /// paper/live boots PAUSED (close-only, TAE not activated), observe
+    /// boots RUNNING (ghost radar). Call after `set_execution_mode`.
+    pub async fn boot_lifecycle(&self, mode: config_models::ExecutionMode) {
+        let mut lc = LifecycleManager::new_for_mode(None, Some(mode));
+        lc.set_db(self.id.clone(), Arc::new(self.pool.clone()));
+        *self.lifecycle.write().await = lc;
+    }
+
     pub fn symbol(&self) -> String {
         self.active_pair.symbol.clone()
     }

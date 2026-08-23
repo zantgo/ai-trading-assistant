@@ -54,6 +54,13 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 > - `gross_loss = Σ |pnl|` over losing trades (positive)
 > - `average_loss = Σ |pnl| / loss_count` (positive)
 >
+> **v10.1 long/short symmetry.** `compare_direction_symmetry(trades)` runs a Welch
+> two-sample t-test over per-trade `roi_pct` (size-normalized; USD expectancy is context
+> only). H0: long and short returns are statistically equal. A verdict is produced only
+> with ≥10 trades per side: `SYMMETRIC` / `LONG_BETTER` / `SHORT_BETTER` at α = 0.05
+> (two-tailed). Surfaced on the PAE Overview card, the BTE Study Report, and the CLI
+> monitor; persisted per backtest as the `dir_*` metric keys.
+>
 > Under this convention, the `expectancy` formula `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` is sign-consistent: the loss term is properly subtracted, giving `0.5 × 20 − 0.5 × 10 = 5` (correct). The runtime in `crates/core-domain/src/strategy_analytics.rs` (when implemented) MUST compute `average_loss = average_loss_raw.abs()` before storing, and the persistence layer MUST store the absolute value. This convention is mirrored in the [Database Schema `strategy_analytics_history.expectancy` column](../../integration-and-api/06-02-database-schema-spec.md), which receives the post-correction value.
 
 ## 3. Statistical Significance Testing

@@ -7,6 +7,7 @@
     import DIEOverviewPanel from './DIEOverviewPanel.svelte';
     import MarketDataPanel from './MarketDataPanel.svelte';
     import DistributionPanel from './DistributionPanel.svelte';
+    import DIEConnectionSettings from './DIEConnectionSettings.svelte';
     import DashboardHeader from './DashboardHeader.svelte';
     import styles from '../styles/engine-dashboard.module.css';
 
@@ -57,6 +58,7 @@
         clock_monitor: 'NTP Clock Monitor',
         data_quality: 'Data Quality',
         distribution: 'Distribution',
+        settings: 'Connection Settings',
     };
 
     const DESCRIPTIONS: Record<string, string> = {
@@ -67,6 +69,7 @@
         clock_monitor: 'UTC drift enforcement via continuous NTP polling (drift budget is the L2 candle-alignment contract).',
         data_quality: 'Per-session pipeline reliability: coverage, gaps, outlier rejection, out-of-order drops and reconstructed candles.',
         distribution: 'L4 egress telemetry — pipeline latencies, ingest skew and connected WebSocket clients.',
+        settings: 'REST call resilience policy ([workspace.api_failover]) — retries, backoff and the consecutive-failure halt threshold. Read when pipelines are built.',
     };
 </script>
 
@@ -98,6 +101,8 @@
             <DataQualityPanel />
         {:else if section === 'distribution'}
             <DistributionPanel />
+        {:else if section === 'settings'}
+            <DIEConnectionSettings />
         {/if}
     </div>
 </div>

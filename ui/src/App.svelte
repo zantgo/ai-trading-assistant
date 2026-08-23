@@ -14,7 +14,7 @@
     import QuitDialog from './QuitDialog.svelte';
 
     import styles from './styles/brutalist-grid.module.css';
-    import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList } from './lib/api.svelte';
+    import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList, postInstanceLifecycle } from './lib/api.svelte';
     import { pickInstanceLivePrice } from './lib/livePrice';
     import {
         connectWsForInstance, disconnectWsForInstance, shouldReconnect,
@@ -28,6 +28,7 @@
     import {
         ENGINE_TABS,
         ENGINE_DEFAULT_TAB,
+        BTE_TABS_NO_INSTANCE,
         tabsForMode,
         type EngineKey,
         type ExecutionMode,
@@ -51,7 +52,9 @@
     let isSidebarOpen = $state(false);
     let isWorkspacePanelOpen = $state(false);
     let showQuitDialog = $state(false);
-    let confirmModal = $state<{ action: 'delete'; id: string; pair?: string } | null>(null);
+    // v10.1: row actions now include the TAE activation toggle (start /
+    // pause ride the instance lifecycle endpoint).
+    let confirmModal = $state<{ action: 'start' | 'pause' | 'delete'; id: string; pair?: string } | null>(null);
     /// Inline error surfaced beneath the right-panel list when a delete
     /// call returns 4xx. The old global banner was overkill — a single
     /// DELETE failure is local to the panel and the user needs to see
@@ -156,7 +159,14 @@
                 : (Object.values(app.instancesMap)[0]?.mode
                     ?? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined))),
     );
-    const engineTabs = $derived(tabsForMode(app.currentEngine as EngineKey, activeMode));
+    const engineTabs = $derived.by(() => {
+        // v10.1: BTE dynamic navbar — Overview/History/Settings until a
+        // bound instance or loaded run exists, then the full set.
+        if (app.currentEngine === 'backtesting' && !app.btSessionActive) {
+            return BTE_TABS_NO_INSTANCE;
+        }
+        return tabsForMode(app.currentEngine as EngineKey, activeMode);
+    });
 
     const livePrice = $derived.by(() => {
         if (!resilientActivePair) return '--';
@@ -409,12 +419,11 @@
     // ─── Workspace panel confirm actions ───────────────────────────────
     //
     // The dashboard model is binary: an instance is either running or it
-    // doesn't exist. There's no pause/start/stop — DELETE is a single
-    // call that the backend accepts on any state. On 4xx we surface the
-    // error verbatim in the panel; on 2xx we do the local cleanup so
-    // the row disappears immediately without waiting for the next
-    // session-status refetch.
-    function requestRowConfirm(id: string, action: 'delete', pair?: string) {
+    // v10.1: DELETE is a single call the backend accepts on any state;
+    // START/PAUSE ride the instance lifecycle endpoint (TAE activation).
+    // On 4xx the error is surfaced verbatim in the panel; on 2xx the
+    // panel's 3s polling backstop refreshes the row.
+    function requestRowConfirm(id: string, action: 'start' | 'pause' | 'delete', pair?: string) {
         confirmModal = { id, action, pair };
     }
 
@@ -440,9 +449,20 @@
 
     async function executeRowConfirm() {
         if (!confirmModal) return;
-        const { id, pair } = confirmModal;
+        const { action, id, pair } = confirmModal;
         confirmModal = null;
-        await executeDelete(id, pair);
+        if (action === 'delete') {
+            await executeDelete(id, pair);
+            return;
+        }
+        // TAE activation toggle — lifecycle start/pause.
+        const res = await postInstanceLifecycle(id, action);
+        if (res.error) {
+            surfacePanelError(res.error);
+        } else {
+            await syncInstanceIdsFromList(app);
+            await app.fetchSessionStatus();
+        }
     }
 
     /** Single-step delete: the backend's `registry::delete_instance`

@@ -84,6 +84,33 @@ pub struct RiskAnalyticsRow {
     pub downside_deviation: f64,
     pub value_at_risk_95: f64,
     pub expected_shortfall_95: f64,
+    /// v10.1: Sharpe computed over **log** daily returns (time-additive,
+    /// unbiased for skewed/volatile equity curves). `None` when the curve
+    /// is too short or flat.
+    #[serde(default)]
+    pub sharpe_ratio_log: Option<f64>,
+}
+
+// ─── v10.1 Direction Symmetry Verdict ────────────────────────────────
+
+/// Welch two-sample t-test comparing LONG vs SHORT per-trade returns.
+/// H0: the two directions' returns are statistically equal.
+/// Primary statistic = `roi_pct` (size-normalized); USD expectancy is
+/// reported as context. Only produced with ≥10 trades per side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectionSymmetryVerdict {
+    pub long_count: u32,
+    pub short_count: u32,
+    pub long_expectancy_usd: f64,
+    pub short_expectancy_usd: f64,
+    pub long_win_rate: f64,
+    pub short_win_rate: f64,
+    pub t_statistic: f64,
+    pub degrees_of_freedom: f64,
+    pub p_value: f64,
+    pub significant: bool,
+    /// SYMMETRIC | LONG_BETTER | SHORT_BETTER (significant only).
+    pub verdict: String,
 }
 
 // ─── L4: Performance Matrix (Regime Compatibility) ──────────────────

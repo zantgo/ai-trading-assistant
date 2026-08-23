@@ -32,6 +32,8 @@
     "win_rate": 0.0
   },
   "summary": {
+    "avg_win_loss_ratio": 0.0,
+    "direction_symmetry": null,
     "expectancy": 0.0,
     "gross_loss": -0.0,
     "gross_profit": -0.0,

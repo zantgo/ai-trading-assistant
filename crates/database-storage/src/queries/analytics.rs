@@ -232,8 +232,8 @@ pub async fn insert_risk_analytics(pool: &SqlitePool, row: &RiskAnalyticsRow) ->
          (timestamp, maximum_drawdown_pct, max_drawdown_duration_days,
           average_drawdown_pct, drawdown_count, sharpe_ratio, sortino_ratio,
           ulcer_index, calmar_ratio, daily_volatility, downside_deviation,
-          value_at_risk_95, expected_shortfall_95)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+          value_at_risk_95, expected_shortfall_95, sharpe_ratio_log)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(ts)
     .bind(row.maximum_drawdown_pct)
@@ -248,6 +248,7 @@ pub async fn insert_risk_analytics(pool: &SqlitePool, row: &RiskAnalyticsRow) ->
     .bind(row.downside_deviation)
     .bind(row.value_at_risk_95)
     .bind(row.expected_shortfall_95)
+    .bind(row.sharpe_ratio_log)
     .execute(pool)
     .await
     {
@@ -263,7 +264,8 @@ pub async fn query_risk_analytics_latest(pool: &SqlitePool) -> Option<RiskAnalyt
     let row = sqlx::query_as::<_, RiskAnalyticsQueryRow>(
         "SELECT maximum_drawdown_pct, max_drawdown_duration_days, average_drawdown_pct,
                 drawdown_count, sharpe_ratio, sortino_ratio, ulcer_index, calmar_ratio,
-                daily_volatility, downside_deviation, value_at_risk_95, expected_shortfall_95
+                daily_volatility, downside_deviation, value_at_risk_95, expected_shortfall_95,
+                COALESCE(sharpe_ratio_log, NULL)
          FROM risk_analytics_history
          ORDER BY timestamp DESC LIMIT 1",
     )
@@ -284,6 +286,7 @@ pub async fn query_risk_analytics_latest(pool: &SqlitePool) -> Option<RiskAnalyt
             downside_deviation: r.downside_deviation,
             value_at_risk_95: r.value_at_risk_95,
             expected_shortfall_95: r.expected_shortfall_95,
+            sharpe_ratio_log: r.sharpe_ratio_log,
         }),
         _ => None,
     }
@@ -427,6 +430,7 @@ struct RiskAnalyticsQueryRow {
     downside_deviation: f64,
     value_at_risk_95: f64,
     expected_shortfall_95: f64,
+    sharpe_ratio_log: Option<f64>,
 }
 
 #[derive(Debug, sqlx::FromRow)]

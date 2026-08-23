@@ -98,9 +98,9 @@ export function regimeTone(
 export function qualityColor(value: number | null | undefined): string {
     if (value == null || !isFinite(value)) return DASHBOARD_COLORS.inactive;
     if (value >= 70) return '#22c55e';
-    if (value >= 50) return DASHBOARD_COLORS.bullish;
-    if (value >= 30) return DASHBOARD_COLORS.neutral;
-    return DASHBOARD_COLORS.bearish;
+    if (value >= 50) return DASHBOARD_COLORS.neutral;
+    // v10.1: low quality is grey — red is SHORT only.
+    return DASHBOARD_COLORS.textDim;
 }
 
 /**
@@ -123,7 +123,8 @@ export function rrColor(rr: number | null | undefined): string {
     if (rr == null || !isFinite(rr) || rr <= 0) return DASHBOARD_COLORS.textMuted;
     if (rr >= 2.0) return '#22c55e';
     if (rr >= 1.0) return DASHBOARD_COLORS.neutral;
-    return DASHBOARD_COLORS.bearish;
+    // v10.1: sub-1.0 R:R is caution (amber) — red is SHORT only.
+    return DASHBOARD_COLORS.neutral;
 }
 
 /**
@@ -133,10 +134,9 @@ export function rrColor(rr: number | null | undefined): string {
 export function scoreColor(score: number | null | undefined): string {
     if (score == null || !isFinite(score)) return DASHBOARD_COLORS.inactive;
     if (score >= 85) return '#22c55e';
-    if (score >= 70) return DASHBOARD_COLORS.bullish;
     if (score >= 50) return DASHBOARD_COLORS.neutral;
-    if (score >= 30) return '#fbbf24';
-    return DASHBOARD_COLORS.bearish;
+    // v10.1: low scores are grey — red is SHORT only.
+    return DASHBOARD_COLORS.textDim;
 }
 
 /**
@@ -194,7 +194,7 @@ export function formatRewardRatio(rr: number | null | undefined): string {
 }
 
 /// ───────────────────────────────────────────────────────────────────────
-/// v7.0-prod chrome update — direction-vocabulary palette.
+/// v10.1 direction-first palette — one vocabulary, every surface.
 /// ───────────────────────────────────────────────────────────────────────
 ///
 /// The top badge on every MME tab carries one strict colour vocabulary
@@ -202,16 +202,20 @@ export function formatRewardRatio(rr: number | null | undefined): string {
 /// row and instantly recognise "this timeframe is mostly bullish" or
 /// "this layer is mostly bearish" without reading the text:
 ///
-///   • green   → long / bullish
-///   • red     → short / bearish
-///   • amber   → sideways / neutral / hold / wait / stand aside
-///   • gray    → disconnected / no data / unknown
+///   • green   → long / bullish (and, on non-directional surfaces,
+///               a "good" score — ≥85 or ≥70 health bands)
+///   • red     → short / bearish ONLY (broken data and sub-threshold
+///               numbers are amber/grey, never red)
+///   • amber   → every caution/state (sideways, below-floor, degraded,
+///               sub-1.0 R:R, flagged coordinates; dashed = broken bracket)
+///   • gray    → informational / neutral / low / no data
 ///
 /// Green and red are reserved exclusively for headline trade-direction.
-/// The live-status dot is BLUE in every state (see
-/// `LayerHeader.module.css :: .statusLive`). Numbers that aren't a
-/// direction (a score, an R:R, a risk magnitude) keep their own
-/// numeric-derived colour bands via `scoreColor` / `riskDangerColor`.
+/// Numbers that aren't a direction (a score, an R:R, a risk magnitude)
+/// use green/amber/grey numeric bands via `scoreColor` / `qualityColor`;
+/// `riskDangerColor` keeps danger-red because risk surfaces have no
+/// direction to confuse. The live-status dot is BLUE in every state (see
+/// `LayerHeader.module.css :: .statusLive`).
 export type DirectionMode = 'long' | 'short' | 'sideways' | 'nodata';
 
 export const DIRECTION_COLORS: Record<DirectionMode, {

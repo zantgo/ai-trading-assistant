@@ -504,6 +504,9 @@ pub async fn run_cli_backtest(
         taker_fee_pct: workspace.fees.taker_fee_pct,
         funding_rate_8h: workspace.fees.funding_rate_8h,
         simulated_spread_pct: 0.01,
+        // v10.1: the run's bound strategy execution dial (parity with
+        // live/paper — same cost model).
+        slippage_bps: run_cfg.strategy.tae.execution.slippage_bps,
     };
     // v9: the verdict bar comes from the run's bound strategy's `pae` section.
     let analytics = {

@@ -40,10 +40,10 @@
     const isIdle = $derived(isIdleReport(report));
 
     function scoreColor(score: number): string {
-        if (score >= 90) return '#22c55e';
-        if (score >= 75) return '#84cc16';
+        // v10.1: 3-band health — green/amber/grey; red is SHORT only.
+        if (score >= 70) return '#22c55e';
         if (score >= 50) return '#f59e0b';
-        return '#ef4444';
+        return '#94a3b8';
     }
 
     function uptimeColor(pct: number): string {

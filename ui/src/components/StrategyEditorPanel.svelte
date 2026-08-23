@@ -1,8 +1,10 @@
 <script lang="ts">
-    // StrategyEditorPanel (v9) — per-section JSON editing of one strategy.
-    // The strategy JSON is the single source of truth; the editor edits
-    // it as JSON (the exact format the CLI consumes), with a section tree
-    // on the left, validation on save, and a full-JSON view.
+    // StrategyEditorPanel (v10.1) — schema-driven form editing of one
+    // strategy. The strategy JSON is still the single source of truth; the
+    // editor exposes it through typed controls (toggles, constrained
+    // numbers, enum selects, repeatable arrays) — no raw JSON editing.
+    // The form initializes from the EFFECTIVE (base-merged) strategy the
+    // API returns and saves the full effective snapshot.
     import { onMount } from 'svelte';
     import {
         fetchStrategies,
@@ -13,6 +15,7 @@
     import styles from './StrategyEditorPanel.module.css';
     import engine from '../styles/engine-dashboard.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
+    import StrategyForm from './strategy/StrategyForm.svelte';
 
     const SECTIONS: { key: string; label: string }[] = [
         { key: 'l1', label: 'L1 · Metrics' },
@@ -38,15 +41,25 @@
 
     let strategies = $state<StrategySummary[]>([]);
     let selected = $state<string | null>((() => name)());
-    let full = $state<Record<string, unknown> | null>(null);
-    let section = $state<string>('l4');
-    let sectionText = $state('');
-    let viewFullJson = $state(false);
-    let fullJsonText = $state('');
+    let draft = $state<Record<string, unknown> | null>(null);
+    let baselineJson = $state('');
+    let section = $state<string>('tae');
     let flash = $state<string | null>(null);
     let warnings = $state<string[]>([]);
     let busy = $state(false);
-    let dirty = $state(false);
+
+    const dirty = $derived.by(() => {
+        if (!draft) return false;
+        try {
+            return JSON.stringify(draft) !== baselineJson;
+        } catch {
+            return true;
+        }
+    });
+
+    const strategyName = $derived((draft?.name as string | undefined) ?? selected ?? '');
+    const strategyDesc = $derived((draft?.description as string | null) ?? null);
+    const strategyBase = $derived((draft?.base as string | null) ?? null);
 
     async function loadStrategies() {
         strategies = await fetchStrategies();
@@ -55,70 +68,33 @@
 
     async function loadStrategy(n: string) {
         const json = await fetchStrategyJson(n);
-        full = json as Record<string, unknown>;
-        fullJsonText = JSON.stringify(json, null, 2);
+        draft = json as Record<string, unknown>;
+        baselineJson = JSON.stringify(draft);
         selected = n;
-        renderSection();
-    }
-
-    function renderSection() {
-        if (!full) return;
-        const value = (full as Record<string, unknown>)[section];
-        sectionText = JSON.stringify(value, null, 2);
-    }
-
-    function switchSection(key: string) {
-        // Persist the current section draft into the working object.
-        applySectionDraft();
-        section = key;
-        renderSection();
-    }
-
-    function applySectionDraft() {
-        if (!full || !dirty) return;
-        try {
-            (full as Record<string, unknown>)[section] = JSON.parse(sectionText);
-        } catch {
-            // keep the old value; validation flags it on save
-        }
-    }
-
-    function syncFullJson() {
-        if (!viewFullJson) return;
-        try {
-            full = JSON.parse(fullJsonText) as Record<string, unknown>;
-            dirty = true;
-        } catch {
-            /* invalid draft — flagged on save */
-        }
+        flash = null;
     }
 
     async function save() {
-        applySectionDraft();
-        if (viewFullJson) syncFullJson();
-        if (!full || !selected) return;
+        if (!draft || !selected) return;
+        let serialized: string;
         try {
-            JSON.stringify(full);
+            serialized = JSON.stringify(draft);
         } catch {
-            flash = 'The strategy JSON is invalid — fix it before saving.';
+            flash = 'The strategy contains invalid values — fix them before saving.';
             return;
         }
         busy = true;
         const res = await saveStrategy(
             selected,
-            full as Record<string, unknown>,
-            (full.base as string | null) ?? null,
-            (full.description as string | null) ?? null,
+            JSON.parse(serialized) as Record<string, unknown>,
+            strategyBase,
+            strategyDesc,
         );
         busy = false;
         flash = res.error ?? `Saved '${selected}' — running instances recharge at the next candle boundary.`;
         warnings = res.warnings ?? [];
-        dirty = false;
+        baselineJson = serialized;
         await loadStrategies();
-    }
-
-    function copyFullJson() {
-        void navigator.clipboard?.writeText(fullJsonText);
     }
 
     onMount(async () => {
@@ -167,56 +143,59 @@
             </div>
         {/if}
 
-        {#if !full}
+        {#if !draft}
             <div class={engine.empty}>Select a strategy to edit.</div>
         {:else}
+            <!-- Strategy identity (metadata) -->
+            <div class={engine.card}>
+                <div class={engine.formRow}>
+                    <div class={engine.field}>
+                        <label class={engine.fieldLabel} for="st-name">Strategy name</label>
+                        <input class={engine.fieldInput} id="st-name" value={strategyName} disabled />
+                    </div>
+                    <div class={engine.field}>
+                        <label class={engine.fieldLabel} for="st-base">Base (inheritance)</label>
+                        <input class={engine.fieldInput} id="st-base" bind:value={draft.base} placeholder="(none — standalone)" />
+                    </div>
+                    <div class={engine.field}>
+                        <label class={engine.fieldLabel} for="st-desc">Description</label>
+                        <input class={engine.fieldInput} id="st-desc" bind:value={draft.description} placeholder="What this strategy is for" />
+                    </div>
+                </div>
+                <p class={engine.infoLine}>
+                    Every field renders as a typed control (toggle, constrained number, enum select).
+                    Unset values inherit the base strategy; SET assigns a default. The full effective
+                    snapshot is saved — import/export stays at the strategy list level.
+                </p>
+            </div>
+
             <div class={styles.panes}>
                 <nav class={styles.tree} aria-label="Strategy sections">
                     {#each SECTIONS as s (s.key)}
                         <button
-                            class="{styles.treeItem} {section === s.key && !viewFullJson ? styles.treeActive : ''}"
-                            onclick={() => { viewFullJson = false; switchSection(s.key); }}
+                            class="{styles.treeItem} {section === s.key ? styles.treeActive : ''}"
+                            onclick={() => (section = s.key)}
                         >
                             {s.label}
                         </button>
                     {/each}
-                    <button
-                        class="{styles.treeItem} {viewFullJson ? styles.treeActive : ''}"
-                        onclick={() => { applySectionDraft(); viewFullJson = true; fullJsonText = JSON.stringify(full, null, 2); }}
-                    >
-                        Full JSON
-                    </button>
                 </nav>
 
                 <div class={styles.canvas}>
-                    {#if viewFullJson}
-                        <div class={styles.jsonToolbar}>
-                            <span class={engine.infoLine}>The complete strategy JSON — exportable and CLI-compatible.</span>
-                            <button class={engine.btn} onclick={copyFullJson}>Copy</button>
-                        </div>
-                        <textarea
-                            class={styles.jsonArea}
-                            spellcheck="false"
-                            bind:value={fullJsonText}
-                            onchange={syncFullJson}
-                            aria-label="Full strategy JSON"
-                        ></textarea>
-                    {:else}
-                        <h3 class={engine.cardTitle}>
-                            {SECTIONS.find((s) => s.key === section)?.label ?? section}
-                        </h3>
-                        <p class={engine.infoLine}>
-                            Edit this section as JSON — the exact format the CLI understands.
-                            Missing keys inherit the base strategy; <code class={engine.code}>null</code> / empty = disabled.
-                        </p>
-                        <textarea
-                            class={styles.jsonArea}
-                            spellcheck="false"
-                            bind:value={sectionText}
-                            oninput={() => (dirty = true)}
-                            aria-label="Section JSON"
-                        ></textarea>
-                    {/if}
+                    <h3 class={engine.cardTitle}>
+                        {SECTIONS.find((s) => s.key === section)?.label ?? section}
+                    </h3>
+                    <p class={engine.infoLine}>
+                        Configured values override the base; unset fields inherit it. Changes apply on save —
+                        running instances recharge at the next candle boundary.
+                    </p>
+                    <div class={engine.card}>
+                        {#if draft[section] === null || draft[section] === undefined}
+                            <p class={engine.infoLine}>This section is unset — it inherits the base strategy entirely.</p>
+                        {:else}
+                            <StrategyForm value={draft[section]} path={[section]} label={SECTIONS.find((s) => s.key === section)?.label ?? section} />
+                        {/if}
+                    </div>
                 </div>
             </div>
         {/if}

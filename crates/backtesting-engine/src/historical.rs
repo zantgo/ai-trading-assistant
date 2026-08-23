@@ -660,6 +660,9 @@ pub async fn run_historical_backtest(
                 mfe_pct: outcome.last_close_mfe_pct.unwrap_or(0.0),
                 mae_pct: outcome.last_close_mae_pct.unwrap_or(0.0),
                 roi_pct,
+                slippage_bps: close.slippage_bps,
+                commission_fees: close.commission_fees.to_f64().unwrap_or(0.0),
+                funding_fees: close.funding_fees.to_f64().unwrap_or(0.0),
             });
         }
 
@@ -729,9 +732,9 @@ pub async fn run_historical_backtest(
             let _ = engine
                 .close_position(&symbol, final_mid, "end_of_backtest")
                 .await;
-            let pnl = engine
-                .take_last_close(&symbol)
-                .await
+            let close = engine.take_last_close(&symbol).await;
+            let pnl = close
+                .as_ref()
                 .map(|c| c.pnl.to_f64().unwrap_or(0.0))
                 .unwrap_or(0.0);
             let exit = if size > 0.0 {
@@ -773,6 +776,15 @@ pub async fn run_historical_backtest(
                 mfe_pct: 0.0,
                 mae_pct: 0.0,
                 roi_pct,
+                slippage_bps: close.as_ref().map(|c| c.slippage_bps).unwrap_or(0.0),
+                commission_fees: close
+                    .as_ref()
+                    .map(|c| c.commission_fees.to_f64().unwrap_or(0.0))
+                    .unwrap_or(0.0),
+                funding_fees: close
+                    .as_ref()
+                    .map(|c| c.funding_fees.to_f64().unwrap_or(0.0))
+                    .unwrap_or(0.0),
             });
             equity_points.push((
                 last_ts as i64,

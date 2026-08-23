@@ -11,6 +11,12 @@ pub struct EvaluatorConfig {
     pub pool: SqlitePool,
     pub cancel: CancellationToken,
     pub eval_interval_secs: u64,
+    /// v10.1: the configured significance-treatment parameters (the live
+    /// pipeline previously hardcoded `AnalyticsParams::default()`).
+    pub analytics_params: crate::strategy_analytics::AnalyticsParams,
+    /// v10.1: annual risk-free rate (percent) from the default strategy's
+    /// `pae.risk_math` — subtracted in Sharpe/Sortino numerators.
+    pub risk_free_rate_pct: f64,
 }
 
 pub async fn run_performance_evaluator(cfg: EvaluatorConfig) {
@@ -29,23 +35,27 @@ pub async fn run_performance_evaluator(cfg: EvaluatorConfig) {
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(cfg.eval_interval_secs)) => {}
         }
 
-        run_full_analytics_pipeline(&cfg.pool).await;
+        run_full_analytics_pipeline(&cfg.pool, cfg.analytics_params, cfg.risk_free_rate_pct).await;
     }
 }
 
-pub async fn run_full_analytics_pipeline(pool: &SqlitePool) {
+pub async fn run_full_analytics_pipeline(
+    pool: &SqlitePool,
+    analytics_params: crate::strategy_analytics::AnalyticsParams,
+    risk_free_rate_pct: f64,
+) {
     let trades = crate::trade_analytics::reconstruct_trades(pool).await;
     if trades.is_empty() {
         return;
     }
 
-    let risk = crate::risk_analytics::compute_risk_analytics(pool).await;
+    let risk = crate::risk_analytics::compute_risk_analytics(pool, risk_free_rate_pct).await;
     database_storage::insert_risk_analytics(pool, &risk).await;
 
     let strategy_rows = crate::strategy_analytics::compute_strategy_analytics(
         pool,
         &trades,
-        crate::strategy_analytics::AnalyticsParams::default(),
+        analytics_params,
     )
     .await;
     for row in &strategy_rows {
@@ -73,8 +83,11 @@ pub async fn run_full_analytics_pipeline(pool: &SqlitePool) {
     );
 }
 
-pub async fn compute_risk_on_demand(pool: &SqlitePool) -> RiskAnalyticsRow {
-    crate::risk_analytics::compute_risk_analytics(pool).await
+pub async fn compute_risk_on_demand(
+    pool: &SqlitePool,
+    risk_free_rate_pct: f64,
+) -> RiskAnalyticsRow {
+    crate::risk_analytics::compute_risk_analytics(pool, risk_free_rate_pct).await
 }
 
 pub async fn compute_strategy_on_demand(

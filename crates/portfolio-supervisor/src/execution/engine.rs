@@ -51,6 +51,14 @@ pub struct CloseOutcome {
     pub is_loss: bool,
     pub exit_reason: String,
     pub pnl: Decimal,
+    /// v10.1: exit commission (entry fee is embedded in the ledger; this
+    /// carries the exit fee for the closing trade's cost attribution).
+    pub commission_fees: Decimal,
+    /// v10.1: cumulative funding accrued on the position (negative =
+    /// paid, positive = received).
+    pub funding_fees: Decimal,
+    /// v10.1: entry + exit fill slippage in bps.
+    pub slippage_bps: f64,
 }
 
 pub struct ExecutionEngine {
@@ -311,10 +319,17 @@ impl ExecutionEngine {
         let spread_half =
             Decimal::from_f64_retain(self.fee_config.simulated_spread_pct / 100.0 / 2.0)
                 .unwrap_or(dec!(0));
+        // v10.1: deterministic slippage cost (bps) on top of the half-spread
+        // — the bound strategy's `tae.execution.slippage_bps` dial. Resting
+        // limit fills clamp at the limit price, so the cost only bites
+        // market/stop fills and limits that cross deeper than the adjustment.
+        let slippage = Decimal::from_f64_retain(self.fee_config.slippage_bps / 10_000.0)
+            .unwrap_or(dec!(0));
+        let total_cost = spread_half + slippage;
         let mut fill_price = if lifecycle.packet.side == OrderSide::Buy {
-            mid_price * (dec!(1) + spread_half)
+            mid_price * (dec!(1) + total_cost)
         } else {
-            mid_price * (dec!(1) - spread_half)
+            mid_price * (dec!(1) - total_cost)
         };
 
         // Never fill worse than a resting limit price.
@@ -417,12 +432,16 @@ impl ExecutionEngine {
                     .unwrap_or_else(|| exit_reason.clone());
 
                 // Record the close outcome for the PME safety ladder.
+                let exit_slippage = lifecycle.slippage_bps.unwrap_or(0.0);
                 self.last_close.write().await.insert(
                     symbol.clone(),
                     CloseOutcome {
                         is_loss: pnl < dec!(0),
                         exit_reason: exit_reason.clone(),
                         pnl,
+                        commission_fees: fee,
+                        funding_fees: pos.funding_accrued,
+                        slippage_bps: pos.entry_slippage_bps + exit_slippage,
                     },
                 );
 
@@ -476,6 +495,8 @@ impl ExecutionEngine {
                     opened_at_ms: now_ms,
                     mfe_pct: 0.0,
                     mae_pct: 0.0,
+                    funding_accrued: dec!(0),
+                    entry_slippage_bps: lifecycle.slippage_bps.unwrap_or(0.0),
                 },
             );
             *equity -= fee;
@@ -631,30 +652,44 @@ impl ExecutionEngine {
 
     // ── Funding ───────────────────────────────────────────────────────
 
-    /// 8h funding settlement on open positions.
+    /// 8h funding settlement on open positions (config rate).
     pub async fn settle_funding(&self) {
-        let positions = self.positions.read().await;
+        self.settle_funding_with_rate(None).await;
+    }
+
+    /// 8h funding settlement on open positions.
+    ///
+    /// v10.1 direction-aware perp convention: with a positive rate,
+    /// LONGS pay and SHORTS receive (and vice-versa for negative rates):
+    /// `settlement = −dir_sign × notional × rate` where dir_sign is
+    /// +1 (long) / −1 (short). Each settlement accrues on the position
+    /// (`funding_accrued`) so the closing trade can attribute its cost.
+    /// `rate_override` carries the latest ingested venue rate (live mode);
+    /// `None` falls back to `[workspace.fees].funding_rate_8h`.
+    pub async fn settle_funding_with_rate(&self, rate_override: Option<Decimal>) {
+        let rate = match rate_override {
+            Some(r) => r,
+            None => Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0)
+                .unwrap_or(dec!(0)),
+        };
+
+        let mut positions = self.positions.write().await;
         if positions.is_empty() {
             return;
         }
 
-        let rate =
-            Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0).unwrap_or(dec!(0));
-
-        let settlement_details: Vec<(String, Decimal)> = positions
-            .iter()
-            .map(|(sym, pos)| {
-                let notional = pos.size * pos.entry_price;
-                (sym.clone(), notional * rate)
-            })
-            .collect();
-
+        let mut total_settlement = dec!(0);
+        for pos in positions.values_mut() {
+            let notional = pos.size * pos.entry_price;
+            let dir_sign = match pos.direction {
+                config_models::Direction::Long => dec!(1),
+                config_models::Direction::Short => dec!(-1),
+            };
+            let payment = -dir_sign * notional * rate;
+            pos.funding_accrued += payment;
+            total_settlement += payment;
+        }
         drop(positions);
-
-        let total_settlement: Decimal = settlement_details
-            .iter()
-            .map(|(_, payment)| -(*payment))
-            .sum();
 
         let mut equity = self.equity.write().await;
         *equity += total_settlement;
@@ -662,7 +697,8 @@ impl ExecutionEngine {
         if total_settlement.abs() > dec!(0.0001) {
             eprintln!(
                 "💰 FUNDING: Settlement applied — {} (rate={:.4}%)",
-                total_settlement, self.fee_config.funding_rate_8h
+                total_settlement,
+                rate * dec!(100)
             );
         }
 
@@ -1028,6 +1064,165 @@ mod tests {
         let outcome = e.take_last_close("BTC-USDC").await.unwrap();
         assert!(!outcome.is_loss);
     }
+
+    // ── v10.1 Phase 1 ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn funding_settlement_is_direction_aware() {
+        let mut cfg = FeesConfig::default();
+        // Positive rate: longs pay, shorts receive.
+        cfg.funding_rate_8h = 0.01;
+        let e = ExecutionEngine::new(cfg);
+        e.set_initial_equity(dec!(10_000)).await;
+
+        open_long(&e, "BTC-USDC", dec!(100)).await;
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "t_eth_short".into(),
+                symbol: "ETH-USDC".into(),
+                side: OrderSide::Sell,
+                order_type: OrderType::Market,
+                price: None,
+                size: dec!(1),
+                reduce_only: false,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(100),
+        )
+        .await
+        .unwrap();
+
+        let before = e.get_equity_decimal().await;
+        e.settle_funding().await;
+        let after = e.get_equity_decimal().await;
+
+        // Long pays ~100.005 × 0.0001; short receives ~99.995 × 0.0001.
+        // Net: the pair nets to the spread difference (≈ −0.000001) —
+        // balanced directions = near-neutral funding.
+        let net = after - before;
+        assert!(
+            net.abs() < dec!(0.0001),
+            "balanced long/short funding must be near-neutral, got {net}"
+        );
+
+        // Per-position accrual: long negative (paid), short positive (received).
+        let long_funding = e
+            .positions
+            .read()
+            .await
+            .get("BTC-USDC")
+            .map(|p| p.funding_accrued)
+            .unwrap();
+        let short_funding = e
+            .positions
+            .read()
+            .await
+            .get("ETH-USDC")
+            .map(|p| p.funding_accrued)
+            .unwrap();
+        assert!(long_funding < dec!(0), "long must pay positive funding");
+        assert!(short_funding > dec!(0), "short must receive positive funding");
+    }
+
+    #[tokio::test]
+    async fn settle_funding_with_rate_override_uses_passed_rate() {
+        let mut cfg = FeesConfig::default();
+        cfg.funding_rate_8h = 0.01;
+        let e = ExecutionEngine::new(cfg);
+        e.set_initial_equity(dec!(10_000)).await;
+        open_long(&e, "BTC-USDC", dec!(100)).await;
+
+        let before = e.get_equity_decimal().await;
+        // Rate override is the raw fraction (0.02% = 0.0002).
+        e.settle_funding_with_rate(Some(dec!(0.0002))).await;
+        let after = e.get_equity_decimal().await;
+        let paid = (before - after).to_f64().unwrap();
+        // Long pays 0.02% of ~100.005 notional ≈ 0.020001.
+        assert!(
+            (paid - 0.020001).abs() < 0.0001,
+            "override rate 0.02% must charge ~0.02, got {paid}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fill_prices_include_configured_slippage() {
+        let mut cfg = FeesConfig::default();
+        cfg.slippage_bps = 5.0;
+        let e = ExecutionEngine::new(cfg);
+        e.set_initial_equity(dec!(10_000)).await;
+
+        // Market buy: fill = mid × (1 + spread/2 + slippage).
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "t_slip_buy".into(),
+                symbol: "BTC-USDC".into(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                price: None,
+                size: dec!(1),
+                reduce_only: false,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(100),
+        )
+        .await
+        .unwrap();
+        let pos = e.get_position("BTC-USDC").await.unwrap();
+        // spread half 0.005% + slippage 0.05% → 100 × 1.00055 = 100.055.
+        assert!(
+            (pos.entry_price - dec!(100.055)).abs() < dec!(0.0001),
+            "market buy must pay spread + slippage, got {}",
+            pos.entry_price
+        );
+        assert!(
+            // recorded fill-vs-mid bps includes the half-spread (0.5) +
+            // the 5 bps slippage dial.
+            (pos.entry_slippage_bps - 5.5).abs() < 0.01,
+            "entry slippage recorded in bps"
+        );
+    }
+
+    #[tokio::test]
+    async fn limit_fills_clamp_at_resting_price_with_slippage() {
+        let mut cfg = FeesConfig::default();
+        cfg.slippage_bps = 5.0;
+        let e = ExecutionEngine::new(cfg);
+        e.set_initial_equity(dec!(10_000)).await;
+        e.submit_order(
+            OrderPacket {
+                client_order_id: "t_lim".into(),
+                symbol: "BTC-USDC".into(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Limit,
+                price: Some(dec!(100)),
+                size: dec!(1),
+                reduce_only: false,
+                is_emergency_liquidation: false,
+                associated_position_id: None,
+                metadata: Default::default(),
+            },
+            dec!(101),
+        )
+        .await
+        .unwrap();
+        // Fill on the symbol's own tick at a deep-crossing mid.
+        e.evaluate_order_fills("BTC-USDC", dec!(99)).await;
+        let pos = e.get_position("BTC-USDC").await.unwrap();
+        // Fill = min(mid×(1+0.00055), limit) = 99.05445 < 100 — never worse
+        // than the resting limit.
+        assert!(
+            pos.entry_price <= dec!(100),
+            "limit fill must clamp at the resting limit"
+        );
+        assert!(
+            (pos.entry_price - dec!(99.05445)).abs() < dec!(0.0001),
+            "limit fill pays spread+slippage only below the limit"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1283,4 +1478,7 @@ mod live_tests {
             "BTC stop fills on its own symbol's tick"
         );
     }
+
+    
+
 }

@@ -44,7 +44,7 @@
     </div>
 
     <p style="color:#5a5f6e; font-size:0.75rem; margin-top:auto;">
-        Configure this engine in <strong>Settings</strong> → <code>config.toml</code> → <code>[workspace]</code>.
+        Configure this engine in <strong>Home</strong> → <code>config.toml</code> → <code>[workspace]</code>.
         {#if engine === 'trade_automation'}
             Operational mode: <strong>Advisory</strong> (market monitor only), <strong>PaperTrading</strong> (simulated orders), or <strong>LiveTrading</strong> (future).
         {/if}

@@ -30,6 +30,7 @@ The Risk Analytics Layer evaluates how the trading system handles adversity. It 
 | `average_drawdown_pct` | `f64` | Mean drawdown depth across all drawdown events. |
 | `drawdown_count` | `u32` | Number of distinct drawdown events. |
 | `sharpe_ratio` | `f64` | Risk-adjusted return based on standard deviation of daily returns. |
+| `sharpe_ratio_log` | `f64` | v10.1 — Sharpe over **log** daily returns (`ln(v_end/v_start)` per UTC day bucket); time-additive and unbiased for skewed curves. `None` on flat/short curves. The configured `pae.risk_math.risk_free_rate_pct` is subtracted from the mean in both Sharpe families (`R̄ − R_f`). |
 | `sortino_ratio` | `f64` | Risk-adjusted return using only downside deviation. |
 | `ulcer_index` | `f64` | Measure of drawdown depth and duration. |
 | `calmar_ratio` | `f64` | Annualized return / maximum drawdown. |

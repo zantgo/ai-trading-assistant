@@ -23,7 +23,7 @@
         { key: 'trade_automation',  label: 'Trade Automation' },
         { key: 'portfolio',         label: 'Portfolio Management' },
         { key: 'performance',       label: 'Performance Analytics' },
-        { key: 'profile', label: 'Settings', divider: true },
+        { key: 'profile', label: 'Home', divider: true },
     ];
 
     // v8 BTE: mode-aware engine visibility. Observe is the research
@@ -54,7 +54,7 @@
 
     function sidebarIconName(key: EngineKey): string {
         const map: Record<EngineKey, string> = {
-            profile: 'settings',
+            profile: 'home',
             data_infra: 'database',
             market_monitor: 'trend',
             trade_automation: 'cycle',

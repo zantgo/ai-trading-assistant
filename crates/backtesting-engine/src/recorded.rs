@@ -68,6 +68,14 @@ pub struct BacktestTrade {
     pub mae_pct: f64,
     #[serde(default)]
     pub roi_pct: f64,
+    /// v10.1 cost attribution: entry+exit slippage (bps), exit commission,
+    /// funding accrued on the position (negative = paid).
+    #[serde(default)]
+    pub slippage_bps: f64,
+    #[serde(default)]
+    pub commission_fees: f64,
+    #[serde(default)]
+    pub funding_fees: f64,
 }
 
 /// The full backtest result: classic metrics + the NHST block + trades +
@@ -91,6 +99,10 @@ pub struct BacktestResult {
     /// NHST block (t-statistic, p-value, Monte Carlo p, α, significance,
     /// edge classification) over the simulated trades.
     pub stats: StrategyAnalyticsRow,
+    /// v10.1: long/short symmetry verdict (Welch t-test on roi_pct;
+    /// `None` when either side has < 10 trades).
+    #[serde(default)]
+    pub direction_symmetry: Option<core_domain::performance::DirectionSymmetryVerdict>,
     pub trades: Vec<BacktestTrade>,
     /// `(timestamp_ms, total_equity)` sampled per snapshot (downsampled).
     pub equity_curve: Vec<(i64, f64)>,
@@ -181,9 +193,24 @@ pub async fn run_backtest(
     let mut portfolio: Vec<database_storage::queries::backtest_ds::DsPortfolioPoint> = Vec::new();
     let mut peak_equity: f64 = params.portfolio_capital_usd;
 
+    // v10.1 (F4): simulated 8h funding clock — settle at every multiple of
+    // FUNDING_INTERVAL_SECS crossed by the replay clock (mirrors the
+    // historical runner; direction-aware settlement accrues per position).
+    const FUNDING_INTERVAL_SECS: i64 = 8 * 3600;
+    let first_ts = records.first().map(|r| r.timestamp).unwrap_or(params.from_secs);
+    let mut next_funding = first_ts
+        .div_euclid(FUNDING_INTERVAL_SECS)
+        .saturating_mul(FUNDING_INTERVAL_SECS)
+        .saturating_add(FUNDING_INTERVAL_SECS);
+
     for rec in &records {
         let snap = snap_to_market(&params.symbol, rec);
         let mid = snap.mid_price;
+
+        while rec.timestamp >= next_funding {
+            engine.settle_funding().await;
+            next_funding = next_funding.saturating_add(FUNDING_INTERVAL_SECS);
+        }
 
         // BTE v8 parity: the replay drives the SAME per-tick session body
         // the daemon runs (`run_tick`); `capture_last_close` snapshots the
@@ -267,6 +294,9 @@ pub async fn run_backtest(
                 mfe_pct: outcome.last_close_mfe_pct.unwrap_or(0.0),
                 mae_pct: outcome.last_close_mae_pct.unwrap_or(0.0),
                 roi_pct,
+                slippage_bps: close.slippage_bps,
+                commission_fees: close.commission_fees.to_f64().unwrap_or(0.0),
+                funding_fees: close.funding_fees.to_f64().unwrap_or(0.0),
             });
         }
 
@@ -440,16 +470,18 @@ pub fn finalize_result(
             size: t.size,
             gross_pnl: t.pnl,
             net_pnl: t.pnl,
-            roi_pct: 0.0,
-            execution_slippage: 0.0,
-            mfe: 0.0,
-            mae: 0.0,
+            roi_pct: t.roi_pct,
+            execution_slippage: t.slippage_bps,
+            mfe: t.mfe_pct,
+            mae: t.mae_pct,
             trigger_source: "BACKTEST".to_string(),
             exit_reason: t.exit_reason.clone(),
             flat_trade: false,
         })
         .collect();
     let stats = compute_setup_analytics("BACKTEST", &records.iter().collect::<Vec<_>>(), analytics);
+    let direction_symmetry =
+        performance_analytics::strategy_analytics::compare_direction_symmetry(&records);
 
     BacktestResult {
         params: params.clone(),
@@ -464,6 +496,7 @@ pub fn finalize_result(
         max_drawdown_pct,
         cancelled: false,
         stats,
+        direction_symmetry,
         trades,
         equity_curve: equity_points,
         signals,
@@ -760,5 +793,50 @@ mod tests {
             "strict posture closes the open position"
         );
         assert_eq!(result.trades[0].exit_reason, "setup_gone");
+    }
+
+    #[tokio::test]
+    async fn recorded_replay_settles_direction_aware_funding() {
+        let pool = seed_pool().await;
+        // Entry accepts at 105 → fills at 94. Then a snapshot past the first
+        // 8h boundary (28800) while the position is open → funding settles.
+        // Then TP at 126 closes.
+        for (ts, mid) in [(1000u64, 105.0f64), (1001, 94.0), (30_000, 94.0), (30_001, 126.0)] {
+            database_storage::insert_snapshot_internal(&pool, &long_snapshot(ts, mid)).await;
+        }
+
+        let params = BacktestParams {
+            symbol: "BTC-USDC".to_string(),
+            timeframe_secs: 60,
+            from_secs: 0,
+            to_secs: 100_000,
+            portfolio_capital_usd: 1000.0,
+        };
+        let result = run_backtest(
+            &pool,
+            &params,
+            &tae_cfg(),
+            &FeesConfig::default(),
+            20,
+            performance_analytics::strategy_analytics::AnalyticsParams::default(),
+            &config_models::StrategyConfig::default(),
+        )
+        .await;
+
+        assert_eq!(result.total_trades, 1);
+        // The position crossed the 8h boundary → long pays the default
+        // 0.01% rate (negative funding_fees, ≈ −0.01 on ~100 notional).
+        let funding = result.trades[0].funding_fees;
+        assert!(
+            funding < 0.0,
+            "long must pay funding when the replay crosses an 8h boundary, got {funding}"
+        );
+        assert!(
+            (funding + 0.01).abs() < 0.005,
+            "expected ~-0.01 funding on ~100 notional at 0.01%/8h, got {funding}"
+        );
+        // Cost columns populated on the trade.
+        assert!(result.trades[0].commission_fees > 0.0);
+        assert!(result.trades[0].slippage_bps >= 0.0);
     }
 }

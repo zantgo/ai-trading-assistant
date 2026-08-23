@@ -80,6 +80,9 @@
     let btResult = $state<BteResult | null>(null);
     let dsPortfolio = $state<{ run_id: number; portfolio: any[] } | null>(null);
     let dsSignals = $state<{ run_id: number; count: number; signals: any[] } | null>(null);
+    // v10.1: per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES +
+    // log Sharpe) as the key/value map from /api/backtest/:id/metrics.
+    let btMetrics = $state<Record<string, string> | null>(null);
 
     // Session mode (BTE lives in observe sessions).
     const mode = $derived<ExecutionMode | undefined>(
@@ -99,6 +102,12 @@
     const safeSection = $derived(
         visibleTabs.some((t) => t.key === section) ? section : 'overview',
     );
+
+    // v10.1: keep the top navbar in sync with this shell's state (the
+    // navbar lives in App.svelte; the BTE shell owns the truth).
+    $effect(() => {
+        app.btSessionActive = Boolean(boundInstance || btResult);
+    });
 
     async function fetchInstances() {
         try {
@@ -224,12 +233,22 @@
 
     async function loadDsFor(runId: number) {
         try {
-            const [pRes, sRes] = await Promise.all([
+            const [pRes, sRes, mRes] = await Promise.all([
                 fetch(`/api/backtest/${runId}/portfolio`),
                 fetch(`/api/backtest/${runId}/signals`),
+                fetch(`/api/backtest/${runId}/metrics`),
             ]);
             if (pRes.ok) dsPortfolio = await pRes.json();
             if (sRes.ok) dsSignals = await sRes.json();
+            // v10.1: risk-adjusted metrics (key/value rows).
+            if (mRes.ok) {
+                const m = await mRes.json();
+                const map: Record<string, string> = {};
+                for (const row of Array.isArray(m) ? m : m?.metrics ?? []) {
+                    if (row?.key) map[row.key] = row.value;
+                }
+                btMetrics = map;
+            }
         } catch (_) {}
     }
 
@@ -257,6 +276,7 @@
             pme: 'PME · Simulated Portfolio',
             pae: 'PAE · Statistical Treatment',
             study: 'Study Report',
+            chart: 'Price Chart · Input Bars',
             history: 'Backtest History',
             settings: 'Backtesting Settings',
         };
@@ -265,9 +285,9 @@
 
     function tabLabel(s: string): string {
         const m: Record<string, string> = {
-            overview: 'Overview', die: 'DIE · Data', mme: 'MME · Signals',
-            tae: 'TAE · Executions', pme: 'PME · Portfolio', pae: 'PAE · Statistics',
-            study: 'Study Report', history: 'History', settings: 'Settings',
+            overview: 'Overview', die: 'Data', mme: 'Signals',
+            tae: 'Trades', pme: 'Portfolio', pae: 'Stats',
+            study: 'Study Report', chart: 'Chart', history: 'History', settings: 'Settings',
         };
         return m[s] ?? 'Overview';
     }
@@ -338,7 +358,7 @@
         {:else if safeSection === 'pae'}
             <BteStatsTab stats={btResult?.stats ?? null} summary={btResult?.summary ?? null} />
         {:else if safeSection === 'study'}
-            <BteStudyTab result={btResult} portfolio={dsPortfolio?.portfolio ?? []} signals={dsSignals?.signals ?? []} />
+            <BteStudyTab result={btResult} portfolio={dsPortfolio?.portfolio ?? []} signals={dsSignals?.signals ?? []} metrics={btMetrics} />
         {:else if safeSection === 'chart'}
             <BacktestChart runId={btResult?.backtest_id ?? null} defaultSymbol={boundInstance?.symbol ?? null} />
         {:else if safeSection === 'history'}

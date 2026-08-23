@@ -21,6 +21,12 @@ pub struct FeesConfig {
     pub taker_fee_pct: f64,
     pub funding_rate_8h: f64,
     pub simulated_spread_pct: f64,
+    /// v10.1: deterministic execution slippage (bps) added to every
+    /// simulated fill on top of the half-spread. Struct default is 0.0;
+    /// wiring sites pull the bound strategy's `tae.execution.slippage_bps`
+    /// (shipped default 5.0) so paper/live and both backtest runners share
+    /// the same cost model.
+    pub slippage_bps: f64,
 }
 
 impl Default for FeesConfig {
@@ -30,6 +36,7 @@ impl Default for FeesConfig {
             taker_fee_pct: 0.06,
             funding_rate_8h: 0.01,
             simulated_spread_pct: 0.01,
+            slippage_bps: 0.0,
         }
     }
 }
@@ -52,6 +59,14 @@ pub struct PaperPosition {
     pub mfe_pct: f64,
     /// v10: max adverse excursion (percent of entry price) during the hold.
     pub mae_pct: f64,
+    /// v10.1: cumulative funding settlement charged/credited to THIS
+    /// position across the 8h settlement clock (sign follows the payment:
+    /// negative = paid, positive = received). Attributed to the closing
+    /// trade's `funding_fees` column.
+    pub funding_accrued: Decimal,
+    /// v10.1: entry-fill slippage in bps (fill vs mid) — summed with the
+    /// exit-fill slippage into the closing trade's `slippage_bps` column.
+    pub entry_slippage_bps: f64,
 }
 
 /// Mock snapshot builder used by backtest/replay tooling.

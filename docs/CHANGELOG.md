@@ -4,6 +4,20 @@
 
 ------
 
+## Unreleased (2026-08-24) — v10.1: Quant-Metrics Hardening + UX Unification
+
+- **Direction-aware funding** (`settle_funding`): `−dir_sign × notional × rate` perp convention, per-position `funding_accrued`, `settle_funding_with_rate` for live ingested rates, and an 8h settlement clock in the recorded replay (previously historical-only).
+- **Slippage dial wired**: `tae.execution.slippage_bps` now applies to every simulated fill (`fill_market_order`, mid ± (half-spread + slippage), limit-clamped) — shared by paper/live/historical/recorded.
+- **Backtest cost columns**: `backtest_trades.slippage_bps / commission_fees / funding_fees` (migration `20260824000001`); `CloseOutcome` carries per-trade costs; `finalize_result` threads real roi/mfe/mae (no more 0.0 hardcodes).
+- **Long/short symmetry verdict**: `compare_direction_symmetry` (Welch two-sample t-test on roi_pct, ≥10/side) → PAE Overview card, BTE Study Report block, `dir_*` DS metrics, CLI monitor block.
+- **Log-return Sharpe**: `RiskAnalyticsRow.sharpe_ratio_log` (log daily returns, persisted via migration `20260824000002`) + `DashboardStats.log_returns` series + `sharpe_log` metric.
+- **Risk-free rate honored**: `AnalyticsParams.risk_free_rate_pct` (from `pae.risk_math`) subtracted in Sharpe/Sortino; the live pipeline now uses configured verdict params (no more `AnalyticsParams::default()`).
+- **Lifecycle unification**: TAE activation is the instance lifecycle — paper/live boot **PAUSED** (close-only, pending entries cancelled on pause), observe boots RUNNING; unified vocabulary ACTIVE / PAUSED / FLATTENING / TERMINATED / MONITORING (`ui/src/lib/lifecyclePresentation.ts`); TAE header switch + right-panel per-row toggle; CLI `Activate TAE? y/N` + `--tae-on`.
+- **UX**: sidebar Settings → Home; `[workspace.api_failover]` editor moved to DIE Connection Settings; Exchange tab live-only + DEX/CEX aware (Hyperliquid wallet/hex key vs Bitget API credentials); PME Portfolio Overview merged into Overview; BTE navbar reordered + collapses with no instance/run; SESSION #NNNN welcome chip; MME Settings `NoInstanceState`; schema-driven `StrategyForm` replaces raw JSON editing.
+- **Direction-first color discipline**: green = LONG only, red = SHORT only, amber = caution/states (dashed = broken bracket), grey = informational; reference brackets amber/grey; 3-band scores; side-tinted evaluated-setup cards; `riskDangerColor` unchanged.
+
+------
+
 ## Unreleased (2026-08-22) — v10: TAE Lifecycle Hardening (setup-change management + entry/exit strictness dials)
 
 **The setup executor learns how to manage a position when the setup changes — plus per-strategy strictness dials for entry placement and SL/TP management. TP always closes the full position.**

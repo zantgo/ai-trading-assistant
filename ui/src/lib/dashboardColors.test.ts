@@ -68,11 +68,11 @@ describe('riskDangerColor', () => {
 });
 
 describe('qualityColor', () => {
-    it('mirror of riskDangerColor on the 0-100 axis', () => {
+    it('v10.1 3-band: green ≥70, amber 50-69, grey below', () => {
         expect(qualityColor(85)).toBe('#22c55e');
-        expect(qualityColor(60)).toBe('#4ade80');
-        expect(qualityColor(40)).toBe('#f59e0b');
-        expect(qualityColor(20)).toBe('#f87171');
+        expect(qualityColor(60)).toBe('#f59e0b');
+        expect(qualityColor(40)).toBe('rgba(255,255,255,0.35)');
+        expect(qualityColor(20)).toBe('rgba(255,255,255,0.35)');
     });
 });
 
@@ -147,8 +147,8 @@ describe('rrColor', () => {
     it('1.0-1.99 -> amber', () => {
         expect(rrColor(1.5)).toBe('#f59e0b');
     });
-    it('< 1.0 -> red', () => {
-        expect(rrColor(0.5)).toBe('#f87171');
+    it('< 1.0 -> amber (v10.1 — red is SHORT only)', () => {
+        expect(rrColor(0.5)).toBe('#f59e0b');
     });
     it('null -> muted', () => {
         expect(rrColor(null)).toBe('rgba(255,255,255,0.55)');
@@ -162,17 +162,12 @@ describe('scoreColor', () => {
     it('85+ -> good green', () => {
         expect(scoreColor(95)).toBe('#22c55e');
     });
-    it('70-84 -> bull green', () => {
-        expect(scoreColor(75)).toBe('#4ade80');
+    it('50-84 -> amber (v10.1 3-band)', () => {
+        expect(scoreColor(75)).toBe('#f59e0b');
     });
-    it('50-69 -> amber', () => {
-        expect(scoreColor(60)).toBe('#f59e0b');
-    });
-    it('30-49 -> amber', () => {
-        expect(scoreColor(40)).toBe('#fbbf24');
-    });
-    it('<30 -> red', () => {
-        expect(scoreColor(20)).toBe('#f87171');
+    it('<50 -> grey (v10.1 — red is SHORT only)', () => {
+        expect(scoreColor(40)).toBe('rgba(255,255,255,0.35)');
+        expect(scoreColor(20)).toBe('rgba(255,255,255,0.35)');
     });
 });
 

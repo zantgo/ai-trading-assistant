@@ -74,6 +74,8 @@ must extend both surfaces through the same server-produced payload.
 | C16 | Backtest deep view (v10) | Study Report + Chart tab (`input_bars` + enriched trades) | `--backtest-show <id>` — run.json + trades/equity + ds/ file paths | same `persist_backtest_run` artifacts |
 | C17 | Top-setup columns (entry/target/stop) | `OverviewRow` `entry_low/entry_high` + `target_low/target_high` + `invalidation` | same `overview_rows` fields in the ASSET RANKINGS table | server-computed once in `build_overview_panel` |
 | C18 | Cross-folder comparison (v10.1) | PAE Comparison tab (within-folder: `/api/analytics/comparison`) | `--compare-folders <rootA> <rootB> …` — the same columns across folders, DB-free from each `ds/` tree | `cli_compare.rs` reads the identical NDJSON artifacts the GUI renders |
+| C19 | TAE activation (v10.1) | TAE header switch + right-panel toggle → `POST /api/instances/:id/lifecycle` | explicit `Activate TAE? y/N` prompt / `--tae-on`; `TAE: ON/OFF` in the monitor header | one lifecycle state machine; the DS session meta records the intent |
+| C20 | Long/short symmetry (v10.1) | PAE Overview "Long / Short Symmetry" card | CLI monitor `── LONG/SHORT SYMMETRY ──` block | both render `compare_direction_symmetry` (Welch on roi_pct) |
 
 **Enforcement:**
 

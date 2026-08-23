@@ -103,6 +103,10 @@ struct CliArgs {
     /// v10.1: cross-folder comparison — one or more folder roots whose
     /// `ds/` trees (backtests + sessions) are aggregated into one table.
     compare_folders: Vec<String>,
+    /// v10.1: TAE activation for CLI-launched instances (`--tae-on`).
+    /// Default OFF — the instance runs but the TAE does not activate
+    /// unless explicitly specified.
+    tae_on: bool,
 }
 
 enum LaunchMode {
@@ -135,6 +139,7 @@ fn parse_args() -> CliArgs {
     let mut port: Option<u16> = None;
     let mut bind: Option<String> = None;
     let mut compare_folders: Vec<String> = Vec::new();
+    let mut tae_on = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -323,6 +328,9 @@ fn parse_args() -> CliArgs {
                     bind = Some(args[i].clone());
                 }
             }
+            "--tae-on" => {
+                tae_on = true;
+            }
             "--compare-folders" => {
                 // Consume every following non-flag arg (shell glob expands
                 // `experiments/*` into one arg per folder).
@@ -362,6 +370,7 @@ fn parse_args() -> CliArgs {
         sessions,
         session_report,
         backtest_show,
+        tae_on,
     }
 }
 
@@ -481,6 +490,9 @@ struct CliLaunchPlan {
     exchange: String,
     currency: String,
     instances: Vec<CliInstance>,
+    /// v10.1: TAE activation requested at launch (default OFF — the
+    /// instance runs but the TAE is not activated unless specified).
+    tae_on: bool,
 }
 
 /// v7.2 parity: the default timeframe ladder is the registry's ladder
@@ -653,11 +665,15 @@ fn cli_launch_plan(
         println!("   Add instances later from the dashboard, or restart with `--mode cli`.");
     }
 
-    // 3. Summary + confirm
+    // 3. TAE activation — must be specified explicitly (default OFF).
+    let tae_on = cli.tae_on || confirm("Activate TAE (trade automation)? y/N", false);
+
+    // 4. Summary + confirm
     println!("\n──────────────────────────────────────────────");
     println!("Trading Platform — CLI Launch Summary");
     println!("──────────────────────────────────────────────");
     println!("  Mode                 : observe (monitoring only)");
+    println!("  TAE                  : {}", if tae_on { "ON" } else { "OFF" });
     println!("  Exchange             : {}", exchange);
     println!("  Settlement currency  : {}", currency);
     for inst in &instances {
@@ -682,6 +698,7 @@ fn cli_launch_plan(
         exchange,
         currency,
         instances,
+        tae_on,
     })
 }
 
@@ -1000,6 +1017,13 @@ async fn main() {
                 taker_fee_pct: workspace.fees.taker_fee_pct,
                 funding_rate_8h: workspace.fees.funding_rate_8h,
                 simulated_spread_pct: 0.01,
+                // v10.1: the session's default strategy execution dial —
+                // the engine is shared across instances, so one cost
+                // model applies per session.
+                slippage_bps: workspace
+                    .default_strategy()
+                    .map(|s| s.tae.execution.slippage_bps)
+                    .unwrap_or(0.0),
             },
         );
         engine.set_db(Arc::new(db_pool.clone()));
@@ -1458,6 +1482,9 @@ async fn main() {
             capital: workspace.portfolio_capital_usd,
             started_at_ms: session_started_ms,
             config_snapshot: serde_json::to_value(&workspace).unwrap_or(serde_json::Value::Null),
+            // v10.1: the operator's TAE-activation intent at launch
+            // (CLI prompt / --tae-on; web sessions activate per instance).
+            tae_activated: cli_plan.as_ref().map(|p| p.tae_on).unwrap_or(false),
         };
         handles.push(tokio::spawn(async move {
             execution_daemon::ds_exporter::run_ds_exporter(ds_pool, ds_rx, ds_cfg, ds_meta).await;
@@ -1939,14 +1966,20 @@ async fn main() {
                 workspace.default_currency.as_str(),
             ),
         };
+        let tae_marker = if cli_plan.as_ref().map(|p| p.tae_on).unwrap_or(false) {
+            "TAE: ON"
+        } else {
+            "TAE: OFF"
+        };
         let session_line = match session_number {
-            Some(n) => format!("SESSION #{:04} · observe · {} · {}", n, ex_label, cur_label),
-            None => format!("SESSION #---- · observe · {} · {}", ex_label, cur_label),
+            Some(n) => format!("SESSION #{:04} · observe · {tae_marker} · {} · {}", n, ex_label, cur_label),
+            None => format!("SESSION #---- · observe · {tae_marker} · {} · {}", ex_label, cur_label),
         };
         handles.push(tokio::spawn(
             execution_daemon::cli_renderer::run_terminal_monitor(
                 app_state.overview.clone(),
                 workspace_state.clone(),
+                db_pool.clone(),
                 cli.interval_secs,
                 session_line,
                 CancellationToken::new(),
@@ -1978,11 +2011,30 @@ async fn main() {
     let eval_cancel = CancellationToken::new();
     let eval_cancel1 = eval_cancel.clone();
     let pae_pool = db_pool.clone();
+    // v10.1: the live pipeline honors the configured verdict bar + risk-free
+    // rate from the default strategy's `pae` section (was hardcoded defaults).
+    // (Re-reads the config here — `workspace` was moved into earlier tasks.)
+    let pae_analytics_params = {
+        let ws = load_workspace()
+            .unwrap_or_else(|e| panic!("❌ PAE: failed to reload workspace config: {e}"));
+        performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(
+            &ws.default_strategy().unwrap_or_default().pae,
+        )
+    };
+    let pae_rf_pct = load_workspace()
+        .map(|ws| {
+            ws.default_strategy()
+                .map(|s| s.pae.risk_math.risk_free_rate_pct)
+                .unwrap_or(0.0)
+        })
+        .unwrap_or(0.0);
     handles.push(tokio::spawn(async move {
         performance_evaluator::run_performance_evaluator(performance_evaluator::EvaluatorConfig {
             pool: pae_pool,
             cancel: eval_cancel1,
             eval_interval_secs: 300,
+            analytics_params: pae_analytics_params,
+            risk_free_rate_pct: pae_rf_pct,
         })
         .await;
     }));

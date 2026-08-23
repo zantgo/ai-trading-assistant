@@ -15,6 +15,7 @@
     import AnalysisPanel from '../AnalysisPanel.svelte';
     import RecommendationPanel from '../RecommendationPanel.svelte';
     import GeneralDashboard from '../GeneralDashboard.svelte';
+    import NoInstanceState from '../NoInstanceState.svelte';
     import InstancePicker from '../InstancePicker.svelte';
     import GeneralSettings from '../GeneralSettings.svelte';
     import AccountProfile from '../AccountProfile.svelte';
@@ -112,10 +113,7 @@
             {#if activePair}
                 <WorkspaceSettings pair={activePair} tabKey={activeTab} />
             {:else}
-                <div class={styles.profileCard} style="padding:2rem">
-                    <h3>Settings</h3>
-                    <p class={styles.cardSub}>Select a workspace instance from the top-right panel to configure timeframes, indicators, and visual overlays.</p>
-                </div>
+                <NoInstanceState engine="market_monitor" />
             {/if}
         {/if}
     {:else if currentEngine === 'performance'}

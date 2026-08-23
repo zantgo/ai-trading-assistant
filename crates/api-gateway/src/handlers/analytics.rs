@@ -78,8 +78,17 @@ pub async fn serve_risk_analytics(State(state): State<Arc<AppState>>) -> impl In
     if let Some(risk) = persisted {
         return Json(risk);
     }
-    let risk =
-        performance_analytics::performance_evaluator::compute_risk_on_demand(&state.pool).await;
+    // v10.1: on-demand fallback uses the default strategy's risk-free rate.
+    let workspace = state.workspace.config().await;
+    let rf_pct = workspace
+        .default_strategy()
+        .map(|s| s.pae.risk_math.risk_free_rate_pct)
+        .unwrap_or(0.0);
+    let risk = performance_analytics::performance_evaluator::compute_risk_on_demand(
+        &state.pool,
+        rf_pct,
+    )
+    .await;
     Json(risk)
 }
 
@@ -333,19 +342,23 @@ pub async fn serve_backtest_run(
     let from_secs = payload.from_ms.div_euclid(1000);
     let to_secs = payload.to_ms.div_euclid(1000);
 
+    // v10.1: the cost dial comes from the run's bound strategy (parity
+    // with live/paper — same fee+slippage model).
+    let cost_strategy = match &payload.strategy_id {
+        Some(name) => workspace.resolve_strategy(name).unwrap_or_default(),
+        None => workspace.default_strategy().unwrap_or_default(),
+    };
     let fees = portfolio_supervisor::paper_trading::FeesConfig {
         maker_fee_pct: workspace.fees.maker_fee_pct,
         taker_fee_pct: workspace.fees.taker_fee_pct,
         funding_rate_8h: workspace.fees.funding_rate_8h,
         simulated_spread_pct: 0.01,
+        slippage_bps: cost_strategy.tae.execution.slippage_bps,
     };
     let cross_leverage = workspace.leverage.cross_leverage;
     // v9: the verdict bar comes from the RUN's bound strategy's `pae` section.
     let analytics_params = {
-        let st = match &payload.strategy_id {
-            Some(name) => workspace.resolve_strategy(name).unwrap_or_default(),
-            None => workspace.default_strategy().unwrap_or_default(),
-        };
+        let st = &cost_strategy;
         performance_analytics::strategy_analytics::AnalyticsParams::from_strategy(&st.pae)
     };
 
@@ -925,6 +938,8 @@ pub async fn persist_backtest_run(
         "profit_factor": result.profit_factor,
         "expectancy": result.expectancy,
         "max_drawdown_pct": result.max_drawdown_pct,
+        "avg_win_loss_ratio": result.stats.avg_win_loss_ratio,
+        "direction_symmetry": result.direction_symmetry,
     }))
     .unwrap_or_default();
     let stats_json = serde_json::to_string(&result.stats).unwrap_or_default();
@@ -968,18 +983,35 @@ pub async fn persist_backtest_run(
             mfe_pct: t.mfe_pct,
             mae_pct: t.mae_pct,
             roi_pct: t.roi_pct,
+            slippage_bps: t.slippage_bps,
+            commission_fees: t.commission_fees,
+            funding_fees: t.funding_fees,
         })
         .collect();
     // v10: per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES/dd
     // duration) over the backtest equity curve — the same pure function
-    // the live PAE path uses.
+    // the live PAE path uses. v10.1: the bound strategy's risk-free rate
+    // is subtracted in the Sharpe/Sortino numerators.
     let risk_row = {
         let equity_ms: Vec<(i64, f64)> = result
             .equity_curve
             .iter()
             .map(|(ts, v)| (*ts * 1000, *v))
             .collect();
-        performance_analytics::risk_analytics::compute_risk_metrics_from_curve(&equity_ms)
+        let rf_pct = match &payload.strategy_id {
+            Some(name) => workspace
+                .resolve_strategy(name)
+                .map(|s| s.pae.risk_math.risk_free_rate_pct)
+                .unwrap_or(0.0),
+            None => workspace
+                .default_strategy()
+                .map(|s| s.pae.risk_math.risk_free_rate_pct)
+                .unwrap_or(0.0),
+        };
+        performance_analytics::risk_analytics::compute_risk_metrics_from_curve_with_rf(
+            &equity_ms,
+            rf_pct,
+        )
     };
     let ds_metrics: Vec<database_storage::queries::backtest_ds::DsMetric> = vec![
         ("mode".to_string(), mode.to_string()),
@@ -1043,8 +1075,58 @@ pub async fn persist_backtest_run(
             "max_dd_duration_days".to_string(),
             format!("{:.2}", risk_row.max_drawdown_duration_days),
         ),
+        (
+            "sharpe_log".to_string(),
+            risk_row
+                .sharpe_ratio_log
+                .map(|v| format!("{v:.4}"))
+                .unwrap_or_default(),
+        ),
     ]
     .into_iter()
+    .chain({
+        // v10.1: long/short symmetry verdict as flat metric keys.
+        let sym = &result.direction_symmetry;
+        let keys: Vec<(String, String)> = vec![
+            (
+                "dir_long_count".to_string(),
+                sym.as_ref().map(|s| s.long_count.to_string()).unwrap_or_default(),
+            ),
+            (
+                "dir_short_count".to_string(),
+                sym.as_ref().map(|s| s.short_count.to_string()).unwrap_or_default(),
+            ),
+            (
+                "dir_long_exp".to_string(),
+                sym.as_ref().map(|s| format!("{:.4}", s.long_expectancy_usd)).unwrap_or_default(),
+            ),
+            (
+                "dir_short_exp".to_string(),
+                sym.as_ref().map(|s| format!("{:.4}", s.short_expectancy_usd)).unwrap_or_default(),
+            ),
+            (
+                "dir_t_stat".to_string(),
+                sym.as_ref().map(|s| format!("{:.4}", s.t_statistic)).unwrap_or_default(),
+            ),
+            (
+                "dir_df".to_string(),
+                sym.as_ref().map(|s| format!("{:.2}", s.degrees_of_freedom)).unwrap_or_default(),
+            ),
+            (
+                "dir_p_value".to_string(),
+                sym.as_ref().map(|s| format!("{:.6}", s.p_value)).unwrap_or_default(),
+            ),
+            (
+                "dir_verdict".to_string(),
+                sym.as_ref().map(|s| s.verdict.clone()).unwrap_or_default(),
+            ),
+            (
+                "dir_significant".to_string(),
+                sym.as_ref().map(|s| s.significant.to_string()).unwrap_or_default(),
+            ),
+        ];
+        keys
+    })
     .map(|(key, value)| database_storage::queries::backtest_ds::DsMetric { key, value })
     .collect();
     database_storage::queries::backtest_ds::insert_backtest_ds_rows(

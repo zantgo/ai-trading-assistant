@@ -137,6 +137,10 @@ export class AppStore {
     middleTab = $state<string>('overview');
     activeEngineTab = $state<'overview' | 'instance'>('overview');
     selectedInstance = $state<string | null>(null);
+    /// v10.1: BTE navbar collapse — true while the Backtesting shell has a
+    /// bound instance or a loaded run (full 10-tab set); false shows only
+    /// Overview / History / Settings.
+    btSessionActive = $state(false);
 
     selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings' | 'backtesting') {
         this.currentEngine = engine;

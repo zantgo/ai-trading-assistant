@@ -39,10 +39,10 @@ describe('engineTabs v7.3 spec', () => {
         expect(keys('trade_automation', 'live')).toEqual(['overview', 'orders', 'activity', 'history', 'settings']);
     });
 
-    it('PME navbar per mode (layer order, Safety + Settings last)', () => {
+    it('PME navbar per mode (v10.1: Portfolio Overview merged into Overview)', () => {
         expect(keys('portfolio', 'observe')).toEqual(['overview', 'safety', 'settings']);
-        expect(keys('portfolio', 'paper')).toEqual(['overview', 'positions', 'exposure', 'capital', 'portfolio', 'safety', 'settings']);
-        expect(keys('portfolio', 'live')).toEqual(['overview', 'positions', 'exposure', 'capital', 'portfolio', 'safety', 'settings']);
+        expect(keys('portfolio', 'paper')).toEqual(['overview', 'positions', 'exposure', 'capital', 'safety', 'settings']);
+        expect(keys('portfolio', 'live')).toEqual(['overview', 'positions', 'exposure', 'capital', 'safety', 'settings']);
     });
 
     it('PAE navbar per mode (L1→L5, cross-cutting last)', () => {
@@ -52,20 +52,20 @@ describe('engineTabs v7.3 spec', () => {
         expect(keys('performance', 'live')).toEqual(['overview', 'trades', 'strategy', 'risk', 'performance', 'comparison', 'history', 'methodology', 'settings']);
     });
 
-    it('BTE navbar follows the layer order with cross-cutting last', () => {
+    it('BTE navbar v10.1: trader flow first, details demoted, Settings last', () => {
         expect(ENGINE_TABS.backtesting.map((t) => t.key)).toEqual([
-            'overview', 'die', 'mme', 'tae', 'pme', 'pae', 'study', 'chart', 'history', 'settings',
+            'overview', 'study', 'chart', 'history', 'die', 'mme', 'tae', 'pme', 'pae', 'settings',
         ]);
     });
 
     it('DIE / MME are mode-agnostic', () => {
         expect(keys('data_infra', 'observe')).toEqual(keys('data_infra', 'live'));
         expect(keys('market_monitor', 'observe')).toEqual(['overview', 'workspace', 'settings']);
-        // v7.4: DIE Settings tab removed (read-only platform config is
-        // exported via Profile → Share Config) — 7 layer tabs remain.
+        // v10.1: Connection Settings (the [workspace.api_failover] editor,
+        // moved from the Home page) sits at the far right.
         expect(keys('data_infra', 'observe')).toEqual([
             'overview', 'exchange_status', 'connectivity', 'market_data',
-            'clock_monitor', 'data_quality', 'distribution',
+            'clock_monitor', 'data_quality', 'distribution', 'settings',
         ]);
     });
 
