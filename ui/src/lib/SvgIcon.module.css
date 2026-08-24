@@ -1,0 +1,9 @@
+.svgIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.svgIcon :global(svg) {
+    display: block;
+}

@@ -100,6 +100,12 @@ pub async fn init_db() -> Result<SqlitePool, String> {
     {
         eprintln!("Database: Failed to set PRAGMA foreign_keys=ON: {}", e);
     }
+    if let Err(e) = sqlx::query("PRAGMA journal_size_limit = 67108864;")
+        .execute(&pool)
+        .await
+    {
+        eprintln!("Database: Failed to set PRAGMA journal_size_limit: {}", e);
+    }
 
     run_migrations(&pool)
         .await

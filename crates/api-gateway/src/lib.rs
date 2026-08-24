@@ -12,7 +12,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use config_models::PlatformConfig;
@@ -670,7 +671,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                     Method::PATCH,
                     Method::OPTIONS,
                 ])
-                .allow_headers(Any),
+                .allow_headers(AllowHeaders::list(vec![CONTENT_TYPE, AUTHORIZATION])),
         )
         // Cross-site rejection: placed OUTERMOST so the 403 is issued
         // before any handler runs. Modern browsers always attach

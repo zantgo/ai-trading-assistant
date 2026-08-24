@@ -55,7 +55,10 @@ impl Default for ClockMonitorConfig {
         Self {
             ntp_servers: vec!["pool.ntp.org".to_string(), "time.aws.com".to_string()],
             poll_interval: Duration::from_secs(30),
-            threshold: Duration::from_micros(50),
+            // 10 ms matches config.toml / config-models default_clock_monitor_threshold_micros.
+            // The prior 50µs bare default was never used in production (TOML overrides it)
+            // but made unit tests 200× stricter than deployed.
+            threshold: Duration::from_micros(10_000),
             breach_action: BreachAction::Warn,
             warn_on_breach: true,
             jitter_window_size: 20,

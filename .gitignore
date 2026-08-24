@@ -51,6 +51,8 @@ config.toml
 telemetry.db
 telemetry.db-shm
 telemetry.db-wal
+*.backup*
+*.backup-*
 
 # Docker postgres volume data (if used in future phases)
 postgres_data/
