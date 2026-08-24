@@ -2,12 +2,12 @@
   "backtest_id": 5,
   "mode": "historical",
   "params": {
-    "exchange": "bitget",
-    "from_secs": 1787449784,
+    "exchange": "Bitget",
+    "from_secs": 1786064854,
     "portfolio_capital_usd": 1000.0,
     "symbol": "BTC-USDT",
-    "timeframe_secs": 60,
-    "to_secs": 1787514584
+    "timeframe_secs": 300,
+    "to_secs": 1787576854
   },
   "stats": {
     "alpha": 0.05,

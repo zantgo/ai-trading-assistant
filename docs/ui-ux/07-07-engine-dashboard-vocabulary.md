@@ -1,6 +1,6 @@
-# Engine Dashboard Vocabulary (v7.3)
+# Engine Dashboard Vocabulary (v10.1)
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical specification for the **engine dashboards** — Data Infrastructure (DIE), Trade Automation (TAE), Portfolio Management (PME) and Performance Analytics (PAE) — and the rule that unifies them with the Market Monitor (MME). It defines: the shared design tokens, the shared components, the canonical **tab order = layer order** rule, the per-engine × per-mode tab maps, the Export Data contract, and the config-driven values policy.
 
@@ -37,7 +37,7 @@ Shared components: `DashboardHeader.svelte`, `ModeChip.svelte`, `ModeBanner.svel
 **Rules:**
 - No inline `<style>` blocks and no inline `style="…"` beyond semantic colors — every custom style lives in the component's scoped CSS module or the shared file.
 - Number formatting goes through `ui/src/lib/format.ts` (`fmtUsd`, `signedUsd`, `fmtPct`, `fmtNum`, `fmtSigned`, `fmtTs`, `fmtDuration`) — one formatter set everywhere.
-- No source file exceeds 1000 lines; tab content is extracted into subcomponents when a dashboard grows (PAE splits into `components/performance/*Tab.svelte`).
+- Tab content is extracted into subcomponents when a dashboard grows (PAE splits into `components/performance/*Tab.svelte`).
 
 ---
 
@@ -51,11 +51,11 @@ Per-engine maps (all config in `ui/src/lib/engineTabs.ts`):
 
 | Engine | Tabs (paper/live) | Layer mapping |
 |---|---|---|
-| DIE | Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution | L1 raw ingestion (2 tabs) → L2 market data → L3 data quality → L4 distribution; NTP = L2 time contract. v7.4: **no Settings tab** — platform config is read-only, exported from Profile → Share Config |
+| DIE | Overview · Exchange Status · Connectivity · Market Data · NTP Clock Monitor · Data Quality · Distribution · Connection Settings | L1 raw ingestion (2 tabs) → L2 market data → L3 data quality → L4 distribution; NTP = L2 time contract. **Connection Settings** far-right (v10.1: `[workspace.api_failover]` editor, live `GET /api/system/platform-config`) |
 | MME | Overview · Workspace (sub-tabs: Charts · Metrics · Alignment · Analysis · Opportunities · Risks · Recommendation) · Settings | sub-tabs follow L1 Metrics → L6 Decision Support (v7.3: Analysis L3 moved before Opportunities L4) |
 | TAE | Overview · Orders · Activity · Trade History · Settings | Overview = ① intake + ② executor + ③ sizing aggregate; Orders = ④ execution; Activity/History = ⑥ telemetry; Settings cross-cutting last |
-| PME | Overview · Positions · Exposure · Capital · Portfolio Overview · Safety · Settings | L1 Position → L2 Exposure → L3 Capital → L4 Overview Layer (v8.2: renamed from "Portfolio Layer"; the matrix is `PortfolioOverviewMatrix`); Safety ladder + Settings cross-cutting last |
-| PAE | Overview · Trades · Strategy · Risk · Performance · Backtesting · History · Methodology · Settings | L1 Trade Analytics → L2 Strategy (NHST) → L3 Risk → L4 Performance (renamed from "Regime Map") → L5 Backtesting; History + Methodology + Settings cross-cutting last |
+| PME | Overview · Positions · Exposure · Capital · Safety · Settings | L1 Position → L2 Exposure → L3 Capital → L4 Overview Layer (v8.2: renamed from "Portfolio Layer", merged Overview/Portfolio in v10.1 — `PortfolioOverviewMatrix`); Safety ladder + Settings cross-cutting last |
+| PAE | Overview · Trades · Strategy · Risk Metrics · Performance · Comparison · History · Methodology · Settings | L1 Trade Analytics → L2 Strategy (NHST) → L3 Risk Metrics → L4 Performance (renamed from "Regime Map"); Comparison (v10, sessions+backtests) + History + Methodology + Settings cross-cutting last (Backtesting moved to BTE in v8) |
 
 ---
 
@@ -67,11 +67,11 @@ The execution mode (observe / paper / live) is fixed at launch per instance. Obs
 
 | Engine | Observe tabs | Paper / Live tabs |
 |---|---|---|
-| DIE | All 7 (platform-level, mode-agnostic; no Settings) | All 7 |
+| DIE | All 8 (platform-level, mode-agnostic; Connection Settings far-right) | All 8 |
 | TAE | Overview · Activity · Settings | Overview · Orders · Activity · Trade History · Settings |
-| PME | Overview · Safety · Settings | Overview · Positions · Exposure · Capital · Portfolio Overview · Safety · Settings |
-| PAE | Overview · History · Methodology · Settings (v8: Backtesting moved out) | All 8 |
-| **BTE** (v8) | **No instance** → Overview · History · Settings; **running instance** → Overview · DIE · MME · TAE · PME · PAE · Study Report · History · Settings (one tab per simulated engine, layer order, cross-cutting last) | hidden |
+| PME | Overview · Safety · Settings | Overview · Positions · Exposure · Capital · Safety · Settings |
+| PAE | Overview · Comparison · History · Methodology · Settings (v8: Backtesting moved to BTE) | Overview · Trades · Strategy · Risk Metrics · Performance · Comparison · History · Methodology · Settings |
+| **BTE** (v10.1) | **No instance/run** → Overview · History · Settings (`NoInstanceState`); **bound instance or loaded run** → Overview · Study Report · Chart · History · Data · Signals · Trades · Portfolio · Stats · Settings (trader-flow, 10 tabs) | hidden (observe-only) |
 
 Observe-mode personality (per engine): TAE = "Setup Radar" (ghost would-be setups, no orders); PME = "Readiness Board" (unarmed safety + capital blueprints); PAE = "Edge Validator" (data coverage + methodology); BTE = the research cockpit (archive coverage, deep-history simulations, study reports); DIE = unchanged.
 
@@ -119,7 +119,7 @@ Run) with Back/Continue/Cancel and a run progress bar:
 
 **Every settings tab is an editor — there are no read-only settings panels.**
 
-- **Editable surfaces:** MME Workspace Settings (per-instance: identity, visual overlays, automation, timeframes, position sizing, activation) and the TAE / PME / PAE Settings tabs (global `[workspace.*]` sections), plus Profile → Fees & Leverage (the single editor for `fees`/`leverage`) and Profile → Settings (API failover). DIE has no Settings tab.
+- **Editable surfaces:** MME Workspace Settings (per-instance: identity, visual overlays, automation, timeframes, position sizing, activation) and the TAE / PME / PAE Settings tabs (global `[workspace.*]` sections), plus Profile → Fees & Leverage (the single editor for `fees`/`leverage`). DIE **Connection Settings** (far-right, `[workspace.api_failover]` editor, v10.1) + Profile → Share Config.
 - **Save control:** exactly **one save button per panel**, mounted in the panel's unified header right side (`headerRight`), immediately before the Export button, via the shared `SettingsSaveButton.svelte`. One state machine everywhere: `idle` (disabled) → `dirty` (enabled "SAVE" + "Unsaved changes") → `saving` (disabled "SAVING…") → `saved` (disabled "SAVED", green, ~2s → idle) | `error` (enabled "SAVE", retry; error rendered as an `alertBanner` at the top of the content). The button is never clickable unless dirty/error, never while saving, never after a successful save.
 - **Dirty tracking:** drafts vs the baseline taken after the initial `GET /api/config` load; any edit flips the panel dirty.
 - **Source chips:** every settings card carries a `ConfigSourceChip` (`config.toml → [workspace.x]`) plus an apply-semantics badge — `LIVE` (green: takes effect on the next cycle), `NEW_PIPELINES` (amber: applies to newly launched instances) or `RESTART` (grey).

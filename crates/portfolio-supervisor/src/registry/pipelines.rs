@@ -1751,7 +1751,7 @@ fn uuid_v4_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_nanos();
     format!("{:016x}", ts)
 }

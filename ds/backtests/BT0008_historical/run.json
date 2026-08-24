@@ -2,12 +2,13 @@
   "backtest_id": 8,
   "mode": "historical",
   "params": {
-    "exchange": "bitget",
-    "from_secs": 1786002890,
+    "exchange": "Bitget",
+    "from_secs": 1787258337,
     "portfolio_capital_usd": 1000.0,
+    "strategy_id": "aggressive",
     "symbol": "BTC-USDT",
-    "timeframe_secs": 180,
-    "to_secs": 1787514890
+    "timeframe_secs": 60,
+    "to_secs": 1787585937
   },
   "stats": {
     "alpha": 0.05,

@@ -129,9 +129,9 @@ proptest! {
     ) {
         // Construct a valid triangle: descending highs, ascending lows
         let mut sorted_highs: Vec<f64> = highs_prices.into_iter().collect();
-        sorted_highs.sort_by(|a, b| b.partial_cmp(a).unwrap()); // descending
+        sorted_highs.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)); // descending
         let mut sorted_lows: Vec<f64> = lows_prices.into_iter().collect();
-        sorted_lows.sort_by(|a, b| a.partial_cmp(b).unwrap()); // ascending
+        sorted_lows.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)); // ascending
 
         let n = sorted_highs.len().min(sorted_lows.len()).min(6);
         let mut pivots: Vec<PivotPoint> = Vec::with_capacity(n * 2);

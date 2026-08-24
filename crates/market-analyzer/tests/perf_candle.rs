@@ -48,8 +48,8 @@ fn per_tick_candle_update_p95_under_threshold() {
         let price = 50000.0 + ((r % 1001) as f64);
         let size = 0.01 + (((r >> 10) % 100) as f64) / 100.0;
 
-        let price_dec = rust_decimal::Decimal::from_f64_retain(price).unwrap();
-        let size_dec = rust_decimal::Decimal::from_f64_retain(size).unwrap();
+        let price_dec = rust_decimal::Decimal::from_f64_retain(price).unwrap_or_default();
+        let size_dec = rust_decimal::Decimal::from_f64_retain(size).unwrap_or_default();
 
         let side = if (r >> 20) & 1 == 0 {
             TradeSide::Buy
@@ -75,7 +75,7 @@ fn per_tick_candle_update_p95_under_threshold() {
         times.push(elapsed);
     }
 
-    times.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    times.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let p95_idx = ((ITERATIONS as f64) * 0.95).ceil() as usize - 1;
     let p95 = times[p95_idx];
     let min = times[0];

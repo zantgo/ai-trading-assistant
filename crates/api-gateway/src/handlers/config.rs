@@ -266,6 +266,17 @@ pub async fn update_config(
     }
     merged.config_version = merged.config_version.saturating_add(1);
 
+    // M8: full numeric validation before persisting — `validate_ranges` above
+    // covers engine-settings, but indicator periods / liquidity guards live in
+    // `validate_workspace`.
+    if let Err(e) = config_models::validate_workspace(&merged) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Invalid configuration: {}", e),
+        )
+            .into_response();
+    }
+
     // Persist through `save_workspace` (NOT a bare `toml::to_string_pretty`
     // of the WorkspaceConfig): the on-disk shape wraps the workspace in a
     // `[workspace]` table and keeps the platform sections (`[hyperliquid]`,
@@ -368,6 +379,13 @@ pub async fn serve_workspace_toml_import(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             "Invalid workspace: missing id or instances",
+        )
+            .into_response();
+    }
+    if let Err(e) = config_models::validate_workspace(&workspace) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Invalid workspace: {}", e),
         )
             .into_response();
     }

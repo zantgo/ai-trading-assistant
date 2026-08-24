@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, hash-based URL routing, chart overlay models, CSS architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -289,8 +289,6 @@ Every Svelte component with custom styles follows the **Scoped CSS Modules** pat
 4. Conditional class bindings use a template literal: `class="{styles.tab} {isActive ? styles.tabActive : ''}"`.
 5. Component-specific styling only — global tokens (palette, typography, spacing) live in `ui/src/styles/app.css` and `ui/src/styles/brutalist-grid.module.css`.
 6. Chart-only components (AtrChart, RsiChart, MacdChart, SqueezeChart, VolumeChart, AdxChart) that wrap a single canvas via Lightweight Charts with a minimal wrapper style (`.chart-container { width: 100%; height: 100% }`) are exempt from the companion-module requirement.
-
-**No single source file (`.svelte`, `.ts`, `.css`) may exceed 1000 lines of code.**
 
 ### 8.1 Vite Configuration (normative)
 

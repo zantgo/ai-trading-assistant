@@ -1,6 +1,6 @@
 # 03-02-14: MME Sub-Minute Timeframe Feasibility on Commodity Hardware
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 

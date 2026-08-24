@@ -86,6 +86,9 @@ Thumbs.db
 # 🧪 E2E harness artifacts (written by ./manage.sh e2e-backtest)
 # ==============================================================================
 .e2e-*
+e2e-backtest-report.*
+e2e-matrix.log
+rust_out
 
 # ==============================================================================
 # 📊 Data-Science export tree (./ds/ at any level — web + CLI backtest artifacts)

@@ -67,9 +67,9 @@ pub fn parse_tf(raw: &str) -> Result<Vec<u64>, String> {
         .map(|p| p.trim().parse::<u64>())
         .collect::<Result<_, _>>()
         .map_err(|_| format!("--tf '{raw}' is not a comma-separated list of seconds"))?;
-    if parts.len() != 4 {
+    if parts.is_empty() || parts.len() > 4 {
         return Err(format!(
-            "--tf must contain exactly 4 ascending timeframes, got {}",
+            "--tf must contain 1..4 ascending timeframes, got {}",
             parts.len()
         ));
     }
@@ -680,7 +680,10 @@ pub fn prompt_backtest_args(workspace: &WorkspaceConfig) -> CliBacktestArgs {
         .map(|s| s.trim().to_uppercase())
         .filter(|s| !s.is_empty())
         .collect();
-    let tf_raw = crate::prompt("Timeframe ladder (4 ascending seconds)", "60,180,300,900");
+    let tf_raw = crate::prompt(
+        "Timeframe ladder (1..4 ascending seconds)",
+        "60,180,300,900",
+    );
     let tf = parse_tf(&tf_raw).unwrap_or_else(|e| {
         eprintln!("  ⚠️  {e} — using the default ladder");
         vec![60, 180, 300, 900]
@@ -738,9 +741,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_tf_requires_exactly_four_slots() {
-        let err = parse_tf("60,180,300").unwrap_err();
-        assert!(err.contains("exactly 4"), "{err}");
+    fn parse_tf_accepts_one_to_four_slots() {
+        assert_eq!(parse_tf("60").unwrap(), vec![60]);
+        assert_eq!(parse_tf("60,180").unwrap(), vec![60, 180]);
+        assert_eq!(parse_tf("60,180,300").unwrap(), vec![60, 180, 300]);
+        assert_eq!(parse_tf("60,180,300,900").unwrap(), vec![60, 180, 300, 900]);
+        assert!(parse_tf("").is_err());
+        let err = parse_tf("60,180,300,900,1800").unwrap_err();
+        assert!(err.contains("1..4"), "{err}");
     }
 
     #[test]
@@ -797,7 +805,7 @@ mod fetch_debug_tests {
     async fn debug_hl_fetch_rows() {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         let interval =
             network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(900);

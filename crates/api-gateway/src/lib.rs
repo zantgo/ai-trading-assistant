@@ -1,6 +1,6 @@
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
+    http::{HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Redirect},
     routing::{delete, get, post, put},
@@ -8,7 +8,9 @@ use axum::{
 };
 use core_domain::normalized::SymbolMapper;
 use sqlx::SqlitePool;
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
@@ -601,7 +603,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::keys::list_keys).post(handlers::keys::add_key),
         )
         .route("/api/keys/rotate", post(handlers::keys::rotate_keys))
-        .route("/api/keys/backup", get(handlers::keys::backup_keys))
+        .route(
+            "/api/keys/backup",
+            get(handlers::keys::backup_keys).post(handlers::keys::backup_keys_post),
+        )
         .route("/api/keys/:key_id", delete(handlers::keys::delete_key))
         .route(
             "/api/system/status",
@@ -640,6 +645,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/favicon.ico",
             get(|| async { Redirect::to("/favicon.svg") }),
         )
+        .layer(axum::middleware::from_fn(rate_limit_middleware))
         .layer(
             // K1 (production audit): CORS is locked to the dashboard's own
             // origins — previously `allow_origin(Any)` let ANY website
@@ -653,10 +659,17 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                     state
                         .allowed_origins
                         .iter()
-                        .filter_map(|o| axum::http::HeaderValue::from_str(o).ok())
+                        .filter_map(|o| HeaderValue::from_str(o).ok())
                         .collect::<Vec<_>>(),
                 ))
-                .allow_methods(Any)
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::DELETE,
+                    Method::PATCH,
+                    Method::OPTIONS,
+                ])
                 .allow_headers(Any),
         )
         // Cross-site rejection: placed OUTERMOST so the 403 is issued
@@ -717,6 +730,43 @@ async fn reject_cross_site(
         if !origin_allowed(origin, &state.allowed_origins) {
             return StatusCode::FORBIDDEN.into_response();
         }
+    }
+    next.run(req).await
+}
+
+/// Global rate limiter (single-operator loopback, 10 req/s).
+/// Uses a sliding window of 1 s kept in a process-wide `Mutex<VecDeque>`.
+/// `429 Too Many Requests` when the window is full; no per-IP tracking
+/// needed because the server binds loopback-only (one operator).
+async fn rate_limit_middleware(req: Request, next: Next) -> axum::response::Response {
+    static WINDOW: Duration = Duration::from_secs(1);
+    const LIMIT: usize = 10;
+    static STATE: LazyLock<Mutex<VecDeque<Instant>>> =
+        LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+    let now = Instant::now();
+    let should_limit = {
+        let mut guard = STATE.lock().expect("rate-limit mutex poisoned");
+        // evict entries outside the 1 s window
+        while guard
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= WINDOW)
+        {
+            guard.pop_front();
+        }
+        if guard.len() >= LIMIT {
+            true
+        } else {
+            guard.push_back(now);
+            false
+        }
+    };
+    if should_limit {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rate limit exceeded: 10 req/s",
+        )
+            .into_response();
     }
     next.run(req).await
 }

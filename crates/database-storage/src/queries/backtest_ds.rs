@@ -89,7 +89,7 @@ pub async fn insert_backtest_ds_rows(
     };
 
     for (seq, t) in trades.iter().enumerate() {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO backtest_trades
                 (run_id, seq, ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
                  ts_entry_secs, hold_secs, mfe_pct, mae_pct, roi_pct, slippage_bps, commission_fees, funding_fees)
@@ -113,22 +113,27 @@ pub async fn insert_backtest_ds_rows(
         .bind(t.commission_fees)
         .bind(t.funding_fees)
         .execute(&mut *tx)
-        .await;
+        .await {
+                eprintln!("DB persist failed: {e}");
+            }
     }
 
     for (ts, eq) in equity {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO backtest_equity (run_id, ts_secs, equity) VALUES (?1, ?2, ?3)",
         )
         .bind(run_id)
         .bind(ts)
         .bind(eq)
         .execute(&mut *tx)
-        .await;
+        .await
+        {
+            eprintln!("DB persist failed: {e}");
+        }
     }
 
     for p in portfolio {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO backtest_portfolio
                 (run_id, ts_secs, equity, cash, margin_used, exposure_pct, drawdown_pct, positions_open)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -142,11 +147,13 @@ pub async fn insert_backtest_ds_rows(
         .bind(p.drawdown_pct)
         .bind(p.positions_open as i64)
         .execute(&mut *tx)
-        .await;
+        .await {
+                eprintln!("DB persist failed: {e}");
+            }
     }
 
     for s in signals {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO backtest_signals
                 (run_id, ts_secs, timeframe_secs, label, kind, value)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -158,18 +165,23 @@ pub async fn insert_backtest_ds_rows(
         .bind(&s.kind)
         .bind(&s.value)
         .execute(&mut *tx)
-        .await;
+        .await
+        {
+            eprintln!("DB persist failed: {e}");
+        }
     }
 
     for m in metrics {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT OR IGNORE INTO backtest_metrics (run_id, metric_key, value) VALUES (?1, ?2, ?3)",
         )
         .bind(run_id)
         .bind(&m.key)
         .bind(&m.value)
         .execute(&mut *tx)
-        .await;
+        .await {
+                eprintln!("DB persist failed: {e}");
+            }
     }
 
     if let Err(e) = tx.commit().await {
@@ -184,12 +196,16 @@ pub async fn update_backtest_run_meta(
     instance_id: Option<&str>,
     mode: &str,
 ) {
-    let _ = sqlx::query("UPDATE backtest_runs SET instance_id = ?2, mode = ?3 WHERE id = ?1")
-        .bind(run_id)
-        .bind(instance_id)
-        .bind(mode)
-        .execute(pool)
-        .await;
+    if let Err(e) =
+        sqlx::query("UPDATE backtest_runs SET instance_id = ?2, mode = ?3 WHERE id = ?1")
+            .bind(run_id)
+            .bind(instance_id)
+            .bind(mode)
+            .execute(pool)
+            .await
+    {
+        eprintln!("DB persist failed: {e}");
+    }
 }
 
 /// Fetch the DS trades for a run (paginated).

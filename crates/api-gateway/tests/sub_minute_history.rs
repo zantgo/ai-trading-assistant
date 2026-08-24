@@ -190,12 +190,12 @@ async fn build_router_with_snapshots(
 }
 
 fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
-    let close = rust_decimal::Decimal::from_f64_retain(close_val).unwrap();
-    let open = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap();
-    let high = rust_decimal::Decimal::from_f64_retain(close_val + 5.0).unwrap();
-    let low = rust_decimal::Decimal::from_f64_retain(close_val - 10.0).unwrap();
-    let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap();
-    let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap();
+    let close = rust_decimal::Decimal::from_f64_retain(close_val).unwrap_or_default();
+    let open = rust_decimal::Decimal::from_f64_retain(close_val - 5.0).unwrap_or_default();
+    let high = rust_decimal::Decimal::from_f64_retain(close_val + 5.0).unwrap_or_default();
+    let low = rust_decimal::Decimal::from_f64_retain(close_val - 10.0).unwrap_or_default();
+    let bid = rust_decimal::Decimal::from_f64_retain(close_val - 1.0).unwrap_or_default();
+    let ask = rust_decimal::Decimal::from_f64_retain(close_val + 1.0).unwrap_or_default();
     MarketSnapshot {
         timeframe_slot: Some(TimeframeSlot::Micro),
         exchange: Some(Exchange::Hyperliquid),
@@ -219,8 +219,8 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         high: Some(high),
         low: Some(low),
         close: Some(close),
-        volume: Some(rust_decimal::Decimal::from_f64_retain(1.5).unwrap()),
-        average_volume: Some(rust_decimal::Decimal::from_f64_retain(1.2).unwrap()),
+        volume: Some(rust_decimal::Decimal::from_f64_retain(1.5).unwrap_or_default()),
+        average_volume: Some(rust_decimal::Decimal::from_f64_retain(1.2).unwrap_or_default()),
         context: None,
         decision_context: None,
         statistical_context: None,

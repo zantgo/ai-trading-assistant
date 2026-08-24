@@ -162,7 +162,7 @@ impl ExecutionEngine {
             let exchange_id = self.backend.read().await.submit_order(&packet).await?;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs();
             let mut lifecycle = OrderLifecycle::new(packet, now);
             lifecycle.exchange_order_id = Some(exchange_id.clone());
@@ -192,7 +192,7 @@ impl ExecutionEngine {
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs();
             let mut lifecycle = OrderLifecycle::new(packet, now);
             lifecycle.exchange_order_id = Some(exchange_id.clone());
@@ -245,7 +245,7 @@ impl ExecutionEngine {
             order.status = OrderStatus::Closed;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs();
             order
                 .transitions
@@ -365,7 +365,7 @@ impl ExecutionEngine {
         lifecycle.status = OrderStatus::Closed;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         lifecycle
             .transitions
@@ -418,7 +418,7 @@ impl ExecutionEngine {
                 };
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_millis() as i64;
 
                 let exit_reason = lifecycle
@@ -485,7 +485,7 @@ impl ExecutionEngine {
             };
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as u64;
             positions.insert(
                 symbol.clone(),
@@ -605,7 +605,7 @@ impl ExecutionEngine {
                 o.status = OrderStatus::Cancelled;
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_secs();
                 o.transitions
                     .push(crate::execution::state_machine::OrderTransition {
@@ -760,7 +760,7 @@ impl ExecutionEngine {
             } else {
                 dec!(0)
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO paper_trades \
                  (symbol, direction, entry_price, exit_price, size, \
                   realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger, session_id) \
@@ -778,7 +778,10 @@ impl ExecutionEngine {
             .bind(trigger)
             .bind(self.current_session_id().await)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist paper trade failed for {symbol}: {e}");
+            }
         }
     }
 
@@ -809,7 +812,7 @@ impl ExecutionEngine {
             } else {
                 trigger_source.to_string()
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO trade_telemetry_history \
                  (exchange, symbol, direction, entry_timestamp, exit_timestamp, \
                   entry_price, exit_price, size, commission_fees, funding_fees, \
@@ -831,7 +834,10 @@ impl ExecutionEngine {
             .bind(&source)
             .bind(self.current_session_id().await)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist trade telemetry failed for {symbol}: {e}");
+            }
         }
     }
 
@@ -845,9 +851,9 @@ impl ExecutionEngine {
             let cash = equity - unrealized;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as i64;
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO portfolio_equity_history \
                  (timestamp, total_value, cash_balance, unrealized_pnl, session_id) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -858,7 +864,10 @@ impl ExecutionEngine {
             .bind(unrealized.to_string())
             .bind(self.current_session_id().await)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist equity snapshot failed: {e}");
+            }
         }
     }
 
@@ -866,7 +875,7 @@ impl ExecutionEngine {
     pub async fn log_activity(&self, instance_id: &str, symbol: &str, event: &str, detail: &str) {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         {
             let mut ring = self.activity.write().await;
@@ -883,7 +892,7 @@ impl ExecutionEngine {
             }
         }
         if let Some(ref pool) = self.pool {
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO automation_activity (instance_id, symbol, ts_ms, event, detail, session_id) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )
@@ -894,7 +903,10 @@ impl ExecutionEngine {
             .bind(detail)
             .bind(self.current_session_id().await)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist activity failed for {instance_id}: {e}");
+            }
         }
     }
 
@@ -916,7 +928,7 @@ impl ExecutionEngine {
         if let Some(ref pool) = self.pool {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as i64;
             // Capture a best-effort snapshot of the live engine state so a restart
             // can log/recover the equity ledger and diagnose leaked positions.
@@ -981,7 +993,7 @@ impl ExecutionEngine {
                     equity,
                 )
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT OR REPLACE INTO tae_open_state \
                  (instance_id, symbol, saved_at_ms, tracked_setup_json, \
                   entry_order_json, bracket_tp_json, bracket_sl_json, \
@@ -999,7 +1011,10 @@ impl ExecutionEngine {
             .bind(equity_str)
             .bind("")
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist open state failed for {instance_id}/{symbol}: {e}");
+            }
         }
     }
 
@@ -1018,10 +1033,13 @@ impl ExecutionEngine {
 
     pub async fn clear_open_state(&self, instance_id: &str) {
         if let Some(ref pool) = self.pool {
-            let _ = sqlx::query("DELETE FROM tae_open_state WHERE instance_id = ?1")
+            if let Err(e) = sqlx::query("DELETE FROM tae_open_state WHERE instance_id = ?1")
                 .bind(instance_id)
                 .execute(pool.as_ref())
-                .await;
+                .await
+            {
+                eprintln!("clear open state failed for {instance_id}: {e}");
+            }
         }
     }
 }

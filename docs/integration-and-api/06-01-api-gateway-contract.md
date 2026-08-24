@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -169,7 +169,7 @@ The response shape is:
 | `POST` | `/api/instances/:instance_id/safety/release-veto` | **Informational safety reset (v7).** Returns the safety state to `NORMAL` (only when the underlying drawdown condition has cleared) + optional peak-equity reset. Returns `422` if the drawdown condition is still active. Distinct from `/safety/reset` (consecutive-loss counters). `operator_id = "local"` is recorded in the resulting `risk_control_events` row. |
 | `GET` | `/api/instances/:instance_id/automation` | **v7 TAE surface (served).** Full setup-executor state: mode (paper/live), phase, tracked setup + projected risk/return, entry + bracket orders, position, invalidation state, activity log, safety gate, lifecycle, equity. See [03-03-01 §8.1](../engines/trade-automation-engine/03-03-01-tae-overview-spec.md). |
 | `POST` | `/api/instances/:instance_id/automation/close` | **v7 manual override (served).** Cancels pending/bracket orders and closes the open position at market. `exit_reason = "manual"`. |
-| `POST` | `/api/instances/:instance_id/mode` | **v7.1 (served):** switch the instance's execution mode between `observe`, `paper` and `live`. `observe` = monitoring only (no orders dispatched, no API key required; the engine backend resets to paper simulation so no stale live broker survives). `live` requires an active API key for the workspace exchange (`POST /api/keys`). Body `{ "mode": "observe" \| "paper" \| "live" }`; persists into the workspace config + the runtime `Instance::execution_mode` gate. |
+| `POST` | `/api/instances/:instance_id/mode` | **Removed in v7.2 (was v7.1 served):** execution mode is **fixed at launch**; switching a running instance is no longer supported. Create the instance with the correct `execution_mode` (`observe` | `paper` | `live`) or delete and recreate. Use `POST /api/instances/:instance_id/lifecycle` (`start`/`pause`/`stop`) to control the unified lifecycle (`RUNNING` / lifecycle `PAUSED` / `STOPPING` / `STOPPED` → display `ACTIVE`/`FLATTENING`/`TERMINATED`). |
 | `POST` | `/api/instances/:instance_id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |
 | `GET` | `/api/instances/:instance_id/portfolio` | **PME v7 (served): rich informational portfolio state** — equity, realized/unrealized/daily PnL, peak + max drawdown %, safety state + context, systemic risk, exposure block (gross/net/long/short/concentration), capital block (available/committed margin, usage, leverage, alert), positions with mark-to-market, lifecycle. Read-only. See [03-04-01 §5](../engines/portfolio-management-engine/03-04-01-pme-overview-spec.md). |
 | `GET` | `/api/instances/:instance_id/exposure` | **PME v7 (served):** Exposure Matrix (gross/net/long/short, per-symbol concentration, max single-pair). Read-only. |
@@ -258,7 +258,7 @@ The response shape is:
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v8.0; retired name recorded in `docs/CHANGELOG.md`). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target Unscheduled; retired name recorded in `docs/CHANGELOG.md`). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 

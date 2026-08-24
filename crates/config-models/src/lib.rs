@@ -402,12 +402,12 @@ impl WorkspaceConfig {
             .cloned()
             .ok_or_else(|| format!("strategy '{name}' not found"))?;
         loop {
-            if !seen.insert(current.name.clone()) {
-                return Err(format!("strategy inheritance cycle at '{}'", current.name));
-            }
             let Some(base_name) = current.base.clone() else {
                 return Ok(current);
             };
+            if !seen.insert(current.name.clone()) {
+                return Err(format!("strategy inheritance cycle at '{}'", current.name));
+            }
             if base_name == current.name {
                 return Err(format!(
                     "strategy '{}' cannot inherit from itself",
@@ -433,7 +433,12 @@ impl WorkspaceConfig {
                 .map_err(|e| format!("serialize '{}': {e}", current.name))?;
             let base_json =
                 serde_json::to_value(&base).map_err(|e| format!("serialize '{base_name}': {e}"))?;
-            current = StrategyConfig::resolve(Some(&base_json), &child_json)?;
+            let mut merged = StrategyConfig::resolve(Some(&base_json), &child_json)?;
+            // Walk the base chain: the merged leaf inherits the base's own base (if any),
+            // not its own original base — otherwise the next loop iteration would
+            // re-merge the same base and incorrectly report a cycle.
+            merged.base = base.base.clone();
+            current = merged;
         }
         #[allow(unreachable_code)]
         Ok(current)
@@ -684,7 +689,7 @@ pub fn load() -> Result<(PlatformConfig, WorkspaceConfig)> {
 /// per-TF refresh) but no production call-site instantiates them, so a
 /// configured custom TF would be silently dropped. Explicit rejection is
 /// the honest behaviour until the wiring lands.
-fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
+pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
     // v7.3 (M8-style numeric guards): the significance treatment and the
     // risk limits are real numerics that flow into division/ranking logic —
     // reject nonsense at boot instead of silently mis-verdicting trades.
@@ -864,18 +869,154 @@ fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
                     });
                 }
                 let ind = &tf.indicators;
-                if ind.rsi_period == 0 {
-                    return Err(ConfigError::InvalidNumeric {
-                        detail: format!("instance {}: {}.rsi_period = 0", inst.symbol, name),
-                    });
-                }
-                if ind.macd_fast == 0 || ind.macd_slow == 0 || ind.macd_signal == 0 {
-                    return Err(ConfigError::InvalidNumeric {
-                        detail: format!("instance {}: {} MACD period(s) = 0", inst.symbol, name),
-                    });
-                }
+                validate_indicators_config(ind, &format!("instance {}: {}.", inst.symbol, name))?;
             }
         }
+    }
+    // Workspace-level indicator defaults — same guards as per-instance.
+    validate_indicators_config(&ws.indicators, "workspace.indicators.")?;
+    // Liquidity / heatmap / candle-buffer numeric guards
+    {
+        let liq = &ws.liquidity;
+        if !(liq.maintenance_margin_rate.is_finite()
+            && liq.maintenance_margin_rate > 0.0
+            && liq.maintenance_margin_rate <= 1.0)
+        {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.liquidity].maintenance_margin_rate = {} (must be in (0,1])",
+                    liq.maintenance_margin_rate
+                ),
+            });
+        }
+        if !(liq.bucket_retention_days > 0) {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.liquidity].bucket_retention_days = {} (must be >0)",
+                    liq.bucket_retention_days
+                ),
+            });
+        }
+        // 0 = "synchronize with TF cadence" (valid default, see default_cluster_refresh_secs).
+        if liq.cluster_refresh_secs != 0 && liq.cluster_refresh_secs < 1 {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.liquidity].cluster_refresh_secs = {} (must be 0 or >=1)",
+                    liq.cluster_refresh_secs
+                ),
+            });
+        }
+        if !(liq.min_cluster_notional_usd.is_finite() && liq.min_cluster_notional_usd >= 0.0) {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.liquidity].min_cluster_notional_usd = {} (must be >=0)",
+                    liq.min_cluster_notional_usd
+                ),
+            });
+        }
+    }
+    {
+        let hm = &ws.heatmap;
+        if !(hm.bucket_size_pct.is_finite()
+            && hm.bucket_size_pct > 0.0
+            && hm.bucket_size_pct <= 1.0)
+        {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "[workspace.heatmap].bucket_size_pct = {} (must be in (0,1])",
+                    hm.bucket_size_pct
+                ),
+            });
+        }
+        if hm.retention_secs == 0 {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!("[workspace.heatmap].retention_secs = 0 (must be >0)"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_indicators_config(ind: &IndicatorsConfig, prefix: &str) -> Result<()> {
+    macro_rules! check_period {
+        ($field:ident) => {
+            if ind.$field == 0 {
+                return Err(ConfigError::InvalidNumeric {
+                    detail: format!("{}{} = 0 (must be >0)", prefix, stringify!($field)),
+                });
+            }
+        };
+    }
+    check_period!(ema_fast);
+    check_period!(ema_medium);
+    check_period!(ema_slow);
+    check_period!(ema_long);
+    check_period!(rsi_period);
+    check_period!(macd_fast);
+    check_period!(macd_slow);
+    check_period!(macd_signal);
+    check_period!(adx_period);
+    check_period!(atr_period);
+    check_period!(squeeze_period);
+    check_period!(stoch_k_period);
+    check_period!(stoch_d_period);
+    check_period!(stoch_s_period);
+    check_period!(chandemo_period);
+    check_period!(supertrend_period);
+    check_period!(keltner_ema_period);
+    check_period!(keltner_atr_period);
+    check_period!(donchian_period);
+    check_period!(obv_smoothing);
+    check_period!(cmf_period);
+    check_period!(mfi_period);
+    check_period!(hv_period);
+    check_period!(aroon_period);
+    check_period!(chop_period);
+    check_period!(linreg_period);
+    check_period!(zscore_period);
+    check_period!(bbwp_lookback);
+    check_period!(bbwp_period);
+    check_period!(squeeze_bb_period);
+    check_period!(squeeze_kc_period);
+    check_period!(volume_average_period);
+    check_period!(ichimoku_tenkan);
+    check_period!(ichimoku_kijun);
+    check_period!(ichimoku_senkou_b);
+    check_period!(ichimoku_displacement);
+    check_period!(cci_period);
+    check_period!(williams_r_period);
+    check_period!(hull_ma_period);
+    check_period!(force_index_smoothing);
+    check_period!(stddev_channel_period);
+    check_period!(smc_lookback);
+    check_period!(volume_profile_bins);
+    check_period!(volume_profile_window);
+    if ind.supertrend_multiplier <= 0.0 || !ind.supertrend_multiplier.is_finite() {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "{}supertrend_multiplier = {} (must be >0)",
+                prefix, ind.supertrend_multiplier
+            ),
+        });
+    }
+    if ind.keltner_multiplier <= 0.0 || !ind.keltner_multiplier.is_finite() {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "{}keltner_multiplier = {} (must be >0)",
+                prefix, ind.keltner_multiplier
+            ),
+        });
+    }
+    if ind.volume_profile_value_area <= 0.0
+        || ind.volume_profile_value_area > 1.0
+        || !ind.volume_profile_value_area.is_finite()
+    {
+        return Err(ConfigError::InvalidNumeric {
+            detail: format!(
+                "{}volume_profile_value_area = {} (must be in (0,1])",
+                prefix, ind.volume_profile_value_area
+            ),
+        });
     }
     Ok(())
 }
@@ -914,6 +1055,11 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
             ),
         });
     }
+    if platform.candle_buffer.size == 0 {
+        return Err(ConfigError::InvalidNumeric {
+            detail: "[candle_buffer].size = 0 (must be >0)".into(),
+        });
+    }
     Ok(())
 }
 
@@ -924,6 +1070,7 @@ fn validate_platform(platform: &PlatformConfig) -> Result<()> {
 /// file back. This preserves any platform-level edits the operator made
 /// outside the workspace UI.
 pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
+    validate_workspace(workspace)?;
     assert_no_legacy_files()?;
     let path = config_path();
 

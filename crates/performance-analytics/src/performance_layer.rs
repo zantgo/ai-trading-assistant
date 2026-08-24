@@ -131,7 +131,7 @@ pub async fn compute_performance_matrix_summary(
 
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     let mut summaries = Vec::new();

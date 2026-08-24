@@ -1,1 +1,0 @@
-❌ CLI backtest failed: --depth 4d exceeds Hyperliquid's 5000-candle ceiling for the 60s timeframe (max ≈ 3 days)

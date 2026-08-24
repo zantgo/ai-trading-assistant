@@ -77,7 +77,7 @@ impl BitgetLiveClient {
     async fn throttle(&self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         let mut last = self.last_request_ms.lock().await;
         let elapsed = now.saturating_sub(*last);
@@ -88,7 +88,7 @@ impl BitgetLiveClient {
         }
         *last = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
     }
 
@@ -96,7 +96,7 @@ impl BitgetLiveClient {
         self.throttle().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         let sign = bitget_sign(ts, "GET", path, "", &self.api_secret);
         let resp = self
@@ -126,7 +126,7 @@ impl BitgetLiveClient {
         self.throttle().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         let body_str = payload.to_string();
         let sign = bitget_sign(ts, "POST", path, &body_str, &self.api_secret);
@@ -238,7 +238,7 @@ impl BitgetLiveClient {
             self.product_type,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis()
         );
         let body = self.signed_get(&path).await?;

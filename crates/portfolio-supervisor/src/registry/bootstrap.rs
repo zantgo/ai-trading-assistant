@@ -252,7 +252,7 @@ pub async fn fetch_and_warm_bootstrap(
 > {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64;
 
     let is_bitget = input.exchange_choice == ExchangeChoice::Bitget;

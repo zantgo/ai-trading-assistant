@@ -353,12 +353,16 @@ pub async fn rotate_keys(
                     .into_response();
             }
         };
-        let _ = sqlx::query("UPDATE exchange_keys SET api_secret = ?, passphrase = ? WHERE id = ?")
-            .bind(&new_secret)
-            .bind(&new_pass)
-            .bind(id)
-            .execute(&state.pool)
-            .await;
+        if let Err(e) =
+            sqlx::query("UPDATE exchange_keys SET api_secret = ?, passphrase = ? WHERE id = ?")
+                .bind(&new_secret)
+                .bind(&new_pass)
+                .bind(id)
+                .execute(&state.pool)
+                .await
+        {
+            eprintln!("DB persist failed: {e}");
+        }
     }
 
     Json(serde_json::json!({
@@ -369,21 +373,27 @@ pub async fn rotate_keys(
     .into_response()
 }
 
-/// GET /api/keys/backup?passphrase= — encrypted-backup export of stored
-/// credentials keyed by an operator passphrase (AES-256-GCM).
+/// GET /api/keys/backup?passphrase= — encrypted-backup export (legacy, query-param).
+/// Prefer POST /api/keys/backup with JSON body `{"passphrase": "..."}` to avoid
+/// logging the secret in access logs. GET is retained for backward compat.
 #[derive(Deserialize)]
 pub struct BackupKeyQuery {
     pub passphrase: String,
 }
 
-pub async fn backup_keys(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<BackupKeyQuery>,
-) -> impl IntoResponse {
-    if query.passphrase.trim().is_empty() {
+#[derive(Deserialize)]
+pub struct BackupKeyRequest {
+    pub passphrase: String,
+}
+
+async fn backup_keys_internal(
+    state: Arc<AppState>,
+    passphrase: String,
+) -> axum::response::Response {
+    if passphrase.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "passphrase query param required" })),
+            Json(serde_json::json!({ "error": "passphrase required" })),
         )
             .into_response();
     }
@@ -405,7 +415,7 @@ pub async fn backup_keys(
         }
     };
 
-    let backup_key = database_storage::crypto::backup_key_from_passphrase(&query.passphrase);
+    let backup_key = database_storage::crypto::backup_key_from_passphrase(&passphrase);
     let items: Vec<serde_json::Value> = rows
         .into_iter()
         .map(
@@ -433,4 +443,19 @@ pub async fn backup_keys(
         "note": "api_secret_encrypted is AES-256-GCM encrypted with the passphrase-derived key; restore with the same passphrase"
     }))
     .into_response()
+}
+
+pub async fn backup_keys(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<BackupKeyQuery>,
+) -> impl IntoResponse {
+    eprintln!("WARN: GET /api/keys/backup via query param is deprecated — use POST with JSON body to avoid logging the passphrase");
+    backup_keys_internal(state, query.passphrase).await
+}
+
+pub async fn backup_keys_post(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<BackupKeyRequest>,
+) -> impl IntoResponse {
+    backup_keys_internal(state, body.passphrase).await
 }

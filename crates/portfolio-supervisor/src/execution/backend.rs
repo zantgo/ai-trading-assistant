@@ -260,7 +260,7 @@ impl ExecutionBackend for BitgetLiveBroker {
             packet.client_order_id,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis()
         );
         match packet.order_type {

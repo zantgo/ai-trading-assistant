@@ -185,7 +185,7 @@ mod tests {
         }
         let result = rsi.update(price + 1.00).unwrap();
         assert!(
-            result > Decimal::from_f64_retain(50.00).unwrap(),
+            result > Decimal::from_f64_retain(50.00).unwrap_or_default(),
             "All gains should yield RSI > 50"
         );
     }

@@ -254,7 +254,7 @@ pub async fn insert_snapshot_with_session(
     } else {
         "live"
     };
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO candle_archive
             (exchange, symbol, timeframe_secs, ts_secs, open, high, low, close,
              volume, source)
@@ -272,7 +272,10 @@ pub async fn insert_snapshot_with_session(
     .bind(snapshot.volume.map(|d| d.to_string()))
     .bind(archive_source)
     .execute(pool)
-    .await;
+    .await
+    {
+        eprintln!("DB persist failed: {e}");
+    }
 }
 
 /// Reconstruct recent completed OHLCV candles for a pair + timeframe from the

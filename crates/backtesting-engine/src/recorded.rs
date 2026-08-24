@@ -570,7 +570,7 @@ mod tests {
         snap.timeframe_secs = 60;
         snap.timestamp = ts;
         snap.is_completed = Some(true);
-        snap.mid_price = Decimal::from_f64_retain(mid).unwrap();
+        snap.mid_price = Decimal::from_f64_retain(mid).unwrap_or_default();
         snap.bid_price = snap.mid_price;
         snap.ask_price = snap.mid_price;
         snap.close = Some(snap.mid_price);

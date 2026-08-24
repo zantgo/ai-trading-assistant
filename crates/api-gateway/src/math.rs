@@ -22,8 +22,8 @@ pub fn compute_support_resistance(
         }
     }
 
-    local_mins.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    local_maxs.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    local_mins.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    local_maxs.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
     let step_size = if current_price >= 10000.0 {
         0.1

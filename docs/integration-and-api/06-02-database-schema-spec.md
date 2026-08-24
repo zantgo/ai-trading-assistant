@@ -1,6 +1,6 @@
 # Database Schema Specification
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v8.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target Unscheduled (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 

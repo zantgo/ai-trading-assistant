@@ -1,6 +1,6 @@
 # MME Strategy Configuration — Canonical Spec (v9)
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Market Monitoring Engine (MME) — Layers L1 · L1.5 · L2 · L2.5 · L3 · L4 · L5 · L6 · L7
 **Method:** Spec-driven development — this document is the contract. Code, UI,

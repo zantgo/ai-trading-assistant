@@ -170,10 +170,10 @@ mod tests {
             timeframe_secs: 60,
             timestamp: ts,
             is_completed: Some(true),
-            mid_price: Decimal::from_f64_retain(mid).unwrap(),
-            bid_price: Decimal::from_f64_retain(mid).unwrap(),
-            ask_price: Decimal::from_f64_retain(mid).unwrap(),
-            close: Some(Decimal::from_f64_retain(mid).unwrap()),
+            mid_price: Decimal::from_f64_retain(mid).unwrap_or_default(),
+            bid_price: Decimal::from_f64_retain(mid).unwrap_or_default(),
+            ask_price: Decimal::from_f64_retain(mid).unwrap_or_default(),
+            close: Some(Decimal::from_f64_retain(mid).unwrap_or_default()),
             ..MarketSnapshot::default()
         }
     }

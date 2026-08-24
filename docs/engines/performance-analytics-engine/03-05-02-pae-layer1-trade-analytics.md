@@ -1,6 +1,6 @@
 # PAE Layer 1 — Trade Analytics Layer
 
-**Version:** 8.0 (2026-08-20) — v7: implemented; grouping keyed by setup type.
+**Version:** 10.1 (2026-08-24) — v7: implemented; grouping keyed by setup type.
 **Status:** Specified — implemented.
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 1 of 4

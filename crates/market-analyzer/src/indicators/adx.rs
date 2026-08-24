@@ -310,7 +310,8 @@ mod tests {
         for _ in 0..20 {
             if let Some(out) = adx.update(100.00, 100.00, 100.00) {
                 assert!(
-                    (out.plus_di - out.minus_di).abs() < Decimal::from_f64_retain(1.00).unwrap(),
+                    (out.plus_di - out.minus_di).abs()
+                        < Decimal::from_f64_retain(1.00).unwrap_or_default(),
                     "Zero movement: +DI and -DI should be near equal"
                 );
             }
@@ -347,9 +348,9 @@ mod tests {
     #[test]
     fn test_regime_classification_congestion() {
         let regime = classify_regime(
-            Decimal::from_f64_retain(15.0).unwrap(),
-            Decimal::from_f64_retain(20.0).unwrap(),
-            Decimal::from_f64_retain(40.0).unwrap(),
+            Decimal::from_f64_retain(15.0).unwrap_or_default(),
+            Decimal::from_f64_retain(20.0).unwrap_or_default(),
+            Decimal::from_f64_retain(40.0).unwrap_or_default(),
         );
         assert_eq!(regime, TrendRegime::Congestion);
     }
@@ -357,9 +358,9 @@ mod tests {
     #[test]
     fn test_regime_classification_emerging() {
         let regime = classify_regime(
-            Decimal::from_f64_retain(22.0).unwrap(),
-            Decimal::from_f64_retain(20.0).unwrap(),
-            Decimal::from_f64_retain(40.0).unwrap(),
+            Decimal::from_f64_retain(22.0).unwrap_or_default(),
+            Decimal::from_f64_retain(20.0).unwrap_or_default(),
+            Decimal::from_f64_retain(40.0).unwrap_or_default(),
         );
         assert_eq!(regime, TrendRegime::Emerging);
     }
@@ -367,9 +368,9 @@ mod tests {
     #[test]
     fn test_regime_classification_strong() {
         let regime = classify_regime(
-            Decimal::from_f64_retain(30.0).unwrap(),
-            Decimal::from_f64_retain(20.0).unwrap(),
-            Decimal::from_f64_retain(40.0).unwrap(),
+            Decimal::from_f64_retain(30.0).unwrap_or_default(),
+            Decimal::from_f64_retain(20.0).unwrap_or_default(),
+            Decimal::from_f64_retain(40.0).unwrap_or_default(),
         );
         assert_eq!(regime, TrendRegime::Strong);
     }
@@ -377,9 +378,9 @@ mod tests {
     #[test]
     fn test_regime_classification_extreme() {
         let regime = classify_regime(
-            Decimal::from_f64_retain(42.0).unwrap(),
-            Decimal::from_f64_retain(20.0).unwrap(),
-            Decimal::from_f64_retain(40.0).unwrap(),
+            Decimal::from_f64_retain(42.0).unwrap_or_default(),
+            Decimal::from_f64_retain(20.0).unwrap_or_default(),
+            Decimal::from_f64_retain(40.0).unwrap_or_default(),
         );
         assert_eq!(regime, TrendRegime::Extreme);
     }
@@ -406,8 +407,8 @@ mod tests {
     fn test_slope_computation() {
         let mut adx = Adx::new(14);
         adx.set_thresholds(
-            Decimal::from_f64_retain(20.0).unwrap(),
-            Decimal::from_f64_retain(40.0).unwrap(),
+            Decimal::from_f64_retain(20.0).unwrap_or_default(),
+            Decimal::from_f64_retain(40.0).unwrap_or_default(),
             3,
         );
         let mut high = 100.00;

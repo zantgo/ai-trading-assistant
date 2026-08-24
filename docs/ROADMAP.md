@@ -1,7 +1,7 @@
 # Implementation Roadmap
 
-**Version:** 8.0 (2026-08-20) — see [docs/CHANGELOG.md](./CHANGELOG.md) for the canonical version history. The v8.2 / v9 / v10 sections of the CHANGELOG are **Unreleased** at this stamp — they describe delivered code whose corpus re-stamp is part of the next release sweep.
-**Status:** Six engines implemented and production-ready (v8 + Unreleased v8.2/v9/v10). Remaining work = live-REST verification passes (`e2e-backtest` matrix, DS loop) and the Unreleased release sweep.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Six engines implemented and production-ready (v10.1 — quant-metrics hardening + UX unification shipped).
 **Purpose:** This document is the **single source of truth for what is and is not built in the Trading Platform today**, and the **phased delivery plan** for the engines, layers, and dashboards that remain on the workbench. Every spec in `docs/` describes the **target system**; this roadmap tracks **actual delivery status**, names the work that is still in flight, and gives a checklist the operator (and the next maintainer) can run to verify the platform's behaviour against the documentation.
 
 > **Reading order.** Read §1 for the high-level status picture, §2 for the engine-by-engine reality, §3 for the phased delivery plan, §4 for the retired WIP markers, §5 for the canonical list of known audit items, and §6 for the **verification checklist** that must pass before any of the "WIP" labels can be removed.

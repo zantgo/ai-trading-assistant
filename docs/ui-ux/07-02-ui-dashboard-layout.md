@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -76,11 +76,11 @@ The Middle Navbar mounts when `!isHome && !isSimplePage` (any non-Profile, non-s
 | `exchange_settings` (API Keys) | *Navbar hidden entirely* (`isSimplePage` guard — single full-page component, no tabs). | |
 | `market_monitor` (Market) | `Workspace` (forced first) · `Overview` · `Settings` | |
 | `trade_automation` (Trading) | `Overview` · `Orders` · `Activity` · `Trade History` · `Settings` | |
-| `portfolio` (Portfolio) | `Overview` · `Positions` · `Exposure` · `Capital` · `Portfolio` · `Safety` · `Settings` | |
-| `performance` (Analytics) | `Overview` · `Trades` · `Strategy` · `Risk` · `Performance` · `Backtesting` · `History` · `Methodology` · `Settings` | |
-| `data_infra` (Data Infra) | `Overview` · `Exchange Status` · `Connectivity` · `Market Data` · `NTP Clock Monitor` · `Data Quality` · `Distribution` | |
+| `portfolio` (Portfolio) | `Overview` · `Positions` · `Exposure` · `Capital` · `Safety` · `Settings` | |
+| `performance` (Analytics) | `Overview` · `Trades` · `Strategy` · `Risk Metrics` · `Performance` · `Comparison` · `History` · `Methodology` · `Settings` | |
+| `data_infra` (Data Infra) | `Overview` · `Exchange Status` · `Connectivity` · `Market Data` · `NTP Clock Monitor` · `Data Quality` · `Distribution` · `Connection Settings` | |
 
-v7.4: `data_infra` has **no Settings tab** — DIE platform config is read-only by design and exported from Profile → Share Config; live health/quality/clock data lives on the Overview. The per-mode tab sets are defined in `ui/src/lib/engineTabs.ts` (single source of truth).
+v10.1: `data_infra` **does** carry a far-right **Connection Settings** tab (`[workspace.api_failover]` editor, moved from Profile in v10.1) — platform config is live-editable via `GET /api/system/platform-config`. The per-mode tab sets are defined in `ui/src/lib/engineTabs.ts` (single source of truth).
 
 `Workspace` is hard-coded for Market because the Market engine is the only one with active workspace instances; the other engines render the generic two-tab pair. Selecting `Workspace` from a non-Market engine is impossible by construction (the tab is not rendered).
 
@@ -241,15 +241,15 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 ### 5.3 Engine Mapping
 
-> **Implementation status (v7.1).** All five engine dashboards are **implemented** and read live data: DIE and MME are WS-fed, TAE/PME dashboards fetch `/api/instances/:id/automation`, `/api/instances/:id/portfolio`, and `/api/instances/:id/safety`, and the PAE dashboard fetches `/api/dashboard/stats`, `/api/analytics/*`, and the real backtest tab (`POST /api/backtest/run` + `GET /api/backtest/:id`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
+> **Implementation status (v10.1).** All six engine dashboards are **implemented** and read live data: DIE and MME are WS-fed, TAE/PME dashboards fetch `/api/instances/:id/automation`, `/api/instances/:id/portfolio`, and `/api/instances/:id/safety`, the PAE dashboard fetches `/api/dashboard/stats` + `/api/analytics/*` + `/api/analytics/comparison`, and the BTE dashboard is observe-only (`BacktestingDashboard`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
 | Display label | Internal key | Active content when selected | Status |
 |---------------|--------------|-------------------------------|--------|
-| Data Infrastructure | `data_infra` | `DataInfraDashboard` — v7.3 layer-ordered tabs: Overview (aggregate landing), Exchange Status (L1), Connectivity (L1), Market Data (L2, pipelines), NTP Clock Monitor, Data Quality (L3), Distribution (L4), Settings (real `GET /api/system/platform-config` values). Every tab carries an Export Data button. | Implemented |
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — v10.1 tabs: Overview (aggregate landing), Exchange Status (L1), Connectivity (L1), Market Data (L2, pipelines), NTP Clock Monitor, Data Quality (L3), Distribution (L4), Connection Settings (far-right, `[workspace.api_failover]` editor). Every tab carries an Export Data button. | Implemented |
 | Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Analysis, Opportunities, Risks, Recommendation — v7.3 layer order). | Implemented |
 | Trade Automation | `trade_automation` | `TradeAutomationDashboard` — mode-aware (observe = Setup Radar with ghost would-be setups; paper = Paper Lab; live = Live Cockpit with venue reconciliation): tracked setup + projected risk/return, order board, position card with manual Close, invalidation banner, activity log, trade history (+ Export Data per tab). | Implemented |
-| Portfolio Management | `portfolio` | `PortfolioDashboard` — mode-aware (observe = Readiness Board with safety/capital blueprints): Overview, Positions (L1), Exposure (L2, config-driven limits), Capital (L3, live margin critical zone), Portfolio (L4, v7.3), Safety ladder (+ Export Data per tab). | Implemented (informational) |
-| Performance Analytics | `performance` | `PerformanceDashboard` — v7.3 layer-ordered tabs: Overview (observe = Edge Validator with data coverage + latest verdict + significance summary), Trades (L1), Strategy (L2 NHST), Risk (L3), Performance (L4, renamed from Regime Map), Backtesting (L5), History (persisted runs), Methodology (config-driven treatment). Observe keeps Overview / Backtesting / History / Methodology. | Implemented |
+| Portfolio Management | `portfolio` | `PortfolioDashboard` — mode-aware (observe = Readiness Board with safety/capital blueprints): Overview (merged Portfolio/Overview, v10.1), Positions (L1), Exposure (L2, config-driven limits), Capital (L3, live margin critical zone), Safety ladder (+ Export Data per tab). | Implemented (informational) |
+| Performance Analytics | `performance` | `PerformanceDashboard` — v10.1 tabs: Overview (observe = Edge Validator), Trades (L1), Strategy (L2 NHST), Risk Metrics (L3), Performance (L4), Comparison (v10, sessions+backtests), History (persisted runs), Methodology (config-driven treatment). Observe keeps Overview / Comparison / History / Methodology (Backtesting moved to BTE in v8). | Implemented |
 | Exchange API Keys | `exchange_settings` | `ExchangeSettings` — full-page API key manager for Hyperliquid and Bitget. Add/edit/delete credentials, rotation (`POST /api/keys/rotate`) and passphrase-keyed backup, active account count display, last sync timestamps. Added in v6.5; key rotation in v7.1. | Implemented |
 
 ### 5.4 Quit Session Flow

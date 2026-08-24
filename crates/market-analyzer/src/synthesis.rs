@@ -53,6 +53,10 @@ pub struct OpportunityParams {
     /// multiplying each discrete signal's contribution to the L4
     /// signal-strength factor. Empty = all 1.0 (v8.2 behavior).
     pub signal_weights: std::collections::HashMap<String, f64>,
+    /// v10.1: strategy-driven viability floor — the net R:R a bracket
+    /// must clear to be `Actionable`. Default 1.0 reproduces v8.2;
+    /// strategies can loosen to 0.5 etc. via `tae.intake.min_net_rr`.
+    pub viability_min_net_rr: f64,
 }
 
 /// Per-setup-type precondition thresholds (defaults = the pre-v9 tree).
@@ -286,6 +290,7 @@ impl Default for OpportunityParams {
             zones: L4ZoneParams::default(),
             confluence_weights: default_confluence_weights(),
             signal_weights: std::collections::HashMap::new(),
+            viability_min_net_rr: 1.0,
         }
     }
 }
@@ -1765,7 +1770,7 @@ fn compute_opportunity(
     // (`long_gross_rr_internal` / `short_gross_rr_internal`).
     let viability_for =
         |status: &SideRrStatus, net_rr: f64| -> core_domain::opportunity::TradeViability {
-            if rr_is_ok(status) && net_rr >= 1.0 {
+            if rr_is_ok(status) && net_rr >= params.viability_min_net_rr {
                 core_domain::opportunity::TradeViability::Actionable
             } else if rr_is_ok(status) {
                 core_domain::opportunity::TradeViability::Qualifying
@@ -2570,7 +2575,7 @@ mod tests {
             },
         );
 
-        let close = Decimal::from_f64_retain(price).unwrap();
+        let close = Decimal::from_f64_retain(price).unwrap_or_default();
         MarketSnapshot {
             timeframe_slot: None,
             exchange: None,

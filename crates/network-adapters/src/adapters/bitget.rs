@@ -335,7 +335,7 @@ pub async fn run_for_symbol(
                             let ts_ms: u64 = t.ts.parse::<u64>().unwrap_or(
                                 std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
+                                    .unwrap_or_default()
                                     .as_millis() as u64,
                             );
 
@@ -386,7 +386,7 @@ pub async fn run_for_symbol(
                             let ts_ms: u64 = book.ts.parse::<u64>().unwrap_or(
                                 std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
+                                    .unwrap_or_default()
                                     .as_millis() as u64,
                             );
 

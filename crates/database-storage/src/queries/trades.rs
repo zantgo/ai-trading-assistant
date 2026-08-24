@@ -22,7 +22,7 @@ pub async fn insert_user_trade(
 ) -> Result<i64, sqlx::Error> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64;
 
     let res = sqlx::query(

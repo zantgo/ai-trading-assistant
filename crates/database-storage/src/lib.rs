@@ -72,7 +72,7 @@ pub async fn verify_encryption_or_panic(pool: &SqlitePool) {
     }
 }
 
-pub async fn init_db() -> SqlitePool {
+pub async fn init_db() -> Result<SqlitePool, String> {
     let db_options = SqliteConnectOptions::new()
         .filename("telemetry.db")
         .create_if_missing(true)
@@ -80,7 +80,7 @@ pub async fn init_db() -> SqlitePool {
 
     let pool = SqlitePool::connect_with(db_options)
         .await
-        .expect("Database Setup: Failed to initialize SQLite database pool");
+        .map_err(|e| format!("Database Setup: Failed to initialize SQLite database pool: {e}"))?;
 
     if let Err(e) = sqlx::query("PRAGMA journal_mode = WAL;")
         .execute(&pool)
@@ -103,9 +103,9 @@ pub async fn init_db() -> SqlitePool {
 
     run_migrations(&pool)
         .await
-        .expect("Database Setup: Failed to run schema migrations");
+        .map_err(|e| format!("Database Setup: Failed to run schema migrations: {e}"))?;
 
     seed::seed_default_profiles(&pool).await;
 
-    pool
+    Ok(pool)
 }

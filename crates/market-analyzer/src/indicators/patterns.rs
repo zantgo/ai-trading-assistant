@@ -351,7 +351,7 @@ mod tests {
     fn make_high(idx: usize, price: f64) -> PivotPoint {
         PivotPoint {
             index: idx,
-            price: Decimal::from_f64_retain(price).unwrap(),
+            price: Decimal::from_f64_retain(price).unwrap_or_default(),
             pivot_type: PivotType::High,
             strength: 10,
         }
@@ -360,7 +360,7 @@ mod tests {
     fn make_low(idx: usize, price: f64) -> PivotPoint {
         PivotPoint {
             index: idx,
-            price: Decimal::from_f64_retain(price).unwrap(),
+            price: Decimal::from_f64_retain(price).unwrap_or_default(),
             pivot_type: PivotType::Low,
             strength: 10,
         }

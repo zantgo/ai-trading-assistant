@@ -129,7 +129,7 @@ pub async fn serve_optimization_report(
         let report = core_domain::performance::OptimizationReport {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as i64,
             total_trades: 0,
             regime_reports: vec![],
@@ -1204,7 +1204,7 @@ pub async fn persist_backtest_run(
                     )
                     .await;
                     for b in bars {
-                        let _ = sqlx::query(
+                        if let Err(e) = sqlx::query(
                             "INSERT OR IGNORE INTO backtest_input_bars
                                 (run_id, symbol, timeframe_secs, ts_secs, open, high, low, close, volume)
                              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -1219,7 +1219,9 @@ pub async fn persist_backtest_run(
                         .bind(b.close.map(|v| v.to_string()).unwrap_or_default())
                         .bind(b.volume.map(|v| v.to_string()).unwrap_or_default())
                         .execute(&mut *tx)
-                        .await;
+                        .await {
+                eprintln!("DB persist failed: {e}");
+            }
                     }
                 }
                 let _ = tx.commit().await;

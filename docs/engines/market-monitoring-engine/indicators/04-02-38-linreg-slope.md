@@ -1,6 +1,6 @@
 # Linear Regression Slope (20)
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
 
 **Group:** Regime
 

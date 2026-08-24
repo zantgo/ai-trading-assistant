@@ -1,6 +1,6 @@
 # Trading Platform Documentation
 
-This directory contains the full specification for the Trading Platform — a complete quantitative trading system built on a Two-Dimensional Architecture of 5 domain engines across sequenced analytical layers.
+This directory contains the full specification for the Trading Platform — a complete quantitative trading system built on a Two-Dimensional Architecture of 6 domain engines across sequenced analytical layers.
 
 > **Numbering scheme.** Every file is named `NN-MM[-KK]-kebab-case.md` so cross-links survive restructuring:
 > - `01-` Concept Foundations · `02-` Matrices · `03-` Engines (with engine sub-counter: `03-01` DIE, `03-02` MME, `03-03` TAE, `03-04` PME, `03-05` PAE)
@@ -16,16 +16,20 @@ docs/
 ├── ROADMAP.md                                        ← implementation-status register + phased delivery plan (v6.9; new)
 ├── DOCS-CONSISTENCY-MANIFEST.md                      ← release-gate corpus check report
 ├── CHANGELOG.md                                      ← canonical version history + audit-ID register
-├── conceptual-foundations/                           (01 — 8 files)
+├── conceptual-foundations/                           (01 — 13 files)
 │   ├── 01-00-introduction-to-quantitative-trading.md ← textbook foundations: EV, returns, Sharpe, sizing curves, non-goals
 │   ├── 01-01-ontology.md                             ← formal vocabulary, core concepts, lifecycle
-│   ├── 01-02-global-architecture.md                  ← 5-engine blueprint, 2D framework, hybrid memory/math model
+│   ├── 01-02-global-architecture.md                  ← 6-engine blueprint, 2D framework, hybrid memory/math model
 │   ├── 01-03-systemic-data-flow.md                   ← chronological event sequences across engines
 │   ├── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
 │   ├── 01-05-liquidity-domain.md                     ← Phase 0-4 Liquidity Intelligence architecture
-│   ├── 01-06-crate-layout-and-cycles.md              ← 9-crate workspace layout, dependency graph, cycle-breaking design decisions
+│   ├── 01-06-crate-layout-and-cycles.md              ← 10-crate workspace layout, dependency graph, cycle-breaking design decisions
 │   ├── 01-07-target-architecture-roadmap.md          ← SoA candle history, Phase-3 book depth, NTP, PD memory
-│   └── 01-08-candle-buffer-and-indicator-lifecycle.md ← conceptual overview: single candle count + two-level lifecycle (v6.5)
+│   ├── 01-08-candle-buffer-and-indicator-lifecycle.md ← conceptual overview: single candle count + two-level lifecycle (v6.5)
+│   ├── 01-09-cli-setup-flow.md                       ← interactive CLI setup flow (v6.10.4)
+│   ├── 01-10-cli-gui-parity.md                       ← CLI ↔ GUI parity contract (v7.2)
+│   ├── 01-11-data-science-layer.md                   ← data-science export layer (v10)
+│   └── 01-12-data-information-learning-ontology.md   ← D/I/L ontology (v10)
 ├── matrices/                                         (02 — 17 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
@@ -105,18 +109,25 @@ docs/
 │       ├── 08-03-historical-runner.md                ← full MME pipeline replay over archived candles
 │       ├── 08-04-parity-contract.md                  ← why backtest = paper (shared run_tick session body)
 │       └── 08-05-study-persistence.md                ← the data-science persistence schema
-├── integration-and-api/                              (06 — 3 files)
+├── integration-and-api/                              (06 — 6 files)
 │   ├── 06-00-consumer-onboarding.md                  ← single-page integrator orientation
+│   ├── 06-00-cli-gui-parity.md                       ← CLI ↔ GUI parity (v7.2)
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
-│   └── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
-├── ui-ux/                                            (07 — 6 files)
+│   ├── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
+│   ├── 06-03-snapshot-export-schema.md               ← snapshot export JSON schema (v6.10.4)
+│   └── 06-04-ds-export-schema.md                     ← DS export NDJSON schema (v10)
+├── ui-ux/                                            (07 — 10 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
 │   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (52 → 19 dedicated components)
 │   ├── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
 │   ├── 07-05-export-data-payload-schema.md           ← per-tab Export Data JSON schemas (v6.7)
-│   └── 07-06-ui-color-conventions.md                 ← canonical semantic color mapping (Red=bearish, Green=bullish, Amber=risky, Grey=error, Blue=safe)
-└── operations-and-compliance/                        (08 — 8 files)
+│   ├── 07-06-ui-color-conventions.md                 ← canonical semantic color mapping (direction-first v10.1)
+│   ├── 07-07-engine-dashboard-vocabulary.md          ← engine dashboard vocabulary (v7.3+)
+│   ├── 07-08-account-profile.md                      ← account & profile management (v9)
+│   ├── 07-09-strategies-builder.md                   ← strategy builder (v9)
+│   └── 07-10-data-science-surfaces.md                ← DS surfaces (v10)
+└── operations-and-compliance/                        (08 — 10 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
     ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
     ├── 08-03-connection-resilience.md                ← WebSocket reconnect policy + backoff state machine
@@ -124,10 +135,12 @@ docs/
     ├── 08-05-connection-quality.md                   ← rolling 1h/6h/24h quality score + dashboard panel
     ├── 08-06-clock-monitor.md                        ← NTP drift enforcement (10 ms default budget, tunable)
     ├── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
-    └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
+    ├── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
+    ├── 08-09-snapshot-export.md                      ← snapshot export operator manual (v6.10.4)
+    └── 03-liq-heatmap-config.md                      ← L2.5 heatmap config reference
 ```
 
-Total: **174 markdown files** at v8.0 — 171 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 11 conceptual + 17 matrix + **50 engine** (8 DIE + 17 MME + 5 TAE + 6 PME + 8 PAE + 5 BTE + 1 ROADMAP) + 53 indicator + 13 signal + 5 integration + 8 UI + 9 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **16 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry. The v9/v10 Unreleased work in CHANGELOG adds the Data-Science Layer — [01-11-data-science-layer.md](conceptual-foundations/01-11-data-science-layer.md) (session identity + `./ds/` NDJSON export), [01-12-data-information-learning-ontology.md](conceptual-foundations/01-12-data-information-learning-ontology.md) (D/I/L tiers + invariants), [06-04-ds-export-schema.md](integration-and-api/06-04-ds-export-schema.md) (layout + per-file schemas), [07-10-data-science-surfaces.md](ui-ux/07-10-data-science-surfaces.md) (Chart tab, session chip, Comparison) — plus the TAE lifecycle-hardening dials ([03-03-07](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md)).
+Total: **174 markdown files** at v10.1 — 171 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). See `DOCS-CONSISTENCY-MANIFEST.md` §2 for the canonical per-directory breakdown. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **16 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle + 1 sub-min/above-min parity contract). The v6.10.7 release adds [03-02-16-mme-subminute-vs-aboveminute-parity.md](engines/market-monitoring-engine/03-02-16-mme-subminute-vs-aboveminute-parity.md) — the Analytical Input Universe parity contract: identical post-warmup behavior for all 52 indicators, liquidity payloads, and L1.5–L6 layers on sub-minute and above-minute timeframes (state-replay warmup, uniform live floor, per-TF cadence adaptation, known-deviations register). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md). The v6.8 release adds [00-ROADMAP](ROADMAP.md), the implementation-status register and phased delivery plan for the WIP engines. The v6.10.4 release adds the Snapshot Export scheduler — [01-09-cli-setup-flow.md](conceptual-foundations/01-09-cli-setup-flow.md) (interactive CLI setup), [06-03-snapshot-export-schema.md](integration-and-api/06-03-snapshot-export-schema.md) (on-disk JSON schema), and [08-09-snapshot-export.md](operations-and-compliance/08-09-snapshot-export.md) (operator manual) — periodic per-tab JSON dumps for offline data science. The v6.10.3 release adds the cross-timeframe alignment aggregation pipeline in the Overview Matrix (L7) — three new `OverviewMatrix` aggregate fields (`alignment_distribution`, `alignment_consensus_index`, `multi_tf_agreement_pct`), two per-asset `AssetRank` columns (`mtf_score`, `mtf_label`), and a new `MarketAlignmentCard` sub-component in the system-wide Market Overview dashboard. The v6.10.2 release adds [04-02-51-mark-index-spread.md](engines/market-monitoring-engine/indicators/04-02-51-mark-index-spread.md), the spec for the 51st registry entry. The v9/v10 Unreleased work in CHANGELOG adds the Data-Science Layer — [01-11-data-science-layer.md](conceptual-foundations/01-11-data-science-layer.md) (session identity + `./ds/` NDJSON export), [01-12-data-information-learning-ontology.md](conceptual-foundations/01-12-data-information-learning-ontology.md) (D/I/L tiers + invariants), [06-04-ds-export-schema.md](integration-and-api/06-04-ds-export-schema.md) (layout + per-file schemas), [07-10-data-science-surfaces.md](ui-ux/07-10-data-science-surfaces.md) (Chart tab, session chip, Comparison) — plus the TAE lifecycle-hardening dials ([03-03-07](engines/trade-automation-engine/03-03-07-tae-strategy-settings.md)).
 
 ## The Six Engines
 
@@ -149,7 +162,7 @@ Total: **174 markdown files** at v8.0 — 171 numbered docs + 3 governance docs 
    - `01-02-global-architecture.md` — Two-Dimensional Framework + hybrid memory/math architecture (incl. §6 DOD/OOP target)
    - `01-03-systemic-data-flow.md` — how data flows through the system (incl. Sequence A bifurcation)
    - `01-04-timeframe-model.md` — 4-tier timeframe configuration + §3.1 UTC alignment rules
-   - `01-06-crate-layout-and-cycles.md` — 9-crate physical workspace, dependency graph, cycle-breaking design rationale (read this when mapping a feature to its crate)
+   - `01-06-crate-layout-and-cycles.md` — 10-crate workspace layout, dependency graph, cycle-breaking design rationale (read this when mapping a feature to its crate)
    - `01-08-candle-buffer-and-indicator-lifecycle.md` — v6.5 conceptual overview tying the four new specs together
 0. **`ROADMAP.md`** — implementation-status register and phased delivery plan (start here if you are asking "what works today?")
 
@@ -175,7 +188,7 @@ Total: **174 markdown files** at v8.0 — 171 numbered docs + 3 governance docs 
 
 ## Feature Status
 
-This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built. **Implementation status is the registered status at v7.1 (2026-08-18). For the detailed phased delivery plan, see [`docs/ROADMAP.md`](ROADMAP.md).**
+This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built. **Implementation status is the registered status at v10.1 (2026-08-24). For the detailed phased delivery plan, see [`docs/ROADMAP.md`](ROADMAP.md).**
 
 **Status legend.**
 - **Implemented** — end-to-end, exercised by integration tests, observable in the running system.
@@ -223,7 +236,7 @@ This table is the **single source of implementation truth** — every spec in `d
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
-- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.10.29 — the numbered docs carry the release stamp 6.10).
+- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 10.1 — see docs/CHANGELOG.md for the canonical version history).
 - All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
 - All configuration is stored in **`config.toml`** at the workspace root.
 - Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.

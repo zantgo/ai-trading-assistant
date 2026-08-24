@@ -169,7 +169,7 @@ impl VolumeProfile {
                 (Decimal::ZERO, Decimal::ONE)
             } else {
                 // Doji: split 50/50.
-                let half = Decimal::from_f64_retain(0.5).unwrap();
+                let half = Decimal::from_f64_retain(0.5).unwrap_or_default();
                 (half, half)
             };
             // Which bins does this candle span?
@@ -209,13 +209,16 @@ impl VolumeProfile {
             }
         }
         let bin_center = |i: usize| -> Decimal {
-            price_min + (Decimal::from(i) + Decimal::from_f64_retain(0.5).unwrap()) * bin_height
+            price_min
+                + (Decimal::from(i) + Decimal::from_f64_retain(0.5).unwrap_or_default())
+                    * bin_height
         };
         let poc = bin_center(poc_idx);
 
         // Value Area = bins containing `value_area_pct` of total volume, centered
         // around the POC.
-        let target_vol = total_vol * Decimal::from_f64_retain(self.value_area_pct).unwrap();
+        let target_vol =
+            total_vol * Decimal::from_f64_retain(self.value_area_pct).unwrap_or_default();
         let mut lo = poc_idx;
         let mut hi = poc_idx;
         let mut va_vol = bins[poc_idx];
@@ -233,8 +236,8 @@ impl VolumeProfile {
 
         // HVN / LVN.
         let avg_vol = total_vol / Decimal::from(self.num_bins);
-        let hvn_threshold = avg_vol * Decimal::from_f64_retain(1.5).unwrap();
-        let lvn_threshold = avg_vol * Decimal::from_f64_retain(0.5).unwrap();
+        let hvn_threshold = avg_vol * Decimal::from_f64_retain(1.5).unwrap_or_default();
+        let lvn_threshold = avg_vol * Decimal::from_f64_retain(0.5).unwrap_or_default();
         let mut hvn: Vec<Decimal> = Vec::new();
         let mut lvn: Vec<Decimal> = Vec::new();
         for (i, v) in bins.iter().enumerate() {
@@ -309,7 +312,7 @@ impl VolumeProfile {
             } else if b.close < b.open {
                 (Decimal::ZERO, Decimal::ONE)
             } else {
-                let half = Decimal::from_f64_retain(0.5).unwrap();
+                let half = Decimal::from_f64_retain(0.5).unwrap_or_default();
                 (half, half)
             };
             let low_bin = ((b.low - price_min) / bin_height)
@@ -350,7 +353,8 @@ impl VolumeProfile {
         if total_vol <= Decimal::ZERO {
             return None;
         }
-        let target_vol = total_vol * Decimal::from_f64_retain(self.value_area_pct).unwrap();
+        let target_vol =
+            total_vol * Decimal::from_f64_retain(self.value_area_pct).unwrap_or_default();
         let mut lo = poc_idx;
         let mut hi = poc_idx;
         let mut va_vol = bins[poc_idx].total;
@@ -477,7 +481,7 @@ mod tests {
         let total_sell: Decimal = bins.iter().map(|b| b.sell).sum();
         let diff = (total_buy - total_sell).abs();
         assert!(
-            diff < Decimal::from_f64_retain(0.01).unwrap(),
+            diff < Decimal::from_f64_retain(0.01).unwrap_or_default(),
             "doji should split 50/50, got diff {}",
             diff
         );

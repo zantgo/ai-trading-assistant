@@ -406,7 +406,7 @@ async fn all_indicator_families_advance_on_sub_minute_doji_fills() {
     // 210 completed candles (≥ `bars_required = 200`).
     for s in 0..210u64 {
         let start_ms = 3_000_000 + s * 1000;
-        let dec_px = rust_decimal::Decimal::from_f64_retain(100.0 + s as f64).unwrap();
+        let dec_px = rust_decimal::Decimal::from_f64_retain(100.0 + s as f64).unwrap_or_default();
         event_tx
             .send(NormalizedEvent::Trade(trade(
                 start_ms + 500,
@@ -588,7 +588,7 @@ async fn sixty_second_tf_indicator_state_advances_per_real_close() {
             closes.push(100.0 + (s as f64 - 1.0) * 0.05);
         }
         let start_ms = (s as u64) * 60_000 + 30_000; // mid-bucket
-        let dec_px = rust_decimal::Decimal::from_f64_retain(px).unwrap();
+        let dec_px = rust_decimal::Decimal::from_f64_retain(px).unwrap_or_default();
         event_tx
             .send(NormalizedEvent::Trade(trade(
                 start_ms,
@@ -672,7 +672,8 @@ async fn ema_lines_appear_at_their_own_periods_on_sub_minute_tf() {
             // Slight price ramp (100.0 + s*0.01) keeps the synthesis
             // entry/invalidation zones non-degenerate (flat closes trip a
             // debug_assert in `derive_side_zones`).
-            let px = rust_decimal::Decimal::from_f64_retain(100.0 + s as f64 * 0.01).unwrap();
+            let px =
+                rust_decimal::Decimal::from_f64_retain(100.0 + s as f64 * 0.01).unwrap_or_default();
             event_tx
                 .send(NormalizedEvent::Trade(trade(
                     base + s * 1000,
@@ -1016,7 +1017,8 @@ async fn warmed_sub_minute_pipeline_reaches_live_parity_at_first_close() {
     let anchor = ((base / 60_000) - 6) * 60_000; // 300 × 60s = 5 min lookback
     let mut candles: Vec<core_domain::normalized::NormalizedCandle> = Vec::with_capacity(300);
     for i in 0..300u64 {
-        let px = rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap();
+        let px =
+            rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap_or_default();
         candles.push(core_domain::normalized::NormalizedCandle {
             exchange: Exchange::Hyperliquid,
             symbol: "BTC-USDT".to_string(),
@@ -1161,7 +1163,8 @@ async fn force_closed_real_candles_feed_history_but_dojis_do_not() {
         // Slight price ramp keeps the synthesis entry/invalidation zones
         // non-degenerate (flat closes trip a debug_assert in
         // `derive_side_zones`).
-        let px = rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap();
+        let px =
+            rust_decimal::Decimal::from_f64_retain(100.0 + i as f64 * 0.01).unwrap_or_default();
         event_tx
             .send(NormalizedEvent::Trade(trade(
                 past_bucket + i,

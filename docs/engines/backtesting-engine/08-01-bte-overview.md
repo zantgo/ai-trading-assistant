@@ -1,6 +1,6 @@
 # Backtesting Engine — Overview
 
-**Version:** 8.0 (2026-08-20)
+**Version:** 10.1 (2026-08-24)
 **Status:** Implemented (production-ready) — installer-style launcher, standalone multi-symbol runs, progress + cancel, CLI mode
 **Engine:** Backtesting Engine (BTE) — the sixth logical engine
 **Crate:** `crates/backtesting-engine`
@@ -77,7 +77,7 @@ history accumulates organically: every completed candle is upserted into
 the archive in all session modes (the grow-your-own dataset path). Deep
 backtests (> 30 days) need ladders whose smallest TF is 1H or higher on
 Bitget — see 08-02 §2 for the burn-in interplay. Fetching canonical 1m
-candles and deriving the higher timeframes locally is planned for v8.3.
+candles and deriving the higher timeframes locally is planned for a future release (Unscheduled).
 
 ## 5. Layers (docs map)
 

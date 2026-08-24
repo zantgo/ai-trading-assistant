@@ -8,7 +8,7 @@ use core_domain::performance::{
 pub async fn insert_strategy_analytics(pool: &SqlitePool, row: &StrategyAnalyticsRow) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
@@ -124,7 +124,7 @@ pub async fn insert_performance_matrix_snapshot(
 ) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
@@ -224,7 +224,7 @@ fn parse_compatibility(s: &str) -> core_domain::performance::RegimeCompatibility
 pub async fn insert_risk_analytics(pool: &SqlitePool, row: &RiskAnalyticsRow) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
@@ -298,7 +298,7 @@ pub async fn insert_performance_summary(
 ) -> i64 {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     match sqlx::query(
@@ -476,7 +476,7 @@ pub async fn insert_backtest_run_with_session(
 ) -> i64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
     match sqlx::query(
         "INSERT INTO backtest_runs \

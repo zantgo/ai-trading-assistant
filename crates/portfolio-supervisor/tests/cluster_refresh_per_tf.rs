@@ -40,7 +40,9 @@ fn make_pipe(
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: FibonacciConfig::default(),
         latest_oi: Arc::new(RwLock::new(Some(Decimal::from(1_000_000)))),
-        latest_funding: Arc::new(RwLock::new(Some(Decimal::from_f64_retain(0.0001).unwrap()))),
+        latest_funding: Arc::new(RwLock::new(Some(
+            Decimal::from_f64_retain(0.0001).unwrap_or_default(),
+        ))),
         latest_mark_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         latest_index_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         active_set: Default::default(),
@@ -65,9 +67,9 @@ fn make_snap_history(closes: Vec<f64>) -> MarketSnapshot {
     use rust_decimal::prelude::FromPrimitive;
     let mut snap = MarketSnapshot::default_for_test("BTC-USDT", 60);
     let last = closes.last().copied().unwrap_or(50_000.0);
-    snap.mid_price = Decimal::from_f64(last).unwrap();
+    snap.mid_price = Decimal::from_f64(last).unwrap_or_default();
     snap.open_interest = Some(Decimal::from(1_000_000));
-    snap.funding_rate = Some(Decimal::from_f64_retain(0.0001).unwrap());
+    snap.funding_rate = Some(Decimal::from_f64_retain(0.0001).unwrap_or_default());
     snap
 }
 
@@ -96,10 +98,10 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
                 symbol: "BTC-USDT".into(),
                 start_time_ms: i * 60_000,
                 duration_ms: 60_000,
-                open: Decimal::from_f64_retain(p).unwrap(),
-                high: Decimal::from_f64_retain(p + 10.0).unwrap(),
-                low: Decimal::from_f64_retain(p - 10.0).unwrap(),
-                close: Decimal::from_f64_retain(p - 5.0).unwrap(),
+                open: Decimal::from_f64_retain(p).unwrap_or_default(),
+                high: Decimal::from_f64_retain(p + 10.0).unwrap_or_default(),
+                low: Decimal::from_f64_retain(p - 10.0).unwrap_or_default(),
+                close: Decimal::from_f64_retain(p - 5.0).unwrap_or_default(),
                 volume: Decimal::from(100),
                 trades_count: 0,
                 reconstructed: None,
@@ -116,10 +118,10 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
                 symbol: "BTC-USDT".into(),
                 start_time_ms: i * 300_000,
                 duration_ms: 300_000,
-                open: Decimal::from_f64_retain(p).unwrap(),
-                high: Decimal::from_f64_retain(p + 10.0).unwrap(),
-                low: Decimal::from_f64_retain(p - 10.0).unwrap(),
-                close: Decimal::from_f64_retain(p + 5.0).unwrap(),
+                open: Decimal::from_f64_retain(p).unwrap_or_default(),
+                high: Decimal::from_f64_retain(p + 10.0).unwrap_or_default(),
+                low: Decimal::from_f64_retain(p - 10.0).unwrap_or_default(),
+                close: Decimal::from_f64_retain(p + 5.0).unwrap_or_default(),
                 volume: Decimal::from(100),
                 trades_count: 0,
                 reconstructed: None,
@@ -136,10 +138,10 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
                 symbol: "BTC-USDT".into(),
                 start_time_ms: i * 900_000,
                 duration_ms: 900_000,
-                open: Decimal::from_f64_retain(p).unwrap(),
-                high: Decimal::from_f64_retain(p + 50.0).unwrap(),
-                low: Decimal::from_f64_retain(p - 50.0).unwrap(),
-                close: Decimal::from_f64_retain(p + 1.0).unwrap(),
+                open: Decimal::from_f64_retain(p).unwrap_or_default(),
+                high: Decimal::from_f64_retain(p + 50.0).unwrap_or_default(),
+                low: Decimal::from_f64_retain(p - 50.0).unwrap_or_default(),
+                close: Decimal::from_f64_retain(p + 1.0).unwrap_or_default(),
                 volume: Decimal::from(100),
                 trades_count: 0,
                 reconstructed: None,
@@ -165,7 +167,9 @@ async fn per_tf_cluster_refresh_uses_tf_specific_history() {
         snapshot_tx: mpsc::channel::<NormalizedEvent>(8).0,
         cancel: tokio_util::sync::CancellationToken::new(),
         latest_oi: Arc::new(RwLock::new(Some(Decimal::from(1_000_000)))),
-        latest_funding: Arc::new(RwLock::new(Some(Decimal::from_f64_retain(0.0001).unwrap()))),
+        latest_funding: Arc::new(RwLock::new(Some(
+            Decimal::from_f64_retain(0.0001).unwrap_or_default(),
+        ))),
         latest_mark_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         latest_index_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         oi_history: Arc::new(RwLock::new(VecDeque::with_capacity(60))),
@@ -506,7 +510,7 @@ impl SnapshotTestHelpers for MarketSnapshot {
             ask_price: Decimal::ZERO,
             bid_size: None,
             ask_size: None,
-            funding_rate: Some(Decimal::from_f64_retain(0.0001).unwrap()),
+            funding_rate: Some(Decimal::from_f64_retain(0.0001).unwrap_or_default()),
             open_interest: Some(Decimal::from(1_000_000)),
             oi_delta_1h: None,
             mark_price: None,

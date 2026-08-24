@@ -209,11 +209,20 @@ async fn handle_ws_socket(
                 "WS: no pipeline for slot {:?} (pair {}) — falling back to micro",
                 requested_slot, pair_key
             );
-            state
+            match state
                 .get_active_pair(&pair_key)
                 .await
                 .and_then(|p| p.subscribe_broadcast_by_slot(TimeframeSlot::Micro))
-                .expect("the micro pipeline always exists for an active pair")
+            {
+                Some(rx) => rx,
+                None => {
+                    eprintln!(
+                        "WS: micro pipeline missing for '{}' (pair deleted mid-upgrade) — closing socket",
+                        pair_key
+                    );
+                    return;
+                }
+            }
         }
     };
 

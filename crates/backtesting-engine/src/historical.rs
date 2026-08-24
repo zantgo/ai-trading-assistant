@@ -57,7 +57,9 @@ use std::sync::Arc;
 use crate::recorded::{BacktestParams, BacktestResult, BacktestTrade, BACKTEST_MAX_SNAPSHOTS};
 
 /// Chunk size for the warm-path replay (candles per warm call).
-const CHUNK_CANDLES: usize = 800;
+/// v10.2 (C1): 5000 reduces chunk count 6× for 20-30d runs (28.8k→6 chunks vs 36)
+/// while keeping 300-bar re-convergence for indicator fidelity.
+const CHUNK_CANDLES: usize = 5000;
 /// Overlap between chunks: every indicator lookback window in this
 /// platform is ≤ 300 bars, so 300 bars of re-convergence makes chunk
 /// tails mathematically identical to a continuous replay.
@@ -401,15 +403,20 @@ pub async fn run_historical_backtest(
             format!("replaying {} @ {}", ev.symbol, ev.ts),
         );
 
-        let spec = run_cfg
-            .symbols
-            .iter()
-            .find(|s| s.symbol == ev.symbol)
-            .expect("event symbol must exist in run config");
-        let safety = safety_managers
-            .get(&ev.symbol)
-            .cloned()
-            .expect("safety manager per symbol");
+        let Some(spec) = run_cfg.symbols.iter().find(|s| s.symbol == ev.symbol) else {
+            eprintln!(
+                "BTE historical: event symbol '{}' not in run config — skipping tick",
+                ev.symbol
+            );
+            continue;
+        };
+        let Some(safety) = safety_managers.get(&ev.symbol).cloned() else {
+            eprintln!(
+                "BTE historical: missing safety manager for '{}' — skipping tick",
+                ev.symbol
+            );
+            continue;
+        };
 
         // Simulated funding settlement at 8h replay boundaries.
         while (ev.ts as i64) >= next_funding {
@@ -438,8 +445,9 @@ pub async fn run_historical_backtest(
 
         // ── The SAME pure synthesizer the live L4/L5 assembly calls ──
         let cross: Vec<(u64, &MarketSnapshot)> = tf_refs.iter().map(|(t, s)| (*t, s)).collect();
-        let opportunity_params =
+        let mut opportunity_params =
             market_analyzer::synthesis::OpportunityParams::from_strategy(&run_cfg.strategy.l4);
+        opportunity_params.viability_min_net_rr = run_cfg.strategy.tae.intake.min_net_rr;
         let decision_params =
             market_analyzer::strategy_params::decision_params_from_strategy(&run_cfg.strategy.l6);
         let analysis_params =
@@ -976,10 +984,10 @@ mod tests {
             symbol: symbol.to_string(),
             start_time_ms: ts_secs * 1000,
             duration_ms: tf_secs * 1000,
-            open: rust_decimal::Decimal::from_f64_retain(close - 1.0).unwrap(),
-            high: rust_decimal::Decimal::from_f64_retain(close + 2.0).unwrap(),
-            low: rust_decimal::Decimal::from_f64_retain(close - 2.0).unwrap(),
-            close: rust_decimal::Decimal::from_f64_retain(close).unwrap(),
+            open: rust_decimal::Decimal::from_f64_retain(close - 1.0).unwrap_or_default(),
+            high: rust_decimal::Decimal::from_f64_retain(close + 2.0).unwrap_or_default(),
+            low: rust_decimal::Decimal::from_f64_retain(close - 2.0).unwrap_or_default(),
+            close: rust_decimal::Decimal::from_f64_retain(close).unwrap_or_default(),
             volume: dec!(100),
             trades_count: 5,
             reconstructed: Some(ReconstructionMethod::ExchangeHistorical),

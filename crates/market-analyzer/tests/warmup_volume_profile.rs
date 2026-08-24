@@ -118,11 +118,11 @@ fn synth_candles(count: usize, secs_per_candle: u64) -> Vec<NormalizedCandle> {
             duration_ms: secs_per_candle * 1000,
             trades_count: 10,
             reconstructed: None,
-            open: Decimal::from_f64_retain(open).unwrap(),
-            high: Decimal::from_f64_retain(high).unwrap(),
-            low: Decimal::from_f64_retain(low).unwrap(),
-            close: Decimal::from_f64_retain(close).unwrap(),
-            volume: Decimal::from_f64_retain(vol).unwrap(),
+            open: Decimal::from_f64_retain(open).unwrap_or_default(),
+            high: Decimal::from_f64_retain(high).unwrap_or_default(),
+            low: Decimal::from_f64_retain(low).unwrap_or_default(),
+            close: Decimal::from_f64_retain(close).unwrap_or_default(),
+            volume: Decimal::from_f64_retain(vol).unwrap_or_default(),
         });
     }
     candles

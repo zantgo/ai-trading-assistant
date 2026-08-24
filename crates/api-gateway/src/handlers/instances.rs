@@ -20,9 +20,9 @@ async fn log_risk_event(
 ) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO risk_control_events \
          (instance_id, symbol, gate_id, decision, reason, timestamp_ms, operator_id) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'local')",
@@ -34,7 +34,10 @@ async fn log_risk_event(
     .bind(reason)
     .bind(now)
     .execute(pool)
-    .await;
+    .await
+    {
+        eprintln!("risk event persist failed for {instance_id}: {e}");
+    }
 }
 
 use portfolio_supervisor::registry;

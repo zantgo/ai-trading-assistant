@@ -24,8 +24,8 @@
     import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { vwapPickKey } from '../lib/vwapAnchor';
     import { createSmcMarkers, type SmcMarkerController } from '../lib/smcMarkers';
+    import { smcAgeLabel } from '../lib/priceChartHelpers';
     import styles from './PriceChart.module.css';
-
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
 
@@ -734,7 +734,7 @@
     $effect(() => {
         const show = tf?.showSupportResistance ?? false;
         const raw = tf?.indicators?.['support_resistance'];
-        // The normalizer emits the strongest current SR level as `raw`.
+        // Strongest SR level
         const v = raw && Number.isFinite(raw.raw_value) && raw.raw_value > 0 ? raw.raw_value : null;
         srLevelValue = show ? v : null;
         if (!candleSeries) return;
@@ -751,11 +751,7 @@
         }
     });
 
-    /// SMC structure / liquidity markers (BOS↑ / CHoCH↓ / SWEEP↑ / ...).
-    /// Same toggle-gate pattern as the three pattern-marker $effects above:
-    /// clear() runs whenever the toggle flips (or latestSnapshot advances)
-    /// so a stale BO↑ / CH↑ / SP↑ doesn't linger after the user clicks
-    /// BOS/CHoCH off.
+    // SMC markers
     $effect(() => {
         const show = tf?.showSmcStructure ?? false;
         if (!smcMarkers || !candleSeries) return;
@@ -780,11 +776,7 @@
         const m = (tfVal.indicators ?? {}) as IndicatorMap;
 
         if (snap.close != null) {
-            // Loose gate: accept any tick that has at least a `close`,
-            // including in-progress ticks where OHLC are not all settled.
-            // For the missing fields, fill with the close so the candle
-            // still updates and the price line tracks. If `close` itself
-            // is missing it is a malformed payload — log loudly.
+            // Loose gate: accept any close; fill missing OHLC with close
             const cl = parseFloat(String(snap.close));
             const o = snap.open != null ? parseFloat(String(snap.open)) : cl;
             const h = snap.high != null ? parseFloat(String(snap.high)) : cl;
@@ -941,21 +933,6 @@
         'neutral'
     );
 
-    function smcAgeLabel(ageBars: number, timeframeSec: number): string {
-        const secs = ageBars * timeframeSec;
-        if (secs < 60) return `${secs}s`;
-        if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-        if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
-        return `${Math.floor(secs / 86400)}d`;
-    }
-
-    // Volume profile — toggle visibility + data feeding.
-    // v6.5 fallback chain: prefer WS-populated tf.volumeProfile; fall back to
-    // history-sourced historyVolumeProfile when WS hasn't delivered yet.
-    // Visibility is handled separately via `setVisible()` so the snapshot
-    // is preserved across toggle flips — flipping the pill on never causes
-    // a transient null state, which would otherwise race with the WS push
-    // cadence (only completed snapshots carry volume_profile).
     $effect(() => {
         const visible = tf?.showVolumeProfile ?? false;
         const data = tf?.volumeProfile ?? historyVolumeProfile ?? null;
@@ -964,27 +941,11 @@
         volumeProfilePrim.updateData(data);
     });
 
-    // Liquidation heatmap — toggle visibility + data feeding.
-    // Mirror of `volumeProfile`'s pattern: prefer the live WS cluster,
-    // fall back to history-sourced `historyCluster` until the first
-    // per-TF refresh tick fires after a daemon restart.
     //
-    // Block C: feeds both the **estimated** cluster matrix AND the
-    // **observed** real-event buckets (from `tf.liquidity.recent_real_buckets`).
-    // The shared frontend renderer draws them in two layers. When the
-    // exchange has no public feed (Hyperliquid without
-    // `hyperliquid_user_address`), the real layer stays empty and the
-    // HL caveat watermark surfaces above the chart.
     $effect(() => {
         const visible = tf?.showLiqHeatmap ?? false;
         if (!liqHeatmapPrim) return;
         liqHeatmapPrim.setVisible(visible);
-        // Always feed data so the toggle can flip back on without race.
-        // `updateData` accepts partial inputs and merges against the
-        // previous shape — passing `null` is intentional when no data
-        // has arrived yet (the primitive suppresses rendering on null).
-        // v7.0-prod: also forward the per-TF operator-selected leverage
-        // tiers so matching clusters intensify (D5 default `[10]`).
         const cluster = tf?.cluster ?? historyCluster ?? null;
         const flow = tf?.liquidity ?? null;
         const ex = tf?.exchange ?? '';
@@ -992,22 +953,18 @@
         liqHeatmapPrim.updateData({ cluster, flow, exchange: ex, highlightTiers });
     });
 
-    // SMC Fair Value Gap zones — toggle visibility + rolling zone list.
     $effect(() => {
         const visible = tf?.showFvgZones ?? false;
         const dto = tf?.indicators?.['smc_fvg'] ?? null;
         if (!fvgPrim) return;
         fvgPrim.setVisible(visible);
         if (!visible) {
-            // Don't accumulate while hidden — clear so toggling back on
-            // doesn't surface stale zones.
             fvgPrim.clear();
             return;
         }
         fvgPrim.updateData(dto);
     });
 
-    // SMC Order Block zones — toggle visibility + rolling zone list.
     $effect(() => {
         const visible = tf?.showOrderBlocks ?? false;
         const dto = tf?.indicators?.['smc_order_blocks'] ?? null;

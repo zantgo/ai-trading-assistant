@@ -296,7 +296,7 @@ mod tests {
         }
         let out = sqz.update(price, price, price).unwrap();
         assert!(
-            out.momentum_value > Decimal::from_f64_retain(0.00).unwrap(),
+            out.momentum_value > Decimal::from_f64_retain(0.00).unwrap_or_default(),
             "Rising prices should produce positive momentum"
         );
     }
@@ -350,34 +350,35 @@ mod tests {
     fn test_momentum_direction_classification() {
         // Positive and growing
         let d1 = classify_momentum_direction(
-            Decimal::from_f64_retain(0.05).unwrap(),
-            Some(Decimal::from_f64_retain(0.03).unwrap()),
+            Decimal::from_f64_retain(0.05).unwrap_or_default(),
+            Some(Decimal::from_f64_retain(0.03).unwrap_or_default()),
         );
         assert_eq!(d1, MomentumDirection::BullishAcceleration);
 
         // Positive and shrinking
         let d2 = classify_momentum_direction(
-            Decimal::from_f64_retain(0.05).unwrap(),
-            Some(Decimal::from_f64_retain(0.08).unwrap()),
+            Decimal::from_f64_retain(0.05).unwrap_or_default(),
+            Some(Decimal::from_f64_retain(0.08).unwrap_or_default()),
         );
         assert_eq!(d2, MomentumDirection::BullishDeceleration);
 
         // Negative and growing more negative
         let d3 = classify_momentum_direction(
-            Decimal::from_f64_retain(-0.10).unwrap(),
-            Some(Decimal::from_f64_retain(-0.05).unwrap()),
+            Decimal::from_f64_retain(-0.10).unwrap_or_default(),
+            Some(Decimal::from_f64_retain(-0.05).unwrap_or_default()),
         );
         assert_eq!(d3, MomentumDirection::BearishAcceleration);
 
         // Negative and becoming less negative
         let d4 = classify_momentum_direction(
-            Decimal::from_f64_retain(-0.03).unwrap(),
-            Some(Decimal::from_f64_retain(-0.10).unwrap()),
+            Decimal::from_f64_retain(-0.03).unwrap_or_default(),
+            Some(Decimal::from_f64_retain(-0.10).unwrap_or_default()),
         );
         assert_eq!(d4, MomentumDirection::BearishDeceleration);
 
         // Near zero
-        let d5 = classify_momentum_direction(Decimal::from_f64_retain(0.0001).unwrap(), None);
+        let d5 =
+            classify_momentum_direction(Decimal::from_f64_retain(0.0001).unwrap_or_default(), None);
         assert_eq!(d5, MomentumDirection::Flat);
     }
 

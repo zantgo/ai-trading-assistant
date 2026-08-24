@@ -91,7 +91,9 @@ fn make_pipe(slot: TimeframeSlot, secs: u64) -> TimeframePipeline {
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
         fibonacci: config_models::FibonacciConfig::default(),
         latest_oi: Arc::new(RwLock::new(Some(Decimal::from(1_000_000)))),
-        latest_funding: Arc::new(RwLock::new(Some(Decimal::from_f64_retain(0.0001).unwrap()))),
+        latest_funding: Arc::new(RwLock::new(Some(
+            Decimal::from_f64_retain(0.0001).unwrap_or_default(),
+        ))),
         latest_mark_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         latest_index_px: Arc::new(RwLock::new(Some(Decimal::from(50_000)))),
         active_set: Default::default(),

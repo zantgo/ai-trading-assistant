@@ -859,8 +859,19 @@ async fn main() {
     }
 
     println!("🗄️  Initializing local SQLite telemetry database...");
-    let db_pool = init_db().await;
-    println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
+    let db_pool = match init_db().await {
+        Ok(pool) => {
+            println!(
+                "✅ Database Setup: Connected to local telemetry.db file and verified schema."
+            );
+            pool
+        }
+        Err(e) => {
+            eprintln!("❌ Database Setup: {e}");
+            eprintln!("   Hint: check file permissions for ./telemetry.db and disk space, or remove a corrupted db and restart.");
+            std::process::exit(1);
+        }
+    };
 
     // ── v10: headless data-science commands (read-only, then exit) ──
     if !cli.compare_folders.is_empty() {
@@ -1536,7 +1547,9 @@ async fn main() {
                 query_timeout: std::time::Duration::from_secs(clock_cfg.query_timeout_secs),
             };
             let monitor = Arc::new(ClockMonitor::new(monitor_cfg));
-            Arc::get_mut(&mut app_state).unwrap().clock_monitor = Some(monitor.clone());
+            Arc::get_mut(&mut app_state)
+                .expect("AppState not yet shared — clock monitor must be set before build_router")
+                .clock_monitor = Some(monitor.clone());
             println!(
                 "🕒 Clock Monitor: starting NTP polling ({} servers, threshold={}µs)",
                 clock_cfg.ntp_servers.len(),

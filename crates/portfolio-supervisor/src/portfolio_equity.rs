@@ -11,7 +11,7 @@ pub async fn insert_equity_snapshot(
     cash_balance: f64,
     unrealized_pnl: f64,
 ) {
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO portfolio_equity_history (timestamp, total_value, cash_balance, unrealized_pnl)
          VALUES (?1, ?2, ?3, ?4)",
     )
@@ -20,7 +20,10 @@ pub async fn insert_equity_snapshot(
     .bind(cash_balance)
     .bind(unrealized_pnl)
     .execute(pool)
-    .await;
+    .await
+    {
+        eprintln!("insert equity snapshot failed: {e}");
+    }
 }
 
 pub async fn fetch_equity_history(
@@ -51,16 +54,19 @@ pub async fn fetch_equity_history(
 }
 
 pub async fn purge_equity_history(pool: &SqlitePool, older_than_ms: i64) {
-    let _ = sqlx::query("DELETE FROM portfolio_equity_history WHERE timestamp < ?1")
+    if let Err(e) = sqlx::query("DELETE FROM portfolio_equity_history WHERE timestamp < ?1")
         .bind(older_than_ms)
         .execute(pool)
-        .await;
+        .await
+    {
+        eprintln!("purge equity history failed: {e}");
+    }
 }
 
 async fn write_snapshot(pool: &SqlitePool) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64;
 
     let total_cash: f64 =

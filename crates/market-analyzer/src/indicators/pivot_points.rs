@@ -490,8 +490,8 @@ mod tests {
                 lv.r3
             );
             // The 6 R/S levels must stay within [L − k3·range, H + k3·range].
-            let l_dec = Decimal::from_f64_retain(l).unwrap();
-            let h_dec = Decimal::from_f64_retain(h).unwrap();
+            let l_dec = Decimal::from_f64_retain(l).unwrap_or_default();
+            let h_dec = Decimal::from_f64_retain(h).unwrap_or_default();
             let range_dec = h_dec - l_dec;
             assert!(lv.s3 >= l_dec - range_dec);
             assert!(lv.r3 <= h_dec + range_dec);

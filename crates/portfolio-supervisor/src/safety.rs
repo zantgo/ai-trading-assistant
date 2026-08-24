@@ -66,10 +66,13 @@ impl SafetyManager {
         if let Some(ref pool) = *self.pool.read().await {
             let peak = *self.peak_equity.read().await;
             let peak_str = peak.to_string();
-            let _ = sqlx::query("UPDATE paper_balances SET peak_equity = ?1")
+            if let Err(e) = sqlx::query("UPDATE paper_balances SET peak_equity = ?1")
                 .bind(&peak_str)
                 .execute(pool.as_ref())
-                .await;
+                .await
+            {
+                eprintln!("persist peak equity failed: {e}");
+            }
         }
     }
 
@@ -258,14 +261,17 @@ impl SafetyManager {
             let capital_str = capital.to_string();
             let peak_str = self.peak_equity.read().await.to_string();
             let session_str = self.starting_session_equity.read().await.to_string();
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "UPDATE paper_balances SET initial_usd = ?1, current_cash = ?1, peak_equity = ?2, starting_session_equity = ?3",
             )
             .bind(&capital_str)
             .bind(&peak_str)
             .bind(&session_str)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist capital state failed: {e}");
+            }
         }
     }
 
@@ -578,7 +584,10 @@ async fn test_deterministic_reconstruction_sequence() {
     ];
     let mut states = Vec::new();
     for eq in sequence {
-        states.push(mgr.update(Decimal::from_f64_retain(eq).unwrap()).await);
+        states.push(
+            mgr.update(Decimal::from_f64_retain(eq).unwrap_or_default())
+                .await,
+        );
     }
 
     // Re-run on a fresh manager — identical reconstruction expected.
@@ -586,7 +595,10 @@ async fn test_deterministic_reconstruction_sequence() {
     mgr2.set_portfolio_capital(dec!(1000)).await;
     let mut states2 = Vec::new();
     for eq in sequence {
-        states2.push(mgr2.update(Decimal::from_f64_retain(eq).unwrap()).await);
+        states2.push(
+            mgr2.update(Decimal::from_f64_retain(eq).unwrap_or_default())
+                .await,
+        );
     }
 
     assert_eq!(

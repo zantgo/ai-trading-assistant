@@ -24,7 +24,7 @@ PID_FILE=".engine.pid"
 # own port as a fallback when the PID file is missing.
 resolve_port() {
     local cfg_port
-    cfg_port=$(sed -n '/^\[server\]/,/^\[/p' config.toml 2>/dev/null | grep -E '^\s*port\s*=' | head -1 | grep -oE '[0-9]+' || true)
+    cfg_port=$(sed -n '/^\[server\]/,/^\[/p' config.toml 2>/dev/null | grep -E '^\s*port\s*=' | head -1 | sed -n 's/.*port\s*=\s*\([0-9]\+\).*/\1/p' || true)
     echo "${PLATFORM_PORT:-${cfg_port:-3000}}"
 }
 PORT="$(resolve_port)"
@@ -41,7 +41,7 @@ show_help() {
     echo "  run-cli            Run the terminal monitor (--mode cli, observe-only, no web server)"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
-    echo "  test               Run all test suites (core → indicators → engine → ui)"
+    echo "  test               Run all test suites (core → golden → indicators → engine → ui → doc)"
     echo "  test-core          Pure indicator math + serialization (core-domain, market-analyzer, config-models)"
     echo "  test-engine        DB, server, failover (engine crates)"
     echo "  test-engine-full   Engine suite including load/stress test"
@@ -200,32 +200,37 @@ check_status() {
 run_tests() {
     local failures=0
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 1/5: TEST-CORE — Pure math, indicators, serialization"
+    echo "  STAGE 1/6: TEST-CORE — Pure math, indicators, serialization"
     echo "═══════════════════════════════════════════════════════════"
     test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 2/5: TEST-GOLDEN — Golden-vector conformance"
+    echo "  STAGE 2/6: TEST-GOLDEN — Golden-vector conformance"
     echo "═══════════════════════════════════════════════════════════"
     test_golden || { ((failures++)); echo "❌ TEST-GOLDEN failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 3/5: TEST-INDICATORS — Per-indicator e2e"
+    echo "  STAGE 3/6: TEST-INDICATORS — Per-indicator e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_indicators || { ((failures++)); echo "❌ TEST-INDICATORS failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 4/5: TEST-ENGINE — DB + server + e2e"
+    echo "  STAGE 4/6: TEST-ENGINE — DB + server + e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_engine || { ((failures++)); echo "❌ TEST-ENGINE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 5/5: TEST-UI — Svelte 5 components, state, snapshots"
+    echo "  STAGE 5/6: TEST-UI — Svelte 5 components, state, snapshots"
     echo "═══════════════════════════════════════════════════════════"
     test_ui || { ((failures++)); echo "❌ TEST-UI failed"; }
     echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 6/6: TEST-DOC — Documentation corpus consistency"
+    echo "═══════════════════════════════════════════════════════════"
+    test_doc || { ((failures++)); echo "❌ TEST-DOC failed"; }
+    echo ""
     if [ $failures -eq 0 ]; then
-        echo "✅ All 5 test suites passed"
+        echo "✅ All 6 test suites passed"
     else
         echo "❌ $failures test suite(s) failed"
         return 1

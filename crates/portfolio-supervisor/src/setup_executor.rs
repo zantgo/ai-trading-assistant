@@ -2269,10 +2269,10 @@ mod tests {
             timeframe_secs: tf_secs,
             timestamp: ts,
             is_completed: Some(true),
-            mid_price: Decimal::from_f64_retain(mid).unwrap(),
-            bid_price: Decimal::from_f64_retain(mid).unwrap(),
-            ask_price: Decimal::from_f64_retain(mid).unwrap(),
-            close: Some(Decimal::from_f64_retain(mid).unwrap()),
+            mid_price: Decimal::from_f64_retain(mid).unwrap_or_default(),
+            bid_price: Decimal::from_f64_retain(mid).unwrap_or_default(),
+            ask_price: Decimal::from_f64_retain(mid).unwrap_or_default(),
+            close: Some(Decimal::from_f64_retain(mid).unwrap_or_default()),
             analysis: Some(analysis(bias)),
             decision_context: Some(decision(rr, "READY")),
             opportunity: Some(OpportunityMatrix {
@@ -3889,7 +3889,7 @@ mod safety_ladder_tests {
         s.timeframe_secs = 60;
         s.timestamp = ts;
         s.is_completed = Some(true);
-        s.mid_price = Decimal::from_f64_retain(mid).unwrap();
+        s.mid_price = Decimal::from_f64_retain(mid).unwrap_or_default();
         s.bid_price = s.mid_price;
         s.ask_price = s.mid_price;
         s.close = Some(s.mid_price);

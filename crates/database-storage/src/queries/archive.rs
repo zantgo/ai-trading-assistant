@@ -262,7 +262,7 @@ pub async fn update_backfill_job(
     error: Option<&str>,
 ) {
     let now = chrono::Utc::now().timestamp();
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "UPDATE backfill_jobs
          SET status = ?2, pages_fetched = ?3, candles_stored = ?4,
              earliest_ts_secs = ?5, latest_ts_secs = ?6, error = ?7,
@@ -278,7 +278,10 @@ pub async fn update_backfill_job(
     .bind(error)
     .bind(now)
     .execute(pool)
-    .await;
+    .await
+    {
+        eprintln!("DB persist failed: {e}");
+    }
 }
 
 /// Recent backfill jobs, newest first.
@@ -341,7 +344,7 @@ mod tests {
             open: dec!(100),
             high: dec!(110),
             low: dec!(90),
-            close: rust_decimal::Decimal::from_f64_retain(close).unwrap(),
+            close: rust_decimal::Decimal::from_f64_retain(close).unwrap_or_default(),
             volume: dec!(50),
             trades_count: 3,
             reconstructed: Some(ReconstructionMethod::ExchangeHistorical),

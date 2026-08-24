@@ -160,10 +160,25 @@ pub(crate) fn collect_experiments(root: &Path) -> Vec<ExperimentRow> {
             row.max_drawdown_pct = f64_of(&summary, &["max_drawdown_pct"]);
             row.verdict = str_of(&stats, &["classification"]);
             // Risk metrics recomputed from the equity curve.
+            // v10.1: honor the run's bound strategy risk-free rate (DB-free: read from run.json params/stats).
+            let rf_pct = params
+                .get("risk_free_rate_pct")
+                .and_then(|v| v.as_f64())
+                .or_else(|| stats.get("risk_free_rate_pct").and_then(|v| v.as_f64()))
+                .or_else(|| {
+                    run.get("strategy")
+                        .and_then(|s| s.get("pae"))
+                        .and_then(|p| p.get("risk_math"))
+                        .and_then(|r| r.get("risk_free_rate_pct"))
+                        .and_then(|v| v.as_f64())
+                })
+                .unwrap_or(0.0);
             let curve = equity_curve(&bdir.join("equity.ndjson"));
             if curve.len() >= 2 {
                 let rm =
-                    performance_analytics::risk_analytics::compute_risk_metrics_from_curve(&curve);
+                    performance_analytics::risk_analytics::compute_risk_metrics_from_curve_with_rf(
+                        &curve, rf_pct,
+                    );
                 row.sharpe = rm.sharpe_ratio;
                 row.sortino = rm.sortino_ratio;
                 row.calmar = rm.calmar_ratio;

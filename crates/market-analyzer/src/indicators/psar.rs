@@ -29,12 +29,12 @@ impl ParabolicSar {
     pub fn new(af_step: f64, af_max: f64) -> Self {
         Self {
             af_step: Decimal::from_f64_retain(af_step)
-                .unwrap_or(Decimal::from_f64_retain(0.02).unwrap()),
+                .unwrap_or(Decimal::from_f64_retain(0.02).unwrap_or_default()),
             af_max: Decimal::from_f64_retain(af_max)
-                .unwrap_or(Decimal::from_f64_retain(0.20).unwrap()),
+                .unwrap_or(Decimal::from_f64_retain(0.20).unwrap_or_default()),
             sar: Decimal::ZERO,
             ep: Decimal::ZERO,
-            af: Decimal::from_f64_retain(0.02).unwrap(),
+            af: Decimal::from_f64_retain(0.02).unwrap_or_default(),
             direction: 1,
             initialized: false,
         }
@@ -119,7 +119,7 @@ mod tests {
     fn test_seeds_on_first_bar() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
         let out = psar.update(110.0, 90.0).unwrap();
-        assert_eq!(out.sar, Decimal::from_f64_retain(90.0).unwrap());
+        assert_eq!(out.sar, Decimal::from_f64_retain(90.0).unwrap_or_default());
         assert_eq!(out.direction, 1);
         assert!(!out.flipped);
     }
@@ -158,7 +158,7 @@ mod tests {
         assert!(out.flipped);
         assert_eq!(
             out.sar,
-            Decimal::from_f64_retain(114.0).unwrap(),
+            Decimal::from_f64_retain(114.0).unwrap_or_default(),
             "new SAR must anchor at the prior trend's EP (highest high)"
         );
     }
@@ -171,15 +171,15 @@ mod tests {
         let mut psar = ParabolicSar::new(0.02, 0.20);
         psar.initialized = true;
         psar.direction = -1;
-        psar.sar = Decimal::from_f64_retain(95.0).unwrap();
-        psar.ep = Decimal::from_f64_retain(80.0).unwrap();
-        psar.af = Decimal::from_f64_retain(0.04).unwrap();
+        psar.sar = Decimal::from_f64_retain(95.0).unwrap_or_default();
+        psar.ep = Decimal::from_f64_retain(80.0).unwrap_or_default();
+        psar.af = Decimal::from_f64_retain(0.04).unwrap_or_default();
         let out = psar.update(95.0, 70.0).unwrap();
         assert_eq!(out.direction, 1);
         assert!(out.flipped);
         assert_eq!(
             out.sar,
-            Decimal::from_f64_retain(80.0).unwrap(),
+            Decimal::from_f64_retain(80.0).unwrap_or_default(),
             "new SAR must anchor at the prior trend's EP (lowest low)"
         );
     }
@@ -194,6 +194,6 @@ mod tests {
             let l = 90 + i * 3;
             psar.update(h as f64, l as f64);
         }
-        assert!(psar.af > Decimal::from_f64_retain(0.02).unwrap());
+        assert!(psar.af > Decimal::from_f64_retain(0.02).unwrap_or_default());
     }
 }

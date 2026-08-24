@@ -315,7 +315,7 @@ mod tests {
             open: dec!(100),
             high: dec!(110),
             low: dec!(90),
-            close: rust_decimal::Decimal::from_f64_retain(close).unwrap(),
+            close: rust_decimal::Decimal::from_f64_retain(close).unwrap_or_default(),
             volume: dec!(50),
             trades_count: 3,
             reconstructed: Some(ReconstructionMethod::ExchangeHistorical),
@@ -325,7 +325,11 @@ mod tests {
     fn canned_fetcher(pages: Vec<Vec<NormalizedCandle>>) -> PageFetcher {
         let state = std::sync::Mutex::new(pages.into_iter());
         Arc::new(move |_tf, _start, _end| {
-            let next = state.lock().unwrap().next().unwrap_or_default();
+            let next = state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .next()
+                .unwrap_or_default();
             Box::pin(async move { Ok(next) })
         })
     }
@@ -403,8 +407,12 @@ mod tests {
         let fetcher: PageFetcher = {
             let state = std::sync::Mutex::new(older_pages.into_iter());
             Arc::new(move |_tf, start, _end| {
-                *req_start.lock().unwrap() = start;
-                let next = state.lock().unwrap().next().unwrap_or_default();
+                *req_start.lock().unwrap_or_else(|e| e.into_inner()) = start;
+                let next = state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .next()
+                    .unwrap_or_default();
                 Box::pin(async move { Ok(next) })
             })
         };
@@ -431,7 +439,9 @@ mod tests {
         // The earliest archived candle was now-240s; the first window end
         // must be (now-240s)*1000 - duration → the request start is well
         // below the covered span and above the depth target.
-        let first_start = *first_request_start.lock().unwrap();
+        let first_start = *first_request_start
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let covered_bottom_ms = (now_ms / 1000) as i64 * 1000 - 240_000;
         assert!(
             first_start < covered_bottom_ms as u64,

@@ -230,7 +230,7 @@ impl HyperliquidLiveClient {
         let (r, s, v) = sign_digest(&self.private_key_hex, &digest)?;
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
 
         let payload = serde_json::json!({
@@ -290,7 +290,7 @@ impl HyperliquidLiveClient {
         let (r, s, v) = sign_digest(&self.private_key_hex, &digest)?;
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
 
         let payload = serde_json::json!({

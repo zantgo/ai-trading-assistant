@@ -1,6 +1,6 @@
 # BTE Layer 1 — Candle Archive & Backfill
 
-**Version:** 8.0 (2026-08-20)
+**Version:** 10.1 (2026-08-24)
 **Engine:** Backtesting Engine
 **Tables:** `candle_archive`, `backfill_jobs`
 **Code:** `crates/database-storage/src/queries/archive.rs`,
@@ -56,7 +56,7 @@ smallest TF is 1H or higher (Bitget retention), and the burn-in
 1H/4H/12H/1D ladder needs `warmup_bars` reduced so the 1D burn-in fits.
 Hyperliquid deep history accumulates organically via the live archive
 upsert (grow-your-own dataset); canonical-1m derivation for Bitget is
-planned for v8.3.
+planned for a future release (Unscheduled).
 
 ## 3. The backfill job
 

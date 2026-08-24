@@ -125,7 +125,7 @@ impl LifecycleManager {
                 LifecycleState::Stopping => "STOPPING",
                 LifecycleState::Stopped => "STOPPED",
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT OR REPLACE INTO instance_lifecycle (instance_id, lifecycle_state, entered_state_at_ms, updated_at_ms) VALUES (?, ?, ?, ?)"
             )
             .bind(&self.instance_id)
@@ -133,7 +133,10 @@ impl LifecycleManager {
             .bind(self.entered_state_at_ms as i64)
             .bind(now as i64)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist lifecycle failed for {}: {e}", self.instance_id);
+            }
         }
     }
 
@@ -151,7 +154,7 @@ impl LifecycleManager {
                 LifecycleState::Stopping => "STOPPING",
                 LifecycleState::Stopped => "STOPPED",
             };
-            let _ = sqlx::query(
+            if let Err(e) = sqlx::query(
                 "INSERT INTO instance_lifecycle_events (instance_id, from_state, to_state, actor, reason_json, timestamp_ms) VALUES (?, ?, ?, ?, ?, ?)"
             )
             .bind(&self.instance_id)
@@ -161,7 +164,10 @@ impl LifecycleManager {
             .bind(&event.reason)
             .bind(event.timestamp_ms as i64)
             .execute(pool.as_ref())
-            .await;
+            .await
+            {
+                eprintln!("persist lifecycle event failed for {}: {e}", self.instance_id);
+            }
         }
     }
 
@@ -402,7 +408,7 @@ pub enum AutomationAction {
 fn current_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64
 }
 

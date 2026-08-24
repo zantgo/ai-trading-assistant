@@ -161,7 +161,7 @@ pub fn build_optimization_report(
     core_domain::performance::OptimizationReport {
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as i64,
         total_trades: trades.len() as i64,
         regime_reports,

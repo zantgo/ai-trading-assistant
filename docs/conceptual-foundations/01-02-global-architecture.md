@@ -1,9 +1,9 @@
 # Trading Platform Architecture Specification
 
-**Version:** 8.0 (2026-08-20) — see docs/CHANGELOG.md for the canonical version history.
-**Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
+**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the six core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
-> **Implementation status (v7.1).** All five engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper mode by default, live dispatch for Hyperliquid and Bitget), PME as an informational portfolio mirror, and PAE with live analytics plus the recorded-decision backtest runner. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
+> **Implementation status (v10.1).** All six engines are implemented: DIE and MME end-to-end, TAE as a setup executor on the unified execution engine (paper default, live Hyperliquid + Bitget dispatch, v10 lifecycle hardening), PME as an informational portfolio mirror, PAE with live analytics + recorded-decision backtest + significance treatment, and BTE with deep-history pipeline replay + DS persistence. See [`docs/ROADMAP.md`](../ROADMAP.md) §2 for the engine-by-engine reality.
 
 ---
 
@@ -11,12 +11,12 @@
 
 The Trading Platform is designed around a **Two-Dimensional Architectural Framework** that isolates business domains horizontally and analytical transformations vertically. This design guarantees modularity, testability, and deterministic data flow.
 
-|             | Data Infra. (DIE) | Market Monitor (MME) | Trade Auto. (TAE) | Portfolio Mgmt. (PME) | Perf. Analytics (PAE) |
-| ----------- | ----------------- | -------------------- | ----------------- | --------------------- | --------------------- |
-| **LAYER 1** | Raw Data L.       | Metrics L.           | Policy L.         | Position L.           | Trade Anal.           |
-| **LAYER 2** | Market D. L.      | Alignment L.         | Execution L.      | Exposure L.           | Strat. Anal.          |
-| **LAYER 3** | Data Qual.L.      | Analysis L.          |                   | Capital L.            | Risk Anal.            |
-| **LAYER 4** | Dist. Layer       | Opp. Layer           |                   | Portfolio L.          | Perf. Layer           |
+|             | Data Infra. (DIE) | Market Monitor (MME) | Trade Auto. (TAE) | Portfolio Mgmt. (PME) | Perf. Analytics (PAE) | Backtesting (BTE) |
+| ----------- | ----------------- | -------------------- | ----------------- | --------------------- | --------------------- | ------------------- |
+| **LAYER 1** | Raw Data L.       | Metrics L.           | Policy L.         | Position L.           | Trade Anal.           | Archive L.        |
+| **LAYER 2** | Market D. L.      | Alignment L.         | Execution L.      | Exposure L.           | Strat. Anal.          | Replay L.         |
+| **LAYER 3** | Data Qual.L.      | Analysis L.          |                   | Capital L.            | Risk Anal.            |                   |
+| **LAYER 4** | Dist. Layer       | Opp. Layer           |                   | Overview L.           | Perf. Layer           |                   |
 | **LAYER 5** |                   | Risk Layer           |                   |                       |                       |
 | **LAYER 6** |                   | Decision L.          |                   |                       |                       |
 | **LAYER 7** |                   | Overview L.          |                   |                       |                       |
@@ -24,14 +24,14 @@ The Trading Platform is designed around a **Two-Dimensional Architectural Framew
 > **MME parallel branch:** Within the Market Monitoring Engine, Layers 4 (Opportunity) and 5 (Risk) are **orthogonal** and execute **in parallel** directly from Layer 3 (Analysis) — neither reads the other. They converge at Layer 6 (Decision). See §2.2.
 
 ### 1.1 Horizontal Axis: Specialized Engines
-The horizontal axis comprises five decoupled computational engines. Each engine owns one primary quantitative or transactional domain. They maintain zero shared memory or shared states, communicating only via stable, public APIs and read-only message streams.
+The horizontal axis comprises six decoupled computational engines (DIE, MME, TAE, PME, PAE, BTE). Each engine owns one primary quantitative or transactional domain. They maintain zero shared memory or shared states, communicating only via stable, public APIs and read-only message streams.
 
 ### 1.2 Vertical Axis: Sequenced Analytical Layers
 Within each engine, the vertical axis dictates the step-by-step transformation of raw, low-level data into highly abstract decision-support vectors. Each step is represented by an isolated **Layer** that consumes the preceding layer's output, applies deterministic calculations, and produces a single, immutable, versioned **Matrix** as its official output contract.
 
 ---
 
-## 2. The Five Core Engines and Layer Specifications
+## 2. The Six Core Engines and Layer Specifications
 
 ---
 
@@ -119,7 +119,7 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 
 ### 2.3 Trade Automation Engine (TAE)
 
-> **Implementation status (v7.1).** **Implemented** — the TAE is a setup executor that consumes the MME's top setup directly and manages the trade lifecycle (entry limit at zone midpoint → TP/SL bracket → LEVEL/SIGNAL invalidation) through the unified execution engine; the `TradeAutomationDashboard` fetches live state via `/api/instances/:id/automation`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3.
+> **Implementation status (v10.1).** **Implemented** — the TAE is a setup executor that consumes the MME's top setup directly and manages the trade lifecycle (entry limit at zone midpoint → TP/SL bracket → LEVEL/SIGNAL invalidation) through the unified execution engine; the `TradeAutomationDashboard` fetches live state via `/api/instances/:id/automation`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.3.
 
 The Trade Automation Engine evaluates user-defined execution rules and coordinates order execution with external venues.
 
@@ -134,7 +134,7 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 
 #### Layer 2: Execution Layer
 
-> **Implementation status (v7.1).** The Execution Layer is implemented: the unified execution engine routes through the `ExecutionBackend` trait — `PaperSimulation` by default, `LiveBroker` (Hyperliquid) and `BitgetLiveBroker` (Bitget) in live mode — with the same fees/slippage/funding/PnL accounting in both modes. The diagrams below describe the implemented system.
+> **Implementation status (v10.1).** The Execution Layer is implemented: the unified execution engine routes through the `ExecutionBackend` trait — `PaperSimulation` by default, `LiveBroker` (Hyperliquid) and `BitgetLiveBroker` (Bitget) in live mode — with the same fees/slippage/funding/PnL accounting in both modes. The diagrams below describe the implemented system.
 
 *   **Purpose:** Route transactional orders and manage trade lifecycles on the configured execution venue. The current implementation routes through the unified execution engine (`crates/portfolio-supervisor/src/execution/engine.rs`) to the paper simulation matching engine (`crates/portfolio-supervisor/src/execution/backend.rs::PaperSimulation`), or to the live venue adapters (`LiveBroker`, `BitgetLiveBroker`) in live mode.
 *   **Processing:** Execute the Allocation Sizing Protocol upon trade entry validation. Query the execution engine for current equity and the instance's configured `allocation_pct` (1–100 %, default 10 %). Calculate the position notional and order size (v8.2 portfolio-share model):
@@ -146,7 +146,7 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 
 ### 2.4 Portfolio Management Engine (PME)
 
-> **Implementation status (v7.1).** **Implemented (informational)** — the PME maintains the safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP) as a read-only status consumed by the TAE setup executor's soft gate; `safety.rs` plus the four pure layer modules are wired in `execution-daemon`, and the `PortfolioDashboard` fetches live state via `/api/instances/:id/portfolio` and `/api/instances/:id/safety`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.4.
+> **Implementation status (v10.1).** **Implemented (informational)** — the PME maintains the safety-state ladder (WARN / CAUTIOUS / SUSPENDED / DRAWDOWN_STOP) as a read-only status consumed by the TAE setup executor's soft gate; `safety.rs` plus the four pure layer modules are wired in `execution-daemon`, and the `PortfolioDashboard` fetches live state via `/api/instances/:id/portfolio` and `/api/instances/:id/safety`. See [`docs/ROADMAP.md`](../ROADMAP.md) §2.4.
 
 The Portfolio Management Engine manages capital safety boundaries, tracks asset exposures, and maintains active ledger accounts.
 
@@ -178,7 +178,7 @@ The Portfolio Management Engine manages capital safety boundaries, tracks asset 
 
 ### 2.5 Performance Analytics Engine (PAE)
 
-> **Implementation status (v7.1).** **Implemented** — the PAE backend (stats compiler, strategy/risk analytics, performance layer, strategy optimizer) plus the v7 recorded-decision backtest runner (`backtest.rs`) with the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict); the `PerformanceDashboard` fetches live data including the real backtest tab (`POST /api/backtest/run`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5.
+> **Implementation status (v10.1).** **Implemented** — the PAE backend (stats compiler, strategy/risk analytics, performance layer, strategy optimizer) plus the BTE historical + recorded runners with the full NHST treatment (t-test, 10k Monte Carlo, α = 0.05, edge verdict); the `PerformanceDashboard` fetches live data including the real backtest tab (`POST /api/backtest/run`). See [`docs/ROADMAP.md`](../ROADMAP.md) §2.5.
 
 The Performance Analytics Engine evaluates historical trading records to isolate strategy efficacy and identify system drag.
 

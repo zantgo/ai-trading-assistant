@@ -52,7 +52,7 @@ mod tests {
         sma.update(10.0);
         sma.update(20.0);
         let result = sma.update(30.0).unwrap();
-        let expected = Decimal::from_f64_retain(20.0).unwrap();
+        let expected = Decimal::from_f64_retain(20.0).unwrap_or_default();
         assert_eq!(result, expected);
     }
 
@@ -63,9 +63,9 @@ mod tests {
         sma.update(20.0);
         sma.update(30.0);
         let result = sma.update(60.0).unwrap();
-        let expected = (Decimal::from_f64_retain(20.0).unwrap()
-            + Decimal::from_f64_retain(30.0).unwrap()
-            + Decimal::from_f64_retain(60.0).unwrap())
+        let expected = (Decimal::from_f64_retain(20.0).unwrap_or_default()
+            + Decimal::from_f64_retain(30.0).unwrap_or_default()
+            + Decimal::from_f64_retain(60.0).unwrap_or_default())
             / Decimal::from(3);
         assert_eq!(result, expected);
     }

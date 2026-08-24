@@ -206,7 +206,7 @@ fn per_frame_serialization_p95_under_threshold() {
         times.push(elapsed);
     }
 
-    times.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    times.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let p95_idx = ((ITERATIONS as f64) * 0.95).ceil() as usize - 1;
     let p95 = times[p95_idx];
     let min = times[0];
