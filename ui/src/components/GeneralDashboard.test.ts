@@ -285,7 +285,7 @@ describe('GeneralDashboard — hero states', () => {
 });
 
 describe('GeneralDashboard — asset rankings table', () => {
-    it('renders 15 columns (Symbol, Price, Bias, Signal, Direction, Score, Confidence, MTF Score, MTF Label, Risk, Entry, Target, Stop, Risk/Reward, Updated)', () => {
+    it('renders 15 columns (Symbol, Price, Entry, Take Profit, Stop Loss, Bias, Signal, Direction, R:R, Score, Confidence, MTF Score, MTF Label, Risk, Updated) — Image 1 fidelity', () => {
         seedPair('BTC');
         render(GeneralDashboard, { props: { wssMap: {} } });
         // Verify each column header is present (use getAllByText for
@@ -293,18 +293,19 @@ describe('GeneralDashboard — asset rankings table', () => {
         // appears in the Trade Opportunities card AND the table).
         expect(screen.getAllByText('Symbol').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Price').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Entry').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Take Profit').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Stop Loss').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Bias').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Signal').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Direction').length).toBeGreaterThan(0);
+        // R:R header renders as "R:R" (colon without slash)
+        expect(screen.getAllByText('R:R').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Confidence').length).toBeGreaterThan(0);
         expect(screen.getAllByText('MTF Score').length).toBeGreaterThan(0);
         expect(screen.getAllByText('MTF Label').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Risk').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Entry').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Target').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Stop').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Risk/Reward').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Updated').length).toBeGreaterThan(0);
     });
 

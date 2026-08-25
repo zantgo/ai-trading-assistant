@@ -4,14 +4,15 @@
     // operator's first question after a glance at the hero is "which
     // pair is best?"
     //
-    // Columns: Symbol, Price, Bias, Signal, Direction, Score, Confidence,
-    //          MTF Score, MTF Label, Risk, Entry, Target, Stop,
-    //          Risk/Reward, Updated.
+    // Columns (Image 1 fidelity): Symbol | Price | Entry | Take Profit |
+    //          Stop Loss | Bias | Signal | Direction | R:R | Score |
+    //          Confidence | MTF Score | MTF Label | Risk | Updated
     //
-    // The ENTRY / TARGET / STOP columns render the top-setup of the
-    // Opportunity Layer (server-computed `overview_rows` fields; the local
-    // warmup fallback derives them through `topSetupSummary`). Risk/Reward
-    // sits directly after the setup block so the bracket reads as one unit.
+    // The ENTRY / TAKE PROFIT / STOP LOSS columns render the top-setup of
+    // the Opportunity Layer (server-computed `overview_rows` fields; the
+    // local warmup fallback derives them through `topSetupSummary`). R:R
+    // sits between Direction and Score (image order) and uses `1 : N`
+    // formatting to match the screenshot.
     import { useAppStore } from '../../state.svelte';
     import { formatRelativeTime } from '../../lib/relTime';
     import { resolveActiveRr, topQualifyingProfile, topSetupSummary } from '../../lib/decisionRank';
@@ -20,17 +21,16 @@
         biasColor,
         directionColor,
         directionLabel,
-        formatRewardRatio,
+        formatRR,
         rrColor,
         scoreColor,
         signalLabel,
-        asciiBar,
     } from '../../lib/dashboardColors';
     import styles from './AssetRankingsTable.module.css';
 
     const app = useAppStore();
 
-    type SortKey = 'symbol' | 'price' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label' | 'risk' | 'entry' | 'target' | 'stop' | 'updated';
+    type SortKey = 'symbol' | 'price' | 'entry' | 'target' | 'stop' | 'bias' | 'signal' | 'direction' | 'rr' | 'score' | 'confidence' | 'mtf_score' | 'mtf_label' | 'risk' | 'updated';
     type SortDir = 'asc' | 'desc';
     let sortKey = $state<SortKey>('score');
     let sortDir = $state<SortDir>('desc');
@@ -301,19 +301,19 @@
             <thead>
                 <tr>
                     <th class={styles.th} onclick={() => toggleSort('symbol')}>Symbol{arrow('symbol')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('price')}>Price{arrow('price')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('price')}>Price{arrow('price')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('entry')}>Entry{arrow('entry')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('target')}>Take Profit{arrow('target')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('stop')}>Stop Loss{arrow('stop')}</th>
                     <th class={styles.th} onclick={() => toggleSort('bias')}>Bias{arrow('bias')}</th>
                     <th class={styles.th} onclick={() => toggleSort('signal')}>Signal{arrow('signal')}</th>
                     <th class={styles.th} onclick={() => toggleSort('direction')}>Direction{arrow('direction')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('score')}>Score{arrow('score')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('confidence')}>Confidence{arrow('confidence')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('mtf_score')}>MTF Score{arrow('mtf_score')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('rr')}>R:R{arrow('rr')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('score')}>Score{arrow('score')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('confidence')}>Confidence{arrow('confidence')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('mtf_score')}>MTF Score{arrow('mtf_score')}</th>
                     <th class={styles.th} onclick={() => toggleSort('mtf_label')}>MTF Label{arrow('mtf_label')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('risk')}>Risk{arrow('risk')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('entry')}>Entry{arrow('entry')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('target')}>Target{arrow('target')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
-                    <th class={styles.th} onclick={() => toggleSort('rr')}>Risk/Reward{arrow('rr')}</th>
+                    <th class={styles.th} style="text-align:right" onclick={() => toggleSort('risk')}>Risk{arrow('risk')}</th>
                     <th class={styles.th} onclick={() => toggleSort('updated')}>Updated{arrow('updated')}</th>
                 </tr>
             </thead>
@@ -324,7 +324,10 @@
                             <span class={styles.statusDot} class:active={r.connected}></span>
                             {r.symbol}
                         </td>
-                        <td class={styles.tdMono}>{r.price}</td>
+                        <td class={styles.tdMono} style="text-align:right">{r.price}</td>
+                        <td class={styles.tdMono} style="text-align:right" title={r.entry !== '—' ? 'Top setup entry zone' : undefined}>{r.entry}</td>
+                        <td class={styles.tdMono} style="text-align:right" title={r.target !== '—' ? 'Top setup target (take profit) zone' : undefined}>{r.target}</td>
+                        <td class={styles.tdMono} style="text-align:right" title={r.stop !== '—' ? 'Top setup stop loss' : undefined}>{r.stop}</td>
                         <td class={styles.td} style="color: {biasColor(r.bias)}">{r.bias}</td>
                         <td class={styles.td}>
                             <span class={styles.signal} style="color: {directionColor(r.direction)}">
@@ -332,27 +335,25 @@
                             </span>
                         </td>
                         <td class={styles.td} style="color: {directionColor(r.direction)}">{r.direction}</td>
-                        <td class={styles.td} style="color: {rrColor(r.rr)}">{formatRewardRatio(r.rr)}</td>
-                        <td class={styles.td}>
+                        <td class={styles.td} style="text-align:right; color: {rrColor(r.rr)}">{formatRR(r.rr)}</td>
+                        <td class={styles.td} style="text-align:right">
                             <span class={styles.scoreCell}>
                                 <span class={styles.scoreVal} style="color: {scoreColor(r.score)}">{r.score.toFixed(0)}</span>
-                                <span class={styles.scoreBar}>{asciiBar(r.score, 8)}</span>
+                                <span class={styles.scoreBarTrack}>
+                                    <span class={styles.scoreBarFill} style="width: {Math.max(0, Math.min(100, r.score))}%; background: {scoreColor(r.score)}"></span>
+                                </span>
                             </span>
                         </td>
-                        <td class={styles.td}>{r.confidence.toFixed(0)}%</td>
-                        <td class={styles.td} style="color: {mtfScoreColor(r.mtf_score)}">
+                        <td class={styles.td} style="text-align:right">{r.confidence.toFixed(0)}%</td>
+                        <td class={styles.td} style="text-align:right; color: {mtfScoreColor(r.mtf_score)}">
                             {r.mtf_score > 0 ? '+' : ''}{r.mtf_score.toFixed(0)}
                         </td>
                         <td class={styles.td} style="color: {mtfLabelColor(r.mtf_label)}; font-weight: 700; font-size: 10px; letter-spacing: 0.04em">
                             {r.mtf_label.replace(/_MTF$/, '').replaceAll('_', ' ')}
                         </td>
-                        <td class={styles.td} style="color: {r.risk >= 60 ? '#ef4444' : r.risk >= 40 ? '#f59e0b' : '#22c55e'}">
+                        <td class={styles.td} style="text-align:right; color: {r.risk >= 60 ? '#ef4444' : r.risk >= 40 ? '#f59e0b' : '#22c55e'}">
                             {r.risk.toFixed(0)}
                         </td>
-                        <td class={styles.tdMono} title={r.entry !== '—' ? 'Top setup entry zone' : undefined}>{r.entry}</td>
-                        <td class={styles.tdMono} title={r.target !== '—' ? 'Top setup target (take profit) zone' : undefined}>{r.target}</td>
-                        <td class={styles.tdMono} title={r.stop !== '—' ? 'Top setup stop loss' : undefined}>{r.stop}</td>
-                        <td class={styles.td} style="color: {rrColor(r.rr)}">{formatRewardRatio(r.rr)}</td>
                         <td class={styles.tdUpdated}>{rel(r.updatedMs)}</td>
                     </tr>
                 {/each}

@@ -203,18 +203,29 @@
     });
 
     $effect(() => {
-    // Historical bootstrap. Re-runs whenever `pairKey` or `timeframe`
-    // changes (per Svelte 5 `$effect` semantics), so a slow daemon
-    // start or a fast `pairKey` swap both recover automatically once
-    // the data shows up — unlike the legacy `onMount` IIFE which
-    // would race-condition and never re-fire.
+    // Historical bootstrap. Re-runs whenever `pairKey`, `slot` or
+    // `timeframe` changes (per Svelte 5 `$effect` semantics). The cached
+    // path preserves live candles while the user navigates between TF
+    // tabs — no server refetch is needed for a warm cache.
+    void slot;
     if (!timeframe) return;
 
     // Immediate cache hit: paint from the persistent candle cache
     // before the async history fetch completes so the chart never
     // flashes white on timeframe-switch or back/forward navigation.
-    const cached = getCachedCandles(pairKey, timeframe);
+    // Slot-aware: 1s on micro and 1s on fast are distinct caches.
+    // P0 fix: also check AppStore liveCandleCache fallback (survives
+    // module-cache purge across WS reconnect races and cold-start where
+    // initial history was empty).
+    let cached = getCachedCandles(pairKey, timeframe, slot);
+    // Fallback to AppStore live mirror if module cache is empty but
+    // live history has accumulated (e.g. cold 1s start → live filled).
+    if ((!cached || cached.length === 0) && tf?.liveCandleCache && tf.liveCandleCache.length > 0) {
+        cached = tf.liveCandleCache as unknown as typeof cached;
+    }
+    let hasWarmCache = false;
     if (cached && cached.length > 0 && candleSeries) {
+        hasWarmCache = true;
         const cachedStep = tf?.barDurationSec || 60;
         const filledCache = fillTimeGaps(cached, cachedStep);
         const visibleCap = Math.min(filledCache.length, seedCountFor(timeframe));
@@ -224,6 +235,10 @@
             recentCache.map((c) => ({ time: c.time, value: c.close }))
         );
         _lastHistoryTime = Number(cached[cached.length - 1].time);
+        // Preserve-in-background: allow live coalescer updates immediately
+        // after a warm cache paint; do NOT block until the history fetch
+        // completes. The history fetch below will only run on a cold miss.
+        _bootstrapComplete = true;
         chart.timeScale().setVisibleRange({
             from: (Math.max(Number(recentCache[0]?.time ?? 0) - timeframe, 0)) as Time,
             to: (Number(recentCache[recentCache.length - 1]?.time ?? timeframe) + timeframe) as Time,
@@ -231,7 +246,16 @@
     }
 
      let cancelled = false;
-     purgeCacheForKey(pairKey, timeframe);
+     // Warm cache = preserve live candles, no history refetch needed.
+     // The cache stays valid until a WS reconnect (websocket.svelte.ts
+     // purges both history + candle caches) or a timeframe config change
+     // (TimeframeSettings.svelte clears both caches). No `purgeCacheForKey`
+     // here — the previous no-op purge plus immediate refetch is what
+     // caused the 1s erasure (stale history overwrote live candles).
+     if (hasWarmCache) {
+         _bootstrapComplete = true;
+         return () => { cancelled = true; };
+     }
      (async () => {
          try {
              const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe, slot);
@@ -291,23 +315,26 @@
             }
 
             historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
-            // Build the final paint array. `buildPaintCandles` gap-fills
-            // missing intervals but deliberately does NOT drop candles the
-            // backend marked `reconstructed`: on a sparse sub-minute market
-            // those SYNTHETIC doji-fill candles are the majority of
-            // `/api/history`, and filtering them here wiped ~90% of the
-            // chart's history after an F5 reload (fresh JS context → empty
-            // candle cache → history comes only from the fetch), while the
-            // live WS coalescer paints them unfiltered. Synthetic candles
-            // are excluded at the persistent-cache boundary only
-            // (`setCachedCandles` below), so navigation can't replay
-            // flat-line ghosts — see AUDIT-V8-004.
-            const paintCandles = buildPaintCandles(historicalCandles, step);
+            // Backend `/api/history` already gap-fills with SYNTHETIC Dojis
+            // up to MAX_HISTORY_FILL_BARS per gap, so no second fill is needed
+            // for history-sourced data — a second `fillTimeGaps(300)` would
+            // double-fill sparse sub-minute ranges and then truncate real
+            // candles when the final `limit=1000` slice is applied. The extra
+            // frontend fill is only used for the warm-cache path (above),
+            // where gaps come from a sparse local cache that was never
+            // backend-filled. For cold history we present the server's
+            // gap-filled series as-is; synthetics stay in the paint set
+            // (the live WS coalescer also paints them) but are stripped at
+            // the persistent-cache boundary — see AUDIT-V8-004.
+            const hasServerGapFill = historicalCandles.some((c) => !!c.reconstructed);
+            const paintCandles = hasServerGapFill
+                ? historicalCandles
+                : buildPaintCandles(historicalCandles, step);
             // Persist the processed candle array so the next component mount
-            // (timeframe switch / back-forward nav) paints instantly. The
-            // `setCachedCandles` helper also runs a defence-in-depth filter,
-            // so a stray reconstructed candle can never poison the cache.
-            setCachedCandles(pairKey, timeframe, paintCandles);
+            // (timeframe switch / back-forward nav) paints instantly. Slot-aware
+            // key: micro 1s and fast 1s are distinct when the operator picks
+            // duplicate durations (now forbidden by validation, but defensive).
+            setCachedCandles(pairKey, timeframe, paintCandles, slot);
             const visibleCap = Math.min(paintCandles.length, seedCountFor(timeframe));
             const recent = <T extends { time: Time; value: number }>(arr: T[]) => arr.slice(-visibleCap);
             const recentCandles = paintCandles.slice(-visibleCap);

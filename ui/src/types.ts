@@ -793,6 +793,14 @@ export interface TimeframeTelemetry {
     exchange: string;
     barDurationSec: number;
     indicators: IndicatorMap;
+    /// P0 global-store mirror: live candle history kept warm by
+    /// `websocket.svelte.ts` `ingestLiveSnapshot` / `appendLiveCandle`
+    /// so tab-switch does not lose sub-minute history even when the
+    /// module `candleCache` is cleared. Bounded to 1000, same as
+    /// `HIST_BUFFER_MAX`. `undefined` until first completed candle.
+    liveCandleCache?: import('./lib/indicatorHistory').CandleOHLCV[];
+    /// P0 live-history count for staleness UI (e.g. warmup badge).
+    liveHistoryCount?: number;
     priceText: string;
     volText: string;
     avgVolText: string;

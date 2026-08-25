@@ -41,6 +41,10 @@ export interface IndicatorFlatHistory {
 const HISTORY_URL = '/api/history';
 
 const cache = new Map<string, Promise<IndicatorFlatHistory | null>>();
+// Resolved history objects for live mutation (P0 fix: sub-minute live-append).
+// The promise cache above is write-once; this map holds the mutable object
+// that tab-switch remounts read, so live candles are not lost on navigation.
+const historyData = new Map<string, IndicatorFlatHistory>();
 
 /// Fetch the indicator-history payload for `(pairKey, slot, timeframe_secs)`.
 ///
@@ -76,13 +80,18 @@ export function fetchIndicatorHistoryOnce(
             );
             if (!res.ok) return null;
             const raw = await res.json() as RawResponse;
-            return normalizeHistory(raw);
+            const hist = normalizeHistory(raw);
+            // Keep mutable reference for live ingestion (P0).
+            if (hist) historyData.set(key, hist);
+            return hist;
         } catch (err) {
             console.error('indicatorHistory fetch failed', err);
             return null;
         }
     })();
     cache.set(key, promise);
+    // Also populate historyData when promise resolves (covers already-pending).
+    promise.then((h) => { if (h) historyData.set(key, h); });
     return promise;
 }
 
@@ -90,18 +99,154 @@ export function fetchIndicatorHistoryOnce(
 /// mounts re-fetch from the server.
 export function clearHistoryCache(): void {
     cache.clear();
+    historyData.clear();
 }
 
 export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
-    cache.delete(`${pairKey}@${slot ?? '?'}@${timeframe}`);
+    const k = `${pairKey}@${slot ?? '?'}@${timeframe}`;
+    cache.delete(k);
+    historyData.delete(k);
+}
+
+/// P0 fix: live ingestion for sub-minute history preservation.
+/// Mutates the cached `IndicatorFlatHistory` so tab-switch remounts
+/// see live-accumulated candles/indicators even when the initial
+/// fetch was empty (cold sub-minute start). No-ops on shadow ticks
+/// (`is_completed !== true`) — only completed candles advance history
+/// (PRI-06).
+export function ingestLiveSnapshot(
+    pairKey: string,
+    timeframe: number,
+    slot: string | undefined,
+    snapshot: Record<string, unknown>,
+): void {
+    if (!pairKey || !timeframe) return;
+    const isCompleted = snapshot.is_completed === true;
+    if (!isCompleted) return;
+    const tsRaw = snapshot.timestamp;
+    const ts = typeof tsRaw === 'number' ? tsRaw : Number(tsRaw ?? 0);
+    if (!Number.isFinite(ts) || ts <= 0) return;
+    const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
+    let hist = historyData.get(key);
+    // Cold path: no history yet (initial fetch empty or not yet fetched).
+    // Create a fresh history so live candles are not lost on the next remount.
+    if (!hist) {
+        hist = {
+            times: [],
+            values: {},
+            candleTimes: [],
+            candles: { open: [], high: [], low: [], close: [], volume: [] },
+            candleReconstructed: [],
+            fetchedAtMs: Date.now(),
+        };
+        historyData.set(key, hist);
+        // Prime the promise cache with the live-built history so
+        // `fetchIndicatorHistoryOnce` returns it without a network roundtrip.
+        cache.set(key, Promise.resolve(hist));
+    }
+    // De-duplicate: same timestamp as last entry = update in place (completed
+    // candle for same bucket should not duplicate).
+    if (hist.times.length > 0 && hist.times[hist.times.length - 1] === ts) return;
+
+    // Append timestamp.
+    hist.times.push(ts);
+
+    // Append candle OHLCV if present.
+    const open = parseFloat(String((snapshot as Record<string, unknown>).open ?? snapshot.close ?? '0')) || 0;
+    const high = parseFloat(String((snapshot as Record<string, unknown>).high ?? snapshot.close ?? '0')) || 0;
+    const low = parseFloat(String((snapshot as Record<string, unknown>).low ?? snapshot.close ?? '0')) || 0;
+    const close = parseFloat(String((snapshot as Record<string, unknown>).close ?? '0')) || 0;
+    const vol = parseFloat(String((snapshot as Record<string, unknown>).volume ?? '0')) || 0;
+    const reconstructed = (snapshot as Record<string, unknown>).quality_envelope
+        ? ((snapshot as Record<string, unknown>).quality_envelope as Record<string, unknown>).is_gap_filled ? 'SYNTHETIC' : undefined
+        : undefined;
+    hist.candleTimes.push(ts);
+    hist.candles.open.push(open);
+    hist.candles.high.push(high);
+    hist.candles.low.push(low);
+    hist.candles.close.push(close);
+    hist.candles.volume.push(vol);
+    if (hist.candleReconstructed) hist.candleReconstructed.push(reconstructed);
+    else hist.candleReconstructed = [reconstructed];
+
+    // Append indicator values. Keep `values` arrays aligned to `times`.
+    const incoming = (snapshot.indicators && typeof snapshot.indicators === 'object')
+        ? (snapshot.indicators as Record<string, { raw_value?: number; state_label?: string; values?: Record<string, number> }>)
+        : null;
+
+    // Ensure every existing key gets a slot (null if missing this tick).
+    const existingKeys = Object.keys(hist.values);
+    const incomingKeys = new Set<string>();
+    if (incoming) {
+        for (const [k, dto] of Object.entries(incoming)) {
+            const isWarming = dto?.state_label === 'WARMING';
+            const raw = isWarming ? null : (typeof dto.raw_value === 'number' && Number.isFinite(dto.raw_value) ? dto.raw_value : null);
+            // raw series
+            const rk = k;
+            incomingKeys.add(rk);
+            if (!(rk in hist.values)) {
+                // Backfill with nulls for prior timestamps.
+                hist.values[rk] = Array(hist.times.length - 1).fill(null);
+            }
+            hist.values[rk].push(raw);
+            // sub-keys
+            if (dto.values && typeof dto.values === 'object') {
+                for (const [sub, sv] of Object.entries(dto.values)) {
+                    const sk = `${k}.${sub}`;
+                    incomingKeys.add(sk);
+                    if (!(sk in hist.values)) {
+                        hist.values[sk] = Array(hist.times.length - 1).fill(null);
+                    }
+                    const sval = isWarming ? null : (typeof sv === 'number' && Number.isFinite(sv) ? sv : null);
+                    hist.values[sk].push(sval);
+                }
+            }
+        }
+    }
+    // For keys that were in history but not updated this tick, push null to keep alignment.
+    for (const ek of existingKeys) {
+        if (!incomingKeys.has(ek)) {
+            hist.values[ek].push(null);
+        }
+    }
+
+    // Cap at HIST_BUFFER_MAX = 1000 (same as backend).
+    const HIST_MAX = 1000;
+    if (hist.times.length > HIST_MAX) {
+        const trim = hist.times.length - HIST_MAX;
+        hist.times.splice(0, trim);
+        hist.candleTimes.splice(0, trim);
+        hist.candles.open.splice(0, trim);
+        hist.candles.high.splice(0, trim);
+        hist.candles.low.splice(0, trim);
+        hist.candles.close.splice(0, trim);
+        hist.candles.volume.splice(0, trim);
+        if (hist.candleReconstructed) hist.candleReconstructed.splice(0, trim);
+        for (const arr of Object.values(hist.values)) {
+            arr.splice(0, trim);
+        }
+    }
+    hist.fetchedAtMs = Date.now();
+}
+
+/// Test hook: read resolved history (for unit tests).
+export function getResolvedHistory(pairKey: string, timeframe: number, slot?: string): IndicatorFlatHistory | null {
+    return historyData.get(`${pairKey}@${slot ?? '?'}@${timeframe}`) ?? null;
 }
 
 // ── Processed candle cache ────────────────────────────────────────────
-// Per (pairKey, timeframe) cache of the final OHLCV array fed to
+// Per (pairKey, slot, timeframe) cache of the final OHLCV array fed to
 // lightweight-charts. This survives component unmount/remount so
 // timeframe switches and back/forward navigation don't wipe the chart —
 // the bootstrap paints from cache immediately while the async history
 // fetch refreshes in the background.
+//
+// v10.2 fix: slot-aware key `${pairKey}@${slot}@${timeframe}`. The legacy
+// duration-only key `${pairKey}@${timeframe}` let two slots sharing one
+// duration collide and let the PriceChart purge miss (history cache was
+// slot-aware since AUDIT-AIU-121 but the candle cache was not). Switching
+// from 1s (micro) to another chart and back now restores the exact slot's
+// live candles instantly; no server refetch is needed for a warm cache.
 
 /// Cached candle shape. `reconstructed` is the SCREAMING_SNAKE_CASE
 /// backend enum string (e.g. `SYNTHETIC`) or `undefined` for real candles.
@@ -119,16 +264,61 @@ export type CandleOHLCV = {
 
 const candleCache = new Map<string, CandleOHLCV[]>();
 
-export function getCachedCandles(pairKey: string, timeframe: number): CandleOHLCV[] | null {
-    return candleCache.get(`${pairKey}@${timeframe}`) ?? null;
+function candleCacheKey(pairKey: string, timeframe: number, slot?: string): string {
+    return `${pairKey}@${slot ?? '?'}@${timeframe}`;
 }
 
-export function setCachedCandles(pairKey: string, timeframe: number, candles: CandleOHLCV[]): void {
+export function getCachedCandles(pairKey: string, timeframe: number, slot?: string): CandleOHLCV[] | null {
+    // Slot-aware lookup with duration-only fallback so a single cold miss
+    // after the migration still finds the previous duration-only entry once.
+    const slotKey = candleCacheKey(pairKey, timeframe, slot);
+    const hit = candleCache.get(slotKey);
+    if (hit) return hit;
+    if (slot != null) {
+        const legacy = candleCache.get(`${pairKey}@${timeframe}`);
+        if (legacy) return legacy;
+    }
+    return null;
+}
+
+export function setCachedCandles(pairKey: string, timeframe: number, candles: CandleOHLCV[], slot?: string): void {
     // Defence in depth: never cache synthetic candles even if the caller
     // forgot to filter. The backend may serve a future reconstruction path
     // that we don't yet know about; this guard keeps the cache pure.
     const real = candles.filter((c) => !c.reconstructed);
-    if (real.length > 0) candleCache.set(`${pairKey}@${timeframe}`, real);
+    if (real.length > 0) candleCache.set(candleCacheKey(pairKey, timeframe, slot), real);
+}
+
+/// P0 fix: live candle append for `candleCache` so tab-switch preserves
+/// live-accumulated candles (especially sub-minute where `setCachedCandles`
+/// was only called on cold bootstrap). Called from `websocket.svelte.ts`
+/// on every completed candle; dedups by `time`, caps at 1000, keeps sorted.
+export function appendLiveCandle(pairKey: string, timeframe: number, slot: string | undefined, candle: CandleOHLCV): void {
+    if (!pairKey || !timeframe || !candle || candle.reconstructed) return;
+    const t = Number(candle.time);
+    if (!Number.isFinite(t) || t <= 0) return;
+    const key = candleCacheKey(pairKey, timeframe, slot);
+    const existing = candleCache.get(key) ?? [];
+    if (existing.length > 0 && Number(existing[existing.length - 1].time) === t) {
+        // Same bucket — replace (e.g. completed candle update).
+        existing[existing.length - 1] = candle;
+        candleCache.set(key, existing);
+        return;
+    }
+    if (existing.length > 0 && t < Number(existing[existing.length - 1].time)) {
+        // Out-of-order live tick — ignore (monotonic history).
+        return;
+    }
+    existing.push(candle);
+    // Hard cap HIST_BUFFER_MAX = 1000 (backend parity).
+    if (existing.length > 1000) {
+        existing.splice(0, existing.length - 1000);
+    }
+    candleCache.set(key, existing);
+}
+
+export function purgeCandleCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
+    candleCache.delete(candleCacheKey(pairKey, timeframe, slot));
 }
 
 /// Build the final candle array handed to lightweight-charts.
@@ -152,6 +342,67 @@ export function buildPaintCandles(
 
 export function clearCandleCache(): void {
     candleCache.clear();
+}
+
+/// Merge a background-refreshed history into the live-mutated cache
+/// without losing live-appended tail. The server payload contains the
+/// authoritative snapshot_history (which includes live candles), so we
+/// can replace the prefix but keep any tail timestamps newer than the
+/// server's last time (those are live candles not yet in snapshot_history
+/// due to race). Used if we ever trigger a background refresh.
+export function mergeHistoryRefresh(pairKey: string, timeframe: number, slot: string | undefined, serverHist: IndicatorFlatHistory): void {
+    const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
+    const live = historyData.get(key);
+    if (!live || !serverHist || serverHist.times.length === 0) {
+        historyData.set(key, serverHist);
+        cache.set(key, Promise.resolve(serverHist));
+        return;
+    }
+    const serverLast = serverHist.times[serverHist.times.length - 1] ?? -Infinity;
+    const tailIdx = live.times.findIndex((t) => t > serverLast);
+    if (tailIdx === -1) {
+        historyData.set(key, serverHist);
+        cache.set(key, Promise.resolve(serverHist));
+        return;
+    }
+    // Keep serverHist + live tail
+    const tailTimes = live.times.slice(tailIdx);
+    const tailCandles = live.candleTimes.slice(tailIdx);
+    // Merge tail values
+    for (const [k, arr] of Object.entries(live.values)) {
+        const serverArr = serverHist.values[k];
+        if (!serverArr) {
+            serverHist.values[k] = Array(serverHist.times.length).fill(null).concat(arr.slice(tailIdx));
+        } else {
+            serverHist.values[k] = serverArr.concat(arr.slice(tailIdx));
+        }
+    }
+    serverHist.times = serverHist.times.concat(tailTimes);
+    serverHist.candleTimes = serverHist.candleTimes.concat(tailCandles);
+    serverHist.candles.open = serverHist.candles.open.concat(live.candles.open.slice(tailIdx));
+    serverHist.candles.high = serverHist.candles.high.concat(live.candles.high.slice(tailIdx));
+    serverHist.candles.low = serverHist.candles.low.concat(live.candles.low.slice(tailIdx));
+    serverHist.candles.close = serverHist.candles.close.concat(live.candles.close.slice(tailIdx));
+    serverHist.candles.volume = serverHist.candles.volume.concat(live.candles.volume.slice(tailIdx));
+    if (serverHist.candleReconstructed && live.candleReconstructed) {
+        serverHist.candleReconstructed = (serverHist.candleReconstructed as Array<string|undefined>).concat(live.candleReconstructed.slice(tailIdx));
+    }
+    serverHist.fetchedAtMs = Date.now();
+    // Cap
+    if (serverHist.times.length > 1000) {
+        const trim = serverHist.times.length - 1000;
+        serverHist.times.splice(0, trim);
+        serverHist.candleTimes.splice(0, trim);
+        serverHist.candles.open.splice(0, trim);
+        serverHist.candles.high.splice(0, trim);
+        serverHist.candles.low.splice(0, trim);
+        serverHist.candles.close.splice(0, trim);
+        serverHist.candles.volume.splice(0, trim);
+        if (serverHist.candleReconstructed) (serverHist.candleReconstructed as Array<string|undefined>).splice(0, trim);
+        for (const arr of Object.values(serverHist.values)) arr.splice(0, trim);
+    }
+    historyData.set(key, serverHist);
+    cache.set(key, Promise.resolve(serverHist));
 }
 
 // ── Gap-fill utility ──────────────────────────────────────────────────

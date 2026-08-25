@@ -481,8 +481,8 @@ struct CliInstance {
     base: String,
     micro: u64,
     fast: u64,
-    slow: u64,
-    r#macro: u64,
+    slow: Option<u64>,
+    r#macro: Option<u64>,
 }
 
 /// The full CLI launch plan: exchange + currency + instances.
@@ -578,16 +578,8 @@ fn cli_launch_plan(
                 base,
                 micro: e.micro_term.candles.duration_seconds,
                 fast: e.fast_term.candles.duration_seconds,
-                slow: e
-                    .slow_term
-                    .as_ref()
-                    .map(|t| t.candles.duration_seconds)
-                    .unwrap_or_else(|| tf_default("slow", workspace)),
-                r#macro: e
-                    .macro_term
-                    .as_ref()
-                    .map(|t| t.candles.duration_seconds)
-                    .unwrap_or_else(|| tf_default("macro", workspace)),
+                slow: e.slow_term.as_ref().map(|t| t.candles.duration_seconds),
+                r#macro: e.macro_term.as_ref().map(|t| t.candles.duration_seconds),
             })
         })
         .collect();
@@ -628,27 +620,64 @@ fn cli_launch_plan(
             ),
             tf_default("micro", workspace),
         );
-        let fast = prompt_timeframe_secs(
-            &format!(
-                "  fast timeframe_secs (default {}s)",
-                tf_default("fast", workspace)
-            ),
-            tf_default("fast", workspace),
-        );
-        let slow = prompt_timeframe_secs(
-            &format!(
-                "  slow timeframe_secs (default {}s)",
-                tf_default("slow", workspace)
-            ),
-            tf_default("slow", workspace),
-        );
-        let r#macro = prompt_timeframe_secs(
-            &format!(
-                "  macro timeframe_secs (default {}s)",
-                tf_default("macro", workspace)
-            ),
-            tf_default("macro", workspace),
-        );
+        let fast = loop {
+            let v = prompt_timeframe_secs(
+                &format!(
+                    "  fast timeframe_secs (default {}s)",
+                    tf_default("fast", workspace)
+                ),
+                tf_default("fast", workspace),
+            );
+            if v == micro {
+                eprintln!("  ⚠️  fast must differ from micro ({}s) — pick a distinct duration.", micro);
+                continue;
+            }
+            break v;
+        };
+        let slow = if confirm("  Enable slow timeframe? Y/n", true) {
+            loop {
+                let v = prompt_timeframe_secs(
+                    &format!(
+                        "  slow timeframe_secs (default {}s)",
+                        tf_default("slow", workspace)
+                    ),
+                    tf_default("slow", workspace),
+                );
+                if v == micro || v == fast {
+                    eprintln!("  ⚠️  slow must be distinct from micro ({}s) and fast ({}s).", micro, fast);
+                    continue;
+                }
+                break Some(v);
+            }
+        } else {
+            None
+        };
+        let r#macro = if confirm("  Enable macro timeframe? Y/n", true) {
+            loop {
+                let v = prompt_timeframe_secs(
+                    &format!(
+                        "  macro timeframe_secs (default {}s)",
+                        tf_default("macro", workspace)
+                    ),
+                    tf_default("macro", workspace),
+                );
+                let mut seen = vec![micro, fast];
+                if let Some(s) = slow { seen.push(s); }
+                if seen.contains(&v) {
+                    eprintln!("  ⚠️  macro must be distinct from {} — pick another.", seen.iter().map(|s| format!("{}s", s)).collect::<Vec<_>>().join(", "));
+                    continue;
+                }
+                break Some(v);
+            }
+        } else {
+            None
+        };
+        // Validate 2–4 distinct: micro+fast always, slow/macro optional
+        let active_count = 2 + slow.is_some() as usize + r#macro.is_some() as usize;
+        if active_count < 2 {
+            eprintln!("  ⚠️  At least 2 timeframes required (micro+fast).");
+            continue;
+        }
         instances.push(CliInstance {
             base: cleaned,
             micro,
@@ -680,14 +709,17 @@ fn cli_launch_plan(
     println!("  Exchange             : {}", exchange);
     println!("  Settlement currency  : {}", currency);
     for inst in &instances {
+        let slow_s = inst.slow.map(tf_label).unwrap_or_else(|| "—".to_string());
+        let macro_s = inst.r#macro.map(tf_label).unwrap_or_else(|| "—".to_string());
         println!(
-            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} (observe)",
+            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} (observe, {} TFs)",
             inst.base,
             currency,
             tf_label(inst.micro),
             tf_label(inst.fast),
-            tf_label(inst.slow),
-            tf_label(inst.r#macro),
+            slow_s,
+            macro_s,
+            2 + inst.slow.is_some() as usize + inst.r#macro.is_some() as usize,
         );
     }
     println!("──────────────────────────────────────────────\n");
@@ -1262,8 +1294,8 @@ async fn main() {
                 status: config_models::InstanceStatus::Running,
                 micro_term: tf(inst.micro),
                 fast_term: tf(inst.fast),
-                slow_term: Some(tf(inst.slow)),
-                macro_term: Some(tf(inst.r#macro)),
+                slow_term: inst.slow.map(|s| tf(s)),
+                macro_term: inst.r#macro.map(|s| tf(s)),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
                 mode: config_models::ExecutionMode::Observe,

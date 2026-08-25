@@ -1,7 +1,8 @@
 import type { AppStore } from '../state.svelte';
 import type { IndicatorDto, IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
 import { getDecimalCount } from './telemetry';
-import { purgeCacheForKey } from './indicatorHistory';
+import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
+import type { Time } from 'lightweight-charts';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
 
@@ -389,6 +390,57 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     if (snapshot.pipeline_state && typeof snapshot.pipeline_state === 'string') {
         tf.pipelineState = snapshot.pipeline_state;
     }
+    // ── P0 fix: live cache sync for sub-minute history preservation ──
+    // Keep both the persistent candle cache and the indicator-history cache
+    // warm with completed candles so a tab-switch remount repaints instantly
+    // from live-accumulated data even when the initial `/api/history` was
+    // empty (cold sub-minute start). No-ops on shadow ticks.
+    try {
+        const tfSecs = tf.barDurationSec;
+        if (isCompletedFrame && Number.isFinite(Number(snapshot.timestamp)) && Number(snapshot.timestamp) > 0) {
+            const ts = Number(snapshot.timestamp);
+            const cClose = num(snapshot.close);
+            const isGapFilled = (snapshot.quality_envelope as Record<string, unknown> | undefined)?.is_gap_filled === true;
+            if (cClose != null && !isGapFilled) {
+                const cOpen = num(snapshot.open) ?? cClose;
+                const cHigh = num(snapshot.high) ?? cClose;
+                const cLow = num(snapshot.low) ?? cClose;
+                // Candle cache: only real candles (filter SYNTHETIC gap-fill).
+                appendLiveCandle(symbol, tfSecs, tf.slot, {
+                    time: ts as Time,
+                    open: cOpen,
+                    high: cHigh,
+                    low: cLow,
+                    close: cClose,
+                });
+                // Global-store mirror (P0 refactor): keep per-TF live history
+                // observable from `AppStore` so future panels can read without
+                // touching the module cache. Stored as plain arrays on the
+                // telemetry object; reactivity is via replacement.
+                try {
+                    const lc = (tf as unknown as Record<string, unknown>).liveCandleCache as import('./indicatorHistory').CandleOHLCV[] | undefined;
+                    const arr = Array.isArray(lc) ? lc : [];
+                    const t = ts as import('lightweight-charts').Time;
+                    const candle = { time: t, open: cOpen, high: cHigh, low: cLow, close: cClose } as import('./indicatorHistory').CandleOHLCV;
+                    // dedup by time
+                    if (arr.length === 0 || Number(arr[arr.length - 1].time) !== ts) {
+                        arr.push(candle);
+                        if (arr.length > 1000) arr.splice(0, arr.length - 1000);
+                        (tf as unknown as Record<string, unknown>).liveCandleCache = arr;
+                    } else {
+                        arr[arr.length - 1] = candle;
+                    }
+                    (tf as unknown as Record<string, unknown>).liveHistoryCount = arr.length;
+                } catch {}
+            }
+            // Indicator history cache (aligned times + values + candles) — for
+            // every completed candle, including gap-filled SYNTHETIC (the
+            // history layer tracks provenance via candleReconstructed).
+            ingestLiveSnapshot(symbol, tfSecs, tf.slot, snapshot as Record<string, unknown>);
+        }
+    } catch (_e) {
+        // Live cache sync must never break the WS stream.
+    }
     const pair = app.instancesMap[symbol];
     if (pair) {
         // ── Pair-level matrix guard ──
@@ -528,6 +580,19 @@ export function connectWebsocketForTimeframe(
         const bo = state.backoff[wsKey];
         if (bo.retries > 0) {
             purgeCacheForKey(symbol, tfSecs, tf.slot);
+            purgeCandleCacheForKey(symbol, tfSecs, tf.slot);
+            // Also clear AppStore live mirror so it does not replay
+            // stale pre-reconnect candles that the backend just dropped.
+            try {
+                const p = app.instancesMap[symbol];
+                if (p) {
+                    const tfLive = (tf.slot === 'micro' ? p.microTerm : tf.slot === 'fast' ? p.fastTerm : tf.slot === 'slow' ? p.slowTerm : p.macroTerm) as unknown as Record<string, unknown>;
+                    if (tfLive) {
+                        tfLive.liveCandleCache = [];
+                        tfLive.liveHistoryCount = 0;
+                    }
+                }
+            } catch {}
         }
         state.backoff[wsKey] = freshBackoff();
     };

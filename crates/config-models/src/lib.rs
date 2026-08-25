@@ -848,6 +848,48 @@ pub fn validate_workspace(ws: &WorkspaceConfig) -> Result<()> {
                 keys: keys.join(", "),
             });
         }
+        // 2–4 timeframes: micro+fast are required, slow+macro are optional.
+        // Operator may run 2, 3 or 4 TFs per instance — no more, no fewer.
+        let active_tf_count =
+            2 + inst.slow_term.is_some() as usize + inst.macro_term.is_some() as usize;
+        if !(2..=4).contains(&active_tf_count) {
+            return Err(ConfigError::InvalidNumeric {
+                detail: format!(
+                    "instance {}: declares {} active timeframes (must be 2–4; micro+fast required, slow/macro optional)",
+                    inst.symbol, active_tf_count
+                ),
+            });
+        }
+        // Distinct durations: every active slot must have a unique `duration_seconds`.
+        // Duplicate durations would make slot-vs-duration dispatch ambiguous and
+        // were only allowed before the v10.2 preserve-in-background fix.
+        {
+            let mut seen_secs: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            let mut dup: Option<u64> = None;
+            for tf in [
+                Some(&inst.micro_term),
+                Some(&inst.fast_term),
+                inst.slow_term.as_ref(),
+                inst.macro_term.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let s = tf.candles.duration_seconds;
+                if !seen_secs.insert(s) {
+                    dup = Some(s);
+                    break;
+                }
+            }
+            if let Some(d) = dup {
+                return Err(ConfigError::InvalidNumeric {
+                    detail: format!(
+                        "instance {}: duplicate timeframe duration {}s — each of the {} active slots must be distinct",
+                        inst.symbol, d, active_tf_count
+                    ),
+                });
+            }
+        }
         // M8 (production audit): zero-valued numeric knobs panic in the
         // hot path — `candles.duration_seconds = 0` divides by zero in
         // CandleGenerator, `rsi_period = 0` in Rsi::update, and

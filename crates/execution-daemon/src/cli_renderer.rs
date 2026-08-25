@@ -300,22 +300,23 @@ fn render_asset_ranking(out: &mut String, om: &OverviewMatrix) {
     }
     if !om.overview_rows.is_empty() {
         let rows = &om.overview_rows;
+        // Image 1 fidelity: SYMBOL | PRICE | ENTRY | TAKE PROFIT | STOP LOSS | BIAS | SIGNAL | DIRECTION | R:R | SCORE | CONFIDENCE | MTF SCORE | MTF LABEL | RISK | UPDATED
         out.push_str(&format!(
-            "  {:<12} {:>12} {:<9} {:<5} {:<8} {:>6} {:>6} {:>10} {:>7} {:<14} {:>5} {:>11} {:>11} {:>11} {:>6}\n",
+            "  {:<10} {:>10} {:>11} {:>11} {:>11} {:<9} {:<6} {:<8} {:>7} {:>6} {:>10} {:>9} {:<12} {:>5} {:>8}\n",
             "SYMBOL",
             "PRICE",
+            "ENTRY",
+            "TAKE PROFIT",
+            "STOP LOSS",
             "BIAS",
             "SIGNAL",
-            "DIR",
+            "DIRECTION",
+            "R:R",
             "SCORE",
             "CONFIDENCE",
-            "MTF",
+            "MTF SCORE",
             "MTF LABEL",
             "RISK",
-            "ENTRY",
-            "TARGET",
-            "STOP",
-            "R:R",
             "UPDATED"
         ));
         for row in rows {
@@ -335,21 +336,21 @@ fn render_asset_ranking(out: &mut String, om: &OverviewMatrix) {
                 "—".to_string()
             };
             out.push_str(&format!(
-                "  {:<12} {:>12.4} {:<9} {:<5} {:<8} {:>6.1} {:>9.0}% {:>7.0} {:<14} {:>5.0} {:>11} {:>11} {:>11} {:>6} {:>8}\n",
+                "  {:<10} {:>10.2} {:>11} {:>11} {:>11} {:<9} {:<6} {:<8} {:>7} {:>6.0} {:>9.0}% {:>9.0} {:<12} {:>5.0} {:>8}\n",
                 row.symbol,
                 row.price,
-                row.bias,
-                row.signal,
-                row.direction,
-                row.score,
-                row.confidence,
-                row.mtf_score,
-                row.mtf_label,
-                row.risk,
                 fmt_zone(row.entry_low, row.entry_high),
                 fmt_zone(row.target_low, row.target_high),
                 fmt_level(row.invalidation),
+                row.bias,
+                row.signal,
+                row.direction,
                 fmt_rr(row.rr),
+                row.score,
+                row.confidence,
+                row.mtf_score,
+                row.mtf_label.replace("_MTF", "").replace('_', " "),
+                row.risk,
                 updated,
             ));
         }
@@ -588,27 +589,29 @@ mod tests {
         assert!(frame.contains("SIGNAL STABILITY"));
         assert!(frame.contains("active instance"));
 
-        // Asset rankings: every GUI column header value appears.
+        // Asset rankings: every GUI column header value appears (Image 1 order).
         assert!(frame.contains("ASSET RANKINGS"));
         assert!(frame.contains("SYMBOL"));
         assert!(frame.contains("PRICE"));
+        assert!(frame.contains("ENTRY"));
+        assert!(frame.contains("TAKE PROFIT"));
+        assert!(frame.contains("STOP LOSS"));
         assert!(frame.contains("BIAS"));
         assert!(frame.contains("SIGNAL"));
-        assert!(frame.contains("DIR"));
+        assert!(frame.contains("DIRECTION"));
         assert!(frame.contains("SCORE"));
         assert!(frame.contains("CONFIDENCE"));
-        assert!(frame.contains("MTF"));
+        assert!(frame.contains("MTF SCORE"));
+        assert!(frame.contains("MTF LABEL"));
         assert!(frame.contains("RISK"));
-        assert!(frame.contains("ENTRY"));
-        assert!(frame.contains("TARGET"));
-        assert!(frame.contains("STOP"));
         assert!(frame.contains("R:R"));
         assert!(frame.contains("UPDATED"));
-        // Row values (incl. the top-setup ENTRY / TARGET / STOP levels).
+        // Row values (incl. the top-setup ENTRY / TAKE PROFIT / STOP LOSS levels).
         assert!(frame.contains("64497.5"));
         assert!(frame.contains("Bullish"));
         assert!(frame.contains("BUY"));
-        assert!(frame.contains("WEAK_BULL_MTF"));
+        // CLI mirrors the GUI label cleaning: WEAK_BULL_MTF → WEAK BULL.
+        assert!(frame.contains("WEAK BULL"));
         assert!(frame.contains("63200-63400"));
         assert!(frame.contains("66000-66500"));
         assert!(frame.contains("62800"));

@@ -150,13 +150,21 @@ fn validate(workspace: &WorkspaceConfig, args: &CliBacktestArgs) -> Result<Excha
         ));
     }
     // Per-TF depth ceilings: Hyperliquid's 5,000-candle endpoint window
-    // and Bitget's per-granularity retention (measured) — fail loudly
-    // naming the limiting TF, never truncate silently.
+    // and Bitget's per-granularity retention (measured) — hard clamp on
+    // smallest TF (fewest days) — operator knows before run, never silent
+    // truncate. Smallest TF rules because it needs most candles per day.
     let exchange_name = if exchange == Exchange::Bitget {
         "Bitget"
     } else {
         "Hyperliquid"
     };
+    // Precompute smallest TF's ceiling for clear hard-clamp message
+    let smallest_tf = args.tf.iter().copied().min().unwrap_or(60);
+    let smallest_max = backtesting_engine::backfill::exchange_max_depth_secs(
+        exchange_name,
+        smallest_tf,
+        &workspace.backtest,
+    );
     for tf in &args.tf {
         let max_depth_secs = backtesting_engine::backfill::exchange_max_depth_secs(
             exchange_name,
@@ -176,7 +184,23 @@ fn validate(workspace: &WorkspaceConfig, args: &CliBacktestArgs) -> Result<Excha
                     max_depth_secs / 86400
                 )
             };
-            return Err(format!("--depth {}d exceeds {limit}", args.depth_days));
+            let hint = if *tf == smallest_tf {
+                format!(
+                    " — smallest TF {}s limits all to {}d (hard clamp). Use coarser micro (e.g. 300s→{}d, 900s→{}d) or reduce --depth to {}d",
+                    smallest_tf,
+                    smallest_max / 86400,
+                    backtesting_engine::backfill::exchange_max_depth_secs(exchange_name, 300, &workspace.backtest) / 86400,
+                    backtesting_engine::backfill::exchange_max_depth_secs(exchange_name, 900, &workspace.backtest) / 86400,
+                    smallest_max / 86400
+                )
+            } else {
+                format!(
+                    " — smallest TF {}s max {}d hard clamps entire ladder",
+                    smallest_tf,
+                    smallest_max / 86400
+                )
+            };
+            return Err(format!("--depth {}d exceeds {limit}{hint}", args.depth_days));
         }
     }
     Ok(exchange)

@@ -29,6 +29,18 @@
     const MAX_DEPTH = 365;
     const MAX_INSTANCES = 100;
 
+    // Hard clamp: smallest TF determines max days per exchange.
+    function bitgetRetentionDays(tf: number): number {
+        if (tf <= 1800) return 30;
+        if (tf <= 3600) return 45;
+        if (tf <= 14400) return 180;
+        return 365;
+    }
+    function exchangeMaxDays(exchange: string, tf: number): number {
+        if (exchange === 'Hyperliquid') return Math.floor((5000 * tf) / 86400);
+        return bitgetRetentionDays(tf);
+    }
+
     interface DraftInstance {
         base: string;
         micro: number;
@@ -96,13 +108,35 @@
     const allocationInvalid = $derived(allocationTotal > 100 + 1e-9);
     const instancesFull = $derived(instances.length >= MAX_INSTANCES);
 
+    // All TFs across all instances — smallest TF limits depth.
+    const allTfs = $derived.by(() => {
+        if (instances.length > 0) return instances.flatMap((i) => [i.micro, i.fast, i.slow, i.macro]);
+        return [newTfs.micro, newTfs.fast, newTfs.slow, newTfs.macro];
+    });
+    const adaptiveMax = $derived.by(() => {
+        if (allTfs.length === 0) return MAX_DEPTH;
+        return Math.min(...allTfs.map((tf) => exchangeMaxDays(exchange, tf)));
+    });
+    const limitingTf = $derived.by(() => {
+        const m = adaptiveMax;
+        return allTfs.find((tf) => exchangeMaxDays(exchange, tf) === m) ?? allTfs[0];
+    });
+    const sliderMax = $derived(Math.min(MAX_DEPTH, adaptiveMax));
+    const depthExceedsCeiling = $derived(depthDays > adaptiveMax);
+
     const depthInvalid = $derived.by(() => {
         const v = Number(depthInput);
         if (!Number.isFinite(v)) return true;
-        if (v < MIN_DEPTH || v > MAX_DEPTH) return true;
+        if (v < MIN_DEPTH || v > sliderMax) return true;
         return Math.floor(v) !== v;
     });
     $effect(() => { depthInput = String(depthDays); });
+    // Hard clamp: if exchange or ladder changes and depth exceeds new ceiling, clamp down so operator never sees a post-Run error.
+    $effect(() => {
+        void adaptiveMax;
+        if (depthDays > sliderMax) depthDays = sliderMax;
+        if (depthDays < MIN_DEPTH) depthDays = MIN_DEPTH;
+    });
 
     // Burn-in for the chosen ladder (warmup_bars × macro TF) — the same
     // formula the server validates coverage with.
@@ -135,7 +169,11 @@
             return;
         }
         if (step === 4 && depthInvalid) {
-            error = 'Depth must be a whole number of days (1–365).';
+            if (depthExceedsCeiling) {
+                error = `Depth ${depthDays}d exceeds ${exchange}'s ${tfLabel(limitingTf)} ceiling (max ${adaptiveMax}d) — pick a coarser micro or shorter depth.`;
+            } else {
+                error = `Depth must be a whole number of days (${MIN_DEPTH}–${sliderMax}).`;
+            }
             return;
         }
         if (step < 5) step += 1;
@@ -273,8 +311,12 @@
             error = `Σ allocations = ${allocationTotal}% — must be ≤ 100%.`;
             return;
         }
+        if (depthExceedsCeiling) {
+            error = `Depth ${depthDays}d exceeds ${exchange}'s ${tfLabel(limitingTf)} ceiling (max ${adaptiveMax}d). Smallest TF limits all — raise micro to ${tfLabel(limitingTf*5)} or reduce depth to ${adaptiveMax}d.`;
+            return;
+        }
         if (depthTooSmall) {
-            error = `Depth needs ≥ ${burnInDays} day(s) for the warm-up window.`;
+            error = `Depth needs ≥ ${burnInDays} day(s) for the warm-up window (macro ${tfLabel(macroTf)} × ${warmupBars}).`;
             return;
         }
         running = true;
@@ -513,7 +555,7 @@
                 <input
                     type="range"
                     min={MIN_DEPTH}
-                    max={MAX_DEPTH}
+                    max={sliderMax}
                     step="1"
                     value={depthDays}
                     oninput={(e) => { depthDays = Number((e.currentTarget as HTMLInputElement).value); }}
@@ -523,14 +565,16 @@
                     class="{styles.input} {styles.depthInput}"
                     type="number"
                     min={MIN_DEPTH}
-                    max={MAX_DEPTH}
+                    max={sliderMax}
                     bind:value={depthInput}
-                    onchange={() => { const v = Number(depthInput); if (Number.isFinite(v) && v >= MIN_DEPTH && v <= MAX_DEPTH) depthDays = Math.floor(v); }}
+                    onchange={() => { const v = Number(depthInput); if (Number.isFinite(v) && v >= MIN_DEPTH && v <= sliderMax) depthDays = Math.floor(v); else if (v > sliderMax) depthDays = sliderMax; }}
                     aria-label="Archive depth days (typed)"
                 />
                 <span class={styles.label}>days</span>
                 {#if depthInvalid}
-                    <span class={styles.errorChip}>must be 1–365</span>
+                    <span class={styles.errorChip}>must be {MIN_DEPTH}–{sliderMax}</span>
+                {:else if depthExceedsCeiling}
+                    <span class={styles.errorChip}>exceeds {tfLabel(limitingTf)} max {adaptiveMax}d</span>
                 {:else if depthTooSmall}
                     <span class={styles.errorChip}>needs ≥ {burnInDays}d for warmup</span>
                 {/if}
@@ -541,12 +585,11 @@
                     Missing history is fetched automatically when you press Run (with live
                     progress); re-runs skip already-covered spans.
                 </p>
-                {#if exchange === 'Hyperliquid'}
-                    <p class={styles.ceilingNote}>
-                        Hyperliquid's endpoint exposes the most recent 5,000 candles per timeframe —
-                        the launcher validates the depth against that ceiling per TF and fails
-                        loudly naming the limiting TF.
-                    </p>
+                <p class={styles.ceilingNote}>
+                    {exchange} max: {allTfs.map((tf) => `${tfLabel(tf)}→${exchangeMaxDays(exchange, tf)}d`).join(' · ')} (limiting: {tfLabel(limitingTf)} → {adaptiveMax}d, slider 1–{sliderMax}). Smallest TF rules — 1m needs 43200 candles/30d, 15m needs 2880/30d.
+                </p>
+                {#if depthExceedsCeiling}
+                    <p class={styles.error}>Depth {depthDays}d exceeds {exchange}'s {tfLabel(limitingTf)} ceiling (max {adaptiveMax}d). Raise micro or reduce depth.</p>
                 {/if}
             {/if}
         </section>

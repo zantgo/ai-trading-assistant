@@ -204,4 +204,129 @@ describe('indicatorHistory (unified)', () => {
         // The no-subKey lookup still reads the raw series (Metrics table).
         expect(historyValue(hist, 'ema_stack')).toHaveLength(4);
     });
+
+    it('P0_keepalive_appendLiveCandle_preserves_history_across_tab_switch', async () => {
+        const { appendLiveCandle, getResolvedHistory, ingestLiveSnapshot } = await import('../lib/indicatorHistory');
+        const pairKey = 'TEST-KEEPALIVE-1S';
+        const slot = 'micro';
+        const tf = 1;
+        try {
+            clearHistoryCache();
+            clearCandleCache();
+            // Simulate cold 1s start: initial fetch empty (no cache).
+            expect(getCachedCandles(pairKey, tf, slot)).toBeNull();
+            expect(getResolvedHistory(pairKey, tf, slot)).toBeNull();
+            // Live candles accumulate via WS (completed 1s bars).
+            for (let i = 0; i < 5; i++) {
+                const ts = 1_718_000_000 + i;
+                appendLiveCandle(pairKey, tf, slot, { time: ts as Time, open: 100 + i, high: 101 + i, low: 99 + i, close: 100.5 + i });
+                ingestLiveSnapshot(pairKey, tf, slot, {
+                    timestamp: ts,
+                    is_completed: true,
+                    close: String(100.5 + i),
+                    open: String(100 + i),
+                    high: String(101 + i),
+                    low: String(99 + i),
+                    volume: '1.5',
+                    indicators: {
+                        rsi: { raw_value: 55 + i, state_label: 'NEUTRAL', values: null } as unknown as Record<string, unknown>,
+                        ema_stack: { raw_value: 100 + i, state_label: 'CONSOLIDATED', values: { fast: 100 + i } } as unknown as Record<string, unknown>,
+                    },
+                    quality_envelope: { is_gap_filled: false },
+                } as unknown as Record<string, unknown>);
+            }
+            // Both caches now have 5 live entries, surviving a tab switch.
+            const cached = getCachedCandles(pairKey, tf, slot);
+            expect(cached).not.toBeNull();
+            expect(cached!.length).toBe(5);
+            expect(cached!.map((c) => c.time)).toEqual([1_718_000_000, 1_718_000_001, 1_718_000_002, 1_718_000_003, 1_718_000_004].map((t) => t as unknown as Time));
+            const hist = getResolvedHistory(pairKey, tf, slot);
+            expect(hist).not.toBeNull();
+            expect(hist!.times).toHaveLength(5);
+            expect(hist!.candleTimes).toHaveLength(5);
+            expect(historyValue(hist, 'rsi')).toHaveLength(5);
+            expect(pairsFromHistory(hist, 'rsi')).toHaveLength(5);
+            // fetchIndicatorHistoryOnce should now return the live-mutated history, not empty.
+            const fetched = await fetchIndicatorHistoryOnce(pairKey, tf, slot);
+            expect(fetched).not.toBeNull();
+            expect(fetched!.times).toHaveLength(5);
+            expect(fetched).toBe(hist); // same mutated reference
+        } finally {
+            clearHistoryCache();
+            clearCandleCache();
+        }
+    });
+
+    it('P0_keepalive_synthetic_candles_never_enter_candle_cache', async () => {
+        const { appendLiveCandle, ingestLiveSnapshot, getResolvedHistory } = await import('../lib/indicatorHistory');
+        const pairKey = 'TEST-KEEPALIVE-SYN';
+        const slot = 'micro';
+        const tf = 1;
+        try {
+            clearHistoryCache();
+            clearCandleCache();
+            // Synthetic doji (gap-fill heartbeat) must not pollute candleCache
+            // but is kept in the paint path via indicatorHistory's reconstructed flag.
+            appendLiveCandle(pairKey, tf, slot, { time: 1_718_000_010 as Time, open: 100, high: 100, low: 100, close: 100, reconstructed: 'SYNTHETIC' });
+            expect(getCachedCandles(pairKey, tf, slot)).toBeNull();
+            // But ingestLiveSnapshot with is_gap_filled=true goes to history's
+            // candleReconstructed array, not to candleCache.
+            ingestLiveSnapshot(pairKey, tf, slot, {
+                timestamp: 1_718_000_011,
+                is_completed: true,
+                close: '100',
+                open: '100',
+                high: '100',
+                low: '100',
+                volume: '0',
+                indicators: {},
+                quality_envelope: { is_gap_filled: true },
+            } as unknown as Record<string, unknown>);
+            const hist = getResolvedHistory(pairKey, tf, slot);
+            expect(hist).not.toBeNull();
+            expect(hist!.candleReconstructed?.[hist!.candleReconstructed.length - 1]).toBe('SYNTHETIC');
+            // A real candle after synthetic should be cached.
+            appendLiveCandle(pairKey, tf, slot, { time: 1_718_000_012 as Time, open: 101, high: 102, low: 100, close: 101.5 });
+            expect(getCachedCandles(pairKey, tf, slot)!.length).toBe(1);
+        } finally {
+            clearHistoryCache();
+            clearCandleCache();
+        }
+    });
+
+    it('P0_keepalive_dedup_and_cap', async () => {
+        const { appendLiveCandle, getResolvedHistory, ingestLiveSnapshot } = await import('../lib/indicatorHistory');
+        const pairKey = 'TEST-KEEPALIVE-CAP';
+        const slot = 'micro';
+        const tf = 1;
+        try {
+            clearHistoryCache();
+            clearCandleCache();
+            // Dedup: same timestamp twice = one entry (replace).
+            appendLiveCandle(pairKey, tf, slot, { time: 1_718_000_100 as Time, open: 100, high: 101, low: 99, close: 100 });
+            appendLiveCandle(pairKey, tf, slot, { time: 1_718_000_100 as Time, open: 101, high: 102, low: 100, close: 101 });
+            expect(getCachedCandles(pairKey, tf, slot)!.length).toBe(1);
+            expect(getCachedCandles(pairKey, tf, slot)![0].close).toBe(101);
+            // Cap: 1001 live appends → 1000 retained (HIST_BUFFER_MAX).
+            for (let i = 1; i <= 1001; i++) {
+                ingestLiveSnapshot(pairKey, tf, slot, {
+                    timestamp: 1_718_000_200 + i,
+                    is_completed: true,
+                    close: String(i),
+                    open: String(i),
+                    high: String(i),
+                    low: String(i),
+                    volume: '1',
+                    indicators: { rsi: { raw_value: i, state_label: 'NEUTRAL' } } as unknown as Record<string, unknown>,
+                    quality_envelope: { is_gap_filled: false },
+                } as unknown as Record<string, unknown>);
+            }
+            const hist = getResolvedHistory(pairKey, tf, slot);
+            expect(hist!.times.length).toBe(1000);
+            expect(hist!.times[0]).toBe(1_718_000_202); // oldest trimmed
+        } finally {
+            clearHistoryCache();
+            clearCandleCache();
+        }
+    });
 });

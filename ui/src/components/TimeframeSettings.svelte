@@ -84,14 +84,26 @@
         slow: defaultTermDraft(),
         macro: defaultTermDraft(),
     });
+    let enabled = $state({ slow: true, macro: true });
 
     let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+    let validationError = $state<string | null>(null);
 
     $effect(() => {
         draft.micro = readTermFromTelemetry(pair.microTerm);
         draft.fast = readTermFromTelemetry(pair.fastTerm);
-        draft.slow = readTermFromTelemetry(pair.slowTerm);
-        draft.macro = readTermFromTelemetry(pair.macroTerm);
+        if (pair.slowTerm) {
+            draft.slow = readTermFromTelemetry(pair.slowTerm);
+            enabled.slow = true;
+        } else {
+            enabled.slow = false;
+        }
+        if (pair.macroTerm) {
+            draft.macro = readTermFromTelemetry(pair.macroTerm);
+            enabled.macro = true;
+        } else {
+            enabled.macro = false;
+        }
     });
 
     function selectedOption(seconds: number): number {
@@ -149,8 +161,23 @@
         return `tf-${term}-${slug}`;
     }
 
+    function validateDraft(): string | null {
+        const activeSecs: number[] = [draft.micro.durationSeconds, draft.fast.durationSeconds];
+        if (enabled.slow) activeSecs.push(draft.slow.durationSeconds);
+        if (enabled.macro) activeSecs.push(draft.macro.durationSeconds);
+        if (activeSecs.length < 2 || activeSecs.length > 4) return `Active timeframes must be 2–4 (got ${activeSecs.length})`;
+        const uniq = new Set(activeSecs);
+        if (uniq.size !== activeSecs.length) {
+            const dup = activeSecs.find((v, i) => activeSecs.indexOf(v) !== i);
+            return `Duplicate duration ${dup}s — each active timeframe must be distinct`;
+        }
+        return null;
+    }
+
     async function applySettings() {
-        const body = {
+        validationError = validateDraft();
+        if (validationError) { saveStatus = 'error'; return; }
+        const body: Record<string, unknown> = {
             micro_term: {
                 candles: { duration_seconds: draft.micro.durationSeconds },
                 indicators: buildIndicators(draft.micro),
@@ -158,14 +185,6 @@
             fast_term: {
                 candles: { duration_seconds: draft.fast.durationSeconds },
                 indicators: buildIndicators(draft.fast),
-            },
-            slow_term: {
-                candles: { duration_seconds: draft.slow.durationSeconds },
-                indicators: buildIndicators(draft.slow),
-            },
-            macro_term: {
-                candles: { duration_seconds: draft.macro.durationSeconds },
-                indicators: buildIndicators(draft.macro),
             },
             automation: {
                 enabled: pair.automationEnabled,
@@ -176,6 +195,25 @@
                         : pair.automationIntervalValue,
             },
         };
+        // Optional slots: omit when disabled so the backend stores `None`
+        // and the dashboard hides the column (2–3 TF mode). `null` is also
+        // accepted by the API (serde `Option<TimeframeConfig>`).
+        if (enabled.slow) {
+            (body as any).slow_term = {
+                candles: { duration_seconds: draft.slow.durationSeconds },
+                indicators: buildIndicators(draft.slow),
+            };
+        } else {
+            (body as any).slow_term = null;
+        }
+        if (enabled.macro) {
+            (body as any).macro_term = {
+                candles: { duration_seconds: draft.macro.durationSeconds },
+                indicators: buildIndicators(draft.macro),
+            };
+        } else {
+            (body as any).macro_term = null;
+        }
 
         saveStatus = 'saving';
         try {
@@ -192,8 +230,8 @@
                 }
                 applyTermToTelemetry(draft.micro, pair.microTerm);
                 applyTermToTelemetry(draft.fast, pair.fastTerm);
-                applyTermToTelemetry(draft.slow, pair.slowTerm);
-                applyTermToTelemetry(draft.macro, pair.macroTerm);
+                if (enabled.slow && pair.slowTerm) applyTermToTelemetry(draft.slow, pair.slowTerm);
+                if (enabled.macro && pair.macroTerm) applyTermToTelemetry(draft.macro, pair.macroTerm);
                 // Force WS reconnect so each connection's URL carries the
                 // new `timeframe_secs` value matching the recharged pipeline.
                 app.bumpWsVersion();
@@ -205,6 +243,8 @@
                 saveStatus = 'success';
                 setTimeout(() => { saveStatus = 'idle'; pair.currentView = 'terminal'; }, 800);
             } else {
+                const txt = await res.text().catch(() => '');
+                validationError = txt || `Save failed (${res.status})`;
                 saveStatus = 'error';
             }
         } catch (e) {
@@ -304,10 +344,10 @@
             </div>
         </div>
 
-        <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Slow Term</h3>
+        <div class="{styles.termCard} {enabled.slow ? '' : styles.disabledCard}">
+            <h3 class={styles.cardTitle}>Slow Term <label class={styles.enableToggle}><input type="checkbox" bind:checked={enabled.slow} /> {enabled.slow ? 'enabled' : 'disabled'}</label></h3>
             <div class={styles.timeframeRow}>
-                <select class={styles.tfSelect}
+                <select class={styles.tfSelect} disabled={!enabled.slow}
                     value={selectedOption(draft.slow.durationSeconds)}
                     onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.slow.durationSeconds = v; }}>
                     <option value={-1} disabled>Custom: {durationLabel(draft.slow.durationSeconds)}</option>
@@ -316,15 +356,15 @@
                     {/each}
                 </select>
             </div>
-            <div class="{styles.indicatorInputsScroll} font-mono">
+            <div class="{styles.indicatorInputsScroll} font-mono" class:styles.disabledInputs={!enabled.slow}>
                 {@render indicatorInputs('medium', draft.slow)}
             </div>
         </div>
 
-        <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Macro Term</h3>
+        <div class="{styles.termCard} {enabled.macro ? '' : styles.disabledCard}">
+            <h3 class={styles.cardTitle}>Macro Term <label class={styles.enableToggle}><input type="checkbox" bind:checked={enabled.macro} /> {enabled.macro ? 'enabled' : 'disabled'}</label></h3>
             <div class={styles.timeframeRow}>
-                <select class={styles.tfSelect}
+                <select class={styles.tfSelect} disabled={!enabled.macro}
                     value={selectedOption(draft.macro.durationSeconds)}
                     onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.macro.durationSeconds = v; }}>
                     <option value={-1} disabled>Custom: {durationLabel(draft.macro.durationSeconds)}</option>
@@ -333,14 +373,17 @@
                     {/each}
                 </select>
             </div>
-            <div class="{styles.indicatorInputsScroll} font-mono">
+            <div class="{styles.indicatorInputsScroll} font-mono" class:styles.disabledInputs={!enabled.macro}>
                 {@render indicatorInputs('large', draft.macro)}
             </div>
         </div>
     </div>
 
+    {#if validationError}
+        <div class={styles.validationError}>{validationError}</div>
+    {/if}
     <div class={styles.applyRow}>
-        {#if saveStatus === 'error'}
+        {#if saveStatus === 'error' && !validationError}
             <span class={styles.errorMsg}>Save failed. Check console for details.</span>
         {/if}
         <button class={styles.applyWorkspaceBtn} disabled={saveStatus === 'saving'} onclick={applySettings}>

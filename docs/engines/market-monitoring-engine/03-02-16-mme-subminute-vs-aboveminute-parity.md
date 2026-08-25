@@ -137,6 +137,8 @@ Liquidity signal kinds: CascadeDetected, CascadeSustained, CascadeExhausted, Liq
 
 ## §4 Warmup convergence semantics
 
+Frontend keep-alive (v10.2): `WARMING` is visible — `LiveTerminal` header shows `WARMING · seen/req bars · live/total` from `indicatorLifecycle` / `pipelineState`; `PriceChart` repaints from the live-mutated `candleCache` / `historyData` on remount, so sub-minute charts do not lose history when switching `MICRO/FAST/SLOW/MACRO` or `Charts↔Metrics` tabs.
+
 Replayed warm data is real price history at a coarser scale. Consequences, valid on **both** regimes:
 
 1. **Presence parity**: every G1 indicator and the lifecycle badges are present and `Live` from the first live close — matching the ≥ 1 m warm handover.
@@ -156,6 +158,7 @@ Replayed warm data is real price history at a coarser scale. Consequences, valid
 | PRI-10 | ema_stack raw/value contract + no raw fallback in history layer | Implemented |
 | PRI-11 | Per-TF shadow throttle + frontend `values` deep-merge | Implemented |
 | PRI-12 | `bars_seen_real` in lifecycle | Implemented (`bars_seen_real` on the wire) |
+| **P0-keepalive** | **Frontend keep-alive for sub-minute chart history.** The UI module caches (`indicatorHistory.ts` `cache` + `candleCache`) are live-appended from the WebSocket `applySnapshotToTimeframe` path (`websocket.svelte.ts` `ingestLiveSnapshot` / `appendLiveCandle` + AppStore `liveCandleCache` mirror `state.svelte.ts`). Tab-switch / `LiveTerminal` `{#key}` remounts repaint from the live-mutated cache (no refetch), so a cold `1s` start whose `/api/history` was empty retains live-accumulated candles/indicators across navigation. Purge on WS reconnect and on TF config save. Also surfaced as `WARMING · n/m bars` badge in `LiveTerminal.svelte` `warmupSummary` (P1). | Implemented v10.2 (`ui/src/lib/indicatorHistory.ts:92`, `websocket.svelte.ts:395`, `LiveTerminal.svelte:245`) |
 
 ## §6 References
 
