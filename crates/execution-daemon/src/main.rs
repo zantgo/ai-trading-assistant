@@ -12,9 +12,10 @@
 //!   before entering the workspace.
 //! - `--mode cli`: interactive terminal launch (exchange, currency,
 //!   instances with per-TF durations), then a live terminal monitor that
-//!   redraws the L7 overview + per-instance rows. Observe-only for now —
-//!   paper/live parity is planned. No HTTP server is bound; the SQLite
-//!   telemetry DB is still used for analytics.
+//!   redraws the L7 overview + per-instance rows. Supports
+//!   `--trading observe|paper|live` (default observe); paper reuses the
+//!   same `PaperSimulation` engine as `--mode web`. No HTTP server is bound;
+//!   the SQLite telemetry DB is still used for analytics.
 //!
 //! ## CLI flags
 //!
@@ -107,6 +108,9 @@ struct CliArgs {
     /// Default OFF — the instance runs but the TAE does not activate
     /// unless explicitly specified.
     tae_on: bool,
+    /// v10.2: CLI trading mode — `observe` (default), `paper`, or `live`.
+    /// Controls `ExecutionMode` and `dispatch` for `--mode cli`.
+    trading: Option<String>,
 }
 
 enum LaunchMode {
@@ -140,6 +144,7 @@ fn parse_args() -> CliArgs {
     let mut bind: Option<String> = None;
     let mut compare_folders: Vec<String> = Vec::new();
     let mut tae_on = false;
+    let mut trading: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -331,6 +336,16 @@ fn parse_args() -> CliArgs {
             "--tae-on" => {
                 tae_on = true;
             }
+            "--trading" => {
+                i += 1;
+                if i < args.len() {
+                    let v = args[i].to_lowercase();
+                    match v.as_str() {
+                        "observe" | "paper" | "live" => trading = Some(v),
+                        _ => eprintln!("⚠️  Invalid --trading value '{}' — expected observe|paper|live, ignoring.", args[i]),
+                    }
+                }
+            }
             "--compare-folders" => {
                 // Consume every following non-flag arg (shell glob expands
                 // `experiments/*` into one arg per folder).
@@ -371,6 +386,7 @@ fn parse_args() -> CliArgs {
         session_report,
         backtest_show,
         tae_on,
+        trading,
     }
 }
 
@@ -455,7 +471,7 @@ fn confirm(label: &str, default_yes: bool) -> bool {
     }
 }
 
-const TIMEFRAME_FLOOR_SECS: u64 = 10;
+const TIMEFRAME_FLOOR_SECS: u64 = 1;
 const TIMEFRAME_CEIL_SECS: u64 = 86_400;
 
 fn prompt_timeframe_secs(label: &str, default_secs: u64) -> u64 {
@@ -493,6 +509,9 @@ struct CliLaunchPlan {
     /// v10.1: TAE activation requested at launch (default OFF — the
     /// instance runs but the TAE is not activated unless specified).
     tae_on: bool,
+    /// v10.2: trading mode for CLI (observe|paper|live). Controls
+    /// ExecutionMode and session.
+    trading: String,
 }
 
 /// v7.2 parity: the default timeframe ladder is the registry's ladder
@@ -534,8 +553,18 @@ fn cli_launch_plan(
     println!("║  Trading Platform — CLI Launch Setup       ║");
     println!("╚════════════════════════════════════════════╝");
     println!();
-    println!("Observe mode: markets + signals are monitored in the terminal —");
-    println!("no orders are ever dispatched. Press <Enter> to accept each default.");
+    // Resolve trading mode: CLI flag beats config default, then observe.
+    let cli_trading = cli
+        .trading
+        .clone()
+        .unwrap_or_else(|| "observe".to_string())
+        .to_lowercase();
+    let trading_label = match cli_trading.as_str() {
+        "paper" => "paper (simulated orders, same engine as live)",
+        "live" => "live (real orders — requires keys)",
+        _ => "observe (monitoring only — no orders dispatched)",
+    };
+    println!("Mode: {} — Press <Enter> to accept each default.", trading_label);
     println!();
 
     // 1. Exchange
@@ -701,7 +730,7 @@ fn cli_launch_plan(
     println!("\n──────────────────────────────────────────────");
     println!("Trading Platform — CLI Launch Summary");
     println!("──────────────────────────────────────────────");
-    println!("  Mode                 : observe (monitoring only)");
+    println!("  Mode                 : {} ({})", cli_trading, trading_label);
     println!(
         "  TAE                  : {}",
         if tae_on { "ON" } else { "OFF" }
@@ -712,13 +741,14 @@ fn cli_launch_plan(
         let slow_s = inst.slow.map(tf_label).unwrap_or_else(|| "—".to_string());
         let macro_s = inst.r#macro.map(tf_label).unwrap_or_else(|| "—".to_string());
         println!(
-            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} (observe, {} TFs)",
+            "  Instance             : {}-{} — micro {} · fast {} · slow {} · macro {} ({}, {} TFs)",
             inst.base,
             currency,
             tf_label(inst.micro),
             tf_label(inst.fast),
             slow_s,
             macro_s,
+            cli_trading,
             2 + inst.slow.is_some() as usize + inst.r#macro.is_some() as usize,
         );
     }
@@ -734,6 +764,7 @@ fn cli_launch_plan(
         currency,
         instances,
         tae_on,
+        trading: cli_trading,
     })
 }
 
@@ -921,10 +952,12 @@ async fn main() {
 
     // ── v10 session identity: one monotonic session number per boot ──
     // Mode resolution: web sessions carry their default from
-    // `[workspace.session]`; CLI launches pin `observe` below. We read the
-    // persisted default here so the row is created before any telemetry.
+    // `[workspace.session]`; CLI launches use --trading flag (default observe).
     let session_mode = if matches!(cli.mode, LaunchMode::Cli) {
-        "observe".to_string()
+        cli.trading
+            .clone()
+            .unwrap_or_else(|| "observe".to_string())
+            .to_lowercase()
     } else {
         // Web boot: the first instance's persisted mode (Observe/Paper/
         // Live) describes the session; the Launch Setup wizard persists it
@@ -1226,13 +1259,11 @@ async fn main() {
 
     // ── Session auto-init (web and cli mode) ──────────────────────
     //
-    // In both modes we initialise the session so that instances can be
-    // spawned. In web mode the user may re-select the exchange via the
-    // Launch Setup wizard; the gate handler will overwrite the session
-    // fields. CLI mode uses the interactive plan and pins the session to
-    // observe (no orders ever dispatched).
+    // CLI mode uses the plan's trading mode (observe|paper|live); web mode
+    // re-selects via Launch Setup wizard. The session default drives every
+    // instance's ExecutionMode via registry::add_instance.
     {
-        let (exchange, currency) = match &cli_plan {
+        let (exchange, currency, trading) = match &cli_plan {
             Some(plan) => {
                 let ex = if plan.exchange.eq_ignore_ascii_case("bitget") {
                     ExchangeChoice::Bitget
@@ -1244,23 +1275,20 @@ async fn main() {
                 } else {
                     Currency::USDC
                 };
-                (ex, cur)
+                (ex, cur, plan.trading.clone())
             }
             None => (
                 cli.resolve_exchange(&workspace.default_exchange),
                 cli.resolve_currency(&workspace.default_currency),
+                cli.trading.clone().unwrap_or_else(|| "observe".to_string()),
             ),
         };
-        // v7.2 parity: CLI mode pins the session defaults FIRST (mode
-        // observe) and then initialises the session — the same ordering
-        // as the web handler `POST /api/session/init`
-        // (`set_session_defaults` then `init_session`). The session
-        // default drives every instance's `ExecutionMode` via
-        // `registry::add_instance`.
+        // v7.2 parity: CLI mode pins the session defaults FIRST then
+        // initialises — same ordering as POST /api/session/init.
         if cli_plan.is_some() {
             app_state
                 .session
-                .set_session_defaults(Some("observe".to_string()), None)
+                .set_session_defaults(Some(trading.clone()), None)
                 .await;
         }
         if let Err(e) = app_state.init_session(currency, exchange).await {
@@ -1273,13 +1301,23 @@ async fn main() {
             );
         }
         if cli_plan.is_some() {
-            println!("✅ Session mode: observe (monitoring only — no orders dispatched)");
+            let desc = match trading.as_str() {
+                "paper" => "paper (simulated orders)",
+                "live" => "live (real orders)",
+                _ => "observe (monitoring only — no orders dispatched)",
+            };
+            println!("✅ Session mode: {} — {}", trading, desc);
         }
     }
 
     // ── CLI plan → workspace config (per-instance TF durations) ────
     if let Some(plan) = &cli_plan {
         let mut cfg = workspace_state.config().await;
+        let exec_mode = match plan.trading.as_str() {
+            "paper" => config_models::ExecutionMode::Paper,
+            "live" => config_models::ExecutionMode::Live,
+            _ => config_models::ExecutionMode::Observe,
+        };
         for inst in &plan.instances {
             let symbol = format!("{}-{}", inst.base, plan.currency);
             if cfg.instances.iter().any(|e| e.symbol == symbol) {
@@ -1298,7 +1336,7 @@ async fn main() {
                 macro_term: inst.r#macro.map(|s| tf(s)),
                 automation: config_models::AutomationConfig::default(),
                 operational_mode: config_models::OperationalMode::Advisory,
-                mode: config_models::ExecutionMode::Observe,
+                mode: exec_mode.clone(),
                 strategy: None,
                 allocation_pct: None,
                 weight_overrides: None,
@@ -2097,14 +2135,18 @@ async fn main() {
         } else {
             "TAE: OFF"
         };
+        let cli_mode_label = cli_plan
+            .as_ref()
+            .map(|p| p.trading.as_str())
+            .unwrap_or(cli.trading.as_deref().unwrap_or("observe"));
         let session_line = match session_number {
             Some(n) => format!(
-                "SESSION #{:04} · observe · {tae_marker} · {} · {}",
-                n, ex_label, cur_label
+                "SESSION #{:04} · {} · {tae_marker} · {} · {}",
+                n, cli_mode_label, ex_label, cur_label
             ),
             None => format!(
-                "SESSION #---- · observe · {tae_marker} · {} · {}",
-                ex_label, cur_label
+                "SESSION #---- · {} · {tae_marker} · {} · {}",
+                cli_mode_label, ex_label, cur_label
             ),
         };
         handles.push(tokio::spawn(

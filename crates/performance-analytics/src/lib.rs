@@ -9,6 +9,7 @@
 pub mod performance_evaluator;
 pub mod performance_layer;
 pub mod risk_analytics;
+pub mod session_result;
 pub mod stats_compiler;
 pub mod strategy_analytics;
 pub mod strategy_optimizer;

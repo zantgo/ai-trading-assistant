@@ -58,15 +58,23 @@
     let newBase = $state('');
     let newTfs = $state({ micro: 60, fast: 180, slow: 300, macro: 900 });
     let newAllocation = $state(10);
-    // IIFE so the prop reference sits inside a closure (runes warning-free
-    // initial capture) while the state itself stays a plain number.
     let depthDays = $state((() => depthDefault)());
-    let depthInput = $state('');
+    let depthInput = $state((() => String(depthDefault))());
+    let prevDepthDefault = $state((() => depthDefault)());
     let error = $state('');
     let strategies = $state<{ name: string; description?: string }[]>([]);
     let strategyName = $state('default');
+    // Sync from parent only when the parent actually changes depthDefault
+    // (e.g. coverage fetched). Local edits to depthDays do NOT ping-pong.
     $effect(() => {
-        if (depthDays !== depthDefault) depthDays = depthDefault;
+        if (depthDefault !== prevDepthDefault) {
+            prevDepthDefault = depthDefault;
+            // Clamp incoming default to current ceiling so we never re-enter the
+            // 180>3 livelock (default 180 vs Hyperliquid 1m max 3d).
+            const clamped = Math.min(Math.max(depthDefault, MIN_DEPTH), sliderMax);
+            depthDays = clamped;
+            depthInput = String(clamped);
+        }
     });
 
     // Run state (step 4).
@@ -98,9 +106,14 @@
     });
 
     const supportedCurrencies = $derived(exchange === 'Hyperliquid' ? ['USDC'] : ['USDT']);
+    // Bitget = USDT only, Hyperliquid = USDC only. Auto-switch without creating a cycle.
     $effect(() => {
-        if (!supportedCurrencies.includes(currency)) {
-            currency = supportedCurrencies[0];
+        const allowed = supportedCurrencies;
+        if (!allowed.includes(currency)) {
+            // untrack the write so the effect doesn't re-subscribe to `currency`
+            const next = allowed[0];
+            // small guard to avoid noisy writes during init
+            if (currency !== next) currency = next;
         }
     });
 
@@ -130,13 +143,10 @@
         if (v < MIN_DEPTH || v > sliderMax) return true;
         return Math.floor(v) !== v;
     });
-    $effect(() => { depthInput = String(depthDays); });
-    // Hard clamp: if exchange or ladder changes and depth exceeds new ceiling, clamp down so operator never sees a post-Run error.
-    $effect(() => {
-        void adaptiveMax;
-        if (depthDays > sliderMax) depthDays = sliderMax;
-        if (depthDays < MIN_DEPTH) depthDays = MIN_DEPTH;
-    });
+    // Depth ceiling is validation-only (no auto-write-back that would fight the
+    // prop-sync effect). The UI shows an error chip + blocks Continue/Run.
+    // We keep depthInput and depthDays in sync only via explicit handlers
+    // (slider oninput, typed onchange) — no unconditional $effect mirror.
 
     // Burn-in for the chosen ladder (warmup_bars × macro TF) — the same
     // formula the server validates coverage with.
@@ -558,7 +568,7 @@
                     max={sliderMax}
                     step="1"
                     value={depthDays}
-                    oninput={(e) => { depthDays = Number((e.currentTarget as HTMLInputElement).value); }}
+                    oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); depthDays = v; depthInput = String(v); }}
                     aria-label="Archive depth days"
                 />
                 <input
@@ -567,7 +577,7 @@
                     min={MIN_DEPTH}
                     max={sliderMax}
                     bind:value={depthInput}
-                    onchange={() => { const v = Number(depthInput); if (Number.isFinite(v) && v >= MIN_DEPTH && v <= sliderMax) depthDays = Math.floor(v); else if (v > sliderMax) depthDays = sliderMax; }}
+                    onchange={() => { const v = Number(depthInput); if (Number.isFinite(v) && v >= MIN_DEPTH && v <= sliderMax) { const c = Math.floor(v); depthDays = c; depthInput = String(c); } else if (v > sliderMax) { depthDays = sliderMax; depthInput = String(sliderMax); } else { depthInput = String(depthDays); } }}
                     aria-label="Archive depth days (typed)"
                 />
                 <span class={styles.label}>days</span>

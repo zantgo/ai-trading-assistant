@@ -37,53 +37,50 @@ pub async fn print_sessions(pool: &SqlitePool) -> i32 {
     }
 }
 
-/// `--session-report <id>` — the PAE dashboard payloads, session-scoped.
+/// `--session-report <id>` — unified session result (parity with backtest).
+/// Produces the same fields as `GET /api/backtest/:id`: params, summary,
+/// NHST stats, risk, trades (enriched), equity curves, log returns, symmetry.
+/// Session-scoped by construction (WHERE session_id).
 pub async fn print_session_report(pool: &SqlitePool, session_id: i64) -> i32 {
-    // I-tier artifacts the PAE tabs render (same server-computed structs).
-    let stats = performance_analytics::stats_compiler::compile_dashboard_stats(pool, 1000.0).await;
-    let strategy = database_storage::query_strategy_analytics_history(pool, None, 1)
-        .await
-        .into_iter()
-        .last();
-    let risk = database_storage::query_risk_analytics_latest(pool).await;
-    let performance = database_storage::query_performance_matrix_latest(pool, None).await;
+    let workspace = config_models::load_workspace().unwrap_or_default();
+    if let Some(res) = performance_analytics::session_result::compile_session_result(pool, session_id, &workspace).await {
+        // Counts for quick sanity
+        let snapshots: i64 = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1")
+            .bind(session_id).fetch_optional(pool).await.ok().flatten().map(|r| r.0).unwrap_or(0);
+        let telemetry_trades: i64 = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM trade_telemetry_history WHERE session_id = ?1")
+            .bind(session_id).fetch_optional(pool).await.ok().flatten().map(|r| r.0).unwrap_or(0);
 
-    // Session-scoped D-tier counts.
-    let (snapshots, trades): (i64, i64) = {
-        let snap: Option<(i64,)> =
-            sqlx::query_as("SELECT COUNT(*) FROM market_snapshots WHERE session_id = ?1")
-                .bind(session_id)
-                .fetch_optional(pool)
-                .await
-                .unwrap_or(None);
-        let trades_count: Option<(i64,)> =
-            sqlx::query_as("SELECT COUNT(*) FROM paper_trades WHERE session_id = ?1")
-                .bind(session_id)
-                .fetch_optional(pool)
-                .await
-                .unwrap_or(None);
-        (
-            snap.map(|r| r.0).unwrap_or(0),
-            trades_count.map(|r| r.0).unwrap_or(0),
-        )
-    };
-
-    let report = serde_json::json!({
-        "session_id": session_id,
-        "counts": {
-            "market_snapshots": snapshots,
-            "trades": trades,
-        },
-        "stats": stats,
-        "strategy_analytics": strategy,
-        "risk_analytics": risk,
-        "performance": performance,
-    });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string())
-    );
-    0
+        let out = serde_json::json!({
+            "session_id": res.session_id,
+            "mode": res.mode,
+            "params": res.params,
+            "summary": res.summary,
+            "stats": res.stats,
+            "risk": res.risk,
+            "trades": res.trades,
+            "equity_curve": res.equity_curve,
+            "equity_curve_secs": res.equity_curve_secs,
+            "log_returns": res.log_returns,
+            "counts": {
+                "market_snapshots": snapshots,
+                "telemetry_trades": telemetry_trades,
+            },
+            // Convenience headline — mirrors backtest_show top-level keys
+            "roi_pct_avg": res.summary.avg_roi_pct,
+            "profit_factor": res.summary.profit_factor,
+            "win_rate": res.summary.win_rate,
+            "edge": format!("{:?}", res.stats.classification),
+            "expectancy": res.summary.expectancy,
+            "avg_profit": res.summary.avg_profit,
+            "avg_loss": res.summary.avg_loss,
+            "avg_hold_secs": res.summary.avg_hold_secs,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_else(|_| "{}".to_string()));
+        0
+    } else {
+        eprintln!("session {session_id} not found");
+        1
+    }
 }
 
 /// `--backtest-show <id>` — the full run: params, summary, NHST stats,

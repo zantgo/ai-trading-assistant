@@ -11,14 +11,24 @@ pub async fn insert_equity_snapshot(
     cash_balance: f64,
     unrealized_pnl: f64,
 ) {
+    // v10.2: stamp active session id when available (NULL for legacy paths).
+    let session_id: Option<i64> = sqlx::query_as::<_, (i64,)>(
+        "SELECT id FROM sessions WHERE status = 'active' ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| r.0);
     if let Err(e) = sqlx::query(
-        "INSERT INTO portfolio_equity_history (timestamp, total_value, cash_balance, unrealized_pnl)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO portfolio_equity_history (timestamp, total_value, cash_balance, unrealized_pnl, session_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
     )
     .bind(timestamp_ms)
     .bind(total_value)
     .bind(cash_balance)
     .bind(unrealized_pnl)
+    .bind(session_id)
     .execute(pool)
     .await
     {

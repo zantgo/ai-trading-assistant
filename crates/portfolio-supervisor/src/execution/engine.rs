@@ -816,7 +816,7 @@ impl ExecutionEngine {
                 "INSERT INTO trade_telemetry_history \
                  (exchange, symbol, direction, entry_timestamp, exit_timestamp, \
                   entry_price, exit_price, size, commission_fees, funding_fees, \
-                  realized_pnl, roi_percentage, trigger_source, session_id) \
+                  realized_pnl, roi_pct, trigger_source, session_id) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             )
             .bind("paper")
