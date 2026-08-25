@@ -32,6 +32,13 @@ pub fn compute_risk_metrics_from_curve_with_rf(
             value_at_risk_95: 0.0,
             expected_shortfall_95: 0.0,
             sharpe_ratio_log: None,
+            cagr_pct: None,
+            annualized_volatility_pct: None,
+            sterling_ratio: None,
+            burke_ratio: None,
+            omega_ratio: None,
+            gain_to_pain_ratio: None,
+            tail_ratio: None,
         };
     }
 
@@ -95,6 +102,14 @@ pub fn compute_risk_metrics_from_curve_with_rf(
 
     let ulcer = compute_ulcer_index(&values);
     let (var_95, es_95) = compute_var_es(&daily_returns);
+    // v10.2 institutional extensions
+    let cagr_pct = compute_cagr(&values, equity);
+    let ann_vol_pct = if daily_vol > 0.0 { Some(daily_vol * TRADING_DAYS_PER_YEAR.sqrt() * 100.0) } else { None };
+    let sterling = if avg_dd_pct > 0.0 { Some(annualized_return * 100.0 / avg_dd_pct) } else { None };
+    let burke = if ulcer > 0.0 { Some(annualized_return * 100.0 / ulcer) } else { None };
+    let omega = compute_omega_ratio(&daily_returns);
+    let gain_pain = compute_gain_to_pain_ratio(&daily_returns);
+    let tail = compute_tail_ratio(&daily_returns);
 
     RiskAnalyticsRow {
         maximum_drawdown_pct: max_dd_pct,
@@ -110,6 +125,13 @@ pub fn compute_risk_metrics_from_curve_with_rf(
         value_at_risk_95: var_95,
         expected_shortfall_95: es_95,
         sharpe_ratio_log: sharpe_log,
+        cagr_pct,
+        annualized_volatility_pct: ann_vol_pct,
+        sterling_ratio: sterling,
+        burke_ratio: burke,
+        omega_ratio: omega,
+        gain_to_pain_ratio: gain_pain,
+        tail_ratio: tail,
     }
 }
 
@@ -291,6 +313,63 @@ fn compute_var_es(returns: &[f64]) -> (f64, f64) {
     };
 
     (var_95, es_95)
+}
+
+fn compute_cagr(values: &[f64], equity: &[(i64, f64)]) -> Option<f64> {
+    if values.len() < 2 || equity.len() < 2 {
+        return None;
+    }
+    let first = values[0];
+    let last = values[values.len() - 1];
+    if first <= 0.0 || last <= 0.0 {
+        return None;
+    }
+    let days = (equity[equity.len() - 1].0 - equity[0].0) as f64 / (1000.0 * 60.0 * 60.0 * 24.0);
+    if days < 1.0 {
+        return None;
+    }
+    let years = days / 365.0;
+    Some(((last / first).powf(1.0 / years) - 1.0) * 100.0)
+}
+
+fn compute_omega_ratio(returns: &[f64]) -> Option<f64> {
+    if returns.len() < 2 {
+        return None;
+    }
+    let gains: f64 = returns.iter().filter(|&&r| r > 0.0).sum();
+    let losses: f64 = returns.iter().filter(|&&r| r < 0.0).map(|r| r.abs()).sum();
+    if losses == 0.0 {
+        return if gains > 0.0 { Some(f64::INFINITY) } else { None };
+    }
+    Some(gains / losses)
+}
+
+fn compute_gain_to_pain_ratio(returns: &[f64]) -> Option<f64> {
+    if returns.len() < 2 {
+        return None;
+    }
+    let gains: f64 = returns.iter().filter(|&&r| r > 0.0).sum();
+    let losses: f64 = returns.iter().filter(|&&r| r < 0.0).map(|r| r.abs()).sum();
+    if losses == 0.0 {
+        return if gains > 0.0 { Some(f64::INFINITY) } else { None };
+    }
+    Some(gains / losses)
+}
+
+fn compute_tail_ratio(returns: &[f64]) -> Option<f64> {
+    if returns.len() < 10 {
+        return None;
+    }
+    let mut sorted = returns.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p95_idx = ((0.95 * sorted.len() as f64).ceil() as usize).min(sorted.len() - 1);
+    let p5_idx = ((0.05 * sorted.len() as f64).ceil() as usize).min(sorted.len() - 1);
+    let p95 = sorted[p95_idx];
+    let p5 = sorted[p5_idx].abs();
+    if p5 == 0.0 {
+        return None;
+    }
+    Some(p95 / p5)
 }
 
 #[cfg(test)]

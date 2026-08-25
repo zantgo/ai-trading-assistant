@@ -76,6 +76,11 @@ pub struct BacktestTrade {
     pub commission_fees: f64,
     #[serde(default)]
     pub funding_fees: f64,
+    /// v10.2 institutional: R-multiple (roi/1%) and symbol attribution
+    #[serde(default)]
+    pub r_multiple: f64,
+    #[serde(default)]
+    pub symbol: String,
 }
 
 /// The full backtest result: classic metrics + the NHST block + trades +
@@ -300,6 +305,8 @@ pub async fn run_backtest(
                 slippage_bps: close.slippage_bps,
                 commission_fees: close.commission_fees.to_f64().unwrap_or(0.0),
                 funding_fees: close.funding_fees.to_f64().unwrap_or(0.0),
+                r_multiple: roi_pct / 1.0,
+                symbol: params.symbol.clone(),
             });
         }
 

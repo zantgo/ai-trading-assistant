@@ -972,22 +972,35 @@ pub async fn persist_backtest_run(
     let ds_trades: Vec<database_storage::queries::backtest_ds::DsTrade> = result
         .trades
         .iter()
-        .map(|t| database_storage::queries::backtest_ds::DsTrade {
-            ts_close_secs: t.timestamp,
-            direction: t.direction.clone(),
-            entry_price: t.entry_price,
-            exit_price: t.exit_price,
-            size: t.size,
-            pnl: t.pnl,
-            exit_reason: t.exit_reason.clone(),
-            ts_entry_secs: t.ts_entry_secs,
-            hold_secs: t.hold_secs,
-            mfe_pct: t.mfe_pct,
-            mae_pct: t.mae_pct,
-            roi_pct: t.roi_pct,
-            slippage_bps: t.slippage_bps,
-            commission_fees: t.commission_fees,
-            funding_fees: t.funding_fees,
+        .map(|t| {
+            // R-multiple as roi% / 1% (1R = 1% risk) — institutional convention
+            let r_multiple = if t.roi_pct.is_finite() { t.roi_pct / 1.0 } else { 0.0 };
+            let sym = result
+                .params
+                .symbol
+                .split(',')
+                .next()
+                .unwrap_or("BTC-USDT")
+                .to_string();
+            database_storage::queries::backtest_ds::DsTrade {
+                ts_close_secs: t.timestamp,
+                direction: t.direction.clone(),
+                entry_price: t.entry_price,
+                exit_price: t.exit_price,
+                size: t.size,
+                pnl: t.pnl,
+                exit_reason: t.exit_reason.clone(),
+                ts_entry_secs: t.ts_entry_secs,
+                hold_secs: t.hold_secs,
+                mfe_pct: t.mfe_pct,
+                mae_pct: t.mae_pct,
+                roi_pct: t.roi_pct,
+                slippage_bps: t.slippage_bps,
+                commission_fees: t.commission_fees,
+                funding_fees: t.funding_fees,
+                r_multiple,
+                symbol: sym,
+            }
         })
         .collect();
     // v10: per-run risk metrics (Sharpe/Sortino/Calmar/Ulcer/VaR/ES/dd
@@ -1083,7 +1096,56 @@ pub async fn persist_backtest_run(
                 .map(|v| format!("{v:.4}"))
                 .unwrap_or_default(),
         ),
-    ]
+            (
+                "cagr_pct".to_string(),
+                risk_row
+                    .cagr_pct
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+            (
+                "ann_vol_pct".to_string(),
+                risk_row
+                    .annualized_volatility_pct
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+            (
+                "sterling".to_string(),
+                risk_row
+                    .sterling_ratio
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+            (
+                "burke".to_string(),
+                risk_row
+                    .burke_ratio
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+            (
+                "omega".to_string(),
+                risk_row
+                    .omega_ratio
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+            (
+                "gain_pain".to_string(),
+                risk_row
+                    .gain_to_pain_ratio
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+            (
+                "tail_ratio".to_string(),
+                risk_row
+                    .tail_ratio
+                    .map(|v| format!("{v:.4}"))
+                    .unwrap_or_default(),
+            ),
+        ]
     .into_iter()
     .chain({
         // v10.1: long/short symmetry verdict as flat metric keys.
@@ -1436,20 +1498,29 @@ pub async fn serve_backtest_trades(
     Json(serde_json::json!({
         "run_id": id,
         "count": rows.len(),
-        "trades": rows.into_iter().map(|t| serde_json::json!({
-            "ts_close_secs": t.ts_close_secs,
-            "direction": t.direction,
-            "entry_price": t.entry_price,
-            "exit_price": t.exit_price,
-            "size": t.size,
-            "pnl": t.pnl,
-            "exit_reason": t.exit_reason,
-            "ts_entry_secs": t.ts_entry_secs,
-            "hold_secs": t.hold_secs,
-            "mfe_pct": t.mfe_pct,
-            "mae_pct": t.mae_pct,
-            "roi_pct": t.roi_pct,
-        })).collect::<Vec<_>>(),
+        "trades": rows.into_iter().map(|t| {
+            let r_multiple = if t.roi_pct.is_finite() { t.roi_pct / 1.0 } else { t.r_multiple };
+            serde_json::json!({
+                "ts_close_secs": t.ts_close_secs,
+                "timestamp": t.ts_close_secs,
+                "direction": t.direction,
+                "symbol": t.symbol,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "size": t.size,
+                "pnl": t.pnl,
+                "exit_reason": t.exit_reason,
+                "ts_entry_secs": t.ts_entry_secs,
+                "hold_secs": t.hold_secs,
+                "mfe_pct": t.mfe_pct,
+                "mae_pct": t.mae_pct,
+                "roi_pct": t.roi_pct,
+                "r_multiple": r_multiple,
+                "slippage_bps": t.slippage_bps,
+                "commission_fees": t.commission_fees,
+                "funding_fees": t.funding_fees,
+            })
+        }).collect::<Vec<_>>(),
     }))
 }
 

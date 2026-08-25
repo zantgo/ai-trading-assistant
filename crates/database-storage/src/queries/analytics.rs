@@ -287,6 +287,13 @@ pub async fn query_risk_analytics_latest(pool: &SqlitePool) -> Option<RiskAnalyt
             value_at_risk_95: r.value_at_risk_95,
             expected_shortfall_95: r.expected_shortfall_95,
             sharpe_ratio_log: r.sharpe_ratio_log,
+            cagr_pct: None,
+            annualized_volatility_pct: None,
+            sterling_ratio: None,
+            burke_ratio: None,
+            omega_ratio: None,
+            gain_to_pain_ratio: None,
+            tail_ratio: None,
         }),
         _ => None,
     }

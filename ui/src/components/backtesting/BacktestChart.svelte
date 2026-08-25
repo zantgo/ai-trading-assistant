@@ -111,6 +111,8 @@
         }
     }
 
+    // Single marker API handle — lightweight-charts overwrites on second createSeriesMarkers, so keep one.
+    let markersApi: any = null;
     $effect(() => {
         const c = candleSeries;
         if (!c || visibleBars.length === 0) return;
@@ -121,24 +123,57 @@
                 time: b.ts_secs as UTCTimestamp,
                 open: b.open, high: b.high, low: b.low, close: b.close,
             })));
-        const entryMarkers = trades
-            .filter((t) => t.ts_entry_secs > 0)
-            .map((t) => ({
-                time: t.ts_entry_secs as UTCTimestamp,
-                position: t.direction === 'LONG' ? 'belowBar' as const : 'aboveBar' as const,
-                color: '#fdd835',
-                shape: t.direction === 'LONG' ? 'arrowUp' as const : 'arrowDown' as const,
-                text: `${t.direction} @ ${t.entry_price.toFixed(2)}`,
-            }));
-        const exitMarkers: SeriesMarker<Time>[] = trades.map((t) => ({
-            time: t.ts_close_secs as UTCTimestamp,
-            position: 'aboveBar' as const,
-            color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
-            shape: 'circle' as const,
-            text: `${t.exit_reason} · ${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}`,
-        }));
-        createSeriesMarkers(c, [...entryMarkers, ...exitMarkers]);
+        const tf = slotSeconds[slot] ?? 60;
+        // Direction-aware 4-way markers via helper semantics: LONG green arrowUp below / SHORT red arrowDown above for open,
+        // LONG close red arrowDown above / SHORT close green arrowUp below. Align to candle open and filter by symbol.
+        function alignToCandleSec(ms: number, barSec: number): number {
+            const sec = Math.floor(ms / 1000);
+            return Math.floor(sec / barSec) * barSec;
+        }
+        const filteredTrades = trades.filter((t) => {
+            const sym = (t as any).symbol ?? selectedSymbol ?? '';
+            const tBase = String(sym).split('-')[0];
+            const curBase = String(selectedSymbol ?? '').split('-')[0];
+            if (!sym) return true;
+            return sym === selectedSymbol || tBase === curBase || !selectedSymbol;
+        });
+        const markers: SeriesMarker<Time>[] = [];
+        for (const t of filteredTrades) {
+            const entryMs = (t.ts_entry_secs as number) * 1000;
+            const exitMs = (t.ts_close_secs as number) * 1000;
+            if (entryMs > 0) {
+                const entryTime = alignToCandleSec(entryMs, tf) as UTCTimestamp;
+                if (t.direction === 'LONG') {
+                    markers.push({ time: entryTime, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: `Open Long @ ${t.entry_price.toFixed(2)}` });
+                } else if (t.direction === 'SHORT') {
+                    markers.push({ time: entryTime, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', text: `Open Short @ ${t.entry_price.toFixed(2)}` });
+                }
+            }
+            if (exitMs > 0) {
+                const exitTime = alignToCandleSec(exitMs, tf) as UTCTimestamp;
+                const pnlText = `${t.exit_reason} ${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}`;
+                if (t.direction === 'LONG') {
+                    markers.push({ time: exitTime, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', text: `Close Long · ${pnlText}` });
+                } else if (t.direction === 'SHORT') {
+                    markers.push({ time: exitTime, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: `Close Short · ${pnlText}` });
+                }
+            }
+        }
+        markers.sort((a, b) => (a.time as number) - (b.time as number));
+        // Dedup by time+shape+position
+        const seen = new Set<string>();
+        const unique: SeriesMarker<Time>[] = [];
+        for (const m of markers) {
+            const key = `${m.time}-${m.shape}-${m.position}`;
+            if (!seen.has(key)) { seen.add(key); unique.push(m); }
+        }
+        if (!markersApi) markersApi = createSeriesMarkers(c, unique);
+        else markersApi.setMarkers(unique);
         if (chart) chart.timeScale().fitContent();
+    });
+    // Keep markersApi in sync when chart is recreated
+    $effect(() => {
+        if (!candleSeries) markersApi = null;
     });
 </script>
 

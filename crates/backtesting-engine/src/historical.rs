@@ -671,6 +671,8 @@ pub async fn run_historical_backtest(
                 slippage_bps: close.slippage_bps,
                 commission_fees: close.commission_fees.to_f64().unwrap_or(0.0),
                 funding_fees: close.funding_fees.to_f64().unwrap_or(0.0),
+                r_multiple: roi_pct / 1.0,
+                symbol: ev.symbol.clone(),
             });
         }
 
@@ -793,6 +795,8 @@ pub async fn run_historical_backtest(
                     .as_ref()
                     .map(|c| c.funding_fees.to_f64().unwrap_or(0.0))
                     .unwrap_or(0.0),
+                r_multiple: roi_pct / 1.0,
+                symbol: symbol.clone(),
             });
             equity_points.push((
                 last_ts as i64,

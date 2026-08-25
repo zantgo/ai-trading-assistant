@@ -2,7 +2,7 @@
     import { emaStackState, vwapBias, iSub, iRaw, getPriceFormat } from '../lib/telemetry';
     import type { IndicatorMap, LiquidationClusterMatrix, VolumeProfileSnapshot } from '../types';
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
+    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
@@ -25,6 +25,7 @@
     import { vwapPickKey } from '../lib/vwapAnchor';
     import { createSmcMarkers, type SmcMarkerController } from '../lib/smcMarkers';
     import { smcAgeLabel } from '../lib/priceChartHelpers';
+    import { buildTradeMarkers } from '../lib/tradeMarkerHelper';
     import styles from './PriceChart.module.css';
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -74,6 +75,8 @@
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
     let smcMarkers: SmcMarkerController | null = null;
+    let tradeMarkerSeries: ISeriesApi<'Line'> | null = null;
+    let tradeMarkersApi: any = null;
     // Newly-added price-overlay series (toggle-controlled).
     let keltnerUpperSeries: ISeriesApi<'Line'> | null = null;
     let keltnerMiddleSeries: ISeriesApi<'Line'> | null = null;
@@ -159,6 +162,9 @@
         stddevLowerSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
         psarSeries = chart.addSeries(LineSeries, { color: '#ffab40', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
+
+        // Trade markers — dedicated invisible series so we don't overwrite SMC markers on candleSeries (lightweight-charts supports one marker collection per series).
+        tradeMarkerSeries = chart.addSeries(LineSeries, { color: 'transparent', lineWidth: 1, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
         // SMC markers (selective: confidence ≥ 0.7 only). Attach to the
         // candle series so the markers follow candle time/price alignment.
@@ -791,6 +797,39 @@
             structure: m['smc_structure'] ?? null,
             liquidity: m['smc_liquidity'] ?? null,
         });
+    });
+
+    // Trade markers — live paper/live open/close (distinct LONG green / SHORT red, R in text)
+    $effect(() => {
+        void _chartReady;
+        const tfVal = tf;
+        if (!_chartReady || !tradeMarkerSeries || !tfVal) return;
+        const barSec = tfVal.barDurationSec ?? 60;
+        // Poll every 5s plus on pairKey/slot change — lightweight, deduped inside helper
+        const pair = pairKey;
+        const slotKey = slot;
+        let cancelled = false;
+        (async () => {
+            const markers = await buildTradeMarkers(pair, pair, barSec);
+            if (cancelled) return;
+            // Filter to current symbol (quote-agnostic via helper) already done, just align
+            if (!tradeMarkersApi) {
+                tradeMarkersApi = createSeriesMarkers(tradeMarkerSeries, markers as any);
+            } else {
+                tradeMarkersApi.setMarkers(markers as any);
+            }
+        })();
+        const timer = setInterval(async () => {
+            if (cancelled) return;
+            const m = await buildTradeMarkers(pair, pair, barSec);
+            if (cancelled) return;
+            if (tradeMarkersApi) tradeMarkersApi.setMarkers(m as any);
+            else if (tradeMarkerSeries) tradeMarkersApi = createSeriesMarkers(tradeMarkerSeries, m as any);
+        }, 5000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
     });
 
     let _lastUpdateTs = 0;

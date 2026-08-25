@@ -58,6 +58,11 @@ pub struct DsTrade {
     pub commission_fees: f64,
     #[serde(default)]
     pub funding_fees: f64,
+    /// v10.2 institutional: R-multiple (pnl / 1% risk) and symbol attribution
+    #[serde(default)]
+    pub r_multiple: f64,
+    #[serde(default)]
+    pub symbol: String,
 }
 
 /// One DS metric (key/value — summary + NHST).
@@ -281,6 +286,8 @@ pub async fn query_backtest_trades(
             slippage_bps: slippage,
             commission_fees: commission,
             funding_fees: funding,
+            r_multiple: if roi.is_finite() { roi / 1.0 } else { 0.0 },
+            symbol: String::new(),
         },
     )
     .collect()
@@ -402,6 +409,8 @@ mod tests {
                 slippage_bps: 5.0,
                 commission_fees: 0.01,
                 funding_fees: -0.02,
+                r_multiple: 0.0,
+                symbol: "BTC-USDT".into(),
             }],
             &[(1000, 1000.0), (1001, 1005.0)],
             &[DsPortfolioPoint {

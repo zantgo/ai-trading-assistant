@@ -3,12 +3,12 @@
   "mode": "historical",
   "params": {
     "exchange": "Bitget",
-    "from_secs": 1785367609,
+    "from_secs": 1787369944,
     "portfolio_capital_usd": 1000.0,
-    "strategy_id": "ultra",
+    "strategy_id": "elite",
     "symbol": "BTC-USDT",
     "timeframe_secs": 60,
-    "to_secs": 1787614009
+    "to_secs": 1787629144
   },
   "stats": {
     "alpha": 0.05,

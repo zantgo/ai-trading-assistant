@@ -2,13 +2,14 @@
     // BteStudyTab — the finished data-science presentation of a run:
     // KPI strip, equity curve, drawdown chart, rolling win-rate, trade
     // PnL histogram, per-exit-reason table, and the edge verdict.
-    import styles from '../../styles/engine-dashboard.module.css';
-    import KpiStrip from '../KpiStrip.svelte';
-    import { fmtNum, fmtSigned } from '../../lib/format';
-    import {
+import styles from '../../styles/engine-dashboard.module.css';
+import KpiStrip from '../KpiStrip.svelte';
+import ExportDataButton from '../ExportDataButton.svelte';
+import { fmtNum, fmtSigned } from '../../lib/format';
+import {
         linePath, areaPath, rollingWinRate, pnlHistogram, drawdownSeries,
     } from '../../lib/studyCharts';
-    import type { BteResult } from './BacktestingDashboard.svelte';
+import type { BteResult } from './BacktestingDashboard.svelte';
 
     interface Props {
         result: BteResult | null;
@@ -23,6 +24,7 @@
     const stats = $derived(result?.stats ?? null);
 
     // v10.1: per-run risk metrics from the DS key/value table.
+    // v10.2 institutional: CAGR, Sterling/Burke, Omega, Gain/Pain, Tail
     const risk = $derived.by(() => {
         const m = metrics ?? {};
         const f = (k: string): string | null => (m[k] && m[k] !== '' ? m[k] : null);
@@ -35,6 +37,13 @@
             var95: f('var95'),
             es95: f('es95'),
             maxDdDays: f('max_dd_duration_days'),
+            cagr: f('cagr_pct'),
+            annVol: f('ann_vol_pct'),
+            sterling: f('sterling'),
+            burke: f('burke'),
+            omega: f('omega'),
+            gainPain: f('gain_pain'),
+            tail: f('tail_ratio'),
             has: Object.keys(m).length > 0,
         };
     });
@@ -109,11 +118,14 @@
                     {result.mode ?? 'recorded'} mode · ${(result.params as { portfolio_capital_usd?: number }).portfolio_capital_usd?.toLocaleString() ?? '—'} capital
                 </p>
             </div>
-            {#if stats}
-                <div class="{styles.badge} {stats.is_significant ? styles.badgeLong : styles.badgeError}">
-                    {String(stats.classification).replace(/([A-Z])/g, ' $1').trim().toUpperCase()}
-                </div>
-            {/if}
+            <div style="display:flex; align-items:center; gap:8px">
+                <ExportDataButton onExport={() => JSON.stringify(result, null, 2)} title="Copy this backtest result as JSON" />
+                {#if stats}
+                    <div class="{styles.badge} {stats.is_significant ? styles.badgeLong : styles.badgeError}">
+                        {String(stats.classification).replace(/([A-Z])/g, ' $1').trim().toUpperCase()}
+                    </div>
+                {/if}
+            </div>
         </div>
 
         <KpiStrip items={kpis} />
@@ -145,6 +157,18 @@
                     { label: 'ES 95%', value: risk.es95 ?? '—', sub: 'expected shortfall' },
                     { label: 'Max DD Days', value: risk.maxDdDays ?? '—', sub: 'peak-to-trough' },
                 ]} />
+                <div style="margin-top:12px">
+                    <h4 class={styles.cardTitle} style="font-size:13px">Institutional (v10.2)</h4>
+                    <KpiStrip items={[
+                        { label: 'CAGR', value: risk.cagr != null ? risk.cagr + '%' : '—', sub: 'annualized' },
+                        { label: 'Ann Vol', value: risk.annVol != null ? risk.annVol + '%' : '—', sub: 'yearly vol' },
+                        { label: 'Sterling', value: risk.sterling ?? '—', sub: 'ret / avg DD' },
+                        { label: 'Burke', value: risk.burke ?? '—', sub: 'ret / ulcer' },
+                        { label: 'Omega', value: risk.omega ?? '—', sub: 'gains / losses' },
+                        { label: 'Gain/Pain', value: risk.gainPain ?? '—', sub: 'gross gain / pain' },
+                        { label: 'Tail Ratio', value: risk.tail ?? '—', sub: '95th / |5th|' },
+                    ]} />
+                </div>
             </div>
         {/if}
 

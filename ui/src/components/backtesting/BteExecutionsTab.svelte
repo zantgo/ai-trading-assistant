@@ -29,20 +29,28 @@
         <table class={styles.table}>
             <thead>
                 <tr>
-                    <th>Time</th><th>Dir</th><th class={styles.tdRight}>Entry</th>
+                    <th>Time</th><th>Dir</th><th>Sym</th><th class={styles.tdRight}>Entry</th>
                     <th class={styles.tdRight}>Exit</th><th class={styles.tdRight}>Size</th>
-                    <th class={styles.tdRight}>P&L</th><th>Exit Reason</th>
+                    <th class={styles.tdRight}>P&L</th><th class={styles.tdRight}>ROI</th><th class={styles.tdRight}>R</th><th class={styles.tdRight}>Hold</th><th>Exit Reason</th>
                 </tr>
             </thead>
             <tbody>
                 {#each trades as tr, i (i)}
+                    {@const ts = (tr as any).ts_close_secs ?? (tr as any).timestamp ?? 0}
+                    {@const r = (tr as any).r_multiple ?? ((tr as any).roi_pct != null ? (tr as any).roi_pct / 1.0 : null)}
+                    {@const hold = (tr as any).hold_secs ?? 0}
+                    {@const sym = (tr as any).symbol ?? result?.params.symbol ?? '—'}
                     <tr>
-                        <td>{new Date(tr.timestamp).toLocaleString()}</td>
+                        <td>{new Date((ts as number) * 1000).toLocaleString()}</td>
                         <td style="color:{tr.direction === 'LONG' ? '#22c55e' : '#ef4444'}">{tr.direction}</td>
+                        <td class={styles.tdMono}>{sym}</td>
                         <td class={styles.tdRight}>${fmtNum(tr.entry_price)}</td>
                         <td class={styles.tdRight}>${fmtNum(tr.exit_price)}</td>
                         <td class={styles.tdRight}>{fmtNum(tr.size, 4)}</td>
                         <td class={styles.tdRight} style="color:{tr.pnl >= 0 ? '#22c55e' : '#ef4444'}">{fmtSigned(tr.pnl)}</td>
+                        <td class={styles.tdRight}>{(tr as any).roi_pct != null ? fmtNum((tr as any).roi_pct) + '%' : '—'}</td>
+                        <td class={styles.tdRight}>{r != null ? fmtNum(r, 2) + 'R' : '—'}</td>
+                        <td class={styles.tdRight}>{hold ? Math.floor(hold/3600)+'h' : '—'}</td>
                         <td class={styles.tdMono}>{tr.exit_reason}</td>
                     </tr>
                 {/each}

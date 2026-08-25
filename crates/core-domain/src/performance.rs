@@ -89,6 +89,21 @@ pub struct RiskAnalyticsRow {
     /// is too short or flat.
     #[serde(default)]
     pub sharpe_ratio_log: Option<f64>,
+    /// v10.2 institutional: CAGR % annualized, Sterling/Burke (return/DD), Omega, Gain/Pain, Tail
+    #[serde(default)]
+    pub cagr_pct: Option<f64>,
+    #[serde(default)]
+    pub annualized_volatility_pct: Option<f64>,
+    #[serde(default)]
+    pub sterling_ratio: Option<f64>,
+    #[serde(default)]
+    pub burke_ratio: Option<f64>,
+    #[serde(default)]
+    pub omega_ratio: Option<f64>,
+    #[serde(default)]
+    pub gain_to_pain_ratio: Option<f64>,
+    #[serde(default)]
+    pub tail_ratio: Option<f64>,
 }
 
 // ─── v10.1 Direction Symmetry Verdict ────────────────────────────────
