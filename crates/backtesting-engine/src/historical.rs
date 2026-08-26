@@ -448,6 +448,7 @@ pub async fn run_historical_backtest(
         let mut opportunity_params =
             market_analyzer::synthesis::OpportunityParams::from_strategy(&run_cfg.strategy.l4);
         opportunity_params.viability_min_net_rr = run_cfg.strategy.tae.intake.min_net_rr;
+        opportunity_params.ladder_roles = run_cfg.strategy.ladder_roles.clone();
         let decision_params =
             market_analyzer::strategy_params::decision_params_from_strategy(&run_cfg.strategy.l6);
         let analysis_params =

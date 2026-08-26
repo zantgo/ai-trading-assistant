@@ -57,6 +57,10 @@ pub struct OpportunityParams {
     /// must clear to be `Actionable`. Default 1.0 reproduces v8.2;
     /// strategies can loosen to 0.5 etc. via `tae.intake.min_net_rr`.
     pub viability_min_net_rr: f64,
+    /// v11: TF-role separation — `decision_tf` feeds the representative
+    /// indicator set (bias/regime/stance/risk) when enabled; zones still
+    /// derive from the merged level surface. Empty = legacy first-TF-wins.
+    pub ladder_roles: config_models::LadderRoles,
 }
 
 /// Per-setup-type precondition thresholds (defaults = the pre-v9 tree).
@@ -286,11 +290,12 @@ impl Default for OpportunityParams {
             setup_enabled: default_setup_priority(),
             precondition: L4PreconditionParams::default(),
             score_blend: [0.35, 0.30, 0.20, 0.15],
-            quality_bands: [85.0, 70.0, 50.0, 30.0],
+            quality_bands: [75.0, 60.0, 45.0, 25.0],
             zones: L4ZoneParams::default(),
             confluence_weights: default_confluence_weights(),
             signal_weights: std::collections::HashMap::new(),
-            viability_min_net_rr: 1.0,
+            viability_min_net_rr: 0.5,
+            ladder_roles: config_models::LadderRoles::default(),
         }
     }
 }
@@ -1592,7 +1597,7 @@ fn compute_opportunity(
         let (met, total) = match ot {
             OpportunityType::LiquiditySqueeze => (
                 if cascade_active
-                    && cascade_asymmetry.abs() > 0.3
+                    && cascade_asymmetry.abs() > pc.squeeze_asymmetry_min
                     && regime_is_expansion_or_transition
                 {
                     3
@@ -1602,8 +1607,8 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::Scalp => (
-                if (70.0..95.0).contains(&bbwp)
-                    && struct_dim >= 70.0
+                if (pc.scalp_bbwp_range[0]..pc.scalp_bbwp_range[1]).contains(&bbwp)
+                    && struct_dim >= pc.scalp_struct_min
                     && bias_directional
                     && is_trending
                 {
@@ -1614,7 +1619,10 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::TrendContinuation => (
-                if trend_dim >= 75.0 && bias_directional && momentum_not_exhausted {
+                if trend_dim >= pc.trend_continuation_trend_min
+                    && bias_directional
+                    && momentum_not_exhausted
+                {
                     3
                 } else {
                     0
@@ -1622,7 +1630,7 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::Breakout => (
-                if vol_dim >= 70.0 && struct_dim >= 60.0 {
+                if vol_dim >= pc.breakout_vol_min && struct_dim >= pc.breakout_struct_min {
                     2
                 } else {
                     0
@@ -1638,14 +1646,21 @@ fn compute_opportunity(
                 3,
             ),
             OpportunityType::Pullback => (
-                if trend_dim >= 60.0 && momentum_weakening {
+                if trend_dim >= pc.pullback_trend_min && momentum_weakening {
                     2
                 } else {
                     0
                 },
                 2,
             ),
-            OpportunityType::MeanReversion => (if vol_dim <= 30.0 && is_range { 2 } else { 0 }, 2),
+            OpportunityType::MeanReversion => (
+                if vol_dim <= pc.mean_reversion_vol_max && is_range {
+                    2
+                } else {
+                    0
+                },
+                2,
+            ),
             // v6.10.19a (N1): NoClearOpportunity is the unconditional
             // "no setup detected" sentinel — it must never read "met".
             // The previous `tradability_dim < 30` gate let a weak-market
@@ -2257,12 +2272,38 @@ pub fn synthesize_cross_tf(
     // iteration order of `tf_snapshots` (micro, fast, slow, macro —
     // fastest candle first, so a populated faster TF shadows a stale
     // slower TF).
+    //
+    // v11 ladder_roles: when enabled, the `decision_tf` snapshot is
+    // merged FIRST so its indicators drive bias/regime/stance/risk —
+    // the frequency lever for short ladders (macro decides, micro
+    // executes). Zones still read the merged level surface.
     let mut representative_indicators: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
-    for (_, snap) in tf_snapshots {
-        for (k, v) in &snap.indicators {
-            representative_indicators
-                .entry(k.clone())
-                .or_insert_with(|| v.clone());
+    if params.ladder_roles.enabled {
+        let mut ordered: Vec<(u64, &MarketSnapshot)> = Vec::new();
+        let decision_label = params.ladder_roles.decision_tf.as_str();
+        let mut rest: Vec<(u64, &MarketSnapshot)> = Vec::new();
+        for item in tf_snapshots {
+            if slot_label(item.1) == decision_label {
+                ordered.push(*item);
+            } else {
+                rest.push(*item);
+            }
+        }
+        ordered.extend(rest);
+        for (_, snap) in ordered {
+            for (k, v) in &snap.indicators {
+                representative_indicators
+                    .entry(k.clone())
+                    .or_insert_with(|| v.clone());
+            }
+        }
+    } else {
+        for (_, snap) in tf_snapshots {
+            for (k, v) in &snap.indicators {
+                representative_indicators
+                    .entry(k.clone())
+                    .or_insert_with(|| v.clone());
+            }
         }
     }
 

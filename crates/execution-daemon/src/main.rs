@@ -91,6 +91,7 @@ struct CliArgs {
     sessions: bool,
     session_report: Option<i64>,
     backtest_show: Option<i64>,
+    backtest_gates: Option<i64>,
     /// v9: headless strategy/account/instance ops.
     ops: Vec<cli_ops::StrategyOp>,
     account_ops: Vec<cli_ops::AccountOp>,
@@ -136,6 +137,7 @@ fn parse_args() -> CliArgs {
     let mut sessions = false;
     let mut session_report: Option<i64> = None;
     let mut backtest_show: Option<i64> = None;
+    let mut backtest_gates: Option<i64> = None;
     let mut ops: Vec<cli_ops::StrategyOp> = Vec::new();
     let mut account_ops: Vec<cli_ops::AccountOp> = Vec::new();
     let mut lifecycle_op = None;
@@ -240,6 +242,12 @@ fn parse_args() -> CliArgs {
                 i += 1;
                 if i < args.len() {
                     backtest_show = args[i].parse::<i64>().ok();
+                }
+            }
+            "--backtest-gates" => {
+                i += 1;
+                if i < args.len() {
+                    backtest_gates = args[i].parse::<i64>().ok();
                 }
             }
             "--strategy-list" => ops.push(cli_ops::StrategyOp::List),
@@ -385,6 +393,7 @@ fn parse_args() -> CliArgs {
         sessions,
         session_report,
         backtest_show,
+        backtest_gates,
         tae_on,
         trading,
     }
@@ -949,6 +958,9 @@ async fn main() {
     if let Some(id) = cli.backtest_show {
         std::process::exit(cli_ds::print_backtest_show(&db_pool, &workspace, id).await);
     }
+    if let Some(id) = cli.backtest_gates {
+        std::process::exit(cli_ds::print_backtest_gates(&db_pool, id).await);
+    }
 
     // ── v10 session identity: one monotonic session number per boot ──
     // Mode resolution: web sessions carry their default from
@@ -1371,6 +1383,24 @@ async fn main() {
         if let Some(plan) = &cli_plan {
             for inst in &plan.instances {
                 spawn_cli_instance(&ctx, &inst.base, &plan.currency).await;
+            }
+            // v10.2: --tae-on must actually START the lifecycle (paper/live boot PAUSED by default).
+            // Previously this flag was only recorded in DS meta / header but never called lifecycle.start().
+            if plan.tae_on {
+                // Give the spawn loop a moment to persist instances before starting lifecycle
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let instances = workspace_state.list().await;
+                for inst in instances {
+                    if inst.execution_mode().await == config_models::ExecutionMode::Observe {
+                        continue;
+                    }
+                    let id = inst.id.clone();
+                    match portfolio_supervisor::registry::start_instance(&ctx, &id).await {
+                        Ok(()) => eprintln!("▶️  TAE activated for {} (lifecycle → RUNNING)", id),
+                        Err(e) if e.contains("already RUNNING") => {},
+                        Err(e) => eprintln!("⚠️  Failed to activate TAE for {}: {}", id, e),
+                    }
+                }
             }
         } else {
             for entry in &workspace.instances {
@@ -2241,8 +2271,9 @@ async fn main() {
 
     let eq_pool = db_pool.clone();
     let eq_cancel = eval_cancel.clone();
+    let eq_engine = execution_engine.clone();
     handles.push(tokio::spawn(async move {
-        portfolio_equity::run_portfolio_equity_logger(eq_pool, eq_cancel).await;
+        portfolio_equity::run_portfolio_equity_logger_with_engine(eq_pool, Some(eq_engine), eq_cancel).await;
     }));
 
     let opt_pool = db_pool.clone();

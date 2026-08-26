@@ -4,6 +4,19 @@
 
 ------
 
+## v11 (2026-08-26) — Execution Model v11: Stop Floor, TP Reachability, TF-Roles, Frequency Defaults
+
+**The short-TF execution model is rebuilt: stops survive micro noise, targets stay reachable, decision/stance move to the macro TF, and the default strategy actually trades 1m ladders. Diagnostics make "why no trades?" one SQL query.**
+
+- **Stop floor — floor, don't refuse** (`setup_executor.rs::tick_idle`): `SL = max(zone invalidation, floor)` where `tae.risk.stop_floor_source` = `l6_formula` (default; `advisory.stop_loss_distance_pct` from the stop-TF snapshot — 2% base + vol/10, clamp [0.5,15]) | `atr_mult` (`stop_floor_atr_mult × ATR`) | `zone_only` (legacy). `min_sl_atr` changed from **refuse** (`entry_blocked`) to **floor** semantics. Data-proven: ZEC T1 replay (0.72% zone SL → 2% floor) turns a loss into a win (TP hit 37 min later).
+- **TP reachability cap**: `tae.execution.max_tp_rr` (default 1.5) — `TP = entry ± min(net_rr, max_tp_rr) × SL_distance`. Kills unreachable micro-targets (observed T2: TP +2.43% vs MFE +0.62%).
+- **TF-role separation** (`strategy.ladder_roles`): `decision_tf` (bias/regime/stance/risk) / `entry_tf` (zones/timing) / `stop_tf` (SL floor) / `target_tf` (TP). Roles active when `micro < 1h`; otherwise legacy. Live (`analyzer/mod.rs`) and replay (`historical.rs`) pass identical role-selected snapshots — parity by construction. New spec: `03-03-08-tae-ladder-roles.md`.
+- **Frequency defaults become the default** (`StrategyConfig::default()` + `core-domain` mirrors): `min_net_rr 1.0→0.5`, `l4.preconditions` (trend 55, breakout 55/45, pullback 45, mean_rev 40, scalp struct 55, squeeze 0.25), `l3.bias` (strong 25/plain 12, agreement 60, votes 2), `l5.execution_liquidity.baseline 10` (rvol_high 5.0), `l6.stance` (constructive 55, neutral 50, cautious 75, avoid 90, aggressive 45), `readiness.ready_min 20`, `entry_vol_no_entry 80`. Verified: 7-day multi-symbol backtest goes 0 → 2 trades (loosened pass) and the gate chain is now data-driven.
+- **Gate-chain diagnostics**: per-tick `backtest_signals` gains `decision/market_stance`, `decision/confidence_assessment`, `analysis/market_regime`, `analysis/bias`, `opportunity/primary`; new CLI `--backtest-gates <id>` prints the READY%/stance/primary table.
+- **Bug fixes**: multi-symbol DS trade `symbol` carried per trade (was first-symbol only); `synthesis.rs` precondition counters now use `pc.*` (were hardcoded); equity logger reads `ExecutionEngine` equity (was legacy `paper_balances` → 0.0); `--tae-on` actually starts the instance lifecycle (was a dead flag).
+
+------
+
 ## v10.1 (2026-08-24) — Quant-Metrics Hardening + UX Unification
 
 - **Direction-aware funding** (`settle_funding`): `−dir_sign × notional × rate` perp convention, per-position `funding_accrued`, `settle_funding_with_rate` for live ingested rates, and an 8h settlement clock in the recorded replay (previously historical-only).

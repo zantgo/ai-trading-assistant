@@ -211,6 +211,9 @@ pub(crate) struct StrategyPolicy {
     pub sl_padding_atr: f64,
     pub atr_anchor_mult: f64,
     pub min_sl_atr: Option<f64>,
+    pub stop_floor_source: String, // l6_formula | atr_mult | zone_only
+    pub stop_floor_atr_mult: f64,
+    pub max_tp_rr: f64,
     pub max_setup_age_bars: Option<u32>,
     pub pending_entry_expiry_bars: Option<u32>,
     pub tp_refresh_min_rr_delta: f64,
@@ -227,11 +230,19 @@ impl StrategyPolicy {
         let life = st.map(|s| &s.tae.lifecycle).unwrap_or(&d_life);
         let exec = st.map(|s| &s.tae.execution).unwrap_or(&d_exec);
         let risk = st.map(|s| &s.tae.risk).unwrap_or(&d_risk);
+        // v11: ladder_roles = short-TF intent → market entries (a resting
+        // zone limit at 1m rarely fills). Explicit `entry_mode` still wins.
+        let roles_on = st.map(|s| s.ladder_roles.enabled).unwrap_or(false);
+        let entry_mode = if roles_on && exec.entry_mode == "zone_midpoint" {
+            "market_on_ready".to_string()
+        } else {
+            exec.entry_mode.clone()
+        };
         Self {
             setup_gone: risk.setup_gone_policy.clone(),
             replace_policy: life.replace_policy.clone(),
             min_reprice_delta_atr: life.min_reprice_delta_atr,
-            entry_mode: exec.entry_mode.clone(),
+            entry_mode,
             chase_max_atr: exec.chase_max_atr,
             chase_score_floor: exec.chase_score_floor,
             instant_fill_policy: exec.instant_fill_policy.clone(),
@@ -241,6 +252,9 @@ impl StrategyPolicy {
             sl_padding_atr: risk.sl_padding_atr,
             atr_anchor_mult: risk.atr_anchor_mult,
             min_sl_atr: risk.min_sl_atr,
+            stop_floor_source: risk.stop_floor_source.clone(),
+            stop_floor_atr_mult: risk.stop_floor_atr_mult,
+            max_tp_rr: exec.max_tp_rr,
             max_setup_age_bars: intake.max_setup_age_bars,
             pending_entry_expiry_bars: life.pending_entry_expiry_bars,
             tp_refresh_min_rr_delta: risk.tp_refresh_min_rr_delta,
@@ -400,6 +414,90 @@ impl SetupPlan {
         let entry_order = if market_entry { None } else { Some(entry) };
         (eff, entry_order)
     }
+
+    /// v11 execution dials — stop floor + TP reachability cap.
+    /// Applied at entry acceptance AND bracket refresh (ratchet) so a fresh
+    /// setup can never undo the floor by ratcheting the SL into noise.
+    /// `anchor` is the reference price: the zone midpoint at acceptance, the
+    /// actual fill price during a ratchet (floor must track the real entry).
+    pub(crate) fn apply_execution_dials(
+        &mut self,
+        policy: &StrategyPolicy,
+        atr: f64,
+        snapshots: &[&MarketSnapshot],
+        anchor: Decimal,
+    ) {
+        let is_long = self.direction == "LONG";
+        // Stop floor: SL = max(zone, anchor ∓ floor).
+        let floor_dist = match policy.stop_floor_source.as_str() {
+            "l6_formula" => snapshots
+                .iter()
+                .find(|s| s.timeframe_secs == self.source_tf_secs)
+                .and_then(|s| s.advisory.as_ref())
+                .map(|a| a.stop_loss_distance_pct)
+                .map(|pct| anchor * Decimal::from_f64_retain(pct / 100.0).unwrap_or(dec!(0)))
+                .unwrap_or(dec!(0)),
+            "atr_mult" => {
+                Decimal::from_f64_retain(policy.stop_floor_atr_mult * atr).unwrap_or(dec!(0))
+            }
+            _ => dec!(0),
+        };
+        if floor_dist > dec!(0) {
+            let floored_sl = if is_long {
+                (anchor - floor_dist).max(dec!(0))
+            } else {
+                anchor + floor_dist
+            };
+            let zone_dist = if is_long {
+                anchor - self.sl
+            } else {
+                self.sl - anchor
+            };
+            if zone_dist < floor_dist {
+                self.sl = floored_sl;
+            }
+        } else if let Some(k) = policy.min_sl_atr {
+            if atr > 0.0 {
+                let distance = if is_long {
+                    anchor - self.sl
+                } else {
+                    self.sl - anchor
+                };
+                let min_dist = Decimal::from_f64_retain(k * atr).unwrap_or(dec!(0));
+                if distance < min_dist {
+                    self.sl = if is_long {
+                        anchor - min_dist
+                    } else {
+                        anchor + min_dist
+                    };
+                }
+            }
+        }
+
+        // TP reachability cap: TP = anchor ± min(net_rr, max_tp_rr) × SL distance.
+        let sl_dist = if is_long {
+            anchor - self.sl
+        } else {
+            self.sl - anchor
+        };
+        if sl_dist > dec!(0) {
+            let tp_dist = if is_long {
+                self.tp - anchor
+            } else {
+                anchor - self.tp
+            };
+            let rr = (tp_dist / sl_dist).to_f64().unwrap_or(0.0);
+            if rr > policy.max_tp_rr {
+                let capped =
+                    sl_dist * Decimal::from_f64_retain(policy.max_tp_rr).unwrap_or(dec!(1.5));
+                self.tp = if is_long {
+                    anchor + capped
+                } else {
+                    anchor - capped
+                };
+            }
+        }
+    }
 }
 
 /// Extract the top setup from the latest completed snapshots of the 4 TFs.
@@ -546,6 +644,7 @@ pub struct SetupExecutor {
     pub max_open_positions: u32,
     pub engine: Arc<ExecutionEngine>,
     state: RwLock<HashMap<String, SymbolState>>,
+    paused_log: RwLock<HashMap<String, u64>>,
 }
 
 impl SetupExecutor {
@@ -557,6 +656,7 @@ impl SetupExecutor {
             max_open_positions: cfg.max_open_positions,
             engine,
             state: RwLock::new(HashMap::new()),
+            paused_log: RwLock::new(HashMap::new()),
         }
     }
 
@@ -641,6 +741,26 @@ impl SetupExecutor {
     ) {
         let Some(plan) = top else { return };
         if !ctx.lifecycle_running || !ctx.safety_allows_entry || !ctx.market_filter_allows_entry {
+            if !ctx.lifecycle_running {
+                // Rate-limited heartbeat (60s per symbol) so operator sees why no trades
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let mut last = self.paused_log.write().await;
+                let last_ts = last.get(symbol).copied().unwrap_or(0);
+                if now - last_ts >= 60 {
+                    last.insert(symbol.to_string(), now);
+                    drop(last);
+                    self.log(
+                        instance_id,
+                        symbol,
+                        "entry_blocked",
+                        "TAE PAUSED — instance not activated (use --tae-on or POST /api/instances/:id/lifecycle {\"action\":\"start\"})",
+                    )
+                    .await;
+                }
+            }
             if !ctx.market_filter_allows_entry {
                 self.log(
                     instance_id,
@@ -804,28 +924,10 @@ impl SetupExecutor {
         }
 
         // Effective plan: entry/SL/TP re-derived from the strategy dials.
-        let (eff_plan, entry_price) = plan.effective(policy, atr, mid);
+        let (mut eff_plan, entry_price) = plan.effective(policy, atr, mid);
 
-        // min_sl_atr strict guard: refuse stops sitting inside noise.
-        if let Some(k) = policy.min_sl_atr {
-            if atr > 0.0 {
-                let distance = if eff_plan.direction == "LONG" {
-                    eff_plan.entry_mid - eff_plan.sl
-                } else {
-                    eff_plan.sl - eff_plan.entry_mid
-                };
-                if distance.to_f64().unwrap_or(0.0) < k * atr {
-                    self.log(
-                        instance_id,
-                        symbol,
-                        "entry_blocked",
-                        &format!("stop distance {distance} < min_sl_atr {k}×ATR"),
-                    )
-                    .await;
-                    return;
-                }
-            }
-        }
+        // v11 stop floor + TP cap — shared with the ratchet (never undone).
+        eff_plan.apply_execution_dials(policy, atr, snapshots, eff_plan.entry_mid);
         // instant_fill_policy = cancel: refuse when the price is already
         // beyond the zone and the resting limit would be marketable.
         if policy.instant_fill_policy == "cancel" {
@@ -1258,7 +1360,8 @@ impl SetupExecutor {
         let has_position = self.engine.get_position(symbol).await.is_some();
         if has_position {
             entry.phase = ExecutorPhase::PositionOpen;
-            self.arm_bracket(instance_id, symbol, entry).await;
+            self.arm_bracket(instance_id, symbol, entry, snapshots, policy)
+                .await;
             self.log(instance_id, symbol, "entry_filled", &entry.fingerprint)
                 .await;
             return;
@@ -1811,7 +1914,12 @@ impl SetupExecutor {
             return;
         };
         let atr = source_atr(snapshots, plan.source_tf_secs);
-        let (eff, _entry) = plan.effective(policy, atr, mid);
+        let (mut eff, _entry) = plan.effective(policy, atr, mid);
+        // v11: the ratchet must respect the stop floor + TP cap — a fresh
+        // setup can never tighten the SL into noise nor place an
+        // unreachable target (invariant: floor survives bracket refresh).
+        // Anchor = the actual fill price so the floor tracks the real entry.
+        eff.apply_execution_dials(policy, atr, snapshots, pos.entry_price);
         let min_delta =
             Decimal::from_f64_retain(policy.min_reprice_delta_atr * atr).unwrap_or(dec!(0));
         let is_long = eff.direction == "LONG";
@@ -1926,8 +2034,15 @@ impl SetupExecutor {
     }
 
     /// Arm the TP limit + SL stop bracket after an entry fill.
-    async fn arm_bracket(&self, instance_id: &str, symbol: &str, entry: &mut SymbolState) {
-        let Some(plan) = entry.tracked_setup.clone() else {
+    async fn arm_bracket(
+        &self,
+        instance_id: &str,
+        symbol: &str,
+        entry: &mut SymbolState,
+        snapshots: &[&MarketSnapshot],
+        policy: &StrategyPolicy,
+    ) {
+        let Some(mut plan) = entry.tracked_setup.clone() else {
             return;
         };
         if entry.tp_order_id.is_some() && entry.sl_order_id.is_some() {
@@ -1937,6 +2052,14 @@ impl SetupExecutor {
             Some(p) => p,
             None => return,
         };
+        // v11: re-apply the stop floor + TP cap anchored on the ACTUAL fill
+        // price. The acceptance-time floor used the zone midpoint; a fill
+        // inside the zone must never leave an SL above entry (LONG) or below
+        // (SHORT) — the bracket always respects the floor relative to reality.
+        let atr = source_atr(snapshots, plan.source_tf_secs);
+        if atr > 0.0 {
+            plan.apply_execution_dials(policy, atr, snapshots, pos.entry_price);
+        }
         let exit_side = match pos.direction {
             Direction::Long => OrderSide::Sell,
             Direction::Short => OrderSide::Buy,
@@ -2552,6 +2675,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ladder_roles_implies_market_on_ready_entry() {
+        // v11: roles = short-TF intent — a default zone_midpoint entry
+        // becomes market_on_ready (a resting limit at 1m rarely fills).
+        let (engine, ex) = executor_with(1.0, 1);
+        let mut strat = StrategyConfig::default();
+        strat.ladder_roles.enabled = true;
+        let micro = snapshot(
+            60,
+            MarketBias::Bullish,
+            vec![long_profile(80.0, 2.0, TradeViability::Actionable)],
+            2.0,
+            1000,
+            105.0,
+        );
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ctx_with_strategy(1000, strat.clone()),
+        )
+        .await;
+        let st = ex.state("BTC-USDC").await;
+        assert!(
+            st.entry_is_market,
+            "ladder_roles must imply market_on_ready entry"
+        );
+        // The market fill lands immediately; the phase advances next tick.
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ctx_with_strategy(1000, strat),
+        )
+        .await;
+        assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::PositionOpen);
+    }
+
+    #[tokio::test]
     async fn paused_lifecycle_cancels_pending_entry_and_never_enters() {
         // v10.1: PAUSED (close-only) — a resting entry order must be
         // cancelled, and no new entry may be submitted.
@@ -2655,6 +2818,8 @@ mod tests {
     #[tokio::test]
     async fn entry_fills_then_bracket_armed() {
         let (engine, ex) = executor_with(1.0, 1);
+        let mut strat = StrategyConfig::default();
+        strat.tae.execution.max_tp_rr = 10.0;
         let micro = snapshot(
             60,
             MarketBias::Bullish,
@@ -2663,13 +2828,25 @@ mod tests {
             1000,
             105.0,
         );
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
-            .await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ctx_with_strategy(1000, strat.clone()),
+        )
+        .await;
 
         // Price pulls into the zone → fill.
         engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
-            .await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(94),
+            ctx_with_strategy(1000, strat),
+        )
+        .await;
 
         let st = ex.state("BTC-USDC").await;
         assert_eq!(st.phase, ExecutorPhase::PositionOpen);
@@ -3478,6 +3655,8 @@ mod tests {
     #[tokio::test]
     async fn ratchet_tightens_sl_and_refreshes_tp() {
         let (engine, ex) = executor_with(1.0, 1);
+        let mut strat = StrategyConfig::default();
+        strat.tae.execution.max_tp_rr = 10.0;
         let micro = snapshot(
             60,
             MarketBias::Bullish,
@@ -3486,11 +3665,23 @@ mod tests {
             1000,
             105.0,
         );
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
-            .await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ctx_with_strategy(1000, strat.clone()),
+        )
+        .await;
         engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
-            .await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(94),
+            ctx_with_strategy(1000, strat),
+        )
+        .await;
         assert!(engine.get_position("BTC-USDC").await.is_some());
 
         // Fresh candle: same dir+type, invalidation raised to 90, target 130–140.
@@ -3504,8 +3695,19 @@ mod tests {
             1001,
             105.0,
         );
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&fresh]), dec!(105), ctx(1001))
-            .await;
+        let strat_high = {
+            let mut s = StrategyConfig::default();
+            s.tae.execution.max_tp_rr = 20.0;
+            s
+        };
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&fresh]),
+            dec!(105),
+            ctx_with_strategy(1001, strat_high),
+        )
+        .await;
 
         let st = ex.state("BTC-USDC").await;
         let orders = engine.orders.read().await;
@@ -3527,8 +3729,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ratchet_respects_stop_floor() {
+        // v11 regression: a fresh setup's tighter zone must NOT ratchet the
+        // SL into noise when the stop floor is active. Entry floored to 2%,
+        // fresh zone at 0.5% → floor wins, SL stays at the floored level.
+        let (engine, ex) = executor_with(1.0, 1);
+        let mut strat = StrategyConfig::default();
+        strat.tae.risk.stop_floor_source = "atr_mult".into();
+        strat.tae.risk.stop_floor_atr_mult = 2.0;
+        strat.tae.execution.max_tp_rr = 10.0;
+        // ATR 4 → floor = 8 (2×4). Entry zone 100-110 → entry 105, zone SL 92 (13 away > floor).
+        let micro = snapshot_with_atr(
+            60,
+            MarketBias::Bullish,
+            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 120.0, 130.0, 92.0)],
+            2.0,
+            1000,
+            105.0,
+            4.0,
+        );
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ctx_with_strategy(1000, strat.clone()),
+        )
+        .await;
+        engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(94),
+            ctx_with_strategy(1000, strat),
+        )
+        .await;
+        // Floored SL at entry 94 − 8 = 86.
+        let st0 = ex.state("BTC-USDC").await;
+        let sl0 = {
+            let orders = engine.orders.read().await;
+            orders
+                .get(st0.sl_order_id.as_ref().unwrap())
+                .unwrap()
+                .packet
+                .price
+        };
+        assert_eq!(sl0, Some(dec!(86.00470000000000000022523216)));
+
+        // Fresh candle: same dir, invalidation tightened to 92.5 (0.5% from 94) —
+        // a tighter zone, but the floor (8) still dominates → SL unchanged.
+        let fresh = snapshot_with_atr(
+            60,
+            MarketBias::Bullish,
+            vec![long_profile_with_geometry(80.0, 100.0, 110.0, 120.0, 130.0, 92.5)],
+            2.0,
+            1001,
+            105.0,
+            4.0,
+        );
+        let strat_floor = {
+            let mut s = StrategyConfig::default();
+            s.tae.risk.stop_floor_source = "atr_mult".into();
+            s.tae.risk.stop_floor_atr_mult = 2.0;
+            s.tae.execution.max_tp_rr = 20.0;
+            s
+        };
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&fresh]),
+            dec!(105),
+            ctx_with_strategy(1001, strat_floor),
+        )
+        .await;
+        let st = ex.state("BTC-USDC").await;
+        let sl_after = {
+            let orders = engine.orders.read().await;
+            orders
+                .get(st.sl_order_id.as_ref().unwrap())
+                .unwrap()
+                .packet
+                .price
+        };
+        assert_eq!(sl_after, Some(dec!(86.00470000000000000022523216)));
+    }
+
+    #[tokio::test]
     async fn ratchet_never_widens_sl() {
         let (engine, ex) = executor_with(1.0, 1);
+        let mut strat = StrategyConfig::default();
+        strat.tae.execution.max_tp_rr = 10.0;
         let micro = snapshot(
             60,
             MarketBias::Bullish,
@@ -3537,11 +3828,23 @@ mod tests {
             1000,
             105.0,
         );
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(105), ctx(1000))
-            .await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(105),
+            ctx_with_strategy(1000, strat.clone()),
+        )
+        .await;
         engine.evaluate_order_fills("BTC-USDC", dec!(94)).await;
-        ex.tick("i1", "BTC-USDC", snap_refs(&[&micro]), dec!(94), ctx(1000))
-            .await;
+        ex.tick(
+            "i1",
+            "BTC-USDC",
+            snap_refs(&[&micro]),
+            dec!(94),
+            ctx_with_strategy(1000, strat),
+        )
+        .await;
         let st0 = ex.state("BTC-USDC").await;
         let (sl0, tp0) = {
             let orders = engine.orders.read().await;
@@ -3689,11 +3992,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn min_sl_atr_skips_noise_stops() {
+    async fn min_sl_atr_floors_noise_stops() {
         let (engine, ex) = executor_with(1.0, 1);
         let mut strategy = StrategyConfig::default();
         strategy.tae.risk.min_sl_atr = Some(2.0);
-        // ATR 4 → min stop distance 8. Entry 95, invalidation 92 → distance 3 < 8.
+        strategy.tae.risk.stop_floor_source = "zone_only".into();
+        // ATR 4 → min stop distance 8. Entry 95, invalidation 92 → distance 3 < 8 → floored to 87.
         let micro = snapshot_with_atr(
             60,
             MarketBias::Bullish,
@@ -3713,9 +4017,9 @@ mod tests {
             ctx_with_strategy(1000, strategy),
         )
         .await;
-        assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::Idle);
-        let activity = engine.activity_for("i1").await;
-        assert!(activity.iter().any(|a| a.event == "entry_blocked"));
+        assert_eq!(ex.state("BTC-USDC").await.phase, ExecutorPhase::PendingEntry);
+        let st = ex.state("BTC-USDC").await;
+        assert_eq!(st.tracked_setup.as_ref().unwrap().sl, dec!(87));
     }
 
     #[tokio::test]
@@ -3724,6 +4028,7 @@ mod tests {
         let (engine, ex) = executor_with(1.0, 1);
         let mut strat = StrategyConfig::default();
         strat.tae.execution.tp_placement = "zone_near_edge".into();
+        strat.tae.execution.max_tp_rr = 10.0;
         let micro = snapshot(
             60,
             MarketBias::Bullish,

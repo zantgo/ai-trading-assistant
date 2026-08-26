@@ -302,7 +302,8 @@ pub async fn compile_session_result(
             if !global.is_empty() { global } else { vec![] }
         } else { rows }
     };
-    if equity_curve.is_empty() && !trades.is_empty() {
+    let all_zero = !equity_curve.is_empty() && equity_curve.iter().all(|(_, v)| *v == 0.0);
+    if (equity_curve.is_empty() || all_zero) && !trades.is_empty() {
         // synthetic compounded from trades (same as stats_compiler fallback)
         let mut bal = portfolio_capital_usd;
         let mut curve = Vec::new();
@@ -313,7 +314,7 @@ pub async fn compile_session_result(
             curve.push((t.ts_close_secs * 1000, bal));
         }
         equity_curve = curve;
-    } else if equity_curve.is_empty() {
+    } else if equity_curve.is_empty() || all_zero {
         equity_curve = vec![(started_ms, portfolio_capital_usd)];
     }
 

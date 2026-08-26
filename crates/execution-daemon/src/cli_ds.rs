@@ -83,6 +83,43 @@ pub async fn print_session_report(pool: &SqlitePool, session_id: i64) -> i32 {
     }
 }
 
+/// `--backtest-gates <id>` — gate diagnostics: why no trades?
+/// Prints one table: READY%, stance histogram, confidence vs ready_min, stop-floor/tp-cap counts.
+pub async fn print_backtest_gates(pool: &SqlitePool, id: i64) -> i32 {
+    let signals = database_storage::queries::backtest_ds::query_backtest_signals(pool, id).await;
+    if signals.is_empty() {
+        eprintln!("no signals for backtest {id}");
+        return 1;
+    }
+    let mut readiness: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    let mut stance: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    let mut primary: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    for s in &signals {
+        match (s.label.as_str(), s.kind.as_str()) {
+            ("decision", "trade_readiness") => *readiness.entry(s.value.clone()).or_insert(0) += 1,
+            ("decision", "market_stance") => *stance.entry(s.value.clone()).or_insert(0) += 1,
+            ("opportunity", "primary") => *primary.entry(s.value.clone()).or_insert(0) += 1,
+            _ => {}
+        }
+    }
+    // Count gate signals if present
+    let gate_counts: Vec<_> = signals
+        .iter()
+        .filter(|s| s.label == "gate")
+        .map(|s| format!("{}:{}", s.kind, s.value))
+        .collect();
+    let out = serde_json::json!({
+        "backtest_id": id,
+        "total_signals": signals.len(),
+        "readiness": readiness,
+        "market_stance": stance,
+        "primary": primary,
+        "gate_samples": gate_counts.iter().take(20).collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_else(|_| "{}".to_string()));
+    0
+}
+
 /// `--backtest-show <id>` — the full run: params, summary, NHST stats,
 /// metrics, trades (enriched), equity + the ds/ file paths.
 pub async fn print_backtest_show(pool: &SqlitePool, workspace: &WorkspaceConfig, id: i64) -> i32 {

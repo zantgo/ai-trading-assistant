@@ -1,7 +1,8 @@
 # TAE Layer ④ — Unified ExecutionEngine
 
-**Version:** 10.1 (2026-08-24) — v7 redesign: the unified engine replaces the old policy-driven `ExecutionEngine` (gates, `process_trigger`, hard-exit) and absorbs the paper-matching logic as a simulation backend; v7.1 adds the Bitget live backend + the venue matrix.
-**Status:** Implemented (v7.1) — Hyperliquid + Bitget live backends.
+**Version:** 11.0 (2026-08-26) — v11: stop floor (L6 formula), TP reachability cap (1.5), TF-role separation.
+**Status:** Implemented (v11) — Hyperliquid + Bitget live backends, quantity-first execution model.
+**Previous:** 10.1 (2026-08-24) — v7 redesign + v7.1 Bitget.
 **Engine:** Trade Automation Engine (TAE)
 **Input Contract:** SetupPlan (Setup Executor), [Decision Matrix](../../matrices/02-04-decision-matrix.md) (via the snapshot the executor passes through)
 **Output Contract:** orders, positions, equity, fees — surfaced via [Layer ⑦ API](03-03-01-tae-overview-spec.md#81-api)
@@ -90,11 +91,40 @@ The executor builds `OrderPacket`s for the setup geometry:
 |-------|-------|
 | `symbol` | Instance symbol |
 | `side` | LONG entry → `Buy`; SHORT entry → `Sell`; TP → opposite of entry; SL → opposite of entry |
-| `order_type` | Entry: `Limit` at `entry_mid`; TP: `Limit` at `tp`; SL: `Stop` at `sl` |
+| `order_type` | Entry: `Limit` at `entry_mid` (or `Market` when `entry_mode = market_on_ready`); TP: `Limit` at `tp`; SL: `Stop` at `sl` |
 | `size` | From Layer ③ allocation sizing (`position_size_units = equity × allocation_pct/100 ÷ entry_mid`), notional clamped to `max_position_size_usd` |
 | `reduce_only` | `true` for all bracket/exit orders |
 
 Size for exits is **copied from the open position** (never re-sized) — closing can never fail for lack of margin.
+
+### 4a. Stop Floor & TP Reachability (v11 — quantity-first)
+
+**Problem:** micro-structural zones on `1m` produce SL ≈ 0.7% (inside 1m noise) and TP +2.4% (unreachable — MFE only +0.62% in the verified 7-day window). Both observed in `BT0002` (2 losses, hold 240s/720s).
+
+**Stop floor — floor, don't refuse.** `SetupPlan.effective()` computes `SL = max(zone invalidation, floor)` where floor is:
+
+- `l6_formula` (default): `entry × stop_loss_distance_pct / 100` from the `stop_tf` snapshot's `advisory.stop_loss_distance_pct` (L6: `base_mult×2% + vol/10`, clamp [0.5,15]) — **data-proven**: ZEC T1 replay `0.72%` zone SL → floored to `2%` → TP hit.
+- `atr_mult`: `k × ATR(stop_tf)` (`tae.risk.stop_floor_atr_mult`).
+- `zone_only`: legacy (no floor).
+
+`min_sl_atr` now **floors** instead of refusing (`entry_blocked`).
+
+**TP cap — keep targets reachable.** `TP = entry ± min(net_rr, max_tp_rr) × SL_distance` where `max_tp_rr` defaults `1.5` (`tae.execution.max_tp_rr`). Prevents the +2.4% micro-targets that never fill.
+
+Both are wired in `SetupPlan::effective()`; `arm_bracket` arms at the floored/capped values. Fees/slippage/funding and `ExecutionBackend` stay mode-neutral.
+
+### 4b. Ladder Roles (v11 — TF-role separation)
+
+One strategy, four slots, four roles. When `micro < 3600` the roles diverge, otherwise they collapse to legacy (all = micro).
+
+| Role | Default (`micro < 1h`) | Feeds |
+|------|------------------------|-------|
+| `decision_tf` | `macro` | L3 `bias`/`regime`/`market_quality`, L5 `overall_risk`/`market_stance`, `confidence_assessment` |
+| `entry_tf` | `micro` | L4 zones + entry timing |
+| `stop_tf` | `macro` | SL floor |
+| `target_tf` | `micro` | TP zone |
+
+Config: `[workspace.strategies.<name>.ladder_roles] enabled, decision_tf, entry_tf, stop_tf, target_tf` (schema-driven, `StrategyForm` renders enums). Live (`analyzer/mod.rs:3671`) and replay (`backtesting-engine/src/historical.rs:459`) pass the same role-selected snapshots → parity by construction.
 
 ---
 

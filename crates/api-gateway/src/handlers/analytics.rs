@@ -975,13 +975,19 @@ pub async fn persist_backtest_run(
         .map(|t| {
             // R-multiple as roi% / 1% (1R = 1% risk) — institutional convention
             let r_multiple = if t.roi_pct.is_finite() { t.roi_pct / 1.0 } else { 0.0 };
-            let sym = result
-                .params
-                .symbol
-                .split(',')
-                .next()
-                .unwrap_or("BTC-USDT")
-                .to_string();
+            // v11: carry the per-trade symbol (multi-symbol runs were
+            // collapsing to the first symbol in the comma-joined params).
+            let sym = if !t.symbol.is_empty() {
+                t.symbol.clone()
+            } else {
+                result
+                    .params
+                    .symbol
+                    .split(',')
+                    .next()
+                    .unwrap_or("BTC-USDT")
+                    .to_string()
+            };
             database_storage::queries::backtest_ds::DsTrade {
                 ts_close_secs: t.timestamp,
                 direction: t.direction.clone(),

@@ -225,6 +225,7 @@ pub async fn query_backtest_trades(
         (
             i64,
             String,
+            String,
             f64,
             f64,
             f64,
@@ -240,7 +241,7 @@ pub async fn query_backtest_trades(
             f64,
         ),
     >(
-        "SELECT ts_close_secs, direction, entry_price, exit_price, size, pnl, exit_reason,
+        "SELECT ts_close_secs, direction, COALESCE(symbol, ''), entry_price, exit_price, size, pnl, exit_reason,
                 COALESCE(ts_entry_secs, 0), COALESCE(hold_secs, 0),
                 COALESCE(mfe_pct, 0), COALESCE(mae_pct, 0), COALESCE(roi_pct, 0),
                 COALESCE(slippage_bps, 0), COALESCE(commission_fees, 0), COALESCE(funding_fees, 0)
@@ -257,6 +258,7 @@ pub async fn query_backtest_trades(
         |(
             ts,
             direction,
+            symbol,
             entry,
             exit,
             size,
@@ -273,6 +275,7 @@ pub async fn query_backtest_trades(
         )| DsTrade {
             ts_close_secs: ts,
             direction,
+            symbol,
             entry_price: entry,
             exit_price: exit,
             size,
@@ -287,7 +290,6 @@ pub async fn query_backtest_trades(
             commission_fees: commission,
             funding_fees: funding,
             r_multiple: if roi.is_finite() { roi / 1.0 } else { 0.0 },
-            symbol: String::new(),
         },
     )
     .collect()

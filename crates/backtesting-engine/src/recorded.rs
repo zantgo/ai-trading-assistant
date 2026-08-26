@@ -377,6 +377,45 @@ pub async fn capture_tick_ds(
             kind: "score".to_string(),
             value: format!("{:.2}", opp.opportunity_score),
         });
+        signals.push(database_storage::queries::backtest_ds::DsSignal {
+            ts_secs,
+            timeframe_secs,
+            label: "opportunity".to_string(),
+            kind: "primary".to_string(),
+            value: format!("{:?}", opp.primary_opportunity),
+        });
+    }
+    if let Some(adv) = snap.advisory.as_ref() {
+        signals.push(database_storage::queries::backtest_ds::DsSignal {
+            ts_secs,
+            timeframe_secs,
+            label: "decision".to_string(),
+            kind: "market_stance".to_string(),
+            value: format!("{:?}", adv.market_stance),
+        });
+        signals.push(database_storage::queries::backtest_ds::DsSignal {
+            ts_secs,
+            timeframe_secs,
+            label: "decision".to_string(),
+            kind: "confidence_assessment".to_string(),
+            value: format!("{:.2}", adv.confidence_assessment),
+        });
+    }
+    if let Some(analysis) = snap.analysis.as_ref() {
+        signals.push(database_storage::queries::backtest_ds::DsSignal {
+            ts_secs,
+            timeframe_secs,
+            label: "analysis".to_string(),
+            kind: "market_regime".to_string(),
+            value: format!("{:?}", analysis.market_regime),
+        });
+        signals.push(database_storage::queries::backtest_ds::DsSignal {
+            ts_secs,
+            timeframe_secs,
+            label: "analysis".to_string(),
+            kind: "bias".to_string(),
+            value: format!("{:?}", analysis.bias),
+        });
     }
 
     let (margin_used, unrealized): (Decimal, Decimal) = {

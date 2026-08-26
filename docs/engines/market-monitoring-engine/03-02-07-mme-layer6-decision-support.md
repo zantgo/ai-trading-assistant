@@ -1,6 +1,6 @@
 # MME Layer 6 — Decision Support Layer
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — v11: stance bands (constructive 55, neutral 50, cautious 75, avoid 90, aggressive 45), readiness ready_min 20, entry vol gates 80/50/40. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 6 of 7

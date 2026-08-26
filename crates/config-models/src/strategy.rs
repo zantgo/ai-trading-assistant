@@ -652,8 +652,8 @@ pub struct L3BiasBands {
 impl Default for L3BiasBands {
     fn default() -> Self {
         Self {
-            strong: 40.0,
-            plain: 20.0,
+            strong: 25.0,
+            plain: 12.0,
         }
     }
 }
@@ -674,12 +674,12 @@ pub struct L3Grace {
 impl Default for L3Grace {
     fn default() -> Self {
         Self {
-            band: [15.0, 20.0],
-            vote_min: 3,
-            flat_tf: 10.0,
-            agreement_min: 75.0,
-            signals_min: 3,
-            haircut: 0.9,
+            band: [10.0, 15.0],
+            vote_min: 2,
+            flat_tf: 8.0,
+            agreement_min: 60.0,
+            signals_min: 2,
+            haircut: 0.85,
             hold: L3GraceHold::default(),
             skip_regime: "COMPRESSION".into(),
         }
@@ -947,27 +947,27 @@ pub struct L4Preconditions {
 impl Default for L4Preconditions {
     fn default() -> Self {
         Self {
-            trend_continuation: L4PcTrendContinuation { trend_min: 75.0 },
+            trend_continuation: L4PcTrendContinuation { trend_min: 55.0 },
             breakout: L4PcBreakout {
-                vol_min: 70.0,
-                struct_min: 60.0,
+                vol_min: 55.0,
+                struct_min: 45.0,
             },
             reversal: L4PcReversal {
-                momentum_exhausted_max: 25.0,
-                structure_broken_max: 40.0,
+                momentum_exhausted_max: 30.0,
+                structure_broken_max: 45.0,
             },
-            pullback: L4PcPullback { trend_min: 60.0 },
+            pullback: L4PcPullback { trend_min: 45.0 },
             mean_reversion: L4PcMeanReversion {
-                vol_max: 30.0,
+                vol_max: 40.0,
                 regimes: vec!["Range".into(), "Contraction".into()],
             },
             scalp: L4PcScalp {
                 bbwp_range: [70.0, 95.0],
-                struct_min: 70.0,
+                struct_min: 55.0,
                 regimes: vec!["TrendingBull".into(), "TrendingBear".into()],
             },
             liquidity_squeeze: L4PcSqueeze {
-                asymmetry_min: 0.3,
+                asymmetry_min: 0.25,
                 regimes: vec!["Expansion".into(), "Transition".into()],
             },
         }
@@ -1267,12 +1267,12 @@ pub struct L5ExecLiquidity {
 impl Default for L5ExecLiquidity {
     fn default() -> Self {
         Self {
-            baseline: 30.0,
-            rvol_very_low: 0.5,
+            baseline: 20.0,
+            rvol_very_low: 0.4,
             rvol_very_low_add: 30.0,
-            rvol_low: 0.8,
+            rvol_low: 1.0,
             rvol_low_add: 15.0,
-            rvol_high: 2.0,
+            rvol_high: 5.0,
             rvol_high_add: -15.0,
             spread_wide: 0.2,
             spread_wide_add: 20.0,
@@ -1521,11 +1521,11 @@ pub struct L6StanceRisk {
 impl Default for L6StanceRisk {
     fn default() -> Self {
         Self {
-            avoid: 80.0,
-            cautious: 60.0,
-            neutral: 40.0,
-            constructive: 30.0,
-            aggressive: 20.0,
+            avoid: 90.0,
+            cautious: 75.0,
+            neutral: 50.0,
+            constructive: 55.0,
+            aggressive: 45.0,
         }
     }
 }
@@ -1557,9 +1557,9 @@ pub struct L6Entry {
 impl Default for L6Entry {
     fn default() -> Self {
         Self {
-            vol_risk_no_entry: 60.0,
+            vol_risk_no_entry: 75.0,
             vol_risk_immediate: 40.0,
-            vol_risk_breakout: 20.0,
+            vol_risk_breakout: 30.0,
         }
     }
 }
@@ -1683,7 +1683,7 @@ impl Default for L6Readiness {
     fn default() -> Self {
         Self {
             aside_max: 20.0,
-            ready_min: 60.0,
+            ready_min: 20.0,
         }
     }
 }
@@ -1951,7 +1951,7 @@ pub struct TaeIntake {
 impl Default for TaeIntake {
     fn default() -> Self {
         Self {
-            min_net_rr: 1.0,
+            min_net_rr: 0.5,
             min_score: None,
             min_confidence: None,
             max_setup_age_bars: None,
@@ -2126,6 +2126,9 @@ pub struct TaeExecution {
     /// v10: where inside the target zone the 100 % TP limit sits:
     /// `zone_near_edge` (conservative) | `zone_midpoint` | `zone_far_edge`.
     pub tp_placement: String,
+    /// v11: TP reachability cap — `TP = entry ± min(net_rr, max_tp_rr) × SL_distance`.
+    /// Reachable targets for short TFs; default 1.5 reproduces the v10.3 T2 fix.
+    pub max_tp_rr: f64,
 }
 
 impl Default for TaeExecution {
@@ -2138,6 +2141,7 @@ impl Default for TaeExecution {
             chase_max_atr: 0.5,
             chase_score_floor: 75.0,
             tp_placement: "zone_midpoint".into(),
+            max_tp_rr: 1.5,
         }
     }
 }
@@ -2175,6 +2179,11 @@ pub struct TaeRisk {
     /// v10 strict guard: skip the trade when the invalidation level sits
     /// closer than `min_sl_atr × ATR` to the entry (null = never skip).
     pub min_sl_atr: Option<f64>,
+    /// v11 stop floor — `l6_formula` (SL = max(zone, L6 stop distance)) |
+    /// `atr_mult` (SL = max(zone, k×ATR(stop_tf))) | `zone_only` (legacy).
+    pub stop_floor_source: String,
+    /// v11 ATR multiplier when `stop_floor_source = atr_mult`.
+    pub stop_floor_atr_mult: f64,
 }
 
 impl Default for TaeRisk {
@@ -2192,6 +2201,8 @@ impl Default for TaeRisk {
             sl_padding_atr: 0.0,
             atr_anchor_mult: 1.5,
             min_sl_atr: None,
+            stop_floor_source: "l6_formula".into(),
+            stop_floor_atr_mult: 2.0,
         }
     }
 }
@@ -2410,6 +2421,28 @@ impl Default for PaeParams {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct LadderRoles {
+    pub enabled: bool,
+    pub decision_tf: String,
+    pub entry_tf: String,
+    pub stop_tf: String,
+    pub target_tf: String,
+}
+
+impl Default for LadderRoles {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            decision_tf: "macro".into(),
+            entry_tf: "micro".into(),
+            stop_tf: "macro".into(),
+            target_tf: "micro".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PaeVerdict {
     pub alpha: f64,
     pub monte_carlo_runs: u32,
@@ -2532,6 +2565,8 @@ pub struct StrategyConfig {
     pub tae: TaeParams,
     pub pme: PmeParams,
     pub pae: PaeParams,
+    #[serde(default)]
+    pub ladder_roles: LadderRoles,
 }
 
 impl Default for StrategyConfig {
@@ -2553,6 +2588,7 @@ impl Default for StrategyConfig {
             tae: TaeParams::default(),
             pme: PmeParams::default(),
             pae: PaeParams::default(),
+            ladder_roles: LadderRoles::default(),
         }
     }
 }
@@ -2726,7 +2762,7 @@ mod tests {
         let resolved = StrategyConfig::resolve(None, &raw).unwrap();
         assert_eq!(resolved.tae.sizing.allocation_pct, 25.0);
         // Untouched sections inherit defaults.
-        assert_eq!(resolved.l6.stance.risk.avoid, 80.0);
+        assert_eq!(resolved.l6.stance.risk.avoid, 90.0);
         assert_eq!(resolved.l1.context.trend_momentum_blend, [0.6, 0.4]);
         assert_eq!(resolved.pae.verdict.alpha, 0.05);
     }

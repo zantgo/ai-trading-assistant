@@ -1,6 +1,6 @@
-# MME Strategy Configuration — Canonical Spec (v9)
+# MME Strategy Configuration — Canonical Spec (v11)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — v11: quantity-first defaults + ladder_roles. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Market Monitoring Engine (MME) — Layers L1 · L1.5 · L2 · L2.5 · L3 · L4 · L5 · L6 · L7
 **Method:** Spec-driven development — this document is the contract. Code, UI,
@@ -150,9 +150,9 @@ backtesting engine.
 
   "l3": {
     "bias": {
-      "bands": { "strong": 40, "plain": 20 },
-      "grace": { "band": [15, 20], "vote_min": 3, "flat_tf": 10,
-                 "agreement_min": 75, "signals_min": 3, "haircut": 0.9,
+      "bands": { "strong": 25, "plain": 12 },
+      "grace": { "band": [10, 15], "vote_min": 2, "flat_tf": 8,
+                 "agreement_min": 60, "signals_min": 2, "haircut": 0.85,
                  "hold": { "band_min": 12, "vote_min": 2 },
                  "skip_regime": "COMPRESSION" },
       "lean": { "tolerance": 10, "haircut": 0.8 }
@@ -179,18 +179,18 @@ backtesting engine.
                 "priority": ["LiquiditySqueeze", "Scalp", "TrendContinuation", "Breakout",
                              "Reversal", "Pullback", "MeanReversion"] },
     "preconditions": {
-      "trend_continuation": { "trend_min": 75 },
-      "breakout": { "vol_min": 70, "struct_min": 60 },
-      "reversal": { "momentum_exhausted_max": 25, "structure_broken_max": 40 },
-      "pullback": { "trend_min": 60 },
-      "mean_reversion": { "vol_max": 30, "regimes": ["Range", "Contraction"] },
-      "scalp": { "bbwp_range": [70, 95], "struct_min": 70,
+      "trend_continuation": { "trend_min": 55 },
+      "breakout": { "vol_min": 55, "struct_min": 45 },
+      "reversal": { "momentum_exhausted_max": 30, "structure_broken_max": 45 },
+      "pullback": { "trend_min": 45 },
+      "mean_reversion": { "vol_max": 40, "regimes": ["Range", "Contraction"] },
+      "scalp": { "bbwp_range": [70, 95], "struct_min": 55,
                  "regimes": ["TrendingBull", "TrendingBear"] },
-      "liquidity_squeeze": { "asymmetry_min": 0.3,
+      "liquidity_squeeze": { "asymmetry_min": 0.25,
                              "regimes": ["Expansion", "Transition"] }
     },
     "scoring": { "blend": [0.35, 0.30, 0.20, 0.15],
-                 "quality_bands": [85, 70, 50, 30] },
+                 "quality_bands": [75, 60, 45, 25] },
     "zones": { "atr_fallback": { "enabled": true, "k_entry": 1.5, "k_target": 2.5 },
                "tolerance_atr_mult": 0.2, "tolerance_close_pct": 0.1,
                "width_k": { "high": 2.0, "threshold": 70, "low": 1.5 },
@@ -221,9 +221,9 @@ backtesting engine.
                       "bbwp_elevated": 70, "bbwp_elevated_add": 15,
                       "squeeze_add": 10, "micro_fast_blend": [0.7, 0.3],
                       "atr_pct_floor": 1.0, "atr_pct_max": 5.0 },
-      "execution_liquidity": { "baseline": 30, "rvol_very_low": 0.5,
-                               "rvol_very_low_add": 30, "rvol_low": 0.8,
-                               "rvol_low_add": 15, "rvol_high": 2.0,
+      "execution_liquidity": { "baseline": 10, "rvol_very_low": 0.4,
+                               "rvol_very_low_add": 30, "rvol_low": 1.0,
+                               "rvol_low_add": 15, "rvol_high": 5.0,
                                "rvol_high_add": -15, "spread_wide": 0.2,
                                "spread_wide_add": 20, "spread_tight": 0.05,
                                "spread_tight_add": -10 },
@@ -249,11 +249,11 @@ backtesting engine.
   "l6": {
     "synthesis": { "confluence_weights": [0.50, 0.30, 0.20],
                    "risk_discount_k": 1.0, "opportunity_fallback": 50.0 },
-    "stance": { "risk": { "avoid": 80, "cautious": 60, "neutral": 40,
-                          "constructive": 30, "aggressive": 20 } },
+    "stance": { "risk": { "avoid": 90, "cautious": 75, "neutral": 50,
+                          "constructive": 55, "aggressive": 45 } },
     "direction": { "risk_strong": 50, "risk_plain": 40 },
-    "entry": { "vol_risk_no_entry": 60, "vol_risk_immediate": 40,
-               "vol_risk_breakout": 20 },
+    "entry": { "vol_risk_no_entry": 80, "vol_risk_immediate": 50,
+               "vol_risk_breakout": 40 },
     "exit": { "risk_increasing": 80, "trend_weakening": 60 },
     "protection": { "vol_risk": 60, "sr_proximity_atr_mult": 0.5 },
     "target": { "rr_based": 40, "trailing": 60 },
@@ -263,7 +263,7 @@ backtesting engine.
     "entry_danger": { "quality_penalties": { "Excellent": 10, "Good": 25,
                        "Average": 50, "Weak": 70, "Poor": 80 },
                       "blend": [0.5, 0.5] },
-    "readiness": { "aside_max": 20, "ready_min": 60 },
+    "readiness": { "aside_max": 20, "ready_min": 20 },
     "probability": { "guidance_amp": 1.2, "guidance_atten": 0.5,
                      "stance_amp": 1.15, "avoid_atten": 0.5,
                      "avoid_hold_amp": 1.5, "rr_penalty": 0.6,
@@ -271,6 +271,14 @@ backtesting engine.
                      "geometric_offset": 0.15, "eff_conf_floor": 0.5,
                      "hold_scale": 50.0, "contributing_conf_min": 0.6 },
     "risk_ceiling": { "max_overall_risk": null }
+  },
+
+  "ladder_roles": {
+    "enabled": true,
+    "decision_tf": "macro",
+    "entry_tf": "micro",
+    "stop_tf": "macro",
+    "target_tf": "micro"
   },
 
   "l7": {

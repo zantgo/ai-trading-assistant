@@ -1,6 +1,6 @@
 # TAE Strategy Settings — Spec (v10)
 
-**Version:** 10.1 (2026-08-24) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 11.0 (2026-08-26) — v11: stop floor (l6_formula/atr_mult), max_tp_rr cap, ladder_roles. See docs/CHANGELOG.md for the canonical version history.
 **Status:** Locked for implementation
 **Engine:** Trade Automation Engine (TAE)
 
@@ -141,8 +141,16 @@ UI buttons on the TAE dashboard header (paper + live; disabled in observe).
 - `tae.risk.sl_mode = invalidation | invalidation_padded | atr_anchored`;
   `sl_padding_atr` widens the invalidation level by N × ATR (loose,
   noise-tolerant); `atr_anchor_mult` anchors the stop at entry ∓ N × ATR.
-- `tae.risk.min_sl_atr` — **skip the trade** when the stop sits closer
-  than N × ATR to the entry (strict guard; `null` = never skip).
+- `tae.risk.min_sl_atr` — **floor the stop** when the zone sits closer
+  than N × ATR to the entry (v11: floors instead of skipping; `null` =
+  no floor when `stop_floor_source = zone_only`).
+- **v11 stop floor:** `tae.risk.stop_floor_source = l6_formula (default) |
+  atr_mult | zone_only` — `SL = max(zone invalidation, floor)`; `l6_formula`
+  uses the stop-TF `advisory.stop_loss_distance_pct` (2% base + vol/10,
+  clamp [0.5,15]); `atr_mult` uses `stop_floor_atr_mult × ATR`.
+- **v11 TP reachability:** `tae.execution.max_tp_rr` (default 1.5) caps the
+  target so `TP = entry ± min(net_rr, max_tp_rr) × SL_distance` — no more
+  unreachable micro-targets on short ladders.
 - `tae.execution.tp_placement = zone_near_edge | zone_midpoint |
   zone_far_edge` — where inside the target zone the 100 % TP limit sits
   (conservative / balanced / aggressive). **The TP always closes the full

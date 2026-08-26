@@ -3663,6 +3663,7 @@ async fn synthesize_completed_candle(
     let mut opportunity_params = crate::synthesis::OpportunityParams::from_strategy(&strategy.l4);
     opportunity_params.viability_min_net_rr = strategy.tae.intake.min_net_rr;
     opportunity_params.signal_weights = strategy.l1_5.signal_weights.clone();
+    opportunity_params.ladder_roles = strategy.ladder_roles.clone();
     let decision_params = crate::strategy_params::decision_params_from_strategy(&strategy.l6);
     let analysis_params = crate::strategy_params::analysis_params_from_strategy(&strategy.l3);
     let alignment_params = crate::strategy_params::alignment_params_from_strategy(&strategy.l2);
