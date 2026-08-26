@@ -56,7 +56,14 @@
 
     type TfKey = 'micro' | 'fast' | 'slow' | 'macro';
     type TfLabel = 'MICRO' | 'FAST' | 'SLOW' | 'MACRO';
-    let activeTf: TfKey = $state('micro');
+    // Persist active timeframe per-instance (survives LiveTerminal unmount on
+    // Charts↔Metrics tab switches). Previously `$state('micro')` reset on every
+    // mount, hiding the sub-minute 5s/15s selection.
+    let activeTf = $derived((app.instancesMap[pairKey]?.activeTf as TfKey | undefined) ?? 'micro' as TfKey);
+    function setActiveTf(k: TfKey) {
+        const p = app.instancesMap[pairKey];
+        if (p) p.activeTf = k;
+    }
 
     let expandedTf = $state<string | null>(null);
     let expandedColumnEl = $state<HTMLDivElement | null>(null);
@@ -289,7 +296,7 @@
                 {#each TERMS as t (t.key)}
                     <button
                         class="{styles.tfSidebarItem} {activeTf === t.key ? styles.active : ''}"
-                        onclick={() => activeTf = t.key}
+                        onclick={() => setActiveTf(t.key)}
                     >
                         <span class={styles.tfLabel}>{t.label}</span>
                         <span class={styles.tfSecs}>{durationSuffix(t.secsFn(pair))}</span>

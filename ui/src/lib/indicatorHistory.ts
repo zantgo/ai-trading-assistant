@@ -82,7 +82,33 @@ export function fetchIndicatorHistoryOnce(
             const raw = await res.json() as RawResponse;
             const hist = normalizeHistory(raw);
             // Keep mutable reference for live ingestion (P0).
-            if (hist) historyData.set(key, hist);
+            // FIX: sub-minute live tail race — if `ingestLiveSnapshot` already
+            // created a live-mutated entry while we were fetching (cold 1s
+            // start, server empty/stale), don't clobber it. Merge instead.
+            if (hist) {
+                const existing = historyData.get(key);
+                if (existing && existing.times.length > 0) {
+                    if (hist.times.length === 0) {
+                        // Cold sub-minute server empty but live already has
+                        // candles (P0 keepalive) — keep live, preserve server
+                        // clusters/volumeProfiles if present.
+                        if (hist.clusters || hist.volumeProfiles) {
+                            existing.clusters = hist.clusters ?? existing.clusters;
+                            existing.volumeProfiles = hist.volumeProfiles ?? existing.volumeProfiles;
+                        }
+                        return existing;
+                    }
+                    const serverLast = hist.times[hist.times.length - 1] ?? -Infinity;
+                    const hasLiveTail = existing.times.some((t) => t > serverLast);
+                    if (hasLiveTail) {
+                        // Preserve live tail newer than server — delegate to
+                        // merge helper (caps at 1000, keeps indicator alignment).
+                        mergeHistoryRefresh(pairKey, timeframe, slot, hist);
+                        return historyData.get(key) ?? hist;
+                    }
+                }
+                historyData.set(key, hist);
+            }
             return hist;
         } catch (err) {
             console.error('indicatorHistory fetch failed', err);
@@ -91,7 +117,19 @@ export function fetchIndicatorHistoryOnce(
     })();
     cache.set(key, promise);
     // Also populate historyData when promise resolves (covers already-pending).
-    promise.then((h) => { if (h) historyData.set(key, h); });
+    // Merge-aware so a live tail created during fetch is not erased.
+    promise.then((h) => {
+        if (!h) return;
+        const cur = historyData.get(key);
+        if (!cur || cur === h) return;
+        // A live entry was created/mutated while fetching — don't overwrite blindly.
+        if (cur.times.length > 0 && h.times.length === 0) return;
+        if (cur.times.length > 0 && h.times.length > 0) {
+            const serverLast = h.times[h.times.length - 1] ?? -Infinity;
+            if (cur.times.some((t) => t > serverLast)) return;
+        }
+        historyData.set(key, h);
+    });
     return promise;
 }
 

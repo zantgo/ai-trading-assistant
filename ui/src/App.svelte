@@ -151,14 +151,23 @@
     // selected or known — with no instance active (or before the instance
     // list resolves) the navbar is still deterministic from the first
     // render instead of showing the full (non-collapsed) tab set.
-    const activeMode = $derived<ExecutionMode | undefined>(
-        app.currentEngine === 'performance' || app.currentEngine === 'backtesting'
-            ? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined)
-            : (app.selectedInstance
-                ? app.instancesMap[app.selectedInstance]?.mode
-                : (Object.values(app.instancesMap)[0]?.mode
-                    ?? (app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined))),
-    );
+    const activeMode = $derived.by<ExecutionMode | undefined>(() => {
+        // Performance / Backtesting are session-level engines — always use sessionMode.
+        if (app.currentEngine === 'performance' || app.currentEngine === 'backtesting') {
+            return app.sessionMode && isExecutionMode(app.sessionMode) ? app.sessionMode : undefined;
+        }
+        // For Market Monitor / TAE / PME: prefer the selected instance's mode,
+        // but fall back to sessionMode when the instance entry has not yet
+        // been hydrated (startup race where mode is temporarily undefined).
+        // This prevents the top-bar OBSERVE chip from vanishing when
+        // entering an instance in Market Monitor.
+        const instMode = app.selectedInstance ? app.instancesMap[app.selectedInstance]?.mode : undefined;
+        if (instMode && isExecutionMode(instMode)) return instMode as ExecutionMode;
+        if (app.sessionMode && isExecutionMode(app.sessionMode)) return app.sessionMode as ExecutionMode;
+        const firstMode = Object.values(app.instancesMap)[0]?.mode;
+        if (firstMode && isExecutionMode(firstMode)) return firstMode as ExecutionMode;
+        return undefined;
+    });
     const engineTabs = $derived.by(() => {
         // v10.1: BTE dynamic navbar — Overview/History/Settings until a
         // bound instance or loaded run exists, then the full set.
@@ -246,13 +255,22 @@
     let routeSource: 'url' | 'state' = $state('state');
 
     function currentHash(): string {
-        const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
-        return buildEngineHash(
-            app.currentEngine,
-            app.middleTab,
-            app.selectedInstance ?? undefined,
-            pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
-        );
+        // Only Market Monitor owns the instance/view segment. For every other
+        // engine (Backtesting, TAE, PME, PAE, DIE, Profile) the hash is flat:
+        // `#/engine/<engine>/<middleTab>` — the shared `selectedInstance` is
+        // kept in state for preseed (BTE) but never serialized into the URL.
+        // This prevents `#/engine/backtesting/.../instance/BTC/instance/.../view/recommendation`
+        // leaks that made the BTE navbar flip 3→10 tabs after a leak.
+        if (app.currentEngine === 'market_monitor') {
+            const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
+            return buildEngineHash(
+                app.currentEngine,
+                app.middleTab,
+                app.selectedInstance ?? undefined,
+                pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
+            );
+        }
+        return buildEngineHash(app.currentEngine, app.middleTab);
     }
 
     function applyRoute(engine: string, middleTab?: string, instance?: string, view?: string) {
@@ -271,15 +289,25 @@
         } else {
             app.middleTab = ENGINE_DEFAULT_TAB[e];
         }
-        if (instance && app.instancesMap[instance]) {
+        // Only Market Monitor routes carry an instance. For every other engine
+        // the `instance`/`view` segments are ignored — the global
+        // `selectedInstance` survives in state (so BTE can preseed) but the
+        // URL never owns it. This matches the spec: BTE binds via the shared
+        // selection (right Instances panel), not via `#/.../instance/...`.
+        if (e === 'market_monitor' && instance && app.instancesMap[instance]) {
             app.selectedInstance = instance;
             app.activeTab = instance;
             app.activeEngineTab = 'instance';
             const p = app.instancesMap[instance];
             if (p) p.currentView = (view as CurrentView) ?? 'terminal';
-        } else {
-            const shouldClear = e !== 'market_monitor' || middleTab === 'overview';
+        } else if (e === 'market_monitor') {
+            const shouldClear = middleTab === 'overview';
             if (shouldClear) app.exitInstance();
+        } else {
+            // Non-MME engine: strip leaked instance/view. Keep the globally
+            // selected instance for BTE preseed, but never overwrite it from
+            // the URL and never set currentView.
+            // No-op: selectedInstance stays as-is from the MME workspace.
         }
         // `tick()` is a microtask boundary — by the time it resolves
         // the state→URL `$effect` has already observed the new state

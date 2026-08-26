@@ -2,6 +2,7 @@ import type { AppStore } from '../state.svelte';
 import type { IndicatorDto, IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
 import { getDecimalCount } from './telemetry';
 import { purgeCacheForKey, purgeCandleCacheForKey, ingestLiveSnapshot, appendLiveCandle } from './indicatorHistory';
+import { emitCandleDebug } from './candleDebug';
 import type { Time } from 'lightweight-charts';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
@@ -437,6 +438,22 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
             // every completed candle, including gap-filled SYNTHETIC (the
             // history layer tracks provenance via candleReconstructed).
             ingestLiveSnapshot(symbol, tfSecs, tf.slot, snapshot as Record<string, unknown>);
+
+            // ── Browser console debug dump (fires on EVERY completed candle) ──
+            // Aggregates all instances × 4 slots (including background TFs) and
+            // logs a single JSON payload with full candle OHLCV + indicator overlays.
+            // Toggle off via `window.__CANDLE_DEBUG_ENABLED__ = false` or
+            // `localStorage.setItem('candleDebug','0')`. Must not break WS stream.
+            try {
+                emitCandleDebug(app, {
+                    pairKey: symbol,
+                    slot: tf.slot,
+                    timeframe_secs: tfSecs,
+                    snapshot: snapshot as Record<string, unknown>,
+                });
+            } catch (_e) {
+                // Debug must never break the stream.
+            }
         }
     } catch (_e) {
         // Live cache sync must never break the WS stream.
@@ -579,20 +596,35 @@ export function connectWebsocketForTimeframe(
         // the first caller after the purge actually re-requests).
         const bo = state.backoff[wsKey];
         if (bo.retries > 0) {
-            purgeCacheForKey(symbol, tfSecs, tf.slot);
-            purgeCandleCacheForKey(symbol, tfSecs, tf.slot);
-            // Also clear AppStore live mirror so it does not replay
-            // stale pre-reconnect candles that the backend just dropped.
+            // Atomic purge across all 4 slots for this pair — backend
+            // rebuilds all pipelines on restart, so a per-slot staggered
+            // purge left `micro` refetching while `fast` still showed
+            // pre-restart warm cache (mixed stale/live view for ≤30s).
+            // Purging all slots at first reconnect restores consistency.
             try {
                 const p = app.instancesMap[symbol];
                 if (p) {
-                    const tfLive = (tf.slot === 'micro' ? p.microTerm : tf.slot === 'fast' ? p.fastTerm : tf.slot === 'slow' ? p.slowTerm : p.macroTerm) as unknown as Record<string, unknown>;
-                    if (tfLive) {
-                        tfLive.liveCandleCache = [];
-                        tfLive.liveHistoryCount = 0;
+                    const slots: Array<{ tf: typeof p.microTerm; secs: number; slot: typeof tf.slot }> = [
+                        { tf: p.microTerm, secs: p.microTerm.barDurationSec, slot: 'micro' as const },
+                        { tf: p.fastTerm, secs: p.fastTerm.barDurationSec, slot: 'fast' as const },
+                        { tf: p.slowTerm, secs: p.slowTerm.barDurationSec, slot: 'slow' as const },
+                        { tf: p.macroTerm, secs: p.macroTerm.barDurationSec, slot: 'macro' as const },
+                    ];
+                    for (const s of slots) {
+                        purgeCacheForKey(symbol, s.secs, s.slot);
+                        purgeCandleCacheForKey(symbol, s.secs, s.slot);
+                        (s.tf as unknown as Record<string, unknown>).liveCandleCache = [];
+                        (s.tf as unknown as Record<string, unknown>).liveHistoryCount = 0;
                     }
+                } else {
+                    // Fallback: at least purge this slot if pair not yet in store
+                    purgeCacheForKey(symbol, tfSecs, tf.slot);
+                    purgeCandleCacheForKey(symbol, tfSecs, tf.slot);
                 }
-            } catch {}
+            } catch {
+                purgeCacheForKey(symbol, tfSecs, tf.slot);
+                purgeCandleCacheForKey(symbol, tfSecs, tf.slot);
+            }
         }
         state.backoff[wsKey] = freshBackoff();
     };

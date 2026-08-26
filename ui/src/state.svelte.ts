@@ -81,6 +81,7 @@ function createInstanceState(symbol: string): InstanceState {
         macroTerm: createTimeframeTelemetry(symbol, 'macro', 900),
         historyLatestClose: '0',
         currentView: 'terminal',
+        activeTf: 'micro',
         alignment: null,
         analysis: null,
         risk: null,

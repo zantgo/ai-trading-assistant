@@ -283,6 +283,9 @@
                             <span class={styles.modeTitle}>{MODE_META[m].title}</span>
                             <span class={styles.modeVerb}>{MODE_META[m].verb}</span>
                             <span class={styles.modeBadge}>{MODE_META[m].badge}</span>
+                            {#if m === 'paper' || m === 'live'}
+                                <span class={styles.wipBadge} title="work in progress">WIP</span>
+                            {/if}
                             <span class={styles.modeDesc}>{MODE_META[m].description}</span>
                             <span class={styles.modeArrow}>{mode === m ? '●' : '○'}</span>
                             <span class={styles.modeStep}>{i + 1}</span>

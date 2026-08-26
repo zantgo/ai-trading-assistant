@@ -543,24 +543,60 @@
         <div class="{engine.alertBanner} {engine.alertError}" role="alert" style="margin:0 24px">Save failed — check the console or server log.</div>
     {/if}
 
-    <div class={styles.tfShellLayout}>
-    <aside class={styles.tfShellRail}>
-        <h3 class={engine.subTitle}>TIMEFRAMES</h3>
-        {#each slotOrder as slot (slot)}
-            <button
-                type="button"
-                class="{styles.tfShellRailItem} {selectedSlot === slot ? styles.active : ''}"
-                onclick={() => selectedSlot = slot}
-            >
-                <span class={styles.tfShellRailLabel}>{slotTitles[slot]}</span>
-                <span class={styles.tfShellRailSecs}>
-                    {durationLabel(tfDraft[slot].durationSeconds)}
-                </span>
-            </button>
-        {/each}
-    </aside>
-
     <section class={styles.tfShellBody}>
+        <div class={engine.card}>
+            <div class={engine.cardHead}>
+                <h3 class={engine.cardTitle}>Timeframes &amp; Indicators</h3>
+                <ConfigSourceChip source="per-instance" apply="LIVE" />
+            </div>
+            <div class={styles.tfShell}>
+                <aside class={styles.tfShellRail}>
+                    {#each slotOrder as slot (slot)}
+                        <button
+                            type="button"
+                            class="{styles.tfShellRailItem} {selectedSlot === slot ? styles.active : ''}"
+                            onclick={() => selectedSlot = slot}
+                        >
+                            <span class={styles.tfShellRailLabel}>{slotTitles[slot]}</span>
+                            <span class={styles.tfShellRailSecs}>
+                                {durationLabel(tfDraft[slot].durationSeconds)}
+                            </span>
+                        </button>
+                    {/each}
+                </aside>
+
+                <div class={styles.tfShellPane}>
+                    <div class={styles.tfRow}>
+                        <label class="{engine.fieldLabel} {styles.tfLabel}" for="tf-duration-select">Duration</label>
+                        <select class={engine.select} id="tf-duration-select"
+                            value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
+                            onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
+                            <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
+                            {#each TIMEFRAME_OPTIONS as opt}
+                                <option value={opt.seconds}>{opt.label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <h4 class={styles.tfCardSubTitle}>{slotTitles[selectedSlot]} — indicator parameters</h4>
+                    <div class={styles.tfInputScroll}>
+                        {@render indicatorInputs(selectedSlot, tfDraft[selectedSlot])}
+                    </div>
+                </div>
+
+                <div class={styles.tfShellPane}>
+                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[selectedSlot]}</h4>
+                    <p class={engine.infoLine}>
+                        Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
+                        of any selected integer × tier. Matching bands intensify, the rest dim.
+                    </p>
+                    <LiquidationHeatmapTierPicker
+                        tiers={tfDraft[selectedSlot].heatmapLeverageTiers}
+                        onChange={(next) => updateSlotLeverageTiers(selectedSlot, next)}
+                    />
+                </div>
+            </div>
+        </div>
+
         <div class={engine.card}>
             <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Identity</h3>
@@ -643,59 +679,6 @@
 
         <div class={engine.card}>
             <div class={engine.cardHead}>
-                <h3 class={engine.cardTitle}>Timeframes &amp; Indicators</h3>
-                <ConfigSourceChip source="per-instance" apply="LIVE" />
-            </div>
-            <div class={styles.tfShell}>
-                <aside class={styles.tfShellRail}>
-                    {#each slotOrder as slot (slot)}
-                        <button
-                            type="button"
-                            class="{styles.tfShellRailItem} {selectedSlot === slot ? styles.active : ''}"
-                            onclick={() => selectedSlot = slot}
-                        >
-                            <span class={styles.tfShellRailLabel}>{slotTitles[slot]}</span>
-                            <span class={styles.tfShellRailSecs}>
-                                {durationLabel(tfDraft[slot].durationSeconds)}
-                            </span>
-                        </button>
-                    {/each}
-                </aside>
-
-                <div class={styles.tfShellPane}>
-                    <div class={styles.tfRow}>
-                        <label class="{engine.fieldLabel} {styles.tfLabel}" for="tf-duration-select">Duration</label>
-                        <select class={engine.select} id="tf-duration-select"
-                            value={selectedOption(tfDraft[selectedSlot].durationSeconds)}
-                            onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) (tfDraft[selectedSlot] as TermDraft).durationSeconds = v; }}>
-                            <option value={-1} disabled>Custom: {durationLabel(tfDraft[selectedSlot].durationSeconds)}</option>
-                            {#each TIMEFRAME_OPTIONS as opt}
-                                <option value={opt.seconds}>{opt.label}</option>
-                            {/each}
-                        </select>
-                    </div>
-                    <h4 class={styles.tfCardSubTitle}>{slotTitles[selectedSlot]} — indicator parameters</h4>
-                    <div class={styles.tfInputScroll}>
-                        {@render indicatorInputs(selectedSlot, tfDraft[selectedSlot])}
-                    </div>
-                </div>
-
-                <div class={styles.tfShellPane}>
-                    <h4 class={styles.tfCardSubTitle}>Liquidation Heatmap · {slotTitles[selectedSlot]}</h4>
-                    <p class={engine.infoLine}>
-                        Highlight clusters whose <code class={engine.code}>dominant_leverage</code> falls within ±0.5
-                        of any selected integer × tier. Matching bands intensify, the rest dim.
-                    </p>
-                    <LiquidationHeatmapTierPicker
-                        tiers={tfDraft[selectedSlot].heatmapLeverageTiers}
-                        onChange={(next) => updateSlotLeverageTiers(selectedSlot, next)}
-                    />
-                </div>
-            </div>
-        </div>
-
-        <div class={engine.card}>
-            <div class={engine.cardHead}>
                 <h3 class={engine.cardTitle}>Indicator Activation</h3>
                 <ConfigSourceChip source="[instances.….activation]" apply="LIVE" />
             </div>
@@ -725,5 +708,4 @@
             </div>
         </div>
     </section>
-    </div>
 </div>

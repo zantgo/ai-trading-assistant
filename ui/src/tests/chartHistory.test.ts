@@ -329,4 +329,108 @@ describe('indicatorHistory (unified)', () => {
             clearCandleCache();
         }
     });
+
+    it('MAIN_PARITY_warm_remount_reseeds_overlay_series_from_live_mutated_history', async () => {
+        // Regression (main-parity restore): on the main branch every
+        // remount re-seeded the price overlay series (EMAs etc.) from
+        // `/api/history`, so the historical overlay lines survived TF
+        // tab switches. The develop warm-cache path skipped the refetch
+        // and left overlays blank until the next live frame. The fix
+        // re-seeds from the live-mutated history cache (`historyData`).
+        // This test pins the data-layer contract: after a cold history
+        // fetch + live ingestion, the resolved history carries the FULL
+        // overlay tail (historical + live-appended bars) aligned to
+        // `times`, which is exactly what `seedOverlaysFromHistory` feeds
+        // to `setData` on a warm remount.
+        const { getResolvedHistory, appendLiveCandle, ingestLiveSnapshot, alignedSeriesFromHistory } = await import('../lib/indicatorHistory');
+        const pairKey = 'TEST-WARM-OVERLAY';
+        const slot = 'micro';
+        const tf = 60;
+        const baseSec = 1_718_000_000;
+        const originalFetch = globalThis.fetch;
+        try {
+            clearHistoryCache();
+            clearCandleCache();
+            // Cold boot: /api/history returns 3 completed candles + ema_stack.
+            const histTimes = [baseSec - 120, baseSec - 60, baseSec];
+            const histCloses = [100, 101, 102];
+            const histEmas = [99.5, 100.5, 101.5];
+            globalThis.fetch = async (input: RequestInfo | URL, _init?: RequestInit) => {
+                const url = typeof input === 'string' ? input : String(input);
+                if (url.includes('/api/history')) {
+                    return new Response(JSON.stringify({
+                        prices: histCloses.map(String),
+                        candles: histTimes.map((t, i) => ({
+                            time: t * 1000,
+                            open: String(histCloses[i]),
+                            high: String(histCloses[i]),
+                            low: String(histCloses[i]),
+                            close: String(histCloses[i]),
+                            volume: '1',
+                        })),
+                        indicator_history: {
+                            times: histTimes,
+                            indicators: {
+                                ema_stack: {
+                                    raw: histEmas,
+                                    state_label: histTimes.map(() => 'CONSOLIDATED'),
+                                    values: { fast: histEmas },
+                                },
+                            },
+                        },
+                    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                }
+                return new Response('', { status: 404 });
+            };
+            const hist = await fetchIndicatorHistoryOnce(pairKey, tf, slot);
+            expect(hist).not.toBeNull();
+            expect(hist!.times).toHaveLength(3);
+            // The cold bootstrap persists the fetched candles into the
+            // candle cache (setCachedCandles in PriceChart.svelte).
+            setCachedCandles(pairKey, tf, hist!.candleTimes.map((t, i) => ({
+                time: t as Time,
+                open: hist!.candles.open[i],
+                high: hist!.candles.high[i],
+                low: hist!.candles.low[i],
+                close: hist!.candles.close[i],
+            })), slot);
+            // Live WS appends two more completed candles + ema values.
+            for (let i = 1; i <= 2; i++) {
+                const ts = baseSec + i * 60;
+                appendLiveCandle(pairKey, tf, slot, { time: ts as Time, open: 102 + i, high: 103 + i, low: 101 + i, close: 102.5 + i });
+                ingestLiveSnapshot(pairKey, tf, slot, {
+                    timestamp: ts,
+                    is_completed: true,
+                    close: String(102.5 + i),
+                    open: String(102 + i),
+                    high: String(103 + i),
+                    low: String(101 + i),
+                    volume: '1',
+                    indicators: {
+                        ema_stack: { raw_value: 101.5 + i, state_label: 'CONSOLIDATED', values: { fast: 101.5 + i } },
+                    } as unknown as Record<string, unknown>,
+                    quality_envelope: { is_gap_filled: false },
+                } as unknown as Record<string, unknown>);
+            }
+            // Warm remount inputs: candle cache + resolved history both
+            // hold the historical tail AND the live-appended bars.
+            const cached = getCachedCandles(pairKey, tf, slot);
+            expect(cached!.length).toBe(5);
+            const resolved = getResolvedHistory(pairKey, tf, slot);
+            expect(resolved).not.toBeNull();
+            expect(resolved!.times).toHaveLength(5);
+            // The overlay re-seed must span the FULL tail (historical +
+            // live), exactly like the main branch's post-refetch seeding.
+            const [emaFast] = alignedSeriesFromHistory(resolved, [['ema_stack', 'fast']]);
+            expect(emaFast).toHaveLength(5);
+            expect(emaFast.map((p) => p.time)).toEqual(
+                [...histTimes, baseSec + 60, baseSec + 120].map((t) => t as unknown as Time),
+            );
+            expect(emaFast.map((p) => p.value)).toEqual([99.5, 100.5, 101.5, 102.5, 103.5]);
+        } finally {
+            clearHistoryCache();
+            clearCandleCache();
+            globalThis.fetch = originalFetch;
+        }
+    });
 });

@@ -246,65 +246,81 @@
     async function ensureArchive(): Promise<boolean> {
         for (const inst of instances) {
             const symbol = symbolOf(inst.base);
-            const tfs = [inst.micro, inst.fast, inst.slow, inst.macro];
-            for (const tf of tfs) {
-                preparingMsg = `checking ${symbol} ${tfLabel(tf)} archive coverage…`;
-                try {
-                    const res = await fetch(
-                        `/api/backtest/coverage?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
-                    );
-                    if (!res.ok) continue;
+            const tfs = [inst.micro, inst.fast, inst.slow, inst.macro].slice().sort((a, b) => a - b);
+            // Coverage is per-symbol×TF; we require depth+burnIn on *every* TF.
+            // If any TF lacks coverage we backfill the whole 4-TF ladder in a
+            // single standalone request (backend requires timeframes.len()==4).
+            let needsBackfill = false;
+            try {
+                const res = await fetch(
+                    `/api/backtest/coverage?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
+                );
+                if (res.ok) {
                     const data = await res.json();
                     const rows: any[] = data?.archive ?? [];
-                    const row = rows.find(
-                        (r) => r.symbol === symbol && r.timeframe_secs === tf,
-                    );
-                    const covered = row ? Math.max(0, (row.latest_secs ?? 0) - (row.earliest_secs ?? 0)) : 0;
-                    const required = depthDays * 86400 + burnInSecs;
-                    if (covered >= required) continue;
-                } catch {
-                    continue;
-                }
-                // Missing coverage: backfill this symbol × TF (standalone).
-                preparing = true;
-                preparingMsg = `fetching ${symbol} ${tfLabel(tf)} history (${depthDays}d)…`;
-                try {
-                    const res = await fetch('/api/backtest/archive/backfill', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
-                        body: JSON.stringify({
-                            exchange,
-                            symbol,
-                            timeframes: [tf],
-                            depth_days: depthDays,
-                        }),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) {
-                        error = await readError(res, `Backfill failed for ${symbol} ${tfLabel(tf)}`);
-                        preparing = false;
-                        return false;
-                    }
-                    const jobId = data.job_id;
-                    // Poll until the job finishes.
-                    for (let i = 0; i < 3600; i++) {
-                        await new Promise((r) => setTimeout(r, 1000));
-                        const pRes = await fetch(`/api/backtest/archive/progress/${jobId}`);
-                        if (!pRes.ok) break;
-                        const p = await pRes.json();
-                        preparingMsg = `fetching ${symbol} ${tfLabel(tf)} — ${p.pages_fetched ?? 0} pages · ${(p.candles_stored ?? 0).toLocaleString()} candles`;
-                        if (p.status === 'failed') {
-                            error = p.error ?? `Backfill failed for ${symbol} ${tfLabel(tf)}`;
-                            preparing = false;
-                            return false;
+                    for (const tf of tfs) {
+                        const row = rows.find(
+                            (r) => r.symbol === symbol && r.timeframe_secs === tf,
+                        );
+                        const covered = row ? Math.max(0, (row.latest_secs ?? 0) - (row.earliest_secs ?? 0)) : 0;
+                        // The archive itself only needs `depth` days; the
+                        // extra `burnIn` is handled by the historical runner
+                        // (it replays from `from-burnIn`). Requiring
+                        // `depth+burnIn` here would make every first run
+                        // re-backfill even when `depth` is covered.
+                        const required = depthDays * 86400;
+                        if (covered < required) {
+                            needsBackfill = true;
+                            break;
                         }
-                        if (p.status === 'done' || p.status === 'completed') break;
                     }
-                } catch (e: any) {
-                    error = e?.message ?? 'Backfill failed';
+                } else {
+                    needsBackfill = true;
+                }
+            } catch {
+                needsBackfill = true;
+            }
+            if (!needsBackfill) continue;
+            // Missing coverage: backfill the full ladder (standalone).
+            preparing = true;
+            preparingMsg = `fetching ${symbol} ${tfs.map(tfLabel).join('/')} history (${depthDays}d)…`;
+            try {
+                const res = await fetch('/api/backtest/archive/backfill', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                        exchange,
+                        symbol,
+                        timeframes: tfs,
+                        depth_days: depthDays,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = data?.error ?? (await readError(res, `Backfill failed for ${symbol}`));
+                    error = detail;
                     preparing = false;
                     return false;
                 }
+                const jobId = data.job_id;
+                // Poll until the job finishes.
+                for (let i = 0; i < 3600; i++) {
+                    await new Promise((r) => setTimeout(r, 1000));
+                    const pRes = await fetch(`/api/backtest/archive/progress/${jobId}`);
+                    if (!pRes.ok) break;
+                    const p = await pRes.json();
+                    preparingMsg = `fetching ${symbol} — ${p.pages_fetched ?? 0} pages · ${(p.candles_stored ?? 0).toLocaleString()} candles`;
+                    if (p.status === 'failed') {
+                        error = p.error ?? `Backfill failed for ${symbol}`;
+                        preparing = false;
+                        return false;
+                    }
+                    if (p.status === 'done' || p.status === 'completed') break;
+                }
+            } catch (e: any) {
+                error = e?.message ?? 'Backfill failed';
+                preparing = false;
+                return false;
             }
         }
         preparing = false;

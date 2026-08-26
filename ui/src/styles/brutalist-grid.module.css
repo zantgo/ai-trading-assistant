@@ -422,6 +422,23 @@
     background-color: var(--active);
 }
 
+.wipBadge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #000;
+    background: #eab308;
+    border: 1px solid #ca8a04;
+    border-radius: 999px;
+    padding: 1px 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+    cursor: help;
+    line-height: 1.2;
+}
+
 .sidebarDivider {
     height: 1px;
     background: var(--line);

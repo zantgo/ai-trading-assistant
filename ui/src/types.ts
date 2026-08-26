@@ -996,6 +996,11 @@ export interface InstanceState {
     showEmaMedium: boolean;
     showEmaSlow: boolean;
     showEmaLong: boolean;
+    /** LiveTerminal active timeframe (micro/fast/slow/macro) — persisted per-instance
+     *  so sub-minute selection survives Charts↔Metrics tab switches and engine
+     *  view unmounts (previously `activeTf` was local `$state('micro')` and
+     *  reset on every LiveTerminal remount, hiding the chosen 5s/15s TF). */
+    activeTf?: 'micro' | 'fast' | 'slow' | 'macro';
 }
 
 export interface ScaleInPortion {

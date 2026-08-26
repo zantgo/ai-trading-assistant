@@ -111,7 +111,6 @@
 
     function buildExport(): string {
         return buildEngineExport('backtesting', 'settings', null, {
-            archive_depth_days: depth,
             warmup_bars: warmupBars,
             store_input_bars: storeInputBars,
         });
@@ -141,44 +140,15 @@
         {:else}
             <div class={styles.card}>
                 <h3 class={styles.cardTitle} style="margin:0">
-                    Candle Archive
+                    Backtest Execution
                     <ConfigSourceChip source="config.toml → [workspace.backtest]" apply="LIVE" />
                 </h3>
                 <p class={styles.infoLine}>
-                    The archive depth bounds how far back the candle archive reaches AND how deep
-                    an on-demand backfill may page (1–365 days). Changing it applies live to the
-                    retention job and the backfill form; the run form can override it per backfill.
+                    Archive depth (1–365 days) is chosen per-run in the Backtest Launcher wizard
+                    (Historical Data step) — no global depth setting here. Warmup bars and
+                    input-bar persistence below still apply to every run.
                 </p>
                 <div class={styles.formRow}>
-                    <div class={styles.field} style="flex:2">
-                        <label for="bts-depth" class={styles.fieldLabel}>Archive Depth (days)</label>
-                        <div style="display:flex; align-items:center; gap:10px">
-                            <input
-                                type="range"
-                                min={MIN_DEPTH}
-                                max={MAX_DEPTH}
-                                step="1"
-                                value={depth}
-                                oninput={(e) => { depth = Number((e.currentTarget as HTMLInputElement).value); depthInput = String(depth); }}
-                                id="bts-depth" aria-label="Archive depth days"
-                                style="width:220px"
-                            />
-                            <input
-                                type="number"
-                                min={MIN_DEPTH}
-                                max={MAX_DEPTH}
-                                class={styles.fieldInput}
-                                style="width:86px;{depthInvalid ? 'border-color:#ef4444;color:#f87171' : ''}"
-                                bind:value={depthInput}
-                                onchange={commitDepth}
-                                aria-label="Archive depth days (typed)"
-                            />
-                            <span class={styles.fieldLabel}>days</span>
-                            {#if depthInvalid}
-                                <span class="{styles.alertBanner} {styles.alertError}" style="margin:0; padding:2px 8px">must be 1–365</span>
-                            {/if}
-                        </div>
-                    </div>
                     <div class={styles.field}>
                         <label for="bts-warmup" class={styles.fieldLabel}>Warmup Bars</label>
                         <input id="bts-warmup" type="number" bind:value={warmupBars} min="30" max="10000" class={styles.fieldInput} />

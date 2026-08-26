@@ -89,6 +89,9 @@
                 {/if}
                 <a href={buildEngineHash(engine.key)} class={sidebarItemClass(engine.key)} onclick={(e) => { handleNavClick(e); onnavigate(engine.key); }}>
                     <span class={styles.navIcon}><SvgIcon name={sidebarIconName(engine.key)} size={15} /></span>{engine.label}
+                    {#if engine.key === 'backtesting' && sessionMode === 'observe'}
+                        <span class={styles.wipBadge} title="work in progress">WIP</span>
+                    {/if}
                 </a>
             {/each}
         </div>
