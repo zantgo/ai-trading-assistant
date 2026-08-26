@@ -90,21 +90,31 @@ export function fetchIndicatorHistoryOnce(
                 if (existing && existing.times.length > 0) {
                     if (hist.times.length === 0) {
                         // Cold sub-minute server empty but live already has
-                        // candles (P0 keepalive) — keep live, preserve server
-                        // clusters/volumeProfiles if present.
-                        if (hist.clusters || hist.volumeProfiles) {
-                            existing.clusters = hist.clusters ?? existing.clusters;
-                            existing.volumeProfiles = hist.volumeProfiles ?? existing.volumeProfiles;
+                        // candles (P0 keepalive) — keep live. For >=60s,
+                        // empty server indicates bootstrap/handler failure;
+                        // don't mask it with a single live candle — keep
+                        // server empty so the chart can show "NO HISTORICAL
+                        // DATA" and retry, and CANDLE_DEBUG correctly flags
+                        // bootstrap500 false (Image 1). Preserve live only
+                        // for sub-minute where empty server is expected.
+                        if (timeframe < 60) {
+                            if (hist.clusters || hist.volumeProfiles) {
+                                existing.clusters = hist.clusters ?? existing.clusters;
+                                existing.volumeProfiles = hist.volumeProfiles ?? existing.volumeProfiles;
+                            }
+                            return existing;
                         }
-                        return existing;
-                    }
-                    const serverLast = hist.times[hist.times.length - 1] ?? -Infinity;
-                    const hasLiveTail = existing.times.some((t) => t > serverLast);
-                    if (hasLiveTail) {
-                        // Preserve live tail newer than server — delegate to
-                        // merge helper (caps at 1000, keeps indicator alignment).
-                        mergeHistoryRefresh(pairKey, timeframe, slot, hist);
-                        return historyData.get(key) ?? hist;
+                        // For >=60s, fall through to historyData.set(hist)
+                        // (empty) — let the caller see the empty state.
+                    } else {
+                        const serverLast = hist.times[hist.times.length - 1] ?? -Infinity;
+                        const hasLiveTail = existing.times.some((t) => t > serverLast);
+                        if (hasLiveTail) {
+                            // Preserve live tail newer than server — delegate to
+                            // merge helper (caps at 1000, keeps indicator alignment).
+                            mergeHistoryRefresh(pairKey, timeframe, slot, hist);
+                            return historyData.get(key) ?? hist;
+                        }
                     }
                 }
                 historyData.set(key, hist);
@@ -118,12 +128,15 @@ export function fetchIndicatorHistoryOnce(
     cache.set(key, promise);
     // Also populate historyData when promise resolves (covers already-pending).
     // Merge-aware so a live tail created during fetch is not erased.
+    // For sub-minute, empty server is expected (live-only), so keep live.
+    // For >=60s, empty server is a failure — don't mask with 1 live candle.
     promise.then((h) => {
         if (!h) return;
         const cur = historyData.get(key);
         if (!cur || cur === h) return;
-        // A live entry was created/mutated while fetching — don't overwrite blindly.
-        if (cur.times.length > 0 && h.times.length === 0) return;
+        if (cur.times.length > 0 && h.times.length === 0) {
+            if (timeframe < 60) return;
+        }
         if (cur.times.length > 0 && h.times.length > 0) {
             const serverLast = h.times[h.times.length - 1] ?? -Infinity;
             if (cur.times.some((t) => t > serverLast)) return;

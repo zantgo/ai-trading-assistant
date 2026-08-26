@@ -42,18 +42,23 @@ pub async fn serve_history(
             let mut snap_hist = pair
                 .snapshot_history_vec_for_slot_or_secs(query.slot.as_deref(), tf_secs)
                 .await;
-            // Sub-minute TFs: when the in-memory snapshot_history is empty
-            // (e.g. fresh daemon startup, no completed candles yet), fall back
-            // to the DB so the chart has OHLCV history on first mount — but
-            // only when there are real persisted rows for the requested TF.
+            // When the in-memory snapshot_history is empty (e.g. fresh daemon
+            // startup, bootstrap fetch failed, or no completed candles yet),
+            // fall back to the DB so the chart has OHLCV history on first
+            // mount — but only when there are real persisted rows for the
+            // requested TF. This now applies to ALL timeframes (including
+            // >=60s). Previously the gate was `tf_secs < 60` only, so a cold
+            // 1m/3m/5m/15m bootstrap failure returned 0/1 candles and the
+            // frontend merge kept live `1` (seen as "historic dont load"),
+            // while sub-minute's DB fallback masked the same backend hole.
             //
             // No synthetic flat-close candles are ever derived from the
             // next-larger TF: O=H=L=C candles render as a horizontal line
             // spanning the entire minute (the v6.9 "line of about 1 minute"
-            // regression). If neither in-memory nor DB has rows for the
-            // sub-minute TF, the chart gets an empty historical payload and
-            // the live WS stream fills it in within seconds.
-            if snap_hist.is_empty() && tf_secs < 60 {
+            // regression). If neither in-memory nor DB has rows for the TF,
+            // the chart gets an empty historical payload and the live WS
+            // stream fills it in within seconds.
+            if snap_hist.is_empty() {
                 let db_candles = database_storage::query_recent_candles(
                     &state.pool,
                     &pair_key,
@@ -83,6 +88,51 @@ pub async fn serve_history(
                         })
                         .collect();
                     snap_hist.append(&mut db_snaps);
+                }
+            } else if snap_hist.len() < 50 && tf_secs >= 60 {
+                // Tiny in-memory history (e.g. 1 live candle after a failed
+                // 1M bootstrap) — top up from DB so historic 500 loads
+                // (Image 1). Previously only `is_empty()` fell back, so a
+                // single live candle froze the chart at 1. Merge deduped by
+                // timestamp and keep most recent `limit`.
+                let db_candles = database_storage::query_recent_candles(
+                    &state.pool,
+                    &pair_key,
+                    tf_secs,
+                    limit as u32,
+                )
+                .await;
+                if !db_candles.is_empty() {
+                    use std::collections::BTreeMap;
+                    let mut map: BTreeMap<u64, core_domain::models::MarketSnapshot> = BTreeMap::new();
+                    for snap in snap_hist.drain(..) {
+                        map.insert(snap.timestamp, snap);
+                    }
+                    for c in db_candles.into_iter().rev() {
+                        let snap = core_domain::models::MarketSnapshot {
+                            symbol: pair_key.clone(),
+                            timeframe_secs: tf_secs,
+                            timestamp: c.start_time_ms / 1000,
+                            open: Some(c.open),
+                            high: Some(c.high),
+                            low: Some(c.low),
+                            close: Some(c.close),
+                            volume: Some(c.volume),
+                            mid_price: c.close,
+                            bid_price: Decimal::ZERO,
+                            ask_price: Decimal::ZERO,
+                            exchange: Some(c.exchange),
+                            is_completed: Some(true),
+                            ..Default::default()
+                        };
+                        map.entry(snap.timestamp).or_insert(snap);
+                    }
+                    let mut merged: Vec<core_domain::models::MarketSnapshot> = map.into_values().collect();
+                    // Keep most recent `limit`.
+                    if merged.len() > limit {
+                        merged = merged.split_off(merged.len() - limit);
+                    }
+                    snap_hist = merged;
                 }
             }
             snap_hist.truncate(limit);

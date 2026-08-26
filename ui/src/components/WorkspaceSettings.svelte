@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from 'svelte';
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
     import type { InstanceState, TimeframeTelemetry } from '../types';
@@ -312,14 +313,29 @@
     let baseline = $state('');
 
     $effect(() => {
+        // Depend on pair identity and config load — NOT on draft/tfDraft
+        // (those are read inside untrack). Previously this effect tracked
+        // `snapshotKey()` → draft, so every keystroke overwrote `baseline`
+        // with the new snapshot and `dirty` never became true (Image 2).
         if (!pair || !cfgLoaded) return;
-        baseline = snapshotKey();
+        // Use pair.symbol + instanceId as stable identity trigger; reading
+        // `pair` reference alone is enough but be explicit.
+        void pair.symbol;
+        void pair.instanceId;
+        untrack(() => {
+            baseline = snapshotKey();
+            // Reset button state when switching pairs / initial load.
+            // `save()` will set `saved` → `idle` via timeout; this just
+            // clears a stale `dirty` from the previous pair.
+            if (saveState === 'dirty') saveState = 'idle';
+        });
     });
 
-    const dirty = $derived(snapshotKey() !== baseline);
+    const dirty = $derived(baseline !== '' && snapshotKey() !== baseline);
 
     $effect(() => {
-        if (dirty && saveState !== 'saving' && saveState !== 'error') saveState = 'dirty';
+        if (dirty && saveState !== 'saving' && saveState !== 'error' && saveState !== 'dirty') saveState = 'dirty';
+        else if (!dirty && saveState === 'dirty') saveState = 'idle';
     });
 
     let calculatedAutomationInterval = $derived.by(() => {

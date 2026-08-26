@@ -376,41 +376,95 @@
      // completed WS candle) without any network refetch, so the develop
      // improvements (slot-aware caches, live ingestion, reconnect purge)
      // are kept while the overlay behavior matches the main branch again.
-     if (hasWarmCache) {
-        const warmHist = getResolvedHistory(pairKey, timeframe, slot);
-        if (warmHist && warmHist.times.length > 0) {
-            seedOverlaysFromHistory(warmHist, Math.min(warmHist.times.length, seedCountFor(timeframe)));
-            historyCluster = warmHist.clusters?.[slot] as LiquidationClusterMatrix | null;
-            historyVolumeProfile = warmHist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
-            const warmLast = lastHistoricalTime(warmHist);
-            if (warmLast != null && warmLast > _lastHistoryTime) _lastHistoryTime = warmLast;
-            // Re-anchor to the most recent seed window, exactly like the
-            // main branch's post-refetch anchor.
-            anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
-            // Preserve-in-background: the seed is synchronous, so live
-            // coalescer updates can resume immediately.
-            _bootstrapComplete = true;
-        } else {
-            // Candle cache warm but no resolved indicator history yet
-            // (pure `appendLiveCandle` accumulation, e.g. a live-built
-            // 1s cache after a purge). Fetch in background — the promise
-            // cache dedupes and live ingestion may already have primed
-            // it — and seed once it lands, mirroring the cold path.
-            fetchIndicatorHistoryOnce(pairKey, timeframe, slot)
-                .then((hist) => {
-                    if (cancelled || !hist) { _bootstrapComplete = true; return; }
-                    seedOverlaysFromHistory(hist, Math.min(hist.times.length, seedCountFor(timeframe)));
-                    historyCluster = hist.clusters?.[slot] as LiquidationClusterMatrix | null;
-                    historyVolumeProfile = hist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
-                    const fetchedLast = lastHistoricalTime(hist);
-                    if (fetchedLast != null && fetchedLast > _lastHistoryTime) _lastHistoryTime = fetchedLast;
-                    anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
-                    _bootstrapComplete = true;
-                })
-                .catch(() => { _bootstrapComplete = true; });
-        }
-        return () => { cancelled = true; };
-     }
+      if (hasWarmCache) {
+         const warmHist = getResolvedHistory(pairKey, timeframe, slot);
+         // For >=60s, a tiny warm cache (e.g. 1 live candle after a failed
+         // 1M bootstrap) must NOT be treated as warm — otherwise the chart
+         // freezes at 1 candle and historic 500 is never fetched (Image 1).
+         // Require at least 50 candles for >=60s to be considered warm; sub-
+         // minute (1s) live-only is expected to be small (50-77 after a minute
+         // is fine) and should stay warm.
+         const warmEnough = warmHist
+             ? (timeframe < 60 ? warmHist.times.length > 0 : warmHist.times.length >= 50)
+             : false;
+         if (warmHist && warmHist.times.length > 0 && warmEnough) {
+              seedOverlaysFromHistory(warmHist, Math.min(warmHist.times.length, seedCountFor(timeframe)));
+              historyCluster = warmHist.clusters?.[slot] as LiquidationClusterMatrix | null;
+              historyVolumeProfile = warmHist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
+              const warmLast = lastHistoricalTime(warmHist);
+              if (warmLast != null && warmLast > _lastHistoryTime) _lastHistoryTime = warmLast;
+              // Re-anchor to the most recent seed window, exactly like the
+              // main branch's post-refetch anchor.
+              anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
+              // Preserve-in-background: the seed is synchronous, so live
+              // coalescer updates can resume immediately.
+              _bootstrapComplete = true;
+              return () => { cancelled = true; };
+          } else if (warmHist && warmHist.times.length > 0 && !warmEnough) {
+              // Tiny warm cache for >=60s (e.g. 1 candle after failed 1M
+              // bootstrap) — paint it immediately and trigger background
+              // fetch for historic 500 without blocking live updates.
+              // Live must stay unblocked while historic loads.
+              seedOverlaysFromHistory(warmHist, Math.min(warmHist.times.length, seedCountFor(timeframe)));
+              const warmLast = lastHistoricalTime(warmHist);
+              if (warmLast != null && warmLast > _lastHistoryTime) _lastHistoryTime = warmLast;
+              anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
+              _bootstrapComplete = true;
+              // Background fetch historic 500 — will be merged with live tail
+              // (indicatorHistory.ts) and repaint via setData.
+              fetchIndicatorHistoryOnce(pairKey, timeframe, slot)
+                  .then((hist) => {
+                      if (cancelled || !hist || hist.times.length === 0) return;
+                      // Only update if server has substantially more history
+                      // than the tiny live cache (avoid overwriting live 1
+                      // with server 1 when bootstrap still failed).
+                      if (hist.times.length <= warmHist.times.length) return;
+                      const step = tf?.barDurationSec || 60;
+                      const seenTimes = new Set<number>();
+                      const historicalCandles: CandleOHLCV[] = [];
+                      for (let i = 0; i < hist.candleTimes.length; i++) {
+                          const t = hist.candleTimes[i]; const o = hist.candles.open[i];
+                          const h = hist.candles.high[i]; const l = hist.candles.low[i]; const c = hist.candles.close[i];
+                          if (t == null || o == null) continue; if (seenTimes.has(t)) continue; seenTimes.add(t);
+                          historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c, reconstructed: hist.candleReconstructed?.[i] });
+                      }
+                      historicalCandles.sort((a,b)=>Number(a.time)-Number(b.time));
+                      const hasServerGapFill = historicalCandles.some(c=>!!c.reconstructed);
+                      const paintCandles = hasServerGapFill ? historicalCandles : buildPaintCandles(historicalCandles, step);
+                      setCachedCandles(pairKey, timeframe, paintCandles, slot);
+                      const visibleCap = Math.min(paintCandles.length, seedCountFor(timeframe));
+                      const recentCandles = paintCandles.slice(-visibleCap);
+                      if (recentCandles.length>0 && candleSeries && priceLineSeries) {
+                          candleSeries.setData(recentCandles);
+                          priceLineSeries.setData(recentCandles.map(c=>({time:c.time, value:c.close})));
+                          _lastHistoryTime = Number(recentCandles[recentCandles.length-1].time);
+                          anchorViewportToLast(_lastHistoryTime);
+                          seedOverlaysFromHistory(hist, visibleCap);
+                      }
+                  })
+                  .catch(() => {});
+              return () => { cancelled = true; };
+          } else {
+             // Candle cache warm but no resolved indicator history yet
+             // (pure `appendLiveCandle` accumulation, e.g. a live-built
+             // 1s cache after a purge). Fetch in background — the promise
+             // cache dedupes and live ingestion may already have primed
+             // it — and seed once it lands, mirroring the cold path.
+             fetchIndicatorHistoryOnce(pairKey, timeframe, slot)
+                 .then((hist) => {
+                     if (cancelled || !hist) { _bootstrapComplete = true; return; }
+                     seedOverlaysFromHistory(hist, Math.min(hist.times.length, seedCountFor(timeframe)));
+                     historyCluster = hist.clusters?.[slot] as LiquidationClusterMatrix | null;
+                     historyVolumeProfile = hist.volumeProfiles?.[slot] as VolumeProfileSnapshot | null;
+                     const fetchedLast = lastHistoricalTime(hist);
+                     if (fetchedLast != null && fetchedLast > _lastHistoryTime) _lastHistoryTime = fetchedLast;
+                     anchorViewportToLast(Math.max(_lastHistoryTime, cachedLastTime));
+                     _bootstrapComplete = true;
+                 })
+                 .catch(() => { _bootstrapComplete = true; });
+              return () => { cancelled = true; };
+         }
+      }
       (async () => {
           try {
               // SUB-MINUTE RACE FIX: if a live tail was already primed via
@@ -450,6 +504,11 @@
                           }
                       }
                   } catch {}
+                  // Unblock live coalescer immediately — historic fetch may take
+                  // 0.5-2s, during which sub-minute 1s candles would appear
+                  // frozen (debug 33 but chart dashes). Live must tick while
+                  // historic loads in background.
+                  _bootstrapComplete = true;
               }
               const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe, slot);
             if (cancelled || !hist) { _bootstrapComplete = true; return; }
