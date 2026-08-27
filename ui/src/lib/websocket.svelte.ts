@@ -596,30 +596,17 @@ export function connectWebsocketForTimeframe(
         // the first caller after the purge actually re-requests).
         const bo = state.backoff[wsKey];
         if (bo.retries > 0) {
-            // Atomic purge across all 4 slots for this pair — backend
-            // rebuilds all pipelines on restart, so a per-slot staggered
-            // purge left `micro` refetching while `fast` still showed
-            // pre-restart warm cache (mixed stale/live view for ≤30s).
-            // Purging all slots at first reconnect restores consistency.
+            // Third-structure: per-slot purge, preserve <60 liveRing.
+            // Backend rebuilds all pipelines on restart, but <60 is live-only (PRI-08) — wiping its
+            // 1s ring loses 77 bars of live accumulation. Only purge the reconnecting slot.
+            // For >=60 durable history, purge historicalStore; for <60 keep liveRing.
             try {
-                const p = app.instancesMap[symbol];
-                if (p) {
-                    const slots: Array<{ tf: typeof p.microTerm; secs: number; slot: typeof tf.slot }> = [
-                        { tf: p.microTerm, secs: p.microTerm.barDurationSec, slot: 'micro' as const },
-                        { tf: p.fastTerm, secs: p.fastTerm.barDurationSec, slot: 'fast' as const },
-                        { tf: p.slowTerm, secs: p.slowTerm.barDurationSec, slot: 'slow' as const },
-                        { tf: p.macroTerm, secs: p.macroTerm.barDurationSec, slot: 'macro' as const },
-                    ];
-                    for (const s of slots) {
-                        purgeCacheForKey(symbol, s.secs, s.slot);
-                        purgeCandleCacheForKey(symbol, s.secs, s.slot);
-                        (s.tf as unknown as Record<string, unknown>).liveCandleCache = [];
-                        (s.tf as unknown as Record<string, unknown>).liveHistoryCount = 0;
-                    }
-                } else {
-                    // Fallback: at least purge this slot if pair not yet in store
-                    purgeCacheForKey(symbol, tfSecs, tf.slot);
-                    purgeCandleCacheForKey(symbol, tfSecs, tf.slot);
+                purgeCacheForKey(symbol, tfSecs, tf.slot);
+                purgeCandleCacheForKey(symbol, tfSecs, tf.slot);
+                // Only clear AppStore live mirror for >=60 (durable); keep <60 live
+                if (tfSecs >= 60) {
+                    (tf as unknown as Record<string, unknown>).liveCandleCache = [];
+                    (tf as unknown as Record<string, unknown>).liveHistoryCount = 0;
                 }
             } catch {
                 purgeCacheForKey(symbol, tfSecs, tf.slot);

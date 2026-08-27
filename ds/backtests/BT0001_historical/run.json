@@ -3,12 +3,12 @@
   "mode": "historical",
   "params": {
     "exchange": "Hyperliquid",
-    "from_secs": 1787550067,
+    "from_secs": 1787650953,
     "portfolio_capital_usd": 1000.0,
     "strategy_id": "default",
     "symbol": "BTC-USDC",
     "timeframe_secs": 300,
-    "to_secs": 1787766067
+    "to_secs": 1787780553
   },
   "stats": {
     "alpha": 0.05,

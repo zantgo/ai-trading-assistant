@@ -241,15 +241,15 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18cf77b845bdf5f7"
-symbol = "ETH-USDT"
-quote = "USDT"
+id = "inst_18cf82decb940ec3"
+symbol = "BTC-USDC"
+quote = "USDC"
 status = "running"
 operational_mode = "advisory"
 mode = "observe"
 
 [workspace.instances.micro_term.candles]
-duration_seconds = 60
+duration_seconds = 1
 
 [workspace.instances.micro_term.indicators]
 ema_fast = 10
@@ -341,7 +341,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.fast_term.candles]
-duration_seconds = 180
+duration_seconds = 3
 
 [workspace.instances.fast_term.indicators]
 ema_fast = 10
@@ -433,7 +433,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.slow_term.candles]
-duration_seconds = 300
+duration_seconds = 5
 
 [workspace.instances.slow_term.indicators]
 ema_fast = 10
@@ -525,7 +525,7 @@ weights = [
 min_cluster_notional_usd = 50000.0
 
 [workspace.instances.macro_term.candles]
-duration_seconds = 900
+duration_seconds = 15
 
 [workspace.instances.macro_term.indicators]
 ema_fast = 10
@@ -620,6 +620,14 @@ min_cluster_notional_usd = 50000.0
 enabled = false
 interval_seconds = 900
 max_opposite_exit_signals = 5
+
+[workspace.instances.activation]
+disabled_indicators = []
+disabled_signals = []
+disabled_signal_kinds = []
+liquidation_feed = true
+cluster_estimation = true
+liquidity_signals_enabled = true
 
 [workspace.instances.custom_pipelines]
 
@@ -734,14 +742,14 @@ oi_funding_divergence_pct = 2.0
 min_cluster_notional_usd = 50000.0
 
 [workspace.strategies.l1_5.signal_confidences]
-CASCADE_SUSTAINED = 0.9
-CASCADE_EXHAUSTED = 0.7
-OI_FUNDING_DIVERGENCE = 0.7
-OI_PRICE_DIVERGENCE = 0.7
-LIQUIDITY_VACUUM = 0.6
-FUNDING_EXTREME = 0.95
-CASCADE_DETECTED = 0.8
 FUNDING_FLIP = 0.75
+CASCADE_EXHAUSTED = 0.7
+CASCADE_SUSTAINED = 0.9
+LIQUIDITY_VACUUM = 0.6
+CASCADE_DETECTED = 0.8
+OI_FUNDING_DIVERGENCE = 0.7
+FUNDING_EXTREME = 0.95
+OI_PRICE_DIVERGENCE = 0.7
 
 [workspace.strategies.l1_5.signal_weights]
 
@@ -791,9 +799,9 @@ ceil = 1.0
 
 [workspace.strategies.l2.tf_weighting.weights]
 macro = 1.0
-slow = 0.333
-fast = 0.2
 micro = 0.2
+fast = 0.2
+slow = 0.333
 
 [workspace.strategies.l2.overall_blend]
 trend = 0.5
@@ -815,16 +823,16 @@ volume = 0.05
 min_tfs = 2
 
 [workspace.strategies.l2.dimension_mask]
-trend = true
-confidence = true
-volatility = true
-volume = true
-liquidity = true
-momentum = true
-tradability = true
-structure = true
 signal = true
 regime = true
+confidence = true
+tradability = true
+trend = true
+structure = true
+liquidity = true
+volume = true
+momentum = true
+volatility = true
 
 [workspace.strategies.l2.states]
 signed = [
@@ -1058,8 +1066,8 @@ threshold = 70.0
 low = 1.5
 
 [workspace.strategies.l4.zones.invalidation_weights]
-fib_0786 = 0.5
 vp_val = 0.4
+fib_0786 = 0.5
 
 [workspace.strategies.l4.zones.range_frame]
 entry_half_atr = 0.2
@@ -1073,11 +1081,11 @@ scalp = 1.5
 
 [workspace.strategies.l4.confluence_weights]
 volume_profile = 0.3
+fibonacci = 0.25
 support_resistance = 0.2
-pivot_points = 0.15
 liquidation_cluster = 0.1
 atr_fallback = 0.05
-fibonacci = 0.25
+pivot_points = 0.15
 
 [workspace.strategies.l4.costs]
 taker_fee_bps = 6.0
@@ -1094,14 +1102,14 @@ bands = [
 state_delta = 10.0
 
 [workspace.strategies.l5.overall_weights]
+market = 0.14
 volatility = 0.14
 structure = 0.1
 execution_liquidity = 0.14
-signal = 0.1
-market = 0.14
-execution = 0.1
-cascade = 0.14
 momentum = 0.14
+signal = 0.1
+cascade = 0.14
+execution = 0.1
 
 [workspace.strategies.l5.dimensions.market]
 baseline = 50.0
@@ -1254,11 +1262,11 @@ blend = [
 ]
 
 [workspace.strategies.l6.entry_danger.quality_penalties]
-Weak = 70.0
-Poor = 80.0
-Average = 50.0
-Good = 25.0
 Excellent = 10.0
+Weak = 70.0
+Average = 50.0
+Poor = 80.0
+Good = 25.0
 
 [workspace.strategies.l6.readiness]
 aside_max = 20.0
@@ -1320,16 +1328,16 @@ cascade_index_fallback = 50.0
 entry_veto_threshold = 80.0
 
 [workspace.strategies.l7.systemic.sync_penalty]
-highly_synchronized = 100.0
 mixed = 30.0
-synchronized = 60.0
-highly_fragmented = 0.0
 fragmented = 10.0
+synchronized = 60.0
+highly_synchronized = 100.0
+highly_fragmented = 0.0
 
 [workspace.strategies.l7.systemic.tf_decay]
-macro = 0.4
-micro = 0.1
 slow = 0.3
+micro = 0.1
+macro = 0.4
 fast = 0.2
 
 [workspace.strategies.l7.asset_rank]

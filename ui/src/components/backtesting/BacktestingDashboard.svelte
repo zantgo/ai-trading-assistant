@@ -144,7 +144,12 @@
         if (!inst) return;
         try {
             const url = `/api/backtest/coverage?instance_id=${encodeURIComponent(inst.id)}`;
-            const res = await fetch(url);
+            let res = await fetch(url);
+            if (res.status === 429) {
+                const ra = Number(res.headers.get('Retry-After') ?? '1');
+                await new Promise((r) => setTimeout(r, (isFinite(ra) ? ra : 1) * 1100));
+                res = await fetch(url);
+            }
             if (res.ok) {
                 const data = await res.json();
                 coverage = data.archive ?? [];
@@ -154,6 +159,11 @@
                     ladder = data.ladder;
                 }
                 coverageError = '';
+            } else if (res.status === 429) {
+                // Still rate-limited after retry — keep last coverage, don't spam error
+                coverageError = 'Server busy (429): rate limit hit for coverage. Retrying…';
+                await new Promise((r) => setTimeout(r, 2000));
+                void fetchCoverage();
             } else {
                 coverageError = 'Coverage fetch failed: HTTP ' + res.status;
             }

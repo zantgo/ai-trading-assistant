@@ -251,10 +251,21 @@
             // If any TF lacks coverage we backfill the whole 4-TF ladder in a
             // single standalone request (backend requires timeframes.len()==4).
             let needsBackfill = false;
+            let coverageRes: Response | null = null;
             try {
-                const res = await fetch(
+                let res = await fetch(
                     `/api/backtest/coverage?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
                 );
+                // 429 is transient (global 30/s limiter) — retry once after
+                // Retry-After. Do NOT treat it as "needs backfill".
+                if (res.status === 429) {
+                    const ra = Number(res.headers.get('Retry-After') ?? '1');
+                    await new Promise((r) => setTimeout(r, (isFinite(ra) ? ra : 1) * 1100));
+                    res = await fetch(
+                        `/api/backtest/coverage?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
+                    );
+                }
+                coverageRes = res;
                 if (res.ok) {
                     const data = await res.json();
                     const rows: any[] = data?.archive ?? [];
@@ -274,6 +285,12 @@
                             break;
                         }
                     }
+                } else if (res.status === 429) {
+                    // Still 429 after retry — surface as rate-limit, not
+                    // generic backfill failure, so user retries manually.
+                    error = `Server busy (429): rate limit hit while checking ${symbol} coverage. Please wait a second and press Run again.`;
+                    preparing = false;
+                    return false;
                 } else {
                     needsBackfill = true;
                 }
@@ -285,7 +302,7 @@
             preparing = true;
             preparingMsg = `fetching ${symbol} ${tfs.map(tfLabel).join('/')} history (${depthDays}d)…`;
             try {
-                const res = await fetch('/api/backtest/archive/backfill', {
+                let res: Response = await fetch('/api/backtest/archive/backfill', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({
@@ -295,18 +312,42 @@
                         depth_days: depthDays,
                     }),
                 });
+                // 429 on POST is also transient — retry once
+                if (res.status === 429) {
+                    const ra = Number(res.headers.get('Retry-After') ?? '1');
+                    await new Promise((r) => setTimeout(r, (isFinite(ra) ? ra : 1) * 1100));
+                    res = await fetch('/api/backtest/archive/backfill', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                            exchange,
+                            symbol,
+                            timeframes: tfs,
+                            depth_days: depthDays,
+                        }),
+                    });
+                }
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    const detail = data?.error ?? (await readError(res, `Backfill failed for ${symbol}`));
-                    error = detail;
+                    if (res.status === 429) {
+                        error = `Server busy (429): rate limit hit while starting backfill for ${symbol}. Please wait a second and press Run again.`;
+                    } else {
+                        const detail = data?.error ?? (await readError(res, `Backfill failed for ${symbol}`));
+                        error = detail;
+                    }
                     preparing = false;
                     return false;
                 }
                 const jobId = data.job_id;
-                // Poll until the job finishes.
+                // Poll until the job finishes (429 on progress is transient).
                 for (let i = 0; i < 3600; i++) {
                     await new Promise((r) => setTimeout(r, 1000));
-                    const pRes = await fetch(`/api/backtest/archive/progress/${jobId}`);
+                    let pRes = await fetch(`/api/backtest/archive/progress/${jobId}`);
+                    if (pRes.status === 429) {
+                        const ra = Number(pRes.headers.get('Retry-After') ?? '1');
+                        await new Promise((r) => setTimeout(r, (isFinite(ra) ? ra : 1) * 1100));
+                        pRes = await fetch(`/api/backtest/archive/progress/${jobId}`);
+                    }
                     if (!pRes.ok) break;
                     const p = await pRes.json();
                     preparingMsg = `fetching ${symbol} — ${p.pages_fetched ?? 0} pages · ${(p.candles_stored ?? 0).toLocaleString()} candles`;
@@ -322,6 +363,9 @@
                 preparing = false;
                 return false;
             }
+            // Small stagger between symbols so sequential coverage+backfill
+            // bursts don't hit the 30/s window when N>1.
+            if (instances.length > 1) await new Promise((r) => setTimeout(r, 250));
         }
         preparing = false;
         return true;

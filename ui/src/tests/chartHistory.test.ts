@@ -412,10 +412,13 @@ describe('indicatorHistory (unified)', () => {
                     quality_envelope: { is_gap_filled: false },
                 } as unknown as Record<string, unknown>);
             }
-            // Warm remount inputs: candle cache + resolved history both
-            // hold the historical tail AND the live-appended bars.
+            // Third-structure: historical cache holds durable 3, liveRing holds 2, reconciled holds 5
             const cached = getCachedCandles(pairKey, tf, slot);
-            expect(cached!.length).toBe(5);
+            expect(cached!.length).toBe(3);
+            // LiveRing holds the live tail for >=60 (not polluting historical cache)
+            const { getLiveCandles } = await import('../lib/chartData/liveRing');
+            const liveCandles = getLiveCandles(pairKey, tf, slot);
+            expect(liveCandles!.length).toBe(2);
             const resolved = getResolvedHistory(pairKey, tf, slot);
             expect(resolved).not.toBeNull();
             expect(resolved!.times).toHaveLength(5);

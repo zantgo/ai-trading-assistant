@@ -12,6 +12,9 @@
 // fetch passes `timeframe_secs` verbatim; no minute-rounding floor.
 
 import type { Time } from 'lightweight-charts';
+import * as HistoricalStore from './chartData/historicalStore';
+import * as LiveRing from './chartData/liveRing';
+import { reconcile, normalizeHistoryForStore } from './chartData/reconciledView';
 
 /// Aligned time axis + per-field value arrays. `values` is keyed by:
 ///   "<indicatorKey>"                 — single-raw indicators (rsi, cci, obv, ...)
@@ -66,84 +69,149 @@ export function fetchIndicatorHistoryOnce(
     pairKey: string,
     timeframe: number,
     slot?: string,
+    force: boolean = false,
 ): Promise<IndicatorFlatHistory | null> {
     if (!pairKey || !timeframe) return Promise.resolve(null);
     const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
-    const cached = cache.get(key);
-    if (cached) return cached;
 
-    const promise = (async (): Promise<IndicatorFlatHistory | null> => {
-        try {
-            const slotParam = slot ? `&slot=${encodeURIComponent(slot)}` : '';
-            const res = await fetch(
-                `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
-            );
-            if (!res.ok) return null;
-            const raw = await res.json() as RawResponse;
-            const hist = normalizeHistory(raw);
-            // Keep mutable reference for live ingestion (P0).
-            // FIX: sub-minute live tail race — if `ingestLiveSnapshot` already
-            // created a live-mutated entry while we were fetching (cold 1s
-            // start, server empty/stale), don't clobber it. Merge instead.
-            if (hist) {
-                const existing = historyData.get(key);
-                if (existing && existing.times.length > 0) {
-                    if (hist.times.length === 0) {
-                        // Cold sub-minute server empty but live already has
-                        // candles (P0 keepalive) — keep live. For >=60s,
-                        // empty server indicates bootstrap/handler failure;
-                        // don't mask it with a single live candle — keep
-                        // server empty so the chart can show "NO HISTORICAL
-                        // DATA" and retry, and CANDLE_DEBUG correctly flags
-                        // bootstrap500 false (Image 1). Preserve live only
-                        // for sub-minute where empty server is expected.
-                        if (timeframe < 60) {
+    // ── Third-structure dispatch: <60 live-only vs >=60 durable ──
+    // <60: liveRing authoritative, fetch is best-effort (empty expected) and preserves live tail
+    // >=60: historicalStore durable + liveRing tail via reconciledView, no polluted live priming
+    if (timeframe < 60) {
+        if (!force) {
+            const cached = cache.get(key);
+            if (cached) return cached;
+        } else {
+            cache.delete(key);
+        }
+        const promise = (async (): Promise<IndicatorFlatHistory | null> => {
+            try {
+                const slotParam = slot ? `&slot=${encodeURIComponent(slot)}` : '';
+                const res = await fetch(
+                    `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000${slotParam}`,
+                );
+                if (!res.ok) return null;
+                const raw = (await res.json()) as RawResponse;
+                const hist = normalizeHistory(raw);
+                // Preserve live tail for sub-minute (empty server expected)
+                const live = LiveRing.getLiveHistory(pairKey, timeframe, slot) ?? historyData.get(key);
+                if (hist) {
+                    if (live && live.times.length > 0) {
+                        if (hist.times.length === 0) {
                             if (hist.clusters || hist.volumeProfiles) {
-                                existing.clusters = hist.clusters ?? existing.clusters;
-                                existing.volumeProfiles = hist.volumeProfiles ?? existing.volumeProfiles;
+                                live.clusters = hist.clusters ?? live.clusters;
+                                live.volumeProfiles = hist.volumeProfiles ?? live.volumeProfiles;
                             }
-                            return existing;
+                            return live;
                         }
-                        // For >=60s, fall through to historyData.set(hist)
-                        // (empty) — let the caller see the empty state.
-                    } else {
                         const serverLast = hist.times[hist.times.length - 1] ?? -Infinity;
-                        const hasLiveTail = existing.times.some((t) => t > serverLast);
+                        const hasLiveTail = live.times.some((t) => t > serverLast);
                         if (hasLiveTail) {
-                            // Preserve live tail newer than server — delegate to
-                            // merge helper (caps at 1000, keeps indicator alignment).
-                            mergeHistoryRefresh(pairKey, timeframe, slot, hist);
-                            return historyData.get(key) ?? hist;
+                            const merged = reconcile(hist, live);
+                            if (merged) {
+                                historyData.set(key, merged);
+                                return merged;
+                            }
                         }
                     }
+                    historyData.set(key, hist);
                 }
-                historyData.set(key, hist);
+                return hist;
+            } catch (err) {
+                console.error('indicatorHistory fetch failed', err);
+                return null;
             }
-            return hist;
-        } catch (err) {
-            console.error('indicatorHistory fetch failed', err);
-            return null;
+        })();
+        cache.set(key, promise);
+        promise.then((h) => {
+            if (!h) return;
+            const cur = LiveRing.getLiveHistory(pairKey, timeframe, slot) ?? historyData.get(key);
+            if (!cur || cur === h) return;
+            if (cur.times.length > 0 && h.times.length === 0) return;
+            if (cur.times.length > 0 && h.times.length > 0) {
+                const serverLast = h.times[h.times.length - 1] ?? -Infinity;
+                if (cur.times.some((t) => t > serverLast)) return;
+            }
+            historyData.set(key, h);
+        });
+        return promise;
+    }
+
+    // >=60 durable path — use HistoricalStore + LiveRing reconciled
+    if (!force) {
+        const cached = cache.get(key);
+        const histCached = HistoricalStore._getCache().get(key);
+        // If we have a facade cached promise that already reconciled, return it
+        if (cached && histCached) {
+            const hist = HistoricalStore.getHistorical(pairKey, timeframe, slot);
+            const live = LiveRing.getLiveHistory(pairKey, timeframe, slot);
+            if (hist && live && live.times.length > 0) {
+                const serverLast = hist.times[hist.times.length - 1] ?? -Infinity;
+                const hasLiveTail = live.times.some((t) => t > serverLast);
+                if (hasLiveTail) {
+                    const merged = reconcile(hist, live);
+                    if (merged) {
+                        historyData.set(key, merged);
+                        const mergedPromise = Promise.resolve(merged);
+                        cache.set(key, mergedPromise);
+                        return mergedPromise;
+                    }
+                }
+            }
+            return cached;
         }
-    })();
-    cache.set(key, promise);
-    // Also populate historyData when promise resolves (covers already-pending).
-    // Merge-aware so a live tail created during fetch is not erased.
-    // For sub-minute, empty server is expected (live-only), so keep live.
-    // For >=60s, empty server is a failure — don't mask with 1 live candle.
-    promise.then((h) => {
-        if (!h) return;
-        const cur = historyData.get(key);
-        if (!cur || cur === h) return;
-        if (cur.times.length > 0 && h.times.length === 0) {
-            if (timeframe < 60) return;
+        if (cached) {
+            // Old polluted tiny live cache without historical — bypass
+            const existing = historyData.get(key);
+            const histExisting = HistoricalStore.getHistorical(pairKey, timeframe, slot);
+            if (existing && existing.times.length > 0 && existing.times.length < 50 && !histExisting) {
+                cache.delete(key);
+                historyData.delete(key);
+            } else {
+                return cached;
+            }
         }
-        if (cur.times.length > 0 && h.times.length > 0) {
-            const serverLast = h.times[h.times.length - 1] ?? -Infinity;
-            if (cur.times.some((t) => t > serverLast)) return;
+        if (histCached) {
+            // HistoricalStore has it but facade not yet reconciled — return reconciled
+            return histCached.then((hist) => {
+                if (!hist) return hist;
+                const live = LiveRing.getLiveHistory(pairKey, timeframe, slot);
+                let result: IndicatorFlatHistory | null = hist;
+                if (live && live.times.length > 0) {
+                    const merged = reconcile(hist, live);
+                    if (merged) result = merged;
+                }
+                if (result) {
+                    historyData.set(key, result);
+                    cache.set(key, Promise.resolve(result));
+                }
+                return result;
+            });
         }
-        historyData.set(key, h);
+    } else {
+        HistoricalStore.purgeHistorical(pairKey, timeframe, slot);
+        cache.delete(key);
+        historyData.delete(key);
+    }
+
+    const histPromise = HistoricalStore.fetchHistorical(pairKey, timeframe, slot);
+    const reconciledPromise = histPromise.then((hist) => {
+        if (!hist) return hist;
+        const live = LiveRing.getLiveHistory(pairKey, timeframe, slot);
+        let result: IndicatorFlatHistory | null = hist;
+        if (live && live.times.length > 0) {
+            const merged = reconcile(hist, live);
+            if (merged) result = merged;
+        }
+        if (result) {
+            historyData.set(key, result);
+            // Keep facade cache in sync for single-flight
+            cache.set(key, Promise.resolve(result));
+        }
+        return result;
     });
-    return promise;
+    cache.set(key, reconciledPromise);
+    return reconciledPromise;
 }
 
 /// Test hook / daemon restart: drops the in-memory cache so subsequent
@@ -151,12 +219,16 @@ export function fetchIndicatorHistoryOnce(
 export function clearHistoryCache(): void {
     cache.clear();
     historyData.clear();
+    HistoricalStore.clearHistorical();
+    LiveRing.clearLive();
 }
 
 export function purgeCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
     const k = `${pairKey}@${slot ?? '?'}@${timeframe}`;
     cache.delete(k);
     historyData.delete(k);
+    HistoricalStore.purgeHistorical(pairKey, timeframe, slot);
+    LiveRing.purgeLive(pairKey, timeframe, slot);
 }
 
 /// P0 fix: live ingestion for sub-minute history preservation.
@@ -171,118 +243,53 @@ export function ingestLiveSnapshot(
     slot: string | undefined,
     snapshot: Record<string, unknown>,
 ): void {
-    if (!pairKey || !timeframe) return;
+    // Third-structure: LiveRing is primary live store. Delegate and keep facade in sync for <60 only.
+    LiveRing.ingestLive(pairKey, timeframe, slot, snapshot);
     const isCompleted = snapshot.is_completed === true;
     if (!isCompleted) return;
+    if (!pairKey || !timeframe) return;
     const tsRaw = snapshot.timestamp;
     const ts = typeof tsRaw === 'number' ? tsRaw : Number(tsRaw ?? 0);
     if (!Number.isFinite(ts) || ts <= 0) return;
     const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
-    let hist = historyData.get(key);
-    // Cold path: no history yet (initial fetch empty or not yet fetched).
-    // Create a fresh history so live candles are not lost on the next remount.
-    if (!hist) {
-        hist = {
-            times: [],
-            values: {},
-            candleTimes: [],
-            candles: { open: [], high: [], low: [], close: [], volume: [] },
-            candleReconstructed: [],
-            fetchedAtMs: Date.now(),
-        };
-        historyData.set(key, hist);
-        // Prime the promise cache with the live-built history so
-        // `fetchIndicatorHistoryOnce` returns it without a network roundtrip.
-        cache.set(key, Promise.resolve(hist));
-    }
-    // De-duplicate: same timestamp as last entry = update in place (completed
-    // candle for same bucket should not duplicate).
-    if (hist.times.length > 0 && hist.times[hist.times.length - 1] === ts) return;
-
-    // Append timestamp.
-    hist.times.push(ts);
-
-    // Append candle OHLCV if present.
-    const open = parseFloat(String((snapshot as Record<string, unknown>).open ?? snapshot.close ?? '0')) || 0;
-    const high = parseFloat(String((snapshot as Record<string, unknown>).high ?? snapshot.close ?? '0')) || 0;
-    const low = parseFloat(String((snapshot as Record<string, unknown>).low ?? snapshot.close ?? '0')) || 0;
-    const close = parseFloat(String((snapshot as Record<string, unknown>).close ?? '0')) || 0;
-    const vol = parseFloat(String((snapshot as Record<string, unknown>).volume ?? '0')) || 0;
-    const reconstructed = (snapshot as Record<string, unknown>).quality_envelope
-        ? ((snapshot as Record<string, unknown>).quality_envelope as Record<string, unknown>).is_gap_filled ? 'SYNTHETIC' : undefined
-        : undefined;
-    hist.candleTimes.push(ts);
-    hist.candles.open.push(open);
-    hist.candles.high.push(high);
-    hist.candles.low.push(low);
-    hist.candles.close.push(close);
-    hist.candles.volume.push(vol);
-    if (hist.candleReconstructed) hist.candleReconstructed.push(reconstructed);
-    else hist.candleReconstructed = [reconstructed];
-
-    // Append indicator values. Keep `values` arrays aligned to `times`.
-    const incoming = (snapshot.indicators && typeof snapshot.indicators === 'object')
-        ? (snapshot.indicators as Record<string, { raw_value?: number; state_label?: string; values?: Record<string, number> }>)
-        : null;
-
-    // Ensure every existing key gets a slot (null if missing this tick).
-    const existingKeys = Object.keys(hist.values);
-    const incomingKeys = new Set<string>();
-    if (incoming) {
-        for (const [k, dto] of Object.entries(incoming)) {
-            const isWarming = dto?.state_label === 'WARMING';
-            const raw = isWarming ? null : (typeof dto.raw_value === 'number' && Number.isFinite(dto.raw_value) ? dto.raw_value : null);
-            // raw series
-            const rk = k;
-            incomingKeys.add(rk);
-            if (!(rk in hist.values)) {
-                // Backfill with nulls for prior timestamps.
-                hist.values[rk] = Array(hist.times.length - 1).fill(null);
-            }
-            hist.values[rk].push(raw);
-            // sub-keys
-            if (dto.values && typeof dto.values === 'object') {
-                for (const [sub, sv] of Object.entries(dto.values)) {
-                    const sk = `${k}.${sub}`;
-                    incomingKeys.add(sk);
-                    if (!(sk in hist.values)) {
-                        hist.values[sk] = Array(hist.times.length - 1).fill(null);
+    // For <60, facade must mirror LiveRing's live object (same reference) so that
+    // `getResolvedHistory` and `fetch` cache return identical reference (test expects `toBe`).
+    if (timeframe < 60) {
+        const live = LiveRing.getLiveHistory(pairKey, timeframe, slot);
+        if (live) {
+            historyData.set(key, live);
+            if (!cache.has(key)) {
+                cache.set(key, Promise.resolve(live));
+            } else {
+                // Keep cache pointing to same live object (overwrite stale promise if needed)
+                // Only if cached promise resolves to different object
+                const cached = cache.get(key);
+                // If cached is not live, replace
+                cached?.then((v) => {
+                    if (v !== live) {
+                        cache.set(key, Promise.resolve(live));
                     }
-                    const sval = isWarming ? null : (typeof sv === 'number' && Number.isFinite(sv) ? sv : null);
-                    hist.values[sk].push(sval);
-                }
+                });
             }
         }
+        return;
     }
-    // For keys that were in history but not updated this tick, push null to keep alignment.
-    for (const ek of existingKeys) {
-        if (!incomingKeys.has(ek)) {
-            hist.values[ek].push(null);
-        }
-    }
-
-    // Cap at HIST_BUFFER_MAX = 1000 (same as backend).
-    const HIST_MAX = 1000;
-    if (hist.times.length > HIST_MAX) {
-        const trim = hist.times.length - HIST_MAX;
-        hist.times.splice(0, trim);
-        hist.candleTimes.splice(0, trim);
-        hist.candles.open.splice(0, trim);
-        hist.candles.high.splice(0, trim);
-        hist.candles.low.splice(0, trim);
-        hist.candles.close.splice(0, trim);
-        hist.candles.volume.splice(0, trim);
-        if (hist.candleReconstructed) hist.candleReconstructed.splice(0, trim);
-        for (const arr of Object.values(hist.values)) {
-            arr.splice(0, trim);
-        }
-    }
-    hist.fetchedAtMs = Date.now();
+    // For >=60, live is ONLY in LiveRing — facade historicalData stays durable, do not pollute
+    return;
 }
 
 /// Test hook: read resolved history (for unit tests).
 export function getResolvedHistory(pairKey: string, timeframe: number, slot?: string): IndicatorFlatHistory | null {
-    return historyData.get(`${pairKey}@${slot ?? '?'}@${timeframe}`) ?? null;
+    const key = `${pairKey}@${slot ?? '?'}@${timeframe}`;
+    if (timeframe < 60) {
+        return LiveRing.getLiveHistory(pairKey, timeframe, slot) ?? historyData.get(key) ?? null;
+    }
+    // >=60: reconciled view of durable + live tail
+    const hist = HistoricalStore.getHistorical(pairKey, timeframe, slot) ?? historyData.get(key) ?? null;
+    const live = LiveRing.getLiveHistory(pairKey, timeframe, slot);
+    if (!hist) return live ? (reconcile(null, live) ?? live) : null;
+    if (!live || live.times.length === 0) return hist;
+    return reconcile(hist, live) ?? hist;
 }
 
 // ── Processed candle cache ────────────────────────────────────────────
@@ -325,6 +332,11 @@ export function getCachedCandles(pairKey: string, timeframe: number, slot?: stri
     const slotKey = candleCacheKey(pairKey, timeframe, slot);
     const hit = candleCache.get(slotKey);
     if (hit) return hit;
+    // Third-structure: liveRing is authoritative for <60, check there too
+    if (timeframe < 60) {
+        const liveHit = LiveRing.getLiveCandles(pairKey, timeframe, slot);
+        if (liveHit && liveHit.length > 0) return liveHit;
+    }
     if (slot != null) {
         const legacy = candleCache.get(`${pairKey}@${timeframe}`);
         if (legacy) return legacy;
@@ -345,6 +357,10 @@ export function setCachedCandles(pairKey: string, timeframe: number, candles: Ca
 /// was only called on cold bootstrap). Called from `websocket.svelte.ts`
 /// on every completed candle; dedups by `time`, caps at 1000, keeps sorted.
 export function appendLiveCandle(pairKey: string, timeframe: number, slot: string | undefined, candle: CandleOHLCV): void {
+    // Delegate to LiveRing as primary for third-structure isolation
+    LiveRing.appendLiveCandle(pairKey, timeframe, slot, candle);
+    // For >=60, durable candleCache is historical only — do not pollute with live
+    if (timeframe >= 60) return;
     if (!pairKey || !timeframe || !candle || candle.reconstructed) return;
     const t = Number(candle.time);
     if (!Number.isFinite(t) || t <= 0) return;
@@ -370,6 +386,7 @@ export function appendLiveCandle(pairKey: string, timeframe: number, slot: strin
 
 export function purgeCandleCacheForKey(pairKey: string, timeframe: number, slot?: string): void {
     candleCache.delete(candleCacheKey(pairKey, timeframe, slot));
+    LiveRing.purgeLive(pairKey, timeframe, slot);
 }
 
 /// Build the final candle array handed to lightweight-charts.
@@ -393,6 +410,7 @@ export function buildPaintCandles(
 
 export function clearCandleCache(): void {
     candleCache.clear();
+    LiveRing.clearLive();
 }
 
 /// Merge a background-refreshed history into the live-mutated cache
